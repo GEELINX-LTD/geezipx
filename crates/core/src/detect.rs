@@ -1,0 +1,349 @@
+//! Format detection from magic bytes and file extensions.
+//!
+//! This module provides lightweight magic-byte matching to identify
+//! archive and compression formats without pulling in heavy format
+//! libraries.  Tar is recognised via file extension only (no magic).
+
+use std::fmt;
+use std::path::Path;
+
+/// Supported archive and compression formats.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ArchiveFormat {
+    /// ZIP archive (`PK\x03\x04` or `PK\x05\x06` for empty).
+    Zip,
+    /// GNU tar archive (no magic — extension-based).
+    Tar,
+    /// Gzip compressed stream (`\x1F\x8B`).
+    Gzip,
+    /// LZMA-compressed XZ stream (`\xFD7zXZ\x00`).
+    Xz,
+    /// Zstandard frame (`\x28\xB5\x2F\xFD`).
+    Zstd,
+    /// Unknown or unrecognised format.
+    Unknown,
+}
+
+impl fmt::Display for ArchiveFormat {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ArchiveFormat::Zip => write!(f, "zip"),
+            ArchiveFormat::Tar => write!(f, "tar"),
+            ArchiveFormat::Gzip => write!(f, "gzip"),
+            ArchiveFormat::Xz => write!(f, "xz"),
+            ArchiveFormat::Zstd => write!(f, "zstd"),
+            ArchiveFormat::Unknown => write!(f, "unknown"),
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Magic constants
+// ---------------------------------------------------------------------------
+
+/// ZIP local file header signature: `PK\x03\x04`.
+const MAGIC_ZIP: &[u8] = b"PK\x03\x04";
+/// ZIP empty archive (EOCD-only) signature: `PK\x05\x06`.
+const MAGIC_ZIP_EMPTY: &[u8] = b"PK\x05\x06";
+/// Gzip magic: `\x1F\x8B`.
+const MAGIC_GZIP: &[u8] = &[0x1F, 0x8B];
+/// Zstandard magic: `\x28\xB5\x2F\xFD`.
+const MAGIC_ZSTD: &[u8] = &[0x28, 0xB5, 0x2F, 0xFD];
+/// XZ magic: `\xFD7zXZ\x00`.
+const MAGIC_XZ: &[u8] = &[0xFD, 0x37, 0x7A, 0x58, 0x5A, 0x00];
+
+/// Common archive file extensions mapped to their expected format.
+const EXTENSION_MAP: &[(&str, ArchiveFormat)] = &[
+    (".zip", ArchiveFormat::Zip),
+    (".tar", ArchiveFormat::Tar),
+    (".gz", ArchiveFormat::Gzip),
+    (".tgz", ArchiveFormat::Gzip),
+    (".xz", ArchiveFormat::Xz),
+    (".txz", ArchiveFormat::Xz),
+    (".zst", ArchiveFormat::Zstd),
+    (".zstd", ArchiveFormat::Zstd),
+    (".tzst", ArchiveFormat::Zstd),
+    (".gzip", ArchiveFormat::Gzip),
+];
+
+/// Detect the archive format from magic bytes.
+///
+/// Reads the first few bytes of `data` and compares against known magic
+/// sequences.  Returns `None` when no magic matches; the caller can
+/// fall back to extension-based detection.
+pub fn detect_format(data: &[u8]) -> Option<ArchiveFormat> {
+    if data.starts_with(MAGIC_ZIP) || data.starts_with(MAGIC_ZIP_EMPTY) {
+        return Some(ArchiveFormat::Zip);
+    }
+    if data.starts_with(MAGIC_GZIP) {
+        return Some(ArchiveFormat::Gzip);
+    }
+    if data.starts_with(MAGIC_ZSTD) {
+        return Some(ArchiveFormat::Zstd);
+    }
+    if data.starts_with(MAGIC_XZ) {
+        return Some(ArchiveFormat::Xz);
+    }
+    None
+}
+
+/// Detect the archive format from a file path's extension.
+///
+/// This is a best-effort fallback for formats without a magic signature
+/// (e.g. tar) and for stream sources where magic detection isn't possible.
+pub fn detect_from_extension(path: &Path) -> Option<ArchiveFormat> {
+    let name = path.file_name()?.to_str()?;
+    let lower = name.to_ascii_lowercase();
+
+    // Check compound extensions first (e.g. .tar.gz, .tar.xz).
+    if lower.ends_with(".tar.gz") || lower.ends_with(".tgz") {
+        return Some(ArchiveFormat::Gzip);
+    }
+    if lower.ends_with(".tar.xz") || lower.ends_with(".txz") {
+        return Some(ArchiveFormat::Xz);
+    }
+    if lower.ends_with(".tar.zst") || lower.ends_with(".tzst") {
+        return Some(ArchiveFormat::Zstd);
+    }
+
+    // Check simple extensions.
+    for (ext, fmt) in EXTENSION_MAP {
+        if lower.ends_with(ext) {
+            return Some(*fmt);
+        }
+    }
+
+    None
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/// Number of bytes needed for magic-byte detection of all supported formats.
+pub const MAGIC_DETECT_SIZE: usize = 8;
+
+/// Read up to `MAGIC_DETECT_SIZE` bytes from a reader for detection.
+///
+/// **Note:** this function **consumes** the bytes from the reader; it
+/// does NOT peek or un-read them.  If the data needs to be re-read after
+/// detection, the caller is responsible for buffering appropriately.
+/// If the reader returns fewer than `size` bytes, the buffer is returned
+/// as-is.
+pub fn read_magic_bytes<R: std::io::Read>(reader: &mut R) -> std::io::Result<Vec<u8>> {
+    let mut buf = vec![0u8; MAGIC_DETECT_SIZE];
+    let n = reader.read(&mut buf)?;
+    buf.truncate(n);
+    Ok(buf)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // -----------------------------------------------------------------------
+    // Magic-byte detection
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn detect_zip() {
+        assert_eq!(detect_format(b"PK\x03\x04..."), Some(ArchiveFormat::Zip));
+    }
+
+    #[test]
+    fn detect_empty_zip() {
+        assert_eq!(detect_format(b"PK\x05\x06..."), Some(ArchiveFormat::Zip));
+    }
+
+    #[test]
+    fn detect_gzip() {
+        assert_eq!(
+            detect_format(&[0x1F, 0x8B, 0x08, 0x00]),
+            Some(ArchiveFormat::Gzip)
+        );
+    }
+
+    #[test]
+    fn detect_zstd() {
+        assert_eq!(
+            detect_format(&[0x28, 0xB5, 0x2F, 0xFD]),
+            Some(ArchiveFormat::Zstd)
+        );
+    }
+
+    #[test]
+    fn detect_xz() {
+        assert_eq!(
+            detect_format(&[0xFD, 0x37, 0x7A, 0x58, 0x5A, 0x00]),
+            Some(ArchiveFormat::Xz)
+        );
+    }
+
+    #[test]
+    fn detect_unknown_magic() {
+        assert_eq!(detect_format(b"\x00\x01\x02\x03"), None);
+    }
+
+    #[test]
+    fn detect_empty_data() {
+        assert_eq!(detect_format(b""), None);
+    }
+
+    #[test]
+    fn detect_short_data() {
+        // Only 1 byte — no magic matches
+        assert_eq!(detect_format(b"P"), None);
+    }
+
+    // -----------------------------------------------------------------------
+    // Extension-based detection
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn ext_zip() {
+        assert_eq!(
+            detect_from_extension(Path::new("archive.zip")),
+            Some(ArchiveFormat::Zip)
+        );
+    }
+
+    #[test]
+    fn ext_tar() {
+        assert_eq!(
+            detect_from_extension(Path::new("archive.tar")),
+            Some(ArchiveFormat::Tar)
+        );
+    }
+
+    #[test]
+    fn ext_gz() {
+        assert_eq!(
+            detect_from_extension(Path::new("file.gz")),
+            Some(ArchiveFormat::Gzip)
+        );
+    }
+
+    #[test]
+    fn ext_tar_gz() {
+        assert_eq!(
+            detect_from_extension(Path::new("archive.tar.gz")),
+            Some(ArchiveFormat::Gzip)
+        );
+    }
+
+    #[test]
+    fn ext_tgz() {
+        assert_eq!(
+            detect_from_extension(Path::new("archive.tgz")),
+            Some(ArchiveFormat::Gzip)
+        );
+    }
+
+    #[test]
+    fn ext_xz() {
+        assert_eq!(
+            detect_from_extension(Path::new("archive.xz")),
+            Some(ArchiveFormat::Xz)
+        );
+    }
+
+    #[test]
+    fn ext_zst() {
+        assert_eq!(
+            detect_from_extension(Path::new("archive.zst")),
+            Some(ArchiveFormat::Zstd)
+        );
+    }
+
+    #[test]
+    fn ext_tar_xz() {
+        assert_eq!(
+            detect_from_extension(Path::new("archive.tar.xz")),
+            Some(ArchiveFormat::Xz)
+        );
+    }
+
+    #[test]
+    fn ext_txz() {
+        assert_eq!(
+            detect_from_extension(Path::new("archive.txz")),
+            Some(ArchiveFormat::Xz)
+        );
+    }
+
+    #[test]
+    fn ext_tar_zst() {
+        assert_eq!(
+            detect_from_extension(Path::new("archive.tar.zst")),
+            Some(ArchiveFormat::Zstd)
+        );
+    }
+
+    #[test]
+    fn ext_tzst() {
+        assert_eq!(
+            detect_from_extension(Path::new("archive.tzst")),
+            Some(ArchiveFormat::Zstd)
+        );
+    }
+
+    #[test]
+    fn ext_unknown() {
+        assert_eq!(detect_from_extension(Path::new("readme.md")), None);
+    }
+
+    #[test]
+    fn ext_no_extension() {
+        assert_eq!(detect_from_extension(Path::new("Makefile")), None);
+    }
+
+    #[test]
+    fn ext_case_insensitive() {
+        assert_eq!(
+            detect_from_extension(Path::new("Archive.ZIP")),
+            Some(ArchiveFormat::Zip)
+        );
+    }
+
+    #[test]
+    fn ext_dotfile() {
+        assert_eq!(
+            detect_from_extension(Path::new(".hidden.gz")),
+            Some(ArchiveFormat::Gzip)
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // ArchiveFormat Display
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn display_zip() {
+        assert_eq!(ArchiveFormat::Zip.to_string(), "zip");
+    }
+
+    #[test]
+    fn display_unknown() {
+        assert_eq!(ArchiveFormat::Unknown.to_string(), "unknown");
+    }
+
+    // -----------------------------------------------------------------------
+    // read_magic_bytes
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn read_magic_from_slice() {
+        let data = b"PK\x03\x04";
+        let mut cursor = std::io::Cursor::new(data);
+        let magic = read_magic_bytes(&mut cursor).unwrap();
+        assert_eq!(magic, b"PK\x03\x04");
+    }
+
+    #[test]
+    fn read_magic_short_input() {
+        let data = b"PK";
+        let mut cursor = std::io::Cursor::new(data);
+        let magic = read_magic_bytes(&mut cursor).unwrap();
+        assert_eq!(magic, b"PK");
+    }
+}

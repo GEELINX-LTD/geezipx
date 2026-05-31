@@ -15,6 +15,13 @@
 //! - `fs/` — cross-platform filesystem helpers
 //! - `error/` — unified error types
 
+pub mod archive;
+pub mod detect;
+pub mod error;
+
+pub use error::{GeeZipError, GeeZipResult};
+
+/// Return the crate version at compile time.
 pub fn version() -> &'static str {
     env!("CARGO_PKG_VERSION")
 }

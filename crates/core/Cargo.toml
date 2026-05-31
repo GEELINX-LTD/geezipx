@@ -9,6 +9,10 @@ description = "Compression/decompression core engine for GeeZipX"
 [dependencies]
 thiserror = "2"
 log = "0.4"
+zip = { version = "2", default-features = false, features = ["deflate"] }
+
+[dev-dependencies]
+tempfile = "3"
 
 [lib]
 name = "geezipx_core"
