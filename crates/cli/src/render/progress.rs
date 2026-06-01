@@ -67,6 +67,15 @@ impl ProgressBarWrapper {
         ProgressBarWrapper { pb }
     }
 
+    /// Create a hidden progress bar that does not render to the terminal.
+    ///
+    /// Useful for background tasks or when progress display is disabled
+    /// but cancellation checks are still needed.
+    pub fn hidden() -> Self {
+        let pb = ProgressBar::hidden();
+        ProgressBarWrapper { pb }
+    }
+
     /// Update the message shown on the bar (e.g. the current filename).
     pub fn set_message(&self, msg: &str) {
         self.pb.set_message(msg.to_string());
@@ -94,6 +103,7 @@ impl ProgressCallback for ProgressBarWrapper {
 // SharedCallback
 // ---------------------------------------------------------------------------
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 /// Thin adapter that shares a single [`ProgressBarWrapper`] across multiple
@@ -103,18 +113,18 @@ use std::sync::{Arc, Mutex};
 /// trait is satisfied.
 pub struct SharedCallback {
     pub(crate) inner: Arc<Mutex<ProgressBarWrapper>>,
+    pub(crate) cancelled: Arc<AtomicBool>,
 }
 
 impl SharedCallback {
     /// Wrap an owned `ProgressBarWrapper` for sharing.
-    pub fn new(wrapper: ProgressBarWrapper) -> Self {
+    pub fn new(wrapper: ProgressBarWrapper, cancelled: Arc<AtomicBool>) -> Self {
         SharedCallback {
             inner: Arc::new(Mutex::new(wrapper)),
+            cancelled,
         }
     }
 
-    /// Clone the inner `Arc` so you can create additional handles to the
-    /// same underlying [`ProgressBarWrapper`].
     pub fn clone_inner(&self) -> Arc<Mutex<ProgressBarWrapper>> {
         Arc::clone(&self.inner)
     }
@@ -123,6 +133,10 @@ impl SharedCallback {
 impl ProgressCallback for SharedCallback {
     fn update(&mut self, event: ProgressEvent) {
         self.inner.lock().unwrap().update(event);
+    }
+
+    fn is_cancelled(&self) -> bool {
+        self.cancelled.load(Ordering::SeqCst)
     }
 }
 
@@ -180,13 +194,14 @@ mod tests {
     #[test]
     fn test_shared_callback_multiple_updates() {
         let wrapper = ProgressBarWrapper::determinate_hidden(200);
-        let shared = SharedCallback::new(wrapper);
+        let shared = SharedCallback::new(wrapper, Arc::new(AtomicBool::new(false)));
         let inner = shared.clone_inner();
 
         // Simulate two files updating the same bar
         {
             let mut cb1 = SharedCallback {
                 inner: inner.clone(),
+                cancelled: Arc::new(AtomicBool::new(false)),
             };
             cb1.update(ProgressEvent {
                 current: 50,
@@ -197,6 +212,7 @@ mod tests {
         {
             let mut cb2 = SharedCallback {
                 inner: inner.clone(),
+                cancelled: Arc::new(AtomicBool::new(false)),
             };
             cb2.update(ProgressEvent {
                 current: 100,
@@ -207,6 +223,14 @@ mod tests {
 
         let final_val = inner.lock().unwrap().pb.position();
         assert_eq!(final_val, 100);
+    }
+
+    #[test]
+    fn test_shared_callback_is_cancelled() {
+        let cancelled = Arc::new(AtomicBool::new(true));
+        let wrapper = ProgressBarWrapper::hidden();
+        let cb = SharedCallback::new(wrapper, cancelled);
+        assert!(cb.is_cancelled());
     }
 
     #[test]

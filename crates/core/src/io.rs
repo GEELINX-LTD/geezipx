@@ -72,11 +72,8 @@ pub trait ProgressCallback: Send {
 
     /// Called to check whether the user has requested cancellation.
     ///
-    /// Returns `false` by default.  NOTE: This method is defined for
-    /// forward compatibility but is NOT yet called by ProgressReader
-    /// or ProgressWriter.  It will be wired in M3-3 (Ctrl+C
-    /// cancellation).  Override this now if you want — it will take
-    /// effect once wired.
+    /// Called by `ProgressReader` and `ProgressWriter` before each I/O
+    /// operation.  Returns `false` by default.
     fn is_cancelled(&self) -> bool {
         false
     }
@@ -145,6 +142,16 @@ impl<R: Read> ProgressReader<R> {
 
 impl<R: Read> Read for ProgressReader<R> {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        // Check cancellation before I/O
+        if let Some(ref cb) = self.callback {
+            if cb.is_cancelled() {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::Interrupted,
+                    "operation cancelled by user",
+                ));
+            }
+        }
+
         let n = self.inner.read(buf)?;
         self.bytes_read += n as u64;
 
@@ -225,6 +232,16 @@ impl<W: Write> ProgressWriter<W> {
 
 impl<W: Write> Write for ProgressWriter<W> {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        // Check cancellation before I/O
+        if let Some(ref cb) = self.callback {
+            if cb.is_cancelled() {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::Interrupted,
+                    "operation cancelled by user",
+                ));
+            }
+        }
+
         let n = self.inner.write(buf)?;
         self.bytes_written += n as u64;
 
@@ -679,5 +696,88 @@ mod tests {
         let err = pw.write(b"ccc").unwrap_err();
         assert_eq!(err.kind(), std::io::ErrorKind::Other);
         assert_eq!(err.to_string(), "test error");
+    }
+
+    // ---------------------------------------------------------------
+    // Cancellation tests
+    // ---------------------------------------------------------------
+
+    struct CancellingCallback {
+        cancel_after: usize,
+        calls: usize,
+    }
+
+    impl ProgressCallback for CancellingCallback {
+        fn update(&mut self, _event: ProgressEvent) {
+            self.calls += 1;
+        }
+
+        fn is_cancelled(&self) -> bool {
+            self.calls >= self.cancel_after
+        }
+    }
+
+    #[test]
+    fn progress_reader_cancelled_before_first_read() {
+        struct AlwaysCancel;
+        impl ProgressCallback for AlwaysCancel {
+            fn update(&mut self, _event: ProgressEvent) {}
+            fn is_cancelled(&self) -> bool {
+                true
+            }
+        }
+
+        let data = b"hello world";
+        let mut reader =
+            ProgressReader::new(Cursor::new(data)).with_callback(Box::new(AlwaysCancel));
+        let mut buf = [0u8; 64];
+        let err = reader.read(&mut buf).unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::Interrupted);
+        assert!(err.to_string().contains("cancelled"));
+    }
+
+    #[test]
+    fn progress_reader_cancelled_mid_stream() {
+        let data = b"1234567890";
+        // Cancel after 2 reads (each byte read)
+        let mut reader =
+            ProgressReader::new(Cursor::new(data)).with_callback(Box::new(CancellingCallback {
+                cancel_after: 2,
+                calls: 0,
+            }));
+        let mut buf = [0u8; 1];
+
+        // First read: ok
+        let _n = reader.read(&mut buf).unwrap();
+        // Second read: ok
+        let _n = reader.read(&mut buf).unwrap();
+        // Third read: cancelled (2 calls already, cancel_after=2)
+        let err = reader.read(&mut buf).unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::Interrupted);
+    }
+
+    #[test]
+    fn progress_writer_cancelled() {
+        struct AlwaysCancel;
+        impl ProgressCallback for AlwaysCancel {
+            fn update(&mut self, _event: ProgressEvent) {}
+            fn is_cancelled(&self) -> bool {
+                true
+            }
+        }
+
+        let mut output = Vec::new();
+        let mut writer = ProgressWriter::new(&mut output).with_callback(Box::new(AlwaysCancel));
+        let err = writer.write(b"data").unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::Interrupted);
+    }
+
+    #[test]
+    fn progress_reader_no_callback_still_works() {
+        let data = b"no callback, no cancellation check";
+        let mut reader = ProgressReader::new(Cursor::new(data));
+        let mut buf = [0u8; 64];
+        let n = reader.read(&mut buf).unwrap();
+        assert_eq!(n, data.len());
     }
 }

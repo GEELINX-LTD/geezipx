@@ -160,6 +160,120 @@ pub trait ArchiveReader: Send {
 
         Ok(report)
     }
+
+    /// Extract all entries under `dest`, checking `is_cancelled()` before
+    /// each entry and before every write to the output file.
+    ///
+    /// The default implementation mirrors [`extract_all`](ArchiveReader::extract_all)
+    /// but also wraps the output file in a [`CancellableWriter`] that returns
+    /// `ErrorKind::Interrupted` when the user presses Ctrl+C.
+    ///
+    /// When cancellation is detected the operation is aborted immediately and
+    /// returns [`GeeZipError::Cancelled`]. Already-extracted files are
+    /// preserved (the caller decides whether to report the partial state).
+    fn extract_all_with_cancel(
+        &mut self,
+        dest: &Path,
+        overwrite: bool,
+        is_cancelled: &dyn Fn() -> bool,
+    ) -> GeeZipResult<ExtractReport> {
+        let entries = self.entries()?;
+        let mut report = ExtractReport::default();
+
+        // Normalise the destination once so we use a consistent base.
+        let dest = normalize_path(dest);
+
+        for entry in &entries {
+            // Check cancellation before processing each entry.
+            if is_cancelled() {
+                return Err(GeeZipError::Cancelled);
+            }
+
+            let entry_path = Path::new(&entry.path);
+
+            // --- Path safety checks (Zip Slip protection) ---
+            let target = match check_entry_path_safety(entry_path, &entry.path, &dest) {
+                Ok(t) => t,
+                Err((name, err)) => {
+                    report.errors.push((name, err));
+                    continue;
+                }
+            };
+
+            // Create parent directory.
+            if let Some(parent) = target.parent() {
+                if !parent.exists() {
+                    if let Err(e) = std::fs::create_dir_all(parent) {
+                        report.errors.push((
+                            entry.path.clone(),
+                            crate::error::GeeZipError::io(e, "creating parent directory"),
+                        ));
+                        continue;
+                    }
+                }
+            }
+
+            // Write entry content — atomically create or fail.
+            let output = if overwrite {
+                match std::fs::File::create(&target) {
+                    Ok(f) => f,
+                    Err(e) => {
+                        report.errors.push((
+                            entry.path.clone(),
+                            crate::error::GeeZipError::io(
+                                e,
+                                format!("creating output file '{}'", target.display()),
+                            ),
+                        ));
+                        continue;
+                    }
+                }
+            } else {
+                match std::fs::OpenOptions::new()
+                    .write(true)
+                    .create_new(true)
+                    .open(&target)
+                {
+                    Ok(f) => f,
+                    Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                        report.files_skipped += 1;
+                        report.errors.push((
+                            entry.path.clone(),
+                            crate::error::GeeZipError::clobber_denied(target.display().to_string()),
+                        ));
+                        continue;
+                    }
+                    Err(e) => {
+                        report.errors.push((
+                            entry.path.clone(),
+                            crate::error::GeeZipError::io(
+                                e,
+                                format!("creating output file '{}'", target.display()),
+                            ),
+                        ));
+                        continue;
+                    }
+                }
+            };
+
+            let mut output = CancellableWriter::new(output, is_cancelled);
+
+            match self.extract(entry, &mut output) {
+                Ok(bytes) => {
+                    if output.was_cancelled() {
+                        return Err(GeeZipError::Cancelled);
+                    }
+                    report.files_extracted += 1;
+                    report.bytes_extracted += bytes;
+                }
+                Err(e) => {
+                    report.errors.push((entry.path.clone(), e));
+                }
+            }
+        }
+
+        Ok(report)
+    }
 }
 
 /// Archive writer trait — add files and finalise.
@@ -323,6 +437,62 @@ impl<W: std::io::Write> std::io::Write for CountWriter<W> {
     }
 }
 
+// ---------------------------------------------------------------------------
+// CancellableWriter
+// ---------------------------------------------------------------------------
+
+/// Writer wrapper that checks cancellation before every `write` and `flush`.
+///
+/// Used by [`extract_all_with_cancel`](ArchiveReader::extract_all_with_cancel)
+/// to support Ctrl+C cancellation during per-entry extraction.
+///
+/// On cancellation the wrapper returns `ErrorKind::Interrupted` with
+/// message "operation cancelled by user".
+pub(crate) struct CancellableWriter<'a, W> {
+    inner: W,
+    is_cancelled: &'a dyn Fn() -> bool,
+    cancelled: bool,
+}
+
+impl<'a, W> CancellableWriter<'a, W> {
+    pub(crate) fn new(inner: W, is_cancelled: &'a dyn Fn() -> bool) -> Self {
+        CancellableWriter {
+            inner,
+            is_cancelled,
+            cancelled: false,
+        }
+    }
+
+    /// Returns `true` if a cancellation was detected during the last write.
+    pub(crate) fn was_cancelled(&self) -> bool {
+        self.cancelled
+    }
+}
+
+impl<W: std::io::Write> std::io::Write for CancellableWriter<'_, W> {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        if (self.is_cancelled)() {
+            self.cancelled = true;
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::Interrupted,
+                "operation cancelled by user",
+            ));
+        }
+        self.inner.write(buf)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        if (self.is_cancelled)() {
+            self.cancelled = true;
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::Interrupted,
+                "operation cancelled by user",
+            ));
+        }
+        self.inner.flush()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -409,5 +579,52 @@ mod tests {
         assert_eq!(normalize_path(Path::new(".")), Path::new("."));
         assert_eq!(normalize_path(Path::new("./foo")), Path::new("./foo"));
         assert_eq!(normalize_path(Path::new("./a/b")), Path::new("./a/b"));
+    }
+
+    #[test]
+    fn cancellable_writer_detects_cancellation() {
+        let mut buf = Vec::new();
+        let cancelled = true;
+        let is_cancelled = || cancelled;
+        let mut writer = CancellableWriter::new(&mut buf, &is_cancelled);
+
+        // write should fail with Interrupted
+        let result = writer.write(b"hello");
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().kind(), std::io::ErrorKind::Interrupted);
+        assert!(writer.was_cancelled());
+        // buffer should be empty since the write didn't go through
+        assert!(buf.is_empty());
+    }
+
+    #[test]
+    fn cancellable_writer_passes_through_when_not_cancelled() {
+        let mut buf = Vec::new();
+        let cancelled = false;
+        let is_cancelled = || cancelled;
+        let mut writer = CancellableWriter::new(&mut buf, &is_cancelled);
+
+        let n = writer.write(b"hello").unwrap();
+        assert_eq!(n, 5);
+        assert!(!writer.was_cancelled());
+        assert_eq!(&buf, b"hello");
+    }
+
+    #[test]
+    fn cancellable_writer_flush_detects_cancellation() {
+        use std::cell::Cell;
+        let cancelled = Cell::new(false);
+        let is_cancelled = || cancelled.get();
+        let mut buf = Vec::new();
+        let mut writer = CancellableWriter::new(&mut buf, &is_cancelled);
+        writer.write_all(b"data").unwrap();
+        // Now flip the flag and flush should fail.
+        cancelled.set(true);
+        let result = writer.flush();
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().kind(), std::io::ErrorKind::Interrupted);
+        assert!(writer.was_cancelled());
+        // Data written before cancellation should still be present.
+        assert_eq!(&buf, b"data");
     }
 }

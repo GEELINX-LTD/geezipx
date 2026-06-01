@@ -11,6 +11,7 @@ use clap::{Parser, Subcommand};
 
 mod commands;
 mod render;
+mod signal;
 
 #[derive(Parser)]
 #[command(

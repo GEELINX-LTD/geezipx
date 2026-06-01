@@ -214,9 +214,16 @@ impl<W: Write + Send> ArchiveWriter for TarWriter<W> {
 
         // Tar requires data size in the header, so we buffer the data.
         let mut data = Vec::new();
-        reader
-            .read_to_end(&mut data)
-            .map_err(|e| GeeZipError::io(e, format!("reading data for entry '{}'", name)))?;
+        let mut chunk = [0u8; 65536]; // 64 KiB chunks for cancellation responsiveness
+        loop {
+            let n = reader
+                .read(&mut chunk)
+                .map_err(|e| GeeZipError::io(e, format!("reading data for entry '{name}'")))?;
+            if n == 0 {
+                break;
+            }
+            data.extend_from_slice(&chunk[..n]);
+        }
 
         let mut header = tar::Header::new_gnu();
         header.set_path(path).map_err(|e| GeeZipError::Format {

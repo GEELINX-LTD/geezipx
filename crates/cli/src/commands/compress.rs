@@ -22,6 +22,8 @@ pub fn execute(
     verbose: bool,
 ) -> Result<()> {
     let format = common::resolve_format(format, output)?;
+    // Create a cancellation token for Ctrl+C (SIGINT) handling.
+    let cancel_token = crate::signal::CancellationToken::new();
     validate_compress_inputs(inputs, format)?;
 
     // Create the output file early so we fail-fast if the path is invalid.
@@ -35,7 +37,7 @@ pub fn execute(
             let file_size = std::fs::metadata(input)
                 .with_context(|| format!("reading metadata for '{}'", input.display()))?
                 .len();
-            let mut reader = open_input(input)?;
+            let reader = open_input(input)?;
 
             let show_progress = !no_progress
                 && !verbose
@@ -45,7 +47,7 @@ pub fn execute(
             let bytes_read = if show_progress {
                 let wrapper = ProgressBarWrapper::determinate(file_size);
                 wrapper.set_message(&format!("Compressing: {}", input.display()));
-                let shared = SharedCallback::new(wrapper);
+                let shared = SharedCallback::new(wrapper, cancel_token.clone().into_inner());
                 let inner = shared.clone_inner();
                 let mut pr = ProgressReader::new(reader)
                     .with_total(file_size)
@@ -60,6 +62,11 @@ pub fn execute(
                     }
                     Err(e) => {
                         inner.lock().unwrap().finish("Compression failed");
+                        if cancel_token.is_cancelled() {
+                            let _ = std::fs::remove_file(output);
+                            eprintln!("Cancelled");
+                            std::process::exit(130);
+                        }
                         return Err(anyhow::anyhow!("gzip compression error: {}", e));
                     }
                 };
@@ -68,8 +75,22 @@ pub fn execute(
                 if verbose {
                     eprintln!("Compressing: {} ({} bytes)", input.display(), file_size);
                 }
-                let r = geezipx_core::archive::gzip::gzip_compress(&mut reader, output_file)
-                    .with_context(|| format!("gzip compressing '{}'", input.display()))?;
+                let wrapper = ProgressBarWrapper::hidden();
+                let shared = SharedCallback::new(wrapper, cancel_token.clone().into_inner());
+                let mut pr = ProgressReader::new(reader)
+                    .with_total(file_size)
+                    .with_callback(Box::new(shared));
+                let r = match geezipx_core::archive::gzip::gzip_compress(&mut pr, output_file) {
+                    Ok(bytes) => bytes,
+                    Err(e) => {
+                        if cancel_token.is_cancelled() {
+                            let _ = std::fs::remove_file(output);
+                            eprintln!("Cancelled");
+                            std::process::exit(130);
+                        }
+                        return Err(anyhow::anyhow!("gzip compression error: {}", e));
+                    }
+                };
                 if verbose {
                     eprintln!("  Done: {} bytes", r);
                 }
@@ -107,11 +128,16 @@ pub fn execute(
                 && total_bytes_all > 0
                 && crate::render::progress::progress_bar_enabled();
 
-            let shared_cb = if show_progress {
-                let wrapper = ProgressBarWrapper::determinate(total_bytes_all);
-                Some(SharedCallback::new(wrapper))
-            } else {
-                None
+            let mut processed_files: usize = 0;
+            let shared_cb = {
+                let cancelled = cancel_token.clone().into_inner();
+                if show_progress {
+                    let wrapper = ProgressBarWrapper::determinate(total_bytes_all);
+                    Some(SharedCallback::new(wrapper, cancelled))
+                } else {
+                    let wrapper = ProgressBarWrapper::hidden();
+                    Some(SharedCallback::new(wrapper, cancelled))
+                }
             };
 
             let mut writer = common::create_writer(output_file, format)?;
@@ -120,36 +146,39 @@ pub fn execute(
                 let file_size = std::fs::metadata(src_path)
                     .with_context(|| format!("reading metadata for '{}'", src_path.display()))?
                     .len();
-                let mut reader = open_input(src_path)?;
+                let reader = open_input(src_path)?;
 
                 if let Some(ref cb) = shared_cb {
                     let inner = cb.clone_inner();
-                    inner
-                        .lock()
-                        .unwrap()
-                        .set_message(&format!("Compressing: {}", archive_path.display()));
+                    if verbose {
+                        eprintln!("Adding: {} ({} bytes)", src_path.display(), file_size);
+                    }
+                    if show_progress {
+                        inner
+                            .lock()
+                            .unwrap()
+                            .set_message(&format!("Compressing: {}", archive_path.display()));
+                    }
                     let mut pr = ProgressReader::new(reader)
                         .with_total(file_size)
                         .with_callback(Box::new(SharedCallback {
                             inner: inner.clone(),
+                            cancelled: cb.cancelled.clone(),
                         }));
                     if let Err(e) = writer.add_entry_from_reader(archive_path, &mut pr) {
                         inner.lock().unwrap().finish("Compression failed");
+                        if cancel_token.is_cancelled() {
+                            let _ = std::fs::remove_file(output);
+                            eprintln!("Cancelled after {}/{} files", processed_files, files.len());
+                            std::process::exit(130);
+                        }
                         return Err(anyhow::anyhow!(
                             "failed to add {}: {}",
                             archive_path.display(),
                             e
                         ));
                     }
-                } else {
-                    if verbose {
-                        eprintln!("Adding: {} ({} bytes)", src_path.display(), file_size);
-                    }
-                    writer
-                        .add_entry_from_reader(archive_path, &mut reader)
-                        .with_context(|| {
-                            format!("adding '{}' to archive", archive_path.display())
-                        })?;
+                    processed_files += 1;
                 }
             }
 
@@ -161,6 +190,11 @@ pub fn execute(
                             .lock()
                             .unwrap()
                             .finish("Compression failed");
+                    }
+                    if cancel_token.is_cancelled() {
+                        let _ = std::fs::remove_file(output);
+                        eprintln!("Cancelled after {}/{} files", processed_files, files.len());
+                        std::process::exit(130);
                     }
                     return Err(anyhow::anyhow!("failed to finalize archive: {}", e));
                 }

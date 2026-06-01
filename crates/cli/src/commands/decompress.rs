@@ -9,6 +9,10 @@ use geezipx_core::detect::ArchiveFormat;
 use anyhow::{Context, Result};
 
 use super::common;
+use crate::render::progress::{ProgressBarWrapper, SharedCallback};
+use geezipx_core::ProgressReader;
+use std::sync::atomic::AtomicBool;
+use std::sync::Arc;
 
 /// Execute the `decompress` subcommand.
 pub fn execute(
@@ -25,6 +29,8 @@ pub fn execute(
 
     let format = common::detect_archive_format(archive)?;
 
+    let cancel_token = crate::signal::CancellationToken::new();
+
     // Ensure the output directory exists.
     if !stdout {
         fs::create_dir_all(output_dir)
@@ -35,6 +41,14 @@ pub fn execute(
 
     match format {
         ArchiveFormat::Gzip => {
+            let cancel_flag = cancel_token.clone().into_inner();
+
+            let result = if stdout {
+                decompress_gzip_stdout(archive, cancel_flag)
+            } else {
+                decompress_gzip_to_file(archive, output_dir, overwrite, cancel_flag)
+            };
+
             let spinner = if show_progress {
                 Some(crate::render::progress::ProgressBarWrapper::spinner(
                     "Decompressing...",
@@ -43,24 +57,21 @@ pub fn execute(
                 None
             };
 
-            if let Some(s) = &spinner {
-                let result = if stdout {
-                    decompress_gzip_stdout(archive)
-                } else {
-                    decompress_gzip_to_file(archive, output_dir, overwrite)
-                };
-                match result {
-                    Ok(()) => s.finish("Decompressed"),
-                    Err(e) => {
-                        s.finish("Decompression failed");
-                        return Err(anyhow::anyhow!("gzip decompression error: {}", e));
+            match result {
+                Ok(()) => {
+                    if let Some(s) = &spinner {
+                        s.finish("Decompressed");
                     }
                 }
-            } else {
-                if stdout {
-                    decompress_gzip_stdout(archive)?;
-                } else {
-                    decompress_gzip_to_file(archive, output_dir, overwrite)?;
+                Err(e) => {
+                    if let Some(s) = &spinner {
+                        s.finish("Decompression failed");
+                    }
+                    if cancel_token.is_cancelled() {
+                        eprintln!("Cancelled");
+                        std::process::exit(130);
+                    }
+                    return Err(anyhow::anyhow!("gzip decompression error: {}", e));
                 }
             }
         }
@@ -80,31 +91,35 @@ pub fn execute(
                 None
             };
 
-            if let Some(s) = &spinner {
-                let result = decompress_archive(
-                    archive,
-                    output_dir,
-                    format,
-                    overwrite,
-                    verbose,
-                    show_progress,
-                );
-                match result {
-                    Ok(()) => s.finish("Extraction complete"),
-                    Err(e) => {
-                        s.finish("Extraction failed");
-                        return Err(anyhow::anyhow!("extraction error: {}", e));
+            let cancel_flag = cancel_token.clone().into_inner();
+            let result = decompress_archive(
+                archive,
+                output_dir,
+                format,
+                overwrite,
+                verbose,
+                show_progress,
+                cancel_flag,
+            );
+            match result {
+                Ok(()) => {
+                    if let Some(s) = &spinner {
+                        s.finish("Extraction complete");
                     }
                 }
-            } else {
-                decompress_archive(
-                    archive,
-                    output_dir,
-                    format,
-                    overwrite,
-                    verbose,
-                    show_progress,
-                )?;
+                Err(e) => {
+                    if let Some(s) = &spinner {
+                        s.finish("Extraction failed");
+                    }
+                    if cancel_token.is_cancelled() {
+                        eprintln!(
+                            "Cancelled \u{2014} extracted files preserved in {}",
+                            output_dir.display()
+                        );
+                        std::process::exit(130);
+                    }
+                    return Err(anyhow::anyhow!("extraction error: {}", e));
+                }
             }
         }
     }
@@ -113,11 +128,20 @@ pub fn execute(
 }
 
 /// Decompress a gzip stream to stdout.
-fn decompress_gzip_stdout(archive: &Path) -> Result<()> {
-    let mut file =
+fn decompress_gzip_stdout(archive: &Path, cancel_flag: Arc<AtomicBool>) -> Result<()> {
+    let file_size = std::fs::metadata(archive).map(|m| m.len()).unwrap_or(0);
+    let file =
         fs::File::open(archive).with_context(|| format!("opening '{}'", archive.display()))?;
     let mut stdout = std::io::stdout().lock();
-    let bytes = geezipx_core::archive::gzip::gzip_decompress(&mut file, &mut stdout)
+
+    // Wrap reader with cancellation support.
+    let wrapper = crate::render::progress::ProgressBarWrapper::hidden();
+    let shared = crate::render::progress::SharedCallback::new(wrapper, cancel_flag);
+    let mut reader = geezipx_core::ProgressReader::new(file)
+        .with_total(file_size)
+        .with_callback(Box::new(shared));
+
+    let bytes = geezipx_core::archive::gzip::gzip_decompress(&mut reader, &mut stdout)
         .with_context(|| format!("decompressing '{}'", archive.display()))?;
     // Flush stdout to ensure all bytes are written before exiting.
     stdout
@@ -128,11 +152,16 @@ fn decompress_gzip_stdout(archive: &Path) -> Result<()> {
 }
 
 /// Decompress a gzip file to a new file in the output directory.
-fn decompress_gzip_to_file(archive: &Path, output_dir: &Path, overwrite: bool) -> Result<()> {
+fn decompress_gzip_to_file(
+    archive: &Path,
+    output_dir: &Path,
+    overwrite: bool,
+    cancel_flag: Arc<AtomicBool>,
+) -> Result<()> {
     let output_name = common::gzip_output_filename(archive);
     let output_path = output_dir.join(&output_name);
 
-    let mut input_file =
+    let input_file =
         fs::File::open(archive).with_context(|| format!("opening '{}'", archive.display()))?;
     // Check for clobber (no-clobber mode).
     if !overwrite && output_path.exists() {
@@ -146,7 +175,12 @@ fn decompress_gzip_to_file(archive: &Path, output_dir: &Path, overwrite: bool) -
     let mut output_file = fs::File::create(&output_path)
         .with_context(|| format!("creating '{}'", output_path.display()))?;
 
-    let bytes = geezipx_core::archive::gzip::gzip_decompress(&mut input_file, &mut output_file)
+    // Wrap reader with cancellation support.
+    let wrapper = ProgressBarWrapper::hidden();
+    let shared = SharedCallback::new(wrapper, cancel_flag);
+    let mut reader = ProgressReader::new(input_file).with_callback(Box::new(shared));
+
+    let bytes = geezipx_core::archive::gzip::gzip_decompress(&mut reader, &mut output_file)
         .with_context(|| format!("decompressing '{}'", archive.display()))?;
 
     eprintln!(
@@ -159,6 +193,9 @@ fn decompress_gzip_to_file(archive: &Path, output_dir: &Path, overwrite: bool) -
 }
 
 /// Decompress a multi-file archive (zip, tar, tar.gz) using `extract_all`.
+///
+/// If `cancel_flag` is set, extraction stops as early as possible and
+/// returns [`GeeZipError::Cancelled`].
 fn decompress_archive(
     archive: &Path,
     output_dir: &Path,
@@ -166,10 +203,13 @@ fn decompress_archive(
     overwrite: bool,
     verbose: bool,
     show_progress: bool,
+    cancel_flag: Arc<AtomicBool>,
 ) -> Result<()> {
     let mut reader = common::open_reader(archive, format)?;
     let report = reader
-        .extract_all(output_dir, overwrite)
+        .extract_all_with_cancel(output_dir, overwrite, &|| {
+            cancel_flag.load(std::sync::atomic::Ordering::SeqCst)
+        })
         .with_context(|| format!("extracting '{}'", archive.display()))?;
 
     // Report any per-file errors.
