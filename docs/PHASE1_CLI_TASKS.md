@@ -135,10 +135,10 @@ geezipx list <archive>
 ### M2-4：list 命令实现 ✅
 - **实际文件**：`crates/cli/src/commands/list.rs`
 - **输出格式**：
-  - 默认：`comfy-table` 表格（Path, Size, Compressed 三列，无压缩率和修改时间列）
-  - `--json`：`serde_json` JSON 数组（path, size, compressed_size 字段）
+  - 默认：`comfy-table` 表格（Path, Size, Compressed, Ratio, Modified 五列），Ratio 保留 1 位小数，Modified 显示 UTC 时间
+  - `--json`：`serde_json` JSON 数组（path, size, compressed_size, compression_ratio, modified 字段）
 - **gzip 特殊处理**：gzip 产生一个合成 entry，文件名从 `.gz`/`.gzip` 后缀推断，压缩大小来自文件元数据，原始大小未知
-- **与原计划差异**：表格不显示压缩率和修改时间
+- **与原计划差异**：已新增压缩率和修改时间列（commit d82600d）。gzip 条目未知原始大小/修改时间时，表格显示 `-`，JSON 输出 `null`
 
 ### M2-5：CLI 集成测试 ✅
 - **实际文件**：`crates/cli/tests/cli_integration.rs`（23 个集成测试）

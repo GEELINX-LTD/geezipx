@@ -7,7 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-No unreleased changes yet.
+- **`list` output enhancement**: table now includes `Ratio` and `Modified` columns;
+  JSON output includes `compression_ratio` and `modified` fields.
+  Ratio shown with 1 decimal place, modified time as UTC `YYYY-MM-DD HH:MM:SS`.
+  For gzip entries with unknown original size or modification time:
+  table shows `-`, JSON outputs `null`.
 
 ## [0.1.0] - 2026-06-01
 
