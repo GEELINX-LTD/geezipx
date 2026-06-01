@@ -290,7 +290,9 @@ fn list_json_output() {
         .assert()
         .success()
         .stdout(predicate::str::is_match(r#""path"\s*:"#).unwrap())
-        .stdout(predicate::str::is_match(r#""size"\s*:"#).unwrap());
+        .stdout(predicate::str::is_match(r#""size"\s*:"#).unwrap())
+        .stdout(predicate::str::contains(r#""compression_ratio""#))
+        .stdout(predicate::str::contains(r#""modified""#));
 }
 
 #[test]
@@ -486,12 +488,14 @@ fn list_gzip_table_output() {
         .assert()
         .success();
 
-    // List in table mode should show the file name.
+    // List in table mode should show the file name, ratio, and modified.
     geezipx()
         .args(["list", archive.to_str().unwrap()])
         .assert()
         .success()
-        .stdout(predicate::str::contains("hello.txt"));
+        .stdout(predicate::str::contains("hello.txt"))
+        .stdout(predicate::str::contains("Ratio"))
+        .stdout(predicate::str::contains("Modified"));
 }
 
 #[test]
@@ -517,7 +521,9 @@ fn list_gzip_json_output() {
         .args(["list", archive.to_str().unwrap(), "--json"])
         .assert()
         .success()
-        .stdout(predicate::str::contains(r#""path":"#));
+        .stdout(predicate::str::contains(r#""path":"#))
+        .stdout(predicate::str::contains(r#""compression_ratio""#))
+        .stdout(predicate::str::contains(r#""modified""#));
 }
 
 #[test]

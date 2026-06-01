@@ -93,6 +93,7 @@ fn collect_targz_entries<R: Read>(archive: &mut tar::Archive<R>) -> GeeZipResult
             size,
             compressed_size: 0,
             crc32: None,
+            modified: header.mtime().ok(),
         });
     }
 

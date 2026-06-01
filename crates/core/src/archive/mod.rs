@@ -35,8 +35,60 @@ pub struct Entry {
     pub compressed_size: u64,
     /// CRC-32 checksum, if the format provides it.
     pub crc32: Option<u32>,
+    /// Last modification time as Unix timestamp (seconds since epoch), if available.
+    pub modified: Option<u64>,
 }
 
+/// Convert a calendar date/time to a Unix timestamp (seconds since epoch).
+///
+/// Used by archive readers that provide modification timestamps in a
+/// decomposed form that we cannot assume the OS can `mktime` for us.
+/// This avoids pulling in a date-time crate for the core library.
+pub(crate) fn datetime_to_timestamp(
+    year: u64,
+    month: u64,
+    day: u64,
+    hour: u64,
+    minute: u64,
+    second: u64,
+) -> u64 {
+    // Validate month/day to prevent silent garbage results (e.g. from malformed
+    // archive metadata). Returns 0 on invalid input as a safe fallback.
+    if !(1..=12).contains(&month) || day == 0 {
+        return 0;
+    }
+    let is_leap = |y: u64| (y.is_multiple_of(4) && !y.is_multiple_of(100)) || y.is_multiple_of(400);
+    let days_in_months: [u64; 12] = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+
+    // Also reject day exceeding the month's length.
+    let max_day = if month == 2 && is_leap(year) {
+        29
+    } else {
+        days_in_months[(month - 1) as usize]
+    };
+    if day > max_day {
+        return 0;
+    }
+
+    // Days from 1970-01-01 to (year-01-01).
+    let mut total_days = 0u64;
+    for y in 1970..year {
+        total_days += if is_leap(y) { 366 } else { 365 };
+    }
+
+    // Days from (year-01-01) to (year-month-day).
+    for m in 0..(month.saturating_sub(1)) {
+        let idx = m as usize;
+        total_days += if idx == 1 && is_leap(year) {
+            29
+        } else {
+            days_in_months[idx]
+        };
+    }
+    total_days += day.saturating_sub(1);
+
+    total_days * 86_400 + hour * 3_600 + minute * 60 + second
+}
 /// Result of extracting an entire archive.
 #[derive(Debug, Default)]
 pub struct ExtractReport {
@@ -608,6 +660,17 @@ mod tests {
         assert_eq!(n, 5);
         assert!(!writer.was_cancelled());
         assert_eq!(&buf, b"hello");
+    }
+
+    #[test]
+    fn datetime_to_timestamp_rejects_invalid_month_day() {
+        // month must be 1..=12, day must be >=1 and <= month length.
+        assert_eq!(datetime_to_timestamp(2026, 0, 15, 0, 0, 0), 0);
+        assert_eq!(datetime_to_timestamp(2026, 13, 15, 0, 0, 0), 0);
+        assert_eq!(datetime_to_timestamp(2026, 6, 0, 0, 0, 0), 0);
+        assert_eq!(datetime_to_timestamp(2026, 6, 31, 0, 0, 0), 0); // Jun has 30 days
+        assert!(datetime_to_timestamp(2026, 6, 15, 0, 0, 0) > 0); // valid input => non-zero
+        assert!(datetime_to_timestamp(2026, 6, 15, 0, 0, 0) > 0);
     }
 
     #[test]

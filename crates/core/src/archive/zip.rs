@@ -73,11 +73,22 @@ impl<R: Read + Seek + Send> ArchiveReader for ZipReader<R> {
 
         for i in 0..len {
             let file = self.archive.by_index(i).map_err(convert_zip_error)?;
+            let modified = file.last_modified().map(|dt| {
+                crate::archive::datetime_to_timestamp(
+                    dt.year() as u64,
+                    dt.month() as u64,
+                    dt.day() as u64,
+                    dt.hour() as u64,
+                    dt.minute() as u64,
+                    dt.second() as u64,
+                )
+            });
             entries.push(Entry {
                 path: file.name().to_owned(),
                 size: file.size(),
                 compressed_size: file.compressed_size(),
                 crc32: Some(file.crc32()),
+                modified,
             });
         }
 
@@ -619,6 +630,7 @@ mod tests {
             size: 0,
             compressed_size: 0,
             crc32: None,
+            modified: None,
         };
 
         let mut output = Vec::new();

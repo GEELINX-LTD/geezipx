@@ -98,6 +98,7 @@ fn collect_tar_entries<R: Read>(archive: &mut tar::Archive<R>) -> GeeZipResult<V
             size,
             compressed_size: 0,
             crc32: None,
+            modified: header.mtime().ok(),
         });
     }
 
@@ -443,6 +444,7 @@ mod tests {
             size: 0,
             compressed_size: 0,
             crc32: None,
+            modified: None,
         };
 
         let mut output = Vec::new();
