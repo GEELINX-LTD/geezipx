@@ -78,6 +78,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Benchmark compile check on every push/PR
   - Manual trigger benchmark workflow with optional filter parameter
 
-[Unreleased]: https://github.com/geezipx/geezipx/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/geezipx/geezipx/releases/tag/v0.1.0
+[Unreleased]: https://github.com/GEELINX-LTD/geezipx/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/GEELINX-LTD/geezipx/releases/tag/v0.1.0
 
