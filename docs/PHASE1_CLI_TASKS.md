@@ -106,7 +106,7 @@ geezipx list <archive>
   -j, --json                     # JSON 格式输出
 ```
 
-  - `--level` 压缩级别 — 未实现
+  - `--level` 压缩级别 — 已完成（`-L, --level <0-9>`，gzip/tar.gz 生效；zip/tar 参数接受但暂不生效）
   - `--no-progress` 进度条控制（opt-out 模式） — 已实现（M3-2）
   - `--no-clobber` 覆盖保护 — 已提前实现（见 M3-4）
 - **验收标准**：三个子命令均可通过 `--help` 查看参数说明 — 通过（见集成测试 `help_available`）。

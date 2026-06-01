@@ -167,12 +167,17 @@ pub fn open_reader(path: &Path, format: ArchiveFormat) -> Result<Box<dyn Archive
     })
 }
 
-/// Create an archive writer for the given output file and format.
-pub fn create_writer(file: fs::File, format: ArchiveFormat) -> Result<Box<dyn ArchiveWriter>> {
+/// Create an archive writer for the given output file, format, and optional
+/// compression level.
+pub fn create_writer(
+    file: fs::File,
+    format: ArchiveFormat,
+    level: Option<u32>,
+) -> Result<Box<dyn ArchiveWriter>> {
     match format {
         ArchiveFormat::Zip => Ok(Box::new(ZipWriter::new(file))),
         ArchiveFormat::Tar => Ok(Box::new(TarWriter::new(file))),
-        ArchiveFormat::TarGz => Ok(Box::new(TarGzWriter::new(file))),
+        ArchiveFormat::TarGz => Ok(Box::new(TarGzWriter::new_with_level(file, level))),
         _ => anyhow::bail!("unsupported format for writing: {format}"),
     }
 }

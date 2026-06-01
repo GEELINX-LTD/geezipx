@@ -18,6 +18,7 @@ pub fn execute(
     output: &Path,
     format: Option<&str>,
     recursive: bool,
+    level: Option<u32>,
     no_progress: bool,
     verbose: bool,
 ) -> Result<()> {
@@ -52,7 +53,11 @@ pub fn execute(
                 let mut pr = ProgressReader::new(reader)
                     .with_total(file_size)
                     .with_callback(Box::new(shared));
-                let r = match geezipx_core::archive::gzip::gzip_compress(&mut pr, output_file) {
+                let r = match geezipx_core::archive::gzip::gzip_compress_with_level(
+                    &mut pr,
+                    output_file,
+                    level,
+                ) {
                     Ok(bytes) => {
                         inner
                             .lock()
@@ -80,7 +85,11 @@ pub fn execute(
                 let mut pr = ProgressReader::new(reader)
                     .with_total(file_size)
                     .with_callback(Box::new(shared));
-                let r = match geezipx_core::archive::gzip::gzip_compress(&mut pr, output_file) {
+                let r = match geezipx_core::archive::gzip::gzip_compress_with_level(
+                    &mut pr,
+                    output_file,
+                    level,
+                ) {
                     Ok(bytes) => bytes,
                     Err(e) => {
                         if cancel_token.is_cancelled() {
@@ -140,7 +149,7 @@ pub fn execute(
                 }
             };
 
-            let mut writer = common::create_writer(output_file, format)?;
+            let mut writer = common::create_writer(output_file, format, level)?;
 
             for (src_path, archive_path) in &files {
                 let file_size = std::fs::metadata(src_path)

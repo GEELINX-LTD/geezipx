@@ -114,7 +114,8 @@ fn compress_help_available() {
         .assert()
         .success()
         .stdout(predicate::str::contains("--format"))
-        .stdout(predicate::str::contains("--recursive"));
+        .stdout(predicate::str::contains("--recursive"))
+        .stdout(predicate::str::contains("--level"));
 }
 
 #[test]
@@ -1426,6 +1427,238 @@ fn interop_native_gzip_decompresses_with_geezipx_stdout() {
             "--stdout",
             "--no-progress",
         ])
+        .assert()
+        .success()
+        .stdout(content);
+}
+
+// ---------------------------------------------------------------------------
+// Compression level tests (--level)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn gzip_level_9_success() {
+    // Compress with --level 9, verify archive valid and decompress works.
+    let tmp = TestDir::new();
+    let content = "Level 9 gzip compression test.";
+    tmp.write("test.txt", content);
+    let archive = tmp.join("test.txt.gz");
+
+    geezipx()
+        .args([
+            "compress",
+            tmp.join("test.txt").to_str().unwrap(),
+            "-f",
+            "gz",
+            "-L",
+            "9",
+            "-o",
+            archive.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    assert!(archive.exists(), "gzip archive with --level 9 should exist");
+
+    // Decompress with --stdout and verify content.
+    geezipx()
+        .args(["decompress", archive.to_str().unwrap(), "--stdout"])
+        .assert()
+        .success()
+        .stdout(content);
+}
+
+#[test]
+fn gzip_level_0_success() {
+    // Compress with --level 0 (store only, no compression).
+    let tmp = TestDir::new();
+    let content = "Level 0 gzip compression test.";
+    tmp.write("test.txt", content);
+    let archive = tmp.join("test.txt.gz");
+
+    geezipx()
+        .args([
+            "compress",
+            tmp.join("test.txt").to_str().unwrap(),
+            "-f",
+            "gz",
+            "-L",
+            "0",
+            "-o",
+            archive.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    assert!(archive.exists(), "gzip archive with --level 0 should exist");
+
+    // Decompress and verify.
+    geezipx()
+        .args(["decompress", archive.to_str().unwrap(), "--stdout"])
+        .assert()
+        .success()
+        .stdout(content);
+}
+
+#[test]
+fn targz_level_9_success() {
+    let tmp = TestDir::new();
+    tmp.write("hello.txt", "tar.gz with level 9");
+    let archive = tmp.join("out.tar.gz");
+    let out_dir = tmp.join("extracted");
+
+    // Compress with --level 9.
+    geezipx()
+        .args([
+            "compress",
+            tmp.join("hello.txt").to_str().unwrap(),
+            "-f",
+            "tar.gz",
+            "-L",
+            "9",
+            "-o",
+            archive.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    assert!(archive.exists(), "tar.gz with --level 9 should exist");
+
+    // Decompress and verify.
+    std::fs::create_dir_all(&out_dir).unwrap();
+    geezipx()
+        .args([
+            "decompress",
+            archive.to_str().unwrap(),
+            "-o",
+            out_dir.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    assert_eq!(
+        std::fs::read_to_string(out_dir.join("hello.txt")).unwrap(),
+        "tar.gz with level 9"
+    );
+}
+
+#[test]
+fn zip_accepts_level_no_error() {
+    // zip accepts --level but ignores it; should not error.
+    let tmp = TestDir::new();
+    tmp.write("test.txt", "zip with level");
+    let archive = tmp.join("out.zip");
+
+    geezipx()
+        .args([
+            "compress",
+            tmp.join("test.txt").to_str().unwrap(),
+            "-f",
+            "zip",
+            "-L",
+            "5",
+            "-o",
+            archive.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    assert!(archive.exists(), "zip with --level 5 should exist");
+}
+
+#[test]
+fn tar_accepts_level_no_error() {
+    // tar accepts --level but ignores it; should not error.
+    let tmp = TestDir::new();
+    tmp.write("test.txt", "tar with level");
+    let archive = tmp.join("out.tar");
+
+    geezipx()
+        .args([
+            "compress",
+            tmp.join("test.txt").to_str().unwrap(),
+            "-f",
+            "tar",
+            "-L",
+            "5",
+            "-o",
+            archive.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    assert!(archive.exists(), "tar with --level 5 should exist");
+}
+
+#[test]
+fn compress_level_out_of_range_rejected() {
+    // --level 10 should be rejected by clap validation (range 0..=9).
+    let tmp = TestDir::new();
+    tmp.write("test.txt", "level out of range");
+
+    geezipx()
+        .args([
+            "compress",
+            tmp.join("test.txt").to_str().unwrap(),
+            "-f",
+            "gz",
+            "-L",
+            "10",
+            "-o",
+            tmp.join("out.gz").to_str().unwrap(),
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("0..=9"));
+}
+
+#[test]
+fn compress_level_negative_rejected() {
+    // --level -1 should be rejected by clap (can't parse negative as u32).
+    let tmp = TestDir::new();
+    tmp.write("test.txt", "negative level");
+
+    geezipx()
+        .args([
+            "compress",
+            tmp.join("test.txt").to_str().unwrap(),
+            "-f",
+            "gz",
+            "-L",
+            "-1",
+            "-o",
+            tmp.join("out.gz").to_str().unwrap(),
+        ])
+        .assert()
+        .failure();
+}
+
+#[test]
+fn gzip_level_9_with_verbose() {
+    // --level 9 combined with --verbose should work.
+    let tmp = TestDir::new();
+    let content = "Level 9 with verbose.";
+    tmp.write("test.txt", content);
+    let archive = tmp.join("test.txt.gz");
+
+    geezipx()
+        .args([
+            "compress",
+            tmp.join("test.txt").to_str().unwrap(),
+            "-f",
+            "gz",
+            "-L",
+            "9",
+            "-o",
+            archive.to_str().unwrap(),
+            "-v",
+        ])
+        .assert()
+        .success();
+
+    // Decompress and verify content.
+    geezipx()
+        .args(["decompress", archive.to_str().unwrap(), "--stdout"])
         .assert()
         .success()
         .stdout(content);

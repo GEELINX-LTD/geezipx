@@ -170,17 +170,34 @@ impl<W: Write + Send> fmt::Debug for TarGzWriter<W> {
 }
 
 impl<W: Write + Send> TarGzWriter<W> {
-    /// Create a new tar.gz writer targeting the given output.
-    pub fn new(writer: W) -> Self {
+    /// Create a new tar.gz writer targeting the given output with the
+    /// specified gzip compression level.
+    ///
+    /// `level` controls the gzip compression strength (0-9). `None` uses the
+    /// default level (6).
+    pub fn new_with_level(writer: W, level: Option<u32>) -> Self {
+        let compression = match level {
+            None => flate2::Compression::default(),
+            Some(l) => flate2::Compression::new(l),
+        };
         let counter = CountWriter {
             inner: writer,
             count: 0,
         };
-        let encoder = flate2::write::GzEncoder::new(counter, flate2::Compression::default());
+        let encoder = flate2::write::GzEncoder::new(counter, compression);
         TarGzWriter {
             inner: Some(tar::Builder::new(encoder)),
             format: ArchiveFormat::TarGz,
         }
+    }
+
+    /// Create a new tar.gz writer targeting the given output using the
+    /// default compression level.
+    ///
+    /// This is a convenience wrapper around [`Self::new_with_level`] with
+    /// `level: None`.
+    pub fn new(writer: W) -> Self {
+        Self::new_with_level(writer, None)
     }
 
     /// Finalise the archive and return the inner writer alongside

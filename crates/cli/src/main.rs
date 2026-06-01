@@ -51,6 +51,10 @@ enum Commands {
         /// Recursively add directories
         #[arg(short = 'r', long = "recursive")]
         recursive: bool,
+
+        /// Compression level (0-9, default: 6; gzip/tar.gz only)
+        #[arg(short = 'L', long = "level", value_parser = clap::value_parser!(u32).range(0..=9))]
+        level: Option<u32>,
     },
 
     /// Decompress an archive or compressed file
@@ -104,11 +108,13 @@ fn run() -> anyhow::Result<()> {
             output,
             format,
             recursive,
+            level,
         } => commands::compress::execute(
             &inputs,
             &output,
             format.as_deref(),
             recursive,
+            level,
             cli.no_progress,
             cli.verbose,
         )?,
