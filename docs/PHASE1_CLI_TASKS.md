@@ -399,11 +399,14 @@ M1-2 → M1-4 → M1-5 → M2-2 → M2-3 → M3-1 → M3-5 → M4-1 → M4-5
 | `cargo fmt --all --check` | PASS | 代码格式化一致性 |
 | `cargo clippy --workspace --all-targets --all-features -- -D warnings` | PASS | 零 warning |
 | `cargo test --workspace --all-features` | PASS | 211 tests passed |
+| `cargo build --release --workspace` | PASS | Release 二进制编译成功 |
+| `./target/release/geezipx --version` | PASS | 输出 `geezipx 0.1.0` |
 | `cargo publish -p geezipx-core --dry-run` | PASS | core 库可发布 |
 | `cargo publish -p geezipx --dry-run` | 预期失败（安全验证通过，非 Bug） | 因 geezipx-core 未真实发布，dry-run 必然失败，此为安全验证而非缺陷；最终发布顺序为先 core 后 CLI |
 | `cargo doc --no-deps` | PASS | 零 warning（已修复 intra-doc links） |
-| `bash scripts/check-interop.sh` | PASS | 11 PASS / 1 SKIP / 0 FAIL |
+| `bash scripts/check-interop.sh`（含 Stress） | PASS | 15 PASS / 1 SKIP（native zip 未安装）/ 0 FAIL；Stress 256MB + 1000 small files 均通过 |
 | `cargo bench --no-run -p geezipx-core` | PASS | 24 个 benchmark 编译通过 |
+| `cargo bench -p geezipx-core -- --quick` | SKIP | Criterion 不支持 `--quick` 参数；完整基准需用户执行 `cargo bench -p geezipx-core` |
 | CLI help / completions 冒烟 | PASS | 子命令帮助完整，5 种 shell 补全生成正常 |
 
 #### B 组：重型验证（需用户确认）
@@ -411,8 +414,8 @@ M1-2 → M1-4 → M1-5 → M2-2 → M2-3 → M3-1 → M3-5 → M4-1 → M4-5
 以下验证项因环境、人工观察或跨平台特性，需用户在实际发布前确认：
 
 - [ ] **5 GB+ 大文件流式处理** — M3-5 冒烟测试已通过，建议在本地实际运行完整大文件冒烟确认无性能退化
-- [ ] **完整性能基准** — 执行 `cargo bench -p geezipx-core`，查看 gzip/archive throughput 报告，确认无显著退化
-- [ ] **完整互操作测试** — 已在 CI 运行 `scripts/check-interop.sh`，建议本地再跑一次确认
+- [ ] **完整性能基准** — 执行 `cargo bench -p geezipx-core`，查看 gzip/archive throughput 报告，确认无显著退化（注：`--quick` 不被 Criterion 支持，已跳过；仅当用户明确确认后运行完整 bench）
+- [x] **完整互操作测试** — 已本地运行 `GEEZIPX_INTEROP_STRESS=1 bash scripts/check-interop.sh`，15 PASS / 1 SKIP（native zip 未安装）/ 0 FAIL，Stress 256MB + 1000 small files 均通过
 - [ ] **跨平台 CI 状态** — 访问 GitHub Actions 确认 ubuntu / macos / windows 三平台全部绿色
 - [ ] **cargo install 测试** — 在空白环境执行 `cargo install geezipx`（需先发布 crates.io）
 - [ ] **帮助与补全（人工确认）** — A 组已自动验证 CLI help / 补全生成正常，此处为人工复核确认各子命令帮助页面完整、补全内容正确
@@ -446,7 +449,7 @@ M1-2 → M1-4 → M1-5 → M2-2 → M2-3 → M3-1 → M3-5 → M4-1 → M4-5
 - [x] **进度测试**：`geezipx compress bigfile.iso -f zip -o big.zip -p`（M3-2 已验证）
 - [x] **取消测试**：运行压缩任务时按 Ctrl+C，确认快速退出（M3-3 已验证）
 - [ ] **大文件测试**：5 GB+ 文件流式处理（M3-5 冒烟已通过，建议用户再跑一次确认）
-- [ ] **互操作测试**：`unzip -t test.zip`，`tar tzf dir.tar.gz`（check-interop.sh 已通过，建议本地再跑一次确认）
+- [x] **互操作测试**：`unzip -t test.zip`，`tar tzf dir.tar.gz`（check-interop.sh with Stress 已本地运行通过，15/1/0）
 - [x] **路径安全测试**：尝试解压包含 `../../etc/passwd` 的恶意归档（M3-4 已验证）
 - [x] **帮助信息**：`geezipx help compress` 等子命令帮助页面完整（CLI 冒烟已验证）
 - [x] **文档检查**：README 在所有平台渲染正确（docs 零 warning，CHANGELOG 已更新）
