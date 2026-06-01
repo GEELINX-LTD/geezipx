@@ -9,17 +9,86 @@ on:
 env:
   CARGO_TERM_COLOR: always
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
-  check:
+  fmt:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           toolchain: stable
-          components: rustfmt, clippy
+          components: rustfmt
+          cache: true
       - run: cargo fmt --all --check
-      - run: cargo check --workspace --all-targets --all-features
+
+  clippy:
+    needs: fmt
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+          components: clippy
+          cache: true
       - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+
+  test:
+    needs: fmt
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+          cache: true
       - run: cargo test --workspace --all-features
+
+  build:
+    needs: [fmt, clippy, test]
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact: geezipx-linux-x86_64
+            path: target/release/geezipx
+          - os: macos-latest
+            artifact: geezipx-macos-x86_64
+            path: target/release/geezipx
+          - os: windows-latest
+            artifact: geezipx-windows-x86_64
+            path: target/release/geezipx.exe
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+          cache: true
       - run: cargo build --release --workspace
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.path }}
+          if-no-files-found: error
+          retention-days: 7
+
+  interop:
+    needs: [clippy, test, build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+          cache: true
+      - run: bash scripts/check-interop.sh
