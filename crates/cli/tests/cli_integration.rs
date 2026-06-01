@@ -931,3 +931,156 @@ fn decompress_archive_no_clobber_mixed() {
         "new file should be extracted even with --no-clobber"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Progress and verbosity tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn compress_no_progress_no_escape_codes() {
+    let tmp = TestDir::new();
+    tmp.write("input.txt", "Test content for no-progress check.");
+    let archive = tmp.join("output.gz");
+
+    let output = geezipx()
+        .args([
+            "compress",
+            tmp.join("input.txt").to_str().unwrap(),
+            "-f",
+            "gz",
+            "-o",
+            archive.to_str().unwrap(),
+            "--no-progress",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !stderr.contains('\x1b'),
+        "stderr should not contain ANSI escape codes with --no-progress"
+    );
+    assert!(
+        !stderr.contains('\r'),
+        "stderr should not contain carriage returns with --no-progress"
+    );
+}
+
+#[test]
+fn compress_verbose_prints_filenames() {
+    let tmp = TestDir::new();
+    tmp.write("input.txt", "Verbose compress test.");
+    let archive = tmp.join("verbose_output.tar");
+
+    geezipx()
+        .args([
+            "compress",
+            tmp.join("input.txt").to_str().unwrap(),
+            "-o",
+            archive.to_str().unwrap(),
+            "-v",
+        ])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("input.txt"));
+}
+
+#[test]
+fn decompress_no_progress_no_escape_codes() {
+    let tmp = TestDir::new();
+    tmp.write("data.txt", "Decompress no-progress test.");
+    let archive = tmp.join("data.zip");
+
+    // First compress.
+    geezipx()
+        .args([
+            "compress",
+            tmp.join("data.txt").to_str().unwrap(),
+            "-o",
+            archive.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    let out_dir = tmp.join("out");
+    std::fs::create_dir_all(&out_dir).unwrap();
+
+    // Decompress with --no-progress.
+    let output = geezipx()
+        .args([
+            "decompress",
+            archive.to_str().unwrap(),
+            "-o",
+            out_dir.to_str().unwrap(),
+            "--no-progress",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !stderr.contains('\x1b'),
+        "stderr should not contain ANSI escape codes with --no-progress"
+    );
+    assert!(
+        !stderr.contains('\r'),
+        "stderr should not contain carriage returns with --no-progress"
+    );
+}
+
+#[test]
+fn decompress_verbose_logs_info() {
+    let tmp = TestDir::new();
+    tmp.write("hello.txt", "Verbose decompress test.");
+    let archive = tmp.join("verbose_decompress.tar");
+
+    // First compress.
+    geezipx()
+        .args([
+            "compress",
+            tmp.join("hello.txt").to_str().unwrap(),
+            "-o",
+            archive.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    let out_dir = tmp.join("extracted");
+    std::fs::create_dir_all(&out_dir).unwrap();
+
+    // Decompress with -v.
+    geezipx()
+        .args([
+            "decompress",
+            archive.to_str().unwrap(),
+            "-o",
+            out_dir.to_str().unwrap(),
+            "-v",
+        ])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("verbose_decompress.tar"));
+}
+
+#[test]
+fn compress_piped_no_progress() {
+    let tmp = TestDir::new();
+    tmp.write("data.txt", "Piped no-progress test.");
+    let archive = tmp.join("piped_data.tar.gz");
+
+    // Compress with --no-progress.
+    geezipx()
+        .args([
+            "compress",
+            tmp.join("data.txt").to_str().unwrap(),
+            "-f",
+            "tar.gz",
+            "-o",
+            archive.to_str().unwrap(),
+            "--no-progress",
+        ])
+        .assert()
+        .success();
+}

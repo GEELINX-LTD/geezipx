@@ -11,7 +11,14 @@ use anyhow::{Context, Result};
 use super::common;
 
 /// Execute the `decompress` subcommand.
-pub fn execute(archive: &Path, output_dir: &Path, stdout: bool, overwrite: bool) -> Result<()> {
+pub fn execute(
+    archive: &Path,
+    output_dir: &Path,
+    stdout: bool,
+    overwrite: bool,
+    no_progress: bool,
+    verbose: bool,
+) -> Result<()> {
     if !archive.exists() {
         anyhow::bail!("archive '{}' does not exist", archive.display());
     }
@@ -24,12 +31,37 @@ pub fn execute(archive: &Path, output_dir: &Path, stdout: bool, overwrite: bool)
             .with_context(|| format!("creating output directory '{}'", output_dir.display()))?;
     }
 
+    let show_progress = !no_progress && !verbose && crate::render::progress::progress_bar_enabled();
+
     match format {
         ArchiveFormat::Gzip => {
-            if stdout {
-                decompress_gzip_stdout(archive)?;
+            let spinner = if show_progress {
+                Some(crate::render::progress::ProgressBarWrapper::spinner(
+                    "Decompressing...",
+                ))
             } else {
-                decompress_gzip_to_file(archive, output_dir, overwrite)?;
+                None
+            };
+
+            if let Some(s) = &spinner {
+                let result = if stdout {
+                    decompress_gzip_stdout(archive)
+                } else {
+                    decompress_gzip_to_file(archive, output_dir, overwrite)
+                };
+                match result {
+                    Ok(()) => s.finish("Decompressed"),
+                    Err(e) => {
+                        s.finish("Decompression failed");
+                        return Err(anyhow::anyhow!("gzip decompression error: {}", e));
+                    }
+                }
+            } else {
+                if stdout {
+                    decompress_gzip_stdout(archive)?;
+                } else {
+                    decompress_gzip_to_file(archive, output_dir, overwrite)?;
+                }
             }
         }
         _ => {
@@ -40,7 +72,40 @@ pub fn execute(archive: &Path, output_dir: &Path, stdout: bool, overwrite: bool)
                     format
                 );
             }
-            decompress_archive(archive, output_dir, format, overwrite)?;
+            let spinner = if show_progress {
+                Some(crate::render::progress::ProgressBarWrapper::spinner(
+                    "Extracting...",
+                ))
+            } else {
+                None
+            };
+
+            if let Some(s) = &spinner {
+                let result = decompress_archive(
+                    archive,
+                    output_dir,
+                    format,
+                    overwrite,
+                    verbose,
+                    show_progress,
+                );
+                match result {
+                    Ok(()) => s.finish("Extraction complete"),
+                    Err(e) => {
+                        s.finish("Extraction failed");
+                        return Err(anyhow::anyhow!("extraction error: {}", e));
+                    }
+                }
+            } else {
+                decompress_archive(
+                    archive,
+                    output_dir,
+                    format,
+                    overwrite,
+                    verbose,
+                    show_progress,
+                )?;
+            }
         }
     }
 
@@ -99,6 +164,8 @@ fn decompress_archive(
     output_dir: &Path,
     format: ArchiveFormat,
     overwrite: bool,
+    verbose: bool,
+    show_progress: bool,
 ) -> Result<()> {
     let mut reader = common::open_reader(archive, format)?;
     let report = reader
@@ -110,13 +177,16 @@ fn decompress_archive(
         eprintln!("Warning: failed to extract '{entry_name}': {err}");
     }
 
-    eprintln!(
-        "Extracted {} ({} files, {} bytes, {} skipped)",
-        archive.display(),
-        report.files_extracted,
-        report.bytes_extracted,
-        report.files_skipped,
-    );
+    // Skip summary message when progress bar already shows it.
+    if !show_progress || verbose {
+        eprintln!(
+            "Extracted {} ({} files, {} bytes, {} skipped)",
+            archive.display(),
+            report.files_extracted,
+            report.bytes_extracted,
+            report.files_skipped,
+        );
+    }
 
     // Return error if nothing was extracted.
     if report.files_extracted == 0 && report.errors.is_empty() {

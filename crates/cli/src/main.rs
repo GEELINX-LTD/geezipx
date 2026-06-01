@@ -10,6 +10,7 @@ use std::path::PathBuf;
 use clap::{Parser, Subcommand};
 
 mod commands;
+mod render;
 
 #[derive(Parser)]
 #[command(
@@ -20,6 +21,13 @@ mod commands;
 struct Cli {
     #[command(subcommand)]
     command: Commands,
+    /// Disable the progress bar (useful for scripts or non-interactive use)
+    #[arg(long = "no-progress", global = true, default_value_t = false)]
+    no_progress: bool,
+
+    /// Verbose output: log each file as it's processed
+    #[arg(short = 'v', long = "verbose", global = true, default_value_t = false)]
+    verbose: bool,
 }
 
 #[derive(Subcommand)]
@@ -95,14 +103,28 @@ fn run() -> anyhow::Result<()> {
             output,
             format,
             recursive,
-        } => commands::compress::execute(&inputs, &output, format.as_deref(), recursive)?,
+        } => commands::compress::execute(
+            &inputs,
+            &output,
+            format.as_deref(),
+            recursive,
+            cli.no_progress,
+            cli.verbose,
+        )?,
         Commands::Decompress {
             archive,
             output_dir,
             stdout,
             no_clobber,
             force: _, // force is explicit default; no-clobber controls behavior
-        } => commands::decompress::execute(&archive, &output_dir, stdout, !no_clobber)?,
+        } => commands::decompress::execute(
+            &archive,
+            &output_dir,
+            stdout,
+            !no_clobber,
+            cli.no_progress,
+            cli.verbose,
+        )?,
         Commands::List { archive, json } => commands::list::execute(&archive, json)?,
     }
 
