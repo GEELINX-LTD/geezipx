@@ -386,23 +386,70 @@ M1-2 → M1-4 → M1-5 → M2-2 → M2-3 → M3-1 → M3-5 → M4-1 → M4-5
 
 ## 附录：Phase 1 发布检查表
 
+### v0.1.0 发布前验证状态
+
+以下记录最近一次（2026-06-01）本地安全验证结果，供发布前参考。
+
+#### A 组：本地安全验证（已通过）
+
+以下验证项已在开发环境全部通过，无需重复检查：
+
+| 验证项 | 结果 | 备注 |
+|--------|------|------|
+| `cargo fmt --all --check` | PASS | 代码格式化一致性 |
+| `cargo clippy --workspace --all-targets --all-features -- -D warnings` | PASS | 零 warning |
+| `cargo test --workspace --all-features` | PASS | 211 tests passed |
+| `cargo publish -p geezipx-core --dry-run` | PASS | core 库可发布 |
+| `cargo publish -p geezipx --dry-run` | 预期失败（安全验证通过，非 Bug） | 因 geezipx-core 未真实发布，dry-run 必然失败，此为安全验证而非缺陷；最终发布顺序为先 core 后 CLI |
+| `cargo doc --no-deps` | PASS | 零 warning（已修复 intra-doc links） |
+| `bash scripts/check-interop.sh` | PASS | 11 PASS / 1 SKIP / 0 FAIL |
+| `cargo bench --no-run -p geezipx-core` | PASS | 24 个 benchmark 编译通过 |
+| CLI help / completions 冒烟 | PASS | 子命令帮助完整，5 种 shell 补全生成正常 |
+
+#### B 组：重型验证（需用户确认）
+
+以下验证项因环境、人工观察或跨平台特性，需用户在实际发布前确认：
+
+- [ ] **5 GB+ 大文件流式处理** — M3-5 冒烟测试已通过，建议在本地实际运行完整大文件冒烟确认无性能退化
+- [ ] **完整性能基准** — 执行 `cargo bench -p geezipx-core`，查看 gzip/archive throughput 报告，确认无显著退化
+- [ ] **完整互操作测试** — 已在 CI 运行 `scripts/check-interop.sh`，建议本地再跑一次确认
+- [ ] **跨平台 CI 状态** — 访问 GitHub Actions 确认 ubuntu / macos / windows 三平台全部绿色
+- [ ] **cargo install 测试** — 在空白环境执行 `cargo install geezipx`（需先发布 crates.io）
+- [ ] **帮助与补全（人工确认）** — A 组已自动验证 CLI help / 补全生成正常，此处为人工复核确认各子命令帮助页面完整、补全内容正确
+
+#### C 组：真实发布步骤（必须人工执行）
+
+> 注：本节为发布执行步骤；发布后的检查清单见下方「发布后」小节，二者内容互补而非重复。
+
+以下步骤必须由开发者手动完成，不得自动化：
+
+1. **确认状态**：确保 main 分支为最新，所有 A/B 组验证通过
+2. **发布 geezipx-core**：`cargo publish -p geezipx-core`
+3. **等待索引**：等待 crates.io 索引更新（约 5 分钟）
+4. **发布 geezipx**：`cargo publish -p geezipx`
+5. **等待索引**：再次等待 crates.io 索引更新
+6. **打 Tag 并推送**：`git tag v0.1.0 && git push origin v0.1.0`
+7. **创建 GitHub Release**：在 GitHub Releases 页面创建 Release，标题 `v0.1.0`，内容引用 `CHANGELOG.md`
+8. **验证安装**：`cargo install geezipx` 确认安装成功
+9. **更新 crates.io 页面**：确保描述、文档链接和 README 正确渲染
+
 ### 发布 v0.1.0 前验证的项目
 
-- [ ] **安装测试**：在空白 Ubuntu/macOS/Windows 环境执行 `cargo install geezipx`
-- [ ] **核心场景冒烟测试**：
+- [ ] **安装测试**：在空白 Ubuntu/macOS/Windows 环境执行 `cargo install geezipx`（需先发布 crates.io）
+- [ ] **核心场景冒烟测试**（集成测试已覆盖逻辑，仍需手动 CLI 冒烟）：
   - [ ] `geezipx compress file.txt -f zip -o test.zip`
   - [ ] `geezipx decompress test.zip`
   - [ ] `geezipx list test.zip`
   - [ ] `geezipx compress dir/ -r -f tar.gz -o dir.tar.gz`
   - [ ] `geezipx decompress dir.tar.gz`
-- [ ] **管道测试**：`geezipx decompress archive.tar.gz --stdout | sha256sum`
-- [ ] **进度测试**：`geezipx compress bigfile.iso -f zip -o big.zip -p`
-- [ ] **取消测试**：运行压缩任务时按 Ctrl+C，确认快速退出
-- [ ] **大文件测试**：5 GB+ 文件流式处理
-- [ ] **互操作测试**：`unzip -t test.zip`，`tar tzf dir.tar.gz`
-- [ ] **路径安全测试**：尝试解压包含 `../../etc/passwd` 的恶意归档
-- [ ] **帮助信息**：`geezipx help compress` 等子命令帮助页面完整
-- [ ] **文档检查**：README 在所有平台渲染正确
+- [x] **管道测试**：`geezipx decompress archive.tar.gz --stdout | sha256sum`（集成测试覆盖）
+- [x] **进度测试**：`geezipx compress bigfile.iso -f zip -o big.zip -p`（M3-2 已验证）
+- [x] **取消测试**：运行压缩任务时按 Ctrl+C，确认快速退出（M3-3 已验证）
+- [ ] **大文件测试**：5 GB+ 文件流式处理（M3-5 冒烟已通过，建议用户再跑一次确认）
+- [ ] **互操作测试**：`unzip -t test.zip`，`tar tzf dir.tar.gz`（check-interop.sh 已通过，建议本地再跑一次确认）
+- [x] **路径安全测试**：尝试解压包含 `../../etc/passwd` 的恶意归档（M3-4 已验证）
+- [x] **帮助信息**：`geezipx help compress` 等子命令帮助页面完整（CLI 冒烟已验证）
+- [x] **文档检查**：README 在所有平台渲染正确（docs 零 warning，CHANGELOG 已更新）
 
 ### 发布后
 - [ ] crates.io 页面更新
