@@ -1,11 +1,14 @@
 [package]
 name = "geezipx-core"
-version = "0.1.0"
+version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "Compression/decompression core engine for GeeZipX"
+readme = "../../README.md"
+keywords = ["compression", "decompression", "archive", "zip", "gzip"]
+categories = ["compression"]
 
 [dependencies]
 thiserror = "2"
