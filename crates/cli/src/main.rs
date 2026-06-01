@@ -57,6 +57,14 @@ enum Commands {
         /// Decompress to stdout (gzip only; error for multi-file archives)
         #[arg(long = "stdout")]
         stdout: bool,
+
+        /// Skip files that already exist (mutually exclusive with --force)
+        #[arg(long = "no-clobber", conflicts_with = "force")]
+        no_clobber: bool,
+
+        /// Overwrite existing files (default; mutually exclusive with --no-clobber)
+        #[arg(long = "force", conflicts_with = "no_clobber")]
+        force: bool,
     },
 
     /// List the contents of an archive
@@ -92,7 +100,9 @@ fn run() -> anyhow::Result<()> {
             archive,
             output_dir,
             stdout,
-        } => commands::decompress::execute(&archive, &output_dir, stdout)?,
+            no_clobber,
+            force: _, // force is explicit default; no-clobber controls behavior
+        } => commands::decompress::execute(&archive, &output_dir, stdout, !no_clobber)?,
         Commands::List { archive, json } => commands::list::execute(&archive, json)?,
     }
 

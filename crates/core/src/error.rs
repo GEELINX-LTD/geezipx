@@ -64,10 +64,7 @@ pub enum GeeZipError {
         target: String,
     },
 
-    /// File already exists and clobber was denied.
-    #[error(
-        "clobber denied: '{path}' already exists, use --no-clobber to skip or --force to overwrite"
-    )]
+    #[error("skipped '{path}': file already exists (use --force to overwrite)")]
     ClobberDenied {
         /// Path of the existing file.
         path: String,
@@ -211,8 +208,9 @@ mod tests {
     fn error_clobber_denied_display() {
         let err = GeeZipError::clobber_denied("/tmp/out/readme.txt");
         let msg = err.to_string();
-        assert!(msg.contains("clobber denied"), "msg: {msg}");
-        assert!(msg.contains("--no-clobber"), "msg: {msg}");
+        assert!(msg.contains("skipped"), "msg: {msg}");
+        assert!(msg.contains("--force"), "msg: {msg}");
+        assert!(msg.contains("readme.txt"), "msg: {msg}");
     }
 
     #[test]

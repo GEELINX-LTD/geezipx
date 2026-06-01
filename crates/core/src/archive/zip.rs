@@ -98,7 +98,7 @@ impl<R: Read + Seek + Send> ArchiveReader for ZipReader<R> {
         Ok(bytes)
     }
 
-    fn extract_all(&mut self, dest: &Path) -> GeeZipResult<ExtractReport> {
+    fn extract_all(&mut self, dest: &Path, overwrite: bool) -> GeeZipResult<ExtractReport> {
         let entries = self.entries()?;
         let mut report = ExtractReport::default();
 
@@ -129,15 +129,41 @@ impl<R: Read + Seek + Send> ArchiveReader for ZipReader<R> {
                 }
             }
 
-            // Write entry content.
-            let mut output = match std::fs::File::create(&target) {
-                Ok(f) => f,
-                Err(e) => {
-                    report.errors.push((
-                        entry.path.clone(),
-                        GeeZipError::io(e, format!("creating '{}'", target.display())),
-                    ));
-                    continue;
+            // Write entry content — atomically create or fail (avoids TOCTOU
+            // between path-exists check and file creation for the no-clobber path).
+            let mut output = if overwrite {
+                match std::fs::File::create(&target) {
+                    Ok(f) => f,
+                    Err(e) => {
+                        report.errors.push((
+                            entry.path.clone(),
+                            GeeZipError::io(e, format!("creating '{}'", target.display())),
+                        ));
+                        continue;
+                    }
+                }
+            } else {
+                match std::fs::OpenOptions::new()
+                    .write(true)
+                    .create_new(true)
+                    .open(&target)
+                {
+                    Ok(f) => f,
+                    Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                        report.files_skipped += 1;
+                        report.errors.push((
+                            entry.path.clone(),
+                            GeeZipError::clobber_denied(target.display().to_string()),
+                        ));
+                        continue;
+                    }
+                    Err(e) => {
+                        report.errors.push((
+                            entry.path.clone(),
+                            GeeZipError::io(e, format!("creating '{}'", target.display())),
+                        ));
+                        continue;
+                    }
                 }
             };
 
@@ -410,7 +436,7 @@ mod tests {
         assert!(entries[0].path.contains(".."));
 
         let dest = tempfile::tempdir().unwrap();
-        let report = reader.extract_all(dest.path()).unwrap();
+        let report = reader.extract_all(dest.path(), true).unwrap();
         assert!(
             report
                 .errors
@@ -441,7 +467,7 @@ mod tests {
 
         let mut reader = ZipReader::from_buf(buf.into_inner()).unwrap();
         let dest = tempfile::tempdir().unwrap();
-        let report = reader.extract_all(dest.path()).unwrap();
+        let report = reader.extract_all(dest.path(), true).unwrap();
         assert!(
             report
                 .errors
@@ -471,7 +497,7 @@ mod tests {
 
         let mut reader = ZipReader::from_buf(buf.into_inner()).unwrap();
         let dest = tempfile::tempdir().unwrap();
-        let report = reader.extract_all(dest.path()).unwrap();
+        let report = reader.extract_all(dest.path(), true).unwrap();
         assert!(
             report
                 .errors
@@ -503,7 +529,7 @@ mod tests {
 
         std::env::set_current_dir(tmp.path()).unwrap();
         let mut reader = ZipReader::from_buf(buf.into_inner()).unwrap();
-        let report = reader.extract_all(Path::new(".")).unwrap();
+        let report = reader.extract_all(Path::new("."), true).unwrap();
         std::env::set_current_dir(orig_cwd).unwrap();
 
         assert_eq!(report.files_extracted, 1);
@@ -607,7 +633,7 @@ mod tests {
         let mut reader = ZipReader::from_buf(data).unwrap();
         let dest = tempfile::tempdir().unwrap();
 
-        let report = reader.extract_all(dest.path()).unwrap();
+        let report = reader.extract_all(dest.path(), true).unwrap();
         assert_eq!(report.files_extracted, 2);
         assert_eq!(report.bytes_extracted, 6);
         assert!(report.errors.is_empty());
@@ -615,6 +641,59 @@ mod tests {
         // Verify files exist on disk.
         assert!(dest.path().join("file_a.txt").exists());
         assert!(dest.path().join("file_b.txt").exists());
+    }
+
+    // -------------------------------------------------------------------
+    // No-clobber tests
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn zip_no_clobber_skips_existing_files() {
+        let data = create_test_zip(&[("file_a.txt", b"AAA"), ("file_b.txt", b"BBB")]);
+
+        let mut reader = ZipReader::from_buf(data).unwrap();
+        let dest = tempfile::tempdir().unwrap();
+
+        // First extract (creates files).
+        let report = reader.extract_all(dest.path(), true).unwrap();
+        assert_eq!(report.files_extracted, 2);
+        assert!(report.errors.is_empty());
+
+        // Modify one extracted file.
+        let modified_path = dest.path().join("file_a.txt");
+        std::fs::write(&modified_path, b"MODIFIED").unwrap();
+
+        // Second extract with overwrite=false: should skip existing files.
+        let mut reader2 = ZipReader::from_buf(create_test_zip(&[
+            ("file_a.txt", b"AAA"),
+            ("file_b.txt", b"BBB"),
+        ]))
+        .unwrap();
+        let report2 = reader2.extract_all(dest.path(), false).unwrap();
+        assert_eq!(
+            report2.files_extracted, 0,
+            "existing files should be skipped"
+        );
+        assert_eq!(
+            report2.files_skipped, 2,
+            "both files should be counted as skipped"
+        );
+
+        // Verify existing file was NOT overwritten.
+        assert_eq!(
+            std::fs::read_to_string(&modified_path).unwrap(),
+            "MODIFIED",
+            "existing file content should be preserved"
+        );
+
+        // Verify clobber-denied errors are recorded.
+        assert!(
+            report2
+                .errors
+                .iter()
+                .any(|(_, e)| matches!(e, GeeZipError::ClobberDenied { .. })),
+            "expected at least one ClobberDenied error"
+        );
     }
 
     // -------------------------------------------------------------------

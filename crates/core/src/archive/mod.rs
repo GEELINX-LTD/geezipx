@@ -71,7 +71,7 @@ pub trait ArchiveReader: Send {
     ///
     /// Default implementation calls [`extract`](ArchiveReader::extract)
     /// for each entry, creating parent directories as needed.
-    fn extract_all(&mut self, dest: &Path) -> GeeZipResult<ExtractReport> {
+    fn extract_all(&mut self, dest: &Path, overwrite: bool) -> GeeZipResult<ExtractReport> {
         let entries = self.entries()?;
         let mut report = ExtractReport::default();
 
@@ -103,18 +103,47 @@ pub trait ArchiveReader: Send {
                 }
             }
 
-            // Write entry content.
-            let mut output = match std::fs::File::create(&target) {
-                Ok(f) => f,
-                Err(e) => {
-                    report.errors.push((
-                        entry.path.clone(),
-                        crate::error::GeeZipError::io(
-                            e,
-                            format!("creating output file '{}'", target.display()),
-                        ),
-                    ));
-                    continue;
+            // Write entry content — atomically create or fail (avoids TOCTOU
+            // between path-exists check and file creation for the no-clobber path).
+            let mut output = if overwrite {
+                match std::fs::File::create(&target) {
+                    Ok(f) => f,
+                    Err(e) => {
+                        report.errors.push((
+                            entry.path.clone(),
+                            crate::error::GeeZipError::io(
+                                e,
+                                format!("creating output file '{}'", target.display()),
+                            ),
+                        ));
+                        continue;
+                    }
+                }
+            } else {
+                match std::fs::OpenOptions::new()
+                    .write(true)
+                    .create_new(true)
+                    .open(&target)
+                {
+                    Ok(f) => f,
+                    Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                        report.files_skipped += 1;
+                        report.errors.push((
+                            entry.path.clone(),
+                            crate::error::GeeZipError::clobber_denied(target.display().to_string()),
+                        ));
+                        continue;
+                    }
+                    Err(e) => {
+                        report.errors.push((
+                            entry.path.clone(),
+                            crate::error::GeeZipError::io(
+                                e,
+                                format!("creating output file '{}'", target.display()),
+                            ),
+                        ));
+                        continue;
+                    }
                 }
             };
 

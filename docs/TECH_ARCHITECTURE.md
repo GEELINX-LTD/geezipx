@@ -194,7 +194,7 @@ GUI 实现：通过 Tauri `emit` 事件推送进度到前端。
 | 子命令 | 主要参数 | 核心流程 |
 |--------|---------|---------|
 | `compress` | `<inputs...>` `--format` `-o` `--level` `-r` `--progress` | 收集文件 → 创建 ArchiveWriter → 写入 |
-| `decompress` | `<archive>` `-o` `--stdout` `--no-clobber` `--progress` | 检测格式 → 创建 ArchiveReader → 解包 |
+| `decompress` | `<archive>` `-o` `--stdout` `--no-clobber` `--force` `--progress` | 检测格式 → 创建 ArchiveReader → 解包 |
 | `list` | `<archive>` | 检测格式 → 读取 entries → 表格输出 |
 
 ### 2.7 cli/render — 输出渲染

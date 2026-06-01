@@ -434,7 +434,7 @@ mod tests {
         let mut reader = TarGzReader::from_buf(data);
         let dest = tempfile::tempdir().unwrap();
 
-        let report = reader.extract_all(dest.path()).unwrap();
+        let report = reader.extract_all(dest.path(), true).unwrap();
         assert_eq!(report.files_extracted, 2);
         assert_eq!(report.bytes_extracted, 6);
         assert!(report.errors.is_empty());
@@ -453,7 +453,7 @@ mod tests {
 
         let mut reader = TarGzReader::from_buf(data);
         let dest = tempfile::tempdir().unwrap();
-        let report = reader.extract_all(dest.path()).unwrap();
+        let report = reader.extract_all(dest.path(), true).unwrap();
 
         assert!(
             report
@@ -470,7 +470,7 @@ mod tests {
         let data = create_raw_targz(b"subdir/../../../escape.txt", b"escape");
         let mut reader = TarGzReader::from_buf(data);
         let dest = tempfile::tempdir().unwrap();
-        let report = reader.extract_all(dest.path()).unwrap();
+        let report = reader.extract_all(dest.path(), true).unwrap();
         assert!(
             report
                 .errors
@@ -487,7 +487,7 @@ mod tests {
 
         let mut reader = TarGzReader::from_buf(data);
         let dest = tempfile::tempdir().unwrap();
-        let report = reader.extract_all(dest.path()).unwrap();
+        let report = reader.extract_all(dest.path(), true).unwrap();
 
         assert!(
             report
@@ -540,7 +540,7 @@ mod tests {
         assert_eq!(entries[0].path, "mydir/file.txt");
 
         let dest = tempfile::tempdir().unwrap();
-        let report = reader.extract_all(dest.path()).unwrap();
+        let report = reader.extract_all(dest.path(), true).unwrap();
         assert_eq!(report.files_extracted, 1);
         assert_eq!(report.bytes_extracted, 5);
         assert!(report.errors.is_empty());
@@ -553,6 +553,53 @@ mod tests {
         );
         let content = std::fs::read_to_string(&extracted_path).unwrap();
         assert_eq!(content, "hello");
+    }
+
+    // -------------------------------------------------------------------
+    // No-clobber tests
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn targz_no_clobber_skips_existing_files() {
+        let content = b"hello world";
+        let data = create_test_targz(&[("hello.txt", content)]);
+
+        let mut reader = TarGzReader::from_buf(data);
+        let dest = tempfile::tempdir().unwrap();
+
+        // First extract (creates file).
+        let report = reader.extract_all(dest.path(), true).unwrap();
+        assert_eq!(report.files_extracted, 1);
+        assert!(report.errors.is_empty());
+
+        // Modify extracted file.
+        let modified_path = dest.path().join("hello.txt");
+        std::fs::write(&modified_path, b"MODIFIED").unwrap();
+
+        // Second extract with overwrite=false: should skip.
+        let mut reader2 = TarGzReader::from_buf(create_test_targz(&[("hello.txt", content)]));
+        let report2 = reader2.extract_all(dest.path(), false).unwrap();
+        assert_eq!(
+            report2.files_extracted, 0,
+            "existing file should be skipped"
+        );
+        assert_eq!(report2.files_skipped, 1, "one file should be skipped");
+
+        // Verify existing file was NOT overwritten.
+        assert_eq!(
+            std::fs::read_to_string(&modified_path).unwrap(),
+            "MODIFIED",
+            "existing file content should be preserved"
+        );
+
+        // Verify clobber-denied error is recorded.
+        assert!(
+            report2
+                .errors
+                .iter()
+                .any(|(_, e)| matches!(e, GeeZipError::ClobberDenied { .. })),
+            "expected ClobberDenied error"
+        );
     }
 
     // -------------------------------------------------------------------

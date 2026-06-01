@@ -2,7 +2,7 @@
 
 > 总周期估计：**10-12 周**（单人全职开发）。  
 > 里程碑结构：4 个里程碑，每个里程碑对应可发布的增量。  
-> **当前状态：M1 和 M2 已完成并提交 (`329c773`)。M3 尚未开始，M4 **部分完成**（CI 已初始化，三平台矩阵及发布流程待定）。**
+> **当前状态：M1 和 M2 已完成并提交 (`329c773`)。M3 部分完成（M3-4 覆盖保护已实现），M4 **部分完成**（CI 已初始化，三平台矩阵及发布流程待定）。**
 
 ---
 
@@ -98,6 +98,9 @@ geezipx compress <inputs...>
 geezipx decompress <archive>
   -o, --output-dir <PATH>        # 输出目录 (default: .)
   --stdout                       # 解压到 stdout（仅 gzip）
+d05|
+f8e:  --no-clobber                   # 跳过已存在的输出文件
+f8e:  --force                        # 覆盖已存在的输出文件（默认行为）
 
 geezipx list <archive>
   -j, --json                     # JSON 格式输出
@@ -106,7 +109,7 @@ geezipx list <archive>
 - **与原计划的差异**（以下功能已推迟到 M3 或后续）：
   - `--level` 压缩级别 — 未实现
   - `--progress` 进度条 — 未实现
-  - `--no-clobber` 覆盖保护 — 未实现
+  - `--no-clobber` 覆盖保护 — 已提前实现（见 M3-4）
 - **验收标准**：三个子命令均可通过 `--help` 查看参数说明 — 通过（见集成测试 `help_available`）。
 
 ### M2-2：compress 命令实现 ✅
@@ -127,7 +130,7 @@ geezipx list <archive>
 - **格式检测**：先读 magic bytes（gzip 检测后需通过 `.tar.gz`/`.tgz` 扩展名区分 TarGz），无 magic 则 fallback 到扩展名
 - **`--stdout` 限制**：仅 gzip 格式支持；多文件归档使用 `--stdout` 时报错并提示
 - **Zip Slip 防护**：`extract_all` 内置
-- **与原计划差异**：不支持 `--no-clobber` 覆盖策略
+- **与原计划差异**：`--no-clobber` 覆盖策略当时未实现，已在 M3-4 中补充（含 `--force` 显式覆盖）
 - **验收标准**：全部通过
 
 ### M2-4：list 命令实现 ✅
@@ -167,7 +170,7 @@ geezipx list <archive>
 
 ## M3：流式/进度/兼容性打磨（第 8-10 周）
 
-> **状态：未开始**。当前 CLI MVP 仅实现基本文件 I/O 操作。以下所有功能留待 M3 或后续完成。
+> **状态：部分完成**（M3-4 覆盖保护已实现）。当前 CLI MVP 仅实现基本文件 I/O 操作和覆盖保护。其余流式管线、进度条、取消等功能留待 M3 或后续完成。
 
 ### 目标
 实现流式管线（大文件不占内存）、进度显示、格式兼容性增强。
@@ -220,20 +223,28 @@ geezipx list <archive>
   - 已完成的 entry 保留在输出中
 - **预估**：2 天
 
-### M3-4：覆盖保护与路径安全
-- **任务**：`--no-clobber`、路径穿越防护、Windows 兼容处理。
+### M3-4：覆盖保护与路径安全 ✅（已实现 `--no-clobber` / `--force`）
+- **任务**：`--no-clobber`、`--force`、路径穿越防护、Windows 兼容处理。
 - **文件**：
-  - 主要在 `cli/src/commands/decompress.rs` 和 `core/src/archive/` 各实现中
+  - `crates/cli/src/commands/decompress.rs` — `--no-clobber`/`--force` CLI 参数解析与处理
+  - `crates/core/src/error.rs` — `ClobberDenied` 错误变体（M1-2 已预置）
+  - `crates/core/src/archive/` — ZIP/TAR/TAR.GZ/GZIP 各实现提取路径的 no-clobber 检查
 - **特性**：
-  - Zip Slip 攻击防护：检查 entry 路径解析后是否在目标目录外
-  - 覆盖保护：文件已存在时跳过（`--no-clobber`）或覆盖（默认行为）
+  - Zip Slip 攻击防护：检查 entry 路径解析后是否在目标目录外（M1-4 已实现）
+  - 覆盖保护：
+    - 默认行为：覆盖已存在文件（向后兼容）
+    - `--no-clobber`：跳过已存在文件，不报错
+    - `--force`：显式覆盖，与 `--no-clobber` 互斥
   - Windows 路径兼容：非法字符替换、长路径 `\\?\` 前缀
-- **验收标准**：
-  - 恶意 ZIP（含 `../../etc/passwd` 条目）提取时被拒绝并报错
-  - `--no-clobber` 模式下跳过已有文件
+- **验收标准**：全部通过 ✅
+  - 恶意 ZIP（含 `../../etc/passwd` 条目）提取时被拒绝并报错 ✅
+  - `--no-clobber` 模式下跳过已有文件 ✅
+  - `--force` 显式覆盖已存在文件 ✅
+  - `--no-clobber` 与 `--force` 互斥，同时使用时报错 ✅
+  - 覆盖所有四种格式（ZIP/TAR/TAR.GZ/GZIP）✅
   - Windows 上包含 `:` 的文件名创建正常
 - **依赖**：M2-3
-- **预估**：2 天
+- **预估**：2 天（已实现）
 
 ### M3-5：多格式互操作与兼容性测试
 - **任务**：系统测试兼容性，确保与原生工具互操作。
@@ -257,7 +268,7 @@ geezipx list <archive>
 - [ ] 大文件（10 GB+）压缩/解压内存 < 256 MB
 - [ ] 进度条实时显示，管道模式正确 fallback
 - [ ] Ctrl+C 优雅退出，不留下临时文件
-- [ ] Zip Slip 路径穿越防护 — `extract_all` 已有路径穿越防护（M1-4，✅ 已实现），`--no-clobber` 覆盖保护（❌ 未实现）
+- [x] Zip Slip 路径穿越防护 — `extract_all` 已有路径穿越防护（M1-4，✅ 已实现），`--no-clobber` / `--force` 覆盖保护（✅ 已实现）
 - [ ] 与系统 tar / unzip 100% 互操作
 - [x] `cargo clippy` 零 warning — CI 检查通过
 

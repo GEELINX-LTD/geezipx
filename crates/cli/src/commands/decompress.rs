@@ -11,7 +11,7 @@ use anyhow::{Context, Result};
 use super::common;
 
 /// Execute the `decompress` subcommand.
-pub fn execute(archive: &Path, output_dir: &Path, stdout: bool) -> Result<()> {
+pub fn execute(archive: &Path, output_dir: &Path, stdout: bool, overwrite: bool) -> Result<()> {
     if !archive.exists() {
         anyhow::bail!("archive '{}' does not exist", archive.display());
     }
@@ -29,7 +29,7 @@ pub fn execute(archive: &Path, output_dir: &Path, stdout: bool) -> Result<()> {
             if stdout {
                 decompress_gzip_stdout(archive)?;
             } else {
-                decompress_gzip_to_file(archive, output_dir)?;
+                decompress_gzip_to_file(archive, output_dir, overwrite)?;
             }
         }
         _ => {
@@ -40,7 +40,7 @@ pub fn execute(archive: &Path, output_dir: &Path, stdout: bool) -> Result<()> {
                     format
                 );
             }
-            decompress_archive(archive, output_dir, format)?;
+            decompress_archive(archive, output_dir, format, overwrite)?;
         }
     }
 
@@ -63,12 +63,21 @@ fn decompress_gzip_stdout(archive: &Path) -> Result<()> {
 }
 
 /// Decompress a gzip file to a new file in the output directory.
-fn decompress_gzip_to_file(archive: &Path, output_dir: &Path) -> Result<()> {
+fn decompress_gzip_to_file(archive: &Path, output_dir: &Path, overwrite: bool) -> Result<()> {
     let output_name = common::gzip_output_filename(archive);
     let output_path = output_dir.join(&output_name);
 
     let mut input_file =
         fs::File::open(archive).with_context(|| format!("opening '{}'", archive.display()))?;
+    // Check for clobber (no-clobber mode).
+    if !overwrite && output_path.exists() {
+        eprintln!(
+            "Warning: '{}' already exists, skipping (use --force to overwrite)",
+            output_path.display()
+        );
+        return Ok(());
+    }
+
     let mut output_file = fs::File::create(&output_path)
         .with_context(|| format!("creating '{}'", output_path.display()))?;
 
@@ -85,10 +94,15 @@ fn decompress_gzip_to_file(archive: &Path, output_dir: &Path) -> Result<()> {
 }
 
 /// Decompress a multi-file archive (zip, tar, tar.gz) using `extract_all`.
-fn decompress_archive(archive: &Path, output_dir: &Path, format: ArchiveFormat) -> Result<()> {
+fn decompress_archive(
+    archive: &Path,
+    output_dir: &Path,
+    format: ArchiveFormat,
+    overwrite: bool,
+) -> Result<()> {
     let mut reader = common::open_reader(archive, format)?;
     let report = reader
-        .extract_all(output_dir)
+        .extract_all(output_dir, overwrite)
         .with_context(|| format!("extracting '{}'", archive.display()))?;
 
     // Report any per-file errors.

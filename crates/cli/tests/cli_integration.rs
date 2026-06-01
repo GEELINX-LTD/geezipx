@@ -605,3 +605,329 @@ fn list_nonexistent_file_fails() {
         .failure()
         .stderr(predicate::str::contains("does not exist"));
 }
+
+// ---------------------------------------------------------------------------
+// No-clobber / force tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn decompress_no_clobber_skips_existing_files() {
+    let tmp = TestDir::new();
+    tmp.write("data.txt", "Original content");
+    let archive = tmp.join("archive.zip");
+
+    // Compress.
+    geezipx()
+        .args([
+            "compress",
+            tmp.join("data.txt").to_str().unwrap(),
+            "-o",
+            archive.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    let out = tmp.join("out");
+    std::fs::create_dir_all(&out).unwrap();
+
+    // First decompress (creates data.txt).
+    geezipx()
+        .args([
+            "decompress",
+            archive.to_str().unwrap(),
+            "-o",
+            out.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    assert!(out.join("data.txt").exists());
+    assert_eq!(
+        std::fs::read_to_string(out.join("data.txt")).unwrap(),
+        "Original content"
+    );
+
+    // Modify the extracted file.
+    std::fs::write(out.join("data.txt"), "Modified content").unwrap();
+
+    // Decompress with --no-clobber: should NOT overwrite.
+    geezipx()
+        .args([
+            "decompress",
+            archive.to_str().unwrap(),
+            "-o",
+            out.to_str().unwrap(),
+            "--no-clobber",
+        ])
+        .assert()
+        .success();
+
+    // File content should still be "Modified content" (not overwritten).
+    assert_eq!(
+        std::fs::read_to_string(out.join("data.txt")).unwrap(),
+        "Modified content",
+        "--no-clobber should not overwrite existing files"
+    );
+}
+
+#[test]
+fn decompress_force_overwrites_existing_files() {
+    let tmp = TestDir::new();
+    tmp.write("data.txt", "Original content");
+    let archive = tmp.join("archive.zip");
+
+    // Compress.
+    geezipx()
+        .args([
+            "compress",
+            tmp.join("data.txt").to_str().unwrap(),
+            "-o",
+            archive.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    let out = tmp.join("out");
+    std::fs::create_dir_all(&out).unwrap();
+
+    // First decompress.
+    geezipx()
+        .args([
+            "decompress",
+            archive.to_str().unwrap(),
+            "-o",
+            out.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    // Modify the extracted file.
+    std::fs::write(out.join("data.txt"), "Modified content").unwrap();
+
+    // Decompress with --force: should overwrite.
+    geezipx()
+        .args([
+            "decompress",
+            archive.to_str().unwrap(),
+            "-o",
+            out.to_str().unwrap(),
+            "--force",
+        ])
+        .assert()
+        .success();
+
+    // File content should be restored to original (overwritten).
+    assert_eq!(
+        std::fs::read_to_string(out.join("data.txt")).unwrap(),
+        "Original content",
+        "--force should overwrite existing files"
+    );
+}
+
+#[test]
+fn decompress_default_overwrites_existing_files() {
+    // Default behavior (no --no-clobber or --force) should also overwrite.
+    let tmp = TestDir::new();
+    tmp.write("data.txt", "Original content");
+    let archive = tmp.join("archive.zip");
+
+    geezipx()
+        .args([
+            "compress",
+            tmp.join("data.txt").to_str().unwrap(),
+            "-o",
+            archive.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    let out = tmp.join("out");
+    std::fs::create_dir_all(&out).unwrap();
+
+    // First decompress.
+    geezipx()
+        .args([
+            "decompress",
+            archive.to_str().unwrap(),
+            "-o",
+            out.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    // Modify the extracted file.
+    std::fs::write(out.join("data.txt"), "Modified content").unwrap();
+
+    // Decompress again with no flags: default should overwrite.
+    geezipx()
+        .args([
+            "decompress",
+            archive.to_str().unwrap(),
+            "-o",
+            out.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    assert_eq!(
+        std::fs::read_to_string(out.join("data.txt")).unwrap(),
+        "Original content",
+        "default behavior should overwrite existing files"
+    );
+}
+
+#[test]
+fn decompress_no_clobber_and_force_mutually_exclusive() {
+    let tmp = TestDir::new();
+    tmp.write("dummy.txt", "test");
+    let archive = tmp.join("archive.zip");
+
+    geezipx()
+        .args([
+            "compress",
+            tmp.join("dummy.txt").to_str().unwrap(),
+            "-o",
+            archive.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    // Both --no-clobber and --force should fail.
+    geezipx()
+        .args([
+            "decompress",
+            archive.to_str().unwrap(),
+            "-o",
+            tmp.join("out").to_str().unwrap(),
+            "--no-clobber",
+            "--force",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("cannot be used with"));
+}
+
+#[test]
+fn decompress_no_clobber_shows_in_help() {
+    geezipx()
+        .args(["decompress", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("--no-clobber"))
+        .stdout(predicate::str::contains("--force"));
+}
+
+// ---------------------------------------------------------------------------
+// No-clobber — gzip single-stream
+// ---------------------------------------------------------------------------
+
+#[test]
+fn gzip_decompress_no_clobber_skips_existing() {
+    let tmp = TestDir::new();
+    tmp.write("hello.txt", "Gzip no-clobber test.");
+    let archive = tmp.join("hello.txt.gz");
+
+    // Compress.
+    geezipx()
+        .args([
+            "compress",
+            tmp.join("hello.txt").to_str().unwrap(),
+            "-f",
+            "gzip",
+            "-o",
+            archive.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    let output_dir = tmp.join("out");
+    std::fs::create_dir_all(&output_dir).unwrap();
+
+    // First decompress (creates hello.txt).
+    geezipx()
+        .args([
+            "decompress",
+            archive.to_str().unwrap(),
+            "-o",
+            output_dir.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    // Modify the decompressed file.
+    std::fs::write(output_dir.join("hello.txt"), "MODIFIED").unwrap();
+
+    // Second decompress with --no-clobber should NOT overwrite.
+    geezipx()
+        .args([
+            "decompress",
+            archive.to_str().unwrap(),
+            "-o",
+            output_dir.to_str().unwrap(),
+            "--no-clobber",
+        ])
+        .assert()
+        .success();
+
+    assert_eq!(
+        std::fs::read_to_string(output_dir.join("hello.txt")).unwrap(),
+        "MODIFIED",
+        "--no-clobber should not overwrite existing gzip output"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// No-clobber — mixed (some files exist, some don't)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn decompress_archive_no_clobber_mixed() {
+    let tmp = TestDir::new();
+    tmp.write("exists.txt", "This file exists before decompress");
+    tmp.write("new.txt", "This file is new");
+    let archive = tmp.join("archive.zip");
+
+    // Compress.
+    geezipx()
+        .args([
+            "compress",
+            tmp.join("exists.txt").to_str().unwrap(),
+            tmp.join("new.txt").to_str().unwrap(),
+            "-o",
+            archive.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    let out = tmp.join("out");
+    std::fs::create_dir_all(&out).unwrap();
+
+    // Pre-create "exists.txt" in output dir (but NOT "new.txt").
+    std::fs::write(out.join("exists.txt"), "Pre-existing content").unwrap();
+
+    // Decompress with --no-clobber.
+    geezipx()
+        .args([
+            "decompress",
+            archive.to_str().unwrap(),
+            "-o",
+            out.to_str().unwrap(),
+            "--no-clobber",
+        ])
+        .assert()
+        .success();
+
+    // Pre-existing file should keep its content (not overwritten).
+    assert_eq!(
+        std::fs::read_to_string(out.join("exists.txt")).unwrap(),
+        "Pre-existing content",
+        "existing file should be preserved when --no-clobber"
+    );
+
+    // New file should have been extracted.
+    assert_eq!(
+        std::fs::read_to_string(out.join("new.txt")).unwrap(),
+        "This file is new",
+        "new file should be extracted even with --no-clobber"
+    );
+}

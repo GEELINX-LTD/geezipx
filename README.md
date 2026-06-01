@@ -51,6 +51,12 @@ target/release/geezipx decompress hello.txt.gz --stdout > output.txt
 
 # Decompress to a specific directory
 target/release/geezipx decompress archive.tar.gz -o /tmp/out
+d05|
+6bb:# Decompress skipping existing files
+8fb:target/release/geezipx decompress archive.zip --no-clobber
+d05|
+e4f:# Decompress overwriting existing files
+775:target/release/geezipx decompress archive.zip --force
 
 # List archive contents
 target/release/geezipx list archive.zip
