@@ -6,7 +6,8 @@ A cross-platform compression/decompression tool built with Rust.
 
 **Phase 1: CLI MVP complete** — the `compress`, `decompress`, and `list` subcommands
 are implemented for zip, tar, tar.gz, and gzip formats.  Live progress bars,
-graceful Ctrl+C cancellation, and streaming I/O are also implemented.
+graceful Ctrl+C cancellation, streaming I/O, and external-tool interoperability
+testing are also implemented.
 See [`docs/PHASE1_CLI_TASKS.md`](docs/PHASE1_CLI_TASKS.md) for the complete task breakdown.
 
 ## Project Structure
