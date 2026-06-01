@@ -3,7 +3,7 @@
 //! Automatically disables rendering when stderr is piped.
 //! Provides [`ProgressBarWrapper`] for per-operation progress and
 //! [`SharedCallback`] for sharing a single bar across multiple
-//! [`ProgressReader`] instances (e.g. multi-file archive compress).
+//! [`geezipx_core::ProgressReader`] instances (e.g. multi-file archive compress).
 //!
 //! # Progress bar templates
 //!
@@ -33,8 +33,8 @@ pub fn progress_bar_enabled() -> bool {
 // ---------------------------------------------------------------------------
 
 /// A progress bar that wraps `indicatif::ProgressBar` and implements
-/// [`ProgressCallback`] so it can be attached to a [`ProgressReader`] or
-/// [`ProgressWriter`].
+/// [`ProgressCallback`] so it can be attached to a [`geezipx_core::ProgressReader`] or
+/// [`geezipx_core::ProgressWriter`].
 pub struct ProgressBarWrapper {
     pb: ProgressBar,
 }
@@ -107,7 +107,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 /// Thin adapter that shares a single [`ProgressBarWrapper`] across multiple
-/// [`ProgressReader`] instances (one per file in a multi-file archive).
+/// [`geezipx_core::ProgressReader`] instances (one per file in a multi-file archive).
 ///
 /// Internally uses `Arc<Mutex<ProgressBarWrapper>>` so that `&mut self` on the
 /// trait is satisfied.

@@ -165,7 +165,7 @@ pub trait ArchiveReader: Send {
     /// each entry and before every write to the output file.
     ///
     /// The default implementation mirrors [`extract_all`](ArchiveReader::extract_all)
-    /// but also wraps the output file in a [`CancellableWriter`] that returns
+    /// but also wraps the output file in a `CancellableWriter` that returns
     /// `ErrorKind::Interrupted` when the user presses Ctrl+C.
     ///
     /// When cancellation is detected the operation is aborted immediately and

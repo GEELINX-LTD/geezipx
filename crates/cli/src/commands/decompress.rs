@@ -195,7 +195,7 @@ fn decompress_gzip_to_file(
 /// Decompress a multi-file archive (zip, tar, tar.gz) using `extract_all`.
 ///
 /// If `cancel_flag` is set, extraction stops as early as possible and
-/// returns [`GeeZipError::Cancelled`].
+/// returns [`geezipx_core::GeeZipError::Cancelled`].
 fn decompress_archive(
     archive: &Path,
     output_dir: &Path,
