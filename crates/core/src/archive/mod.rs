@@ -13,6 +13,9 @@
 //! - **Object-safe** — both traits use `&mut self` / `self: Box<Self>`
 //!   receivers so they can be used through `Box<dyn ArchiveReader>` etc.
 
+pub mod gzip;
+pub mod tar;
+pub mod targz;
 pub mod zip;
 
 use std::io::{Read, Write};
@@ -140,6 +143,13 @@ pub trait ArchiveWriter: Send {
     fn format(&self) -> ArchiveFormat;
 
     /// Add a new entry from a byte stream.
+    ///
+    /// **Note:** Some archive formats (notably tar) require the entry
+    /// size to be known _before_ the payload is written, which means
+    /// the implementation may need to buffer the entire entry in
+    /// memory.  For streaming-friendly formats (e.g., ZIP) this is
+    /// handled transparently by the encoder.  Callers should avoid
+    /// passing unbounded streams when using tar-based writers.
     fn add_entry_from_reader(&mut self, path: &Path, reader: &mut dyn Read) -> GeeZipResult<()>;
 
     /// Finalise the archive and return the total bytes written.
@@ -260,6 +270,28 @@ pub(crate) fn check_entry_path_safety(
     }
 
     Ok(target)
+}
+
+/// Counting writer wrapper that tracks total bytes written through a
+/// writer chain.
+///
+/// Used internally by [`TarWriter`](super::tar::TarWriter) and
+/// [`TarGzWriter`](super::targz::TarGzWriter).
+pub(crate) struct CountWriter<W> {
+    pub(crate) inner: W,
+    pub(crate) count: u64,
+}
+
+impl<W: std::io::Write> std::io::Write for CountWriter<W> {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        let n = self.inner.write(buf)?;
+        self.count += n as u64;
+        Ok(n)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.inner.flush()
+    }
 }
 
 #[cfg(test)]
