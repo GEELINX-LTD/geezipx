@@ -7,39 +7,38 @@
 ```
 geezipx/
 ├── Cargo.toml             # [workspace] 定义 crate 成员
-├── core/                  # 核心引擎库 — 纯逻辑，无 I/O 绑定
-│   ├── Cargo.toml
-│   └── src/
-│       ├── lib.rs
-│       ├── archive/       # 各归档格式的读写实现
-│       ├── io/            # 流式读/写/计数封装
-│       ├── detect/        # 格式自动检测
-│       ├── progress/      # 进度回调 trait 与指标
-│       └── error/         # 统一错误类型
-├── cli/                   # CLI 二进制 — clap + 进度渲染
-│   ├── Cargo.toml
-│   └── src/
-│       ├── main.rs
-│       ├── commands/      # compress / decompress / list
-│       └── render/        # 进度条、彩色输出
-├── gui-tauri/             # Tauri 桌面应用 (Phase 3)
-│   ├── Cargo.toml
-│   ├── src-tauri/         # Rust 后端（很薄，调用 core）
-│   └── src/               # 前端 (Vue/Svelte)
-├── tests/                 # 集成测试（归档格式互操作）
-│   ├── fixtures/          # 测试用小型归档文件
-│   └── compress-decompress.rs
-├── benches/               # 基准测试
-│   └── throughput.rs
-└── scripts/               # 构建/CI/发布脚本
+├── crates/
+│   ├── core/              # 核心引擎库 — 纯逻辑，流式 I/O
+│   │   ├── Cargo.toml
+│   │   └── src/
+│   │       ├── lib.rs
+│   │       ├── archive/       # 各归档格式的读写实现 (zip/tar/tar.gz/gzip)
+│   │       ├── detect.rs      # 格式自动检测（魔数 + 扩展名）
+│   │       ├── error.rs       # 统一错误类型
+│   │       └── io.rs          # 流式读/写/计数/进度封装
+│   └── cli/                   # CLI 二进制 — clap + 进度渲染
+│       ├── Cargo.toml
+│       └── src/
+│           ├── main.rs
+│           ├── commands/      # compress / decompress / list / completions
+│           └── render/        # 进度条
+├── docs/
+├── scripts/               # 构建/CI/互操作性测试脚本
+├── CHANGELOG.md
+├── deny.toml
+├── LICENSE
+├── rustfmt.toml
+└── .rust-toolchain.toml
 ```
+
+> 注：`gui-tauri/` 目录将在 Phase 3 桌面 GUI 阶段创建。
 
 ### 分层原则
 
 ```
 ┌─────────────┐  ┌─────────────┐
 │  cli (bin)  │  │ gui-tauri   │  ← 前端层：用户交互，不处理核心逻辑
-│  clap + crossterm │  │ Tauri + FE │
+│  clap       │  │ Tauri + FE │
 └──────┬──────┘  └──────┬──────┘
        │                │
        └───────┬────────┘
@@ -78,12 +77,10 @@ pub trait ArchiveWriter: Send {
 
 | 模块 | 负责 | 依赖 crate |
 |------|------|-----------|
-| `archive::zip` | ZIP 读写（Store/Deflate/Deflate64） | `zip` |
+| `archive::zip` | ZIP 读写（Store/Deflate） | `zip` |
 | `archive::targz` | tar + gzip 组合 | `tar`, `flate2` |
 | `archive::tar` | 纯 tar 打包 | `tar` |
 | `archive::gzip` | .gz 单文件压缩 | `flate2` |
-| `archive::xztar` | tar.xz 读取 | `xz2` (liblzma) |
-| `archive::zsttar` | tar.zst 读写 | `zstd` (zstd-sys) |
 
 ### 2.2 core/io — 流式接口
 
@@ -125,7 +122,7 @@ pub struct ProgressEvent {
 
 ```rust
 pub enum ArchiveFormat {
-    Zip, Tar, Gzip, Xz, Zstd, Raw, Unknown(Vec<u8>),
+    Zip, Tar, Gzip, TarGz, Xz, Zstd, Unknown,
 }
 
 pub fn detect_format(reader: &mut dyn Read) -> Result<ArchiveFormat>;
@@ -138,6 +135,7 @@ pub fn detect_format(reader: &mut dyn Read) -> Result<ArchiveFormat>;
 | ZIP | `50 4B 03 04` |
 | ZIP (empty) | `50 4B 05 06` |
 | gzip | `1F 8B` |
+| tar.gz | 同 gzip (`1F 8B`)，配合 `.tar.gz`/`.tgz` 扩展名 |
 | zstd | `28 B5 2F FD` |
 | xz | `FD 37 7A 58 5A 00` |
 | tar | 无魔数，fallback 到 `.tar` 扩展名 |
@@ -179,78 +177,87 @@ impl Error for GeeZipError { /* ... */ }
 ```rust
 pub trait ProgressCallback: Send {
     fn update(&mut self, event: ProgressEvent);
-    fn is_cancelled(&self) -> bool;
-    fn set_label(&mut self, label: String);
+    fn is_cancelled(&self) -> bool;  // 默认返回 false
 }
 ```
 
-CLI 实现：`crossterm` + `indicatif` 渲染 tqdm 风格进度条。
+CLI 实现：`indicatif` 渲染 tqdm 风格进度条，可被 `--no-progress` 禁用。
 GUI 实现：通过 Tauri `emit` 事件推送进度到前端。
 
 ### 2.6 cli/commands — 命令分发
 
-使用 `clap` v4 derive API，三个子命令：
+使用 `clap` v4 derive API，四个子命令：
 
 | 子命令 | 主要参数 | 核心流程 |
 |--------|---------|---------|
-| `compress` | `<inputs...>` `--format` `-o` `--level` `-r` `--progress` | 收集文件 → 创建 ArchiveWriter → 写入 |
-| `decompress` | `<archive>` `-o` `--stdout` `--no-clobber` `--force` `--progress` | 检测格式 → 创建 ArchiveReader → 解包 |
-| `list` | `<archive>` | 检测格式 → 读取 entries → 表格输出 |
+| `compress` | `<inputs...>` `--format` `-o` `--level` `-r` | 收集文件 → 创建 ArchiveWriter → 写入 |
+| `decompress` | `<archive>` `-o` `--stdout` `--no-clobber` `--force` | 检测格式 → 创建 ArchiveReader → 解包 |
+| `list` | `<archive>` `--json` | 检测格式 → 读取 entries → 表格/JSON 输出 |
+| `completions` | `<shell>` | 生成指定 Shell 的自动补全脚本 |
+
+全局参数：`--no-progress`（禁用进度条）、`--verbose`（逐文件日志）。
 
 ### 2.7 cli/render — 输出渲染
 
 - 进度条：`indicatif` 的 `ProgressBar` + `ProgressStyle` 自定义模板。
 - 列表输出：`comfy-table` 格式化表格。
-- 颜色/样式：`owo-colors` 或 `colored`，仅在 tty 且未禁用时启用。
 
 ## 3. 关键依赖（Phase 1）
+Phase 1 实际依赖（以 `crates/core/Cargo.toml` 和 `crates/cli/Cargo.toml` 为准）：
 
-| Crate | 用途 | 理由 |
-|-------|------|------|
-| `clap` v4 | CLI 参数解析 | 行业标准，derive API，自动补全 |
-| `zip` 2.x | ZIP 格式读写 | Rust 生态最成熟的 ZIP 库 |
-| `tar` 0.4 | tar 归档包 | 与 `flate2`/`xz2`/`zstd` 组合使用 |
-| `flate2` 1.x | gzip/deflate | Rust 原生实现，支持 `miniz_oxide`（无 C 依赖） |
-| `xz2` | xz 解压 | 绑定 liblzma，可选 feature |
-| `zstd` | zstd 压缩 | Facebook 标准，可选 feature |
-| `indicatif` | 进度条 | 功能丰富的终端进度条 |
-| `crossterm` | 终端控制 | 跨平台 tty/尺寸检测 |
-| `comfy-table` | 表格输出 | 简洁的表格格式化 |
-| `serde` + `serde_json` | 序列化 | `--json` 输出模式 |
-| `snapbox` / `assert_cmd` | 集成测试 | 测试 CLI 二进制行为 |
-| `criterion` | 基准测试 | Rust 标准基准框架 |
+#### core 依赖
 
-Feature flags 设计：
+| Crate | 用途 |
+|-------|------|
+| `zip` 2.x | ZIP 格式读写（`default-features = false`，仅 `deflate`） |
+| `tar` 0.4 | tar 归档包 |
+| `flate2` 1.x | gzip/deflate（`rust_backend` — 纯 Rust，无 C 依赖） |
+| `thiserror` 2 | 错误类型 derive |
+| `log` 0.4 | 日志门面 |
 
-```toml
-[features]
-default = ["zip", "gz", "xz", "zstd"]
-zip = ["zip_crate"]
-gz = ["flate2"]
-xz = ["xz2"]        # 依赖 liblzma 系统库
-zstd = ["zstd"]     # 依赖 zstd 系统库
-static-xz = ["xz2/static"]
-static-zstd = ["zstd/static"]
-```
+##### dev-dependencies
 
-用户可以通过 `cargo install geezipx --no-default-features --features zip,gz` 选择裁剪，避免安装系统库。
+| Crate | 用途 |
+|-------|------|
+| `tempfile` 3 | 测试临时目录 |
+| `criterion` 0.5 | 基准测试（`html_reports`） |
+
+#### cli 依赖
+
+| Crate | 用途 |
+|-------|------|
+| `geezipx-core` | workspace 依赖 |
+| `clap` v4 | CLI 参数解析（derive API） |
+| `clap_complete` 4 | Shell 自动补全生成 |
+| `anyhow` 1 | 二进制层错误传播 |
+| `indicatif` 0.17 | 终端进度条 |
+| `comfy-table` 7 | 表格输出 |
+| `serde` + `serde_json` 1 | `--json` 输出序列化 |
+| `ctrlc` 3 | Ctrl+C 信号处理 |
+
+##### dev-dependencies
+
+| Crate | 用途 |
+|-------|------|
+| `assert_cmd` 2 | CLI 二进制集成测试 |
+| `predicates` 3 | CLI 输出断言 |
+| `tempfile` 3 | 测试临时目录 |
+
+> **与早期草案的变化**：Phase 1 不包含 `xz2`/`zstd`/`crossterm`/`owo-colors`/`env_logger`/`snapbox`。xz/zstd 的 `ArchiveFormat` 枚举变体虽已定义（格式检测占位），但读写实现留待 Phase 2。当前 core 也不使用 feature flags 进行条件编译——zip 和 flate2 为必选依赖。
 
 ## 4. 进度与取消机制
 
 ### 进度流
 
-```
-Reader(File) → ReadStream(Reader) → Decompress → WriteStream(Writer) → File
-                    ↑                              ↑
-               (计数, emit)                   (计数, emit)
-                    │
-               ┌────┴─────┐
-               │ Ticker (250ms) │ ← 节流回调，避免每字节触发
-               └──────────┘
+Reader(File) → ProgressReader → Decompress → ProgressWriter → File
+                    ↑                            ↑
+               (计数, callback)             (计数, callback)
+            （回调在每次 read/write 后触发；
+             CLI 端 `indicatif` 内部负责自己的渲染节流）
 ```
 
-- 每 250ms 计算速度（基于滑动窗口）并发出进度事件。
-- 标准输出被检测到是 pipe 时，不输出进度条，改为 `--verbose` 简单日志。
+- `indicatif` 内部每 100ms 刷新一次渲染，不影响流式 I/O 性能。
+- 标准输出被检测为 pipe 或无终端时不输出进度条，通过 `--no-progress` 禁用。
 
 ### 用户取消
 
@@ -282,25 +289,21 @@ Reader(File) → ReadStream(Reader) → Decompress → WriteStream(Writer) → F
 
 ## 7. CI/CD（GitHub Actions）
 
-```
 Matrix:
   - os: ubuntu-latest, macos-latest, windows-latest
-  - rust: stable, msrv (1.80)
+  - toolchain: stable (单一版本)
 
-流程:
-  1. cargo check + clippy (全线)
-  2. cargo test (全线)
-  3. cargo build --release (全线)
-  4. 集成测试 (对比 hash)
-  5. cargo deny check advisories (安全审计)
-  6. 二进制上传至 workflow artifact
-
-Release:
-  - Tag semver 触发 publish
-  - cargo publish crates.io
-  - GitHub Release + artifact attach
-  - 后续：Homebrew tap / winget PR
+Jobs (串行依赖):
+  1. fmt           — cargo fmt --all --check
+  2. clippy        — cargo clippy --workspace --all-targets --all-features -- -D warnings (全线，依赖 fmt)
+  3. test          — cargo test --workspace --all-features (全线，依赖 fmt)
+  4. build         — cargo build --release --workspace (全线，依赖 fmt+clippy+test)
+                     → 产物上传至 workflow artifact (`geezipx-{os}-x86_64`)
+  5. interop       — bash scripts/check-interop.sh (依赖 clippy+test+build)
+  6. bench-compile — cargo bench --no-run -p geezipx-core (依赖 fmt)
 ```
+
+> 注意：当前 CI 不包含 `cargo deny`（安全审计）或 `cargo publish`，这些将在 Phase 1 MVP 稳定后加入。发布流程目前仅通过手动 tag 触发 workflow artifact 生成。
 
 ## 8. Tauri 后续接入方式（Phase 3 占位）
 
@@ -336,67 +339,101 @@ gui-tauri/
 | 风险 | 影响 | 缓解 |
 |------|------|------|
 | `zip` crate 对 Deflate64 支持不完整 | 部分 ZIP 无法解压 | Phase 2 回退到系统 `unzip`；社区 PR |
-| liblzma / zstd 系统库交叉编译困难 | CI 构建易失败 | 提供 `static-*` feature；MUSL 目标 |
+| xz/zstd 的 C 库交叉编译困难（Phase 2 引入） | CI 构建可能复杂 | Phase 1 不包含 xz/zstd 读写，规避该风险 |
 | 大文件进度精度受限于预扫描 | 压缩前需要遍历目标文件计算总大小 | Phase 1 接受首次扫描开销；Phase 2 用 `rayon` 并行 |
 | Windows 下符号链接/长路径不一致 | 功能受限 | 清晰文档说明限制；渐进式支持 |
 | 不同平台 gzip 压缩默认级别差异 | 产生不同二进制 | CI 强制 `--level` 保证一致性；默认值文档说明 |
 
-## 附录：Cargo Workspace 配置建议
+## 附录：Cargo Workspace 配置
 
 ```toml
 # /geezipx/Cargo.toml
 [workspace]
 resolver = "2"
-members = ["core", "cli"]
+members = ["crates/core", "crates/cli"]
 
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
-license = "MIT OR Apache-2.0"
-authors = ["GeeZipX Contributors"]
+license = "MIT"
+repository = "https://github.com/geezipx/geezipx"
+rust-version = "1.96"
+
+[workspace.dependencies]
+geezipx-core = { version = "0.1.0", path = "crates/core" }
 ```
 
 ```toml
-# /geezipx/core/Cargo.toml
+# /geezipx/crates/core/Cargo.toml
 [package]
 name = "geezipx-core"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Compression/decompression core engine for GeeZipX"
+readme = "../../README.md"
+keywords = ["compression", "decompression", "archive", "zip", "gzip"]
+categories = ["compression"]
 
 [dependencies]
-zip = { package = "zip", version = "2", optional = true }
-tar = "0.4"
-flate2 = { version = "1", optional = true, default-features = false, features = ["rust_backend"] }
-xz2 = { version = "0.1", optional = true }
-zstd = { version = "0.13", optional = true, default-features = false }
 thiserror = "2"
 log = "0.4"
+zip = { version = "2", default-features = false, features = ["deflate"] }
+tar = "0.4"
+flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
 
-[features]
-default = ["zip", "gz"]
-zip = ["zip_crate"]
-gz = ["flate2"]
-xz = ["xz2"]
-zstd = ["zstd"]
+[dev-dependencies]
+tempfile = "3"
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[lib]
+name = "geezipx_core"
+path = "src/lib.rs"
+
+[[bench]]
+name = "gzip_throughput"
+harness = false
+
+[[bench]]
+name = "archive_throughput"
+harness = false
 ```
 
 ```toml
-# /geezipx/cli/Cargo.toml
+# /geezipx/crates/cli/Cargo.toml
 [package]
 name = "geezipx"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "GeeZipX CLI — high-performance compression/decompression tool"
+readme = "../../README.md"
+keywords = ["compression", "decompression", "archive", "cli", "zip"]
+categories = ["command-line-utilities", "compression"]
 
 [dependencies]
-geezipx-core = { path = "../core" }
-clap = { version = "4", features = ["derive"] }
-indicatif = "0.17"
-crossterm = "0.28"
-comfy-table = "7"
-owo-colors = "4"
+geezipx-core.workspace = true
 anyhow = "1"
-log = "0.4"
-env_logger = "0.11"
+clap = { version = "4", features = ["derive"] }
+clap_complete = "4"
+comfy-table = "7"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+indicatif = "0.17"
+ctrlc = "3"
+
+[dev-dependencies]
+assert_cmd = "2"
+predicates = "3"
+tempfile = "3"
+
+[[bin]]
+name = "geezipx"
+path = "src/main.rs"
 ```
 
 > 注意：以上 `Cargo.toml` 版本号仅作示例，需以 crates.io 上的实际最新稳定版本为准。

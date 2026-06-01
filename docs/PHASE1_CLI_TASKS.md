@@ -292,7 +292,7 @@ geezipx list <archive>
   - **fmt**：`ubuntu-latest` × `stable`，`cargo fmt --all --check`
   - **Clippy**：三平台矩阵（ubuntu / macos / windows）× `stable`，`cargo clippy -D warnings`
   - **Test**：三平台矩阵 × `stable`，`cargo test --workspace --all-features`
-  - **Build**：三平台矩阵，`cargo build --release` + artifact 上传（`actions/upload-artifact@v4`，保留 7 天）
+  - **Build**：三平台矩阵，`cargo build --release` + artifact 上传（`actions/upload-artifact@v7`，保留 7 天）
   - **Interop**：`ubuntu-latest` 运行 `scripts/check-interop.sh`，依赖 clippy+test+build 通过
   - **Audit**：独立 `deny.yml` 工作流，使用 `EmbarkStudios/cargo-deny-action@v2`，push/PR 触发 + 每周调度
   - **缓存**：所有 step 均启用 `cache: true`（`actions-rust-lang/setup-rust-toolchain@v1` 内置）

@@ -72,7 +72,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `cargo fmt --all --check` on Ubuntu
   - `cargo clippy -D warnings` on all platforms
   - `cargo test --workspace --all-features` on all platforms
-  - Release build with artifact upload (`actions/upload-artifact@v4`, 7-day retention)
+  - Release build with artifact upload (`actions/upload-artifact@v7`, 7-day retention)
   - `cargo-deny` security/license audit on push and PR, weekly scheduled scan
   - Interoperability test job (depends on clippy+test+build passing)
   - Benchmark compile check on every push/PR
