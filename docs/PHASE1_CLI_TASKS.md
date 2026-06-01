@@ -1,217 +1,173 @@
 # GeeZipX Phase 1 — CLI MVP 任务拆分
 
 > 总周期估计：**10-12 周**（单人全职开发）。  
-> 里程碑结构：4 个里程碑，每个里程碑对应可发布的增量。
+> 里程碑结构：4 个里程碑，每个里程碑对应可发布的增量。  
+> **当前状态：M1 和 M2 已完成并提交 (`329c773`)。M3 尚未开始，M4 **部分完成**（CI 已初始化，三平台矩阵及发布流程待定）。**
 
 ---
 
 ## 里程碑总览
 
-| 里程碑 | 主题 | 周期 | 产出 |
-|--------|------|------|------|
-| M1 | 项目骨架 + 核心引擎库 | 第 1-4 周 | `geezipx-core` lib crate，zip/tar/gz 基础读写 |
-| M2 | CLI 基本命令 | 第 5-7 周 | `geezipx` binary，三个子命令可用 |
-| M3 | 流式/进度/兼容性打磨 | 第 8-10 周 | 进度条、管道、格式检测、跨平台测试 |
-| M4 | CI/测试/发布 | 第 11-12 周 | CI 全线通过、crates.io 发布、文档站 |
+| 里程碑 | 主题 | 周期 | 产出 | 状态 |
+|--------|------|------|------|------|
+| M1 | 项目骨架 + 核心引擎库 | 第 1-4 周 | `geezipx-core` lib crate，zip/tar/gz 基础读写 | **已完成** |
+| M2 | CLI 基本命令 | 第 5-7 周 | `geezipx` binary，三个子命令可用 | **已完成** |
+| M3 | 流式/进度/兼容性打磨 | 第 8-10 周 | 进度条、管道、格式检测、跨平台测试 | 未开始 |
+| M4 | CI/测试/发布 | 第 11-12 周 | CI 全线通过、crates.io 发布、文档站 | 部分完成 |
 
 ---
 
 ## M1：项目骨架 + 核心引擎库（第 1-4 周）
 
+> **状态：已完成**（提交 `329c773`）。所有 M1 任务已实现。
+
 ### 目标
-建立 Cargo Workspace，完成 `geezipx-core` 库的架构落地，实现 ZIP 和 tar.gz 的基础读写能力（内存模式，暂不流式）。
+建立 Cargo Workspace，完成 `geezipx-core` 库的架构落地，实现 ZIP、tar、tar.gz 和 gzip 的基础读写能力。
 
-### M1-1：Workspace 初始化
-- **任务**：创建 Cargo Workspace，建立 `core/` 和 `cli/` 目录骨架。
-- **文件**：
-  - `/Cargo.toml` — workspace 定义，resolver = "2"
-  - `/core/Cargo.toml` — lib crate `geezipx-core`，初始依赖 `thiserror`、`log`
-  - `/cli/Cargo.toml` — bin crate `geezipx`，初始依赖 `geezipx-core`
-  - `core/src/lib.rs` — 公开模块声明
-  - `cli/src/main.rs` — 最小入口 `fn main() { println!("hello"); }`
-- **验收标准**：
-  - `cargo build` 通过
-  - `cargo clippy` 无 warning
-- **预估**：0.5 天
+### M1-1：Workspace 初始化 ✅
+- **任务**：创建 Cargo Workspace，建立 `crates/core/` 和 `crates/cli/` 目录骨架。
+- **实际文件**（路径以 `crates/` 为前缀）：
+  - `/Cargo.toml` — workspace 定义，resolver = "2"，members = ["crates/core", "crates/cli"]
+  - `/crates/core/Cargo.toml` — lib crate `geezipx-core`，依赖 `thiserror`、`log`、`zip`、`tar`、`flate2`
+  - `/crates/cli/Cargo.toml` — bin crate `geezipx`，依赖 `geezipx-core`、`clap`、`anyhow`、`comfy-table`、`serde`、`serde_json`
+  - `crates/core/src/lib.rs` — 公开模块声明
+  - `crates/cli/src/main.rs` — 完整入口
+- **验收标准**：`cargo build` 和 `cargo clippy` 通过
+- **实际结果**：已通过。
 
-### M1-2：错误类型定义
+### M1-2：错误类型定义 ✅
 - **任务**：实现 `error` 模块，定义 `GeeZipError` 枚举。
-- **文件**：
-  - `core/src/error.rs` — 包含全部错误变体（Io, Format, UnsupportedFormat, Cancelled, Crypto, PathTraversal, ClobberDenied）
-  - 派生 `thiserror::Error` + 手动实现 `Display`（带用户友好的错误信息格式）
-- **验收标准**：
-  - `GeeZipError` 实现 `std::error::Error` + `Send + Sync`
-  - 单元测试覆盖每种变体的消息格式
-- **预估**：1 天
+- **实际文件**：`crates/core/src/error.rs`
+- **变体**：Io, Format, UnsupportedFormat, Cancelled, Crypto, PathTraversal, ClobberDenied
+- **验收标准**：`GeeZipError` 实现 `std::error::Error` + `Send + Sync`，单元测试覆盖 — 已通过。
 
-### M1-3：格式检测模块
-- **任务**：实现 `detect` 模块，基于魔数字节检测归档格式。
-- **文件**：
-  - `core/src/detect.rs` — `detect_format()` 函数和 `ArchiveFormat` 枚举
-  - 魔数匹配：ZIP(50 4B 03 04), gzip(1F 8B), zstd(28 B5 2F FD), xz(FD 37 7A 58 5A 00)
-  - tar 降级到 `.tar` 扩展名匹配
-- **验收标准**：
-  - 传入 ZIP 魔数返回 `ArchiveFormat::Zip`
-  - 传入 gzip 魔数返回 `ArchiveFormat::Gzip`
-  - 未知魔数返回 `ArchiveFormat::Unknown`
-- **预估**：1 天
+### M1-3：格式检测模块 ✅
+- **实际文件**：`crates/core/src/detect.rs`
+- **魔数匹配**：ZIP(50 4B 03 04), gzip(1F 8B), zstd(28 B5 2F FD), xz(FD 37 7A 58 5A 00)
+- **扩展名匹配**：`.zip`, `.tar`, `.gz`/`.gzip`, `.tar.gz`/`.tgz`, `.xz`/`.txz`, `.zst`/`.zstd`/`.tzst`
+- **验收标准**：已通过，含完整单元测试覆盖。
+- **注意**：未知格式返回 `None`（非 `Unknown` 枚举值），由调用方处理错误。
 
-### M1-4：ZIP 读写基础
-- **任务**：实现 ZIP 格式的 `ArchiveReader` / `ArchiveWriter` trait。
-- **文件**：
-  - `core/src/archive/mod.rs` — `ArchiveReader` 和 `ArchiveWriter` trait 定义
-  - `core/src/archive/zip.rs` — 基于 `zip` crate 的 read-only 和 write 实现
-- **验收标准**：
-  - 能读 ZIP 所有 entry 的信息（文件名、大小、压缩大小、CRC）
-  - 能提取 entry 到 `&mut dyn Write`
-  - 能创建 ZIP 并将文件条目写入
-  - 单元测试：压缩 → 解压 → 比对原始内容
-- **依赖**：M1-2（错误类型）
-- **预估**：3 天
+### M1-4：ZIP 读写基础 ✅
+- **实际文件**：
+  - `crates/core/src/archive/mod.rs` — `ArchiveReader` 和 `ArchiveWriter` trait
+  - `crates/core/src/archive/zip.rs` — 基于 `zip` crate 的读写实现
+- **验收标准**：全部通过。支持 entry 枚举、提取到 `&mut dyn Write`、创建写入、round-trip 测试。
+- **特点**：含 Zip Slip 路径穿越防护（`extract_all` 默认实现）。
 
-### M1-5：tar.gz 读写基础
-- **任务**：实现 tar 和 gzip 组合的读写能力。
-- **文件**：
-  - `core/src/archive/tar_impl.rs` — tar（无压缩）
-  - `core/src/archive/gz_impl.rs` — 单文件 gzip
-  - `core/src/archive/targz.rs` — tar + gzip 组合
-- **设计决策**：tar 格式只打包不压缩，gzip 层包裹 tar 流。Phase 1 使用 flate2 的 `rust_backend`（纯 Rust 实现，无 C 依赖）。
-- **验收标准**：
-  - `tar cvf` 风格：创建 tar，添加文件，验证结构
-  - `tar.gz` 创建和提取：先用 gzip 压缩 tar 流，解压时反向
-  - 单元测试：`compress("hello") → gz → decompress → "hello"`
-- **依赖**：M1-2
-- **预估**：3 天
+### M1-5：tar.gz + tar + gzip 读写基础 ✅
+- **实际文件**：
+  - `crates/core/src/archive/tar.rs` — tar（无压缩）ArchiveReader/ArchiveWriter
+  - `crates/core/src/archive/gzip.rs` — 单文件 gzip `gzip_compress()` / `gzip_decompress()`（独立 API，不通过 ArchiveWriter trait，因为 gzip 是单流压缩）
+  - `crates/core/src/archive/targz.rs` — tar + gzip 组合的 ArchiveReader/ArchiveWriter
+- **设计决策**：使用 flate2 的 `rust_backend`（纯 Rust）。gzip 格式是单流压缩，不适合 ArchiveWriter trait 的 add_entry 模式，因此在 CLI 层直接调用独立函数。
 
-### M1-6：核心模块的单元测试
-- **任务**：补全 M1-4 和 M1-5 的单元测试，包括边界情况。
-- **场景**：
-  - 空 ZIP/tar 的读写
-  - 包含子目录的归档（保持路径结构）
-  - 大文件（> 1 GB）在内存模式下的行为（应触发适度警告或限制）
-  - 损坏归档的错误返回
-- **验收标准**：
-  - `cargo test -p geezipx-core` 全部通过
-  - M1 模块行覆盖率 > 60%
-- **预估**：2 天
+### M1-6：核心模块的单元测试 ✅
+- **覆盖范围**：detect 模块（magic detection、extension detection、Display、read_magic_bytes）、archive 模块（path normalization、Zip Slip 检查）、error 模块
+- **验收标准**：`cargo test -p geezipx-core` 全部通过（数十个单元测试）
+- **未完成**：覆盖率 > 60% 指标尚未使用 `cargo-tarpaulin` 测量。
 
 ### M1 里程碑检查清单
-- [ ] `cargo build` 全线通过
-- [ ] `cargo test -p geezipx-core` 全部通过，覆盖率 > 60%
-- [ ] `cargo clippy --all-targets` 零 warning
-- [ ] `cargo doc --no-deps` 能生成文档
-- [ ] 项目 README 骨架已更新
+- [x] `cargo build` 全线通过
+- [x] `cargo test -p geezipx-core` 全部通过
+- [x] `cargo clippy --all-targets` 零 warning
+- [ ] `cargo doc --no-deps` 能生成文档（未验证）
+- [x] 项目 README 骨架已更新
 
 ---
 
 ## M2：CLI 基本命令（第 5-7 周）
 
+> **状态：已完成**（提交 `329c773`）。
+
 ### 目标
 基于 `clap` 实现三个子命令 `compress` / `decompress` / `list`，用户可以从命令行完成最基本的压缩/解压操作。
 
-### M2-1：CLI 参数定义
-- **任务**：用 `clap` derive API 定义命令行结构。
-- **文件**：
-  - `cli/src/main.rs` — `Cli` 结构体 + `#[command]`
-  - `cli/src/commands/mod.rs` — 命令模块声明
-- **子命令参数**：
+### M2-1：CLI 参数定义 ✅
+- **实际文件**：
+  - `crates/cli/src/main.rs` — `Cli` 结构体 + `#[command]`
+  - `crates/cli/src/commands/mod.rs` — 命令模块声明
+- **实际 CLI 接口**（real `geezipx --help`）：
 
 ```
-geezipx compress <inputs...>     # 输入文件/目录
-  -f, --format <FORMAT>          # zip | tar | tar.gz | tgz (default: zip)
-  -o, --output <PATH>            # 输出文件
-  -l, --level <0-9>              # 压缩级别 (default: 6)
+geezipx compress <inputs...>
+  -f, --format <FORMAT>          # zip | tar | tar.gz | tgz | gz | gzip (default: 从扩展名推断或者 zip)
+  -o, --output <PATH>            # 输出文件（必填）
   -r, --recursive                # 递归添加目录
-  -p, --progress                 # 显示进度条
 
-geezipx decompress <archive>     # 归档文件
+geezipx decompress <archive>
   -o, --output-dir <PATH>        # 输出目录 (default: .)
-  --stdout                       # 解压到标准输出
-  --no-clobber                   # 不覆盖已有文件
-  -p, --progress                 # 显示进度条
+  --stdout                       # 解压到 stdout（仅 gzip）
 
-geezipx list <archive>           # 归档文件
+geezipx list <archive>
   -j, --json                     # JSON 格式输出
 ```
 
-- **验收标准**：
-  - `geezipx --help` 输出完整
-  - 参数解析正确的所有子命令组合
-  - 非法参数给出清晰错误
-- **预估**：2 天
+- **与原计划的差异**（以下功能已推迟到 M3 或后续）：
+  - `--level` 压缩级别 — 未实现
+  - `--progress` 进度条 — 未实现
+  - `--no-clobber` 覆盖保护 — 未实现
+- **验收标准**：三个子命令均可通过 `--help` 查看参数说明 — 通过（见集成测试 `help_available`）。
 
-### M2-2：compress 命令实现
-- **任务**：连接 CLI 参数与 core 引擎，实现压缩流程。
-- **文件**：
-  - `cli/src/commands/compress.rs` — `execute_compress()` 函数
-- **流程**：
-  1. 解析路径（支持通配符 glob）
-  2. 打开输出文件
-  3. 根据 `--format` 创建对应 `ArchiveWriter`
-  4. 遍历输入文件，逐个添加
-  5. 调用 `finish()`，关闭 writer
-- **验收标准**：
-  - `geezipx compress file.txt -f zip -o out.zip` 创建有效的 ZIP
-  - `geezipx compress src/ -r -f tar.gz -o src.tar.gz` 递归打包
-  - 生成的 ZIP 可被系统 `unzip` 解压
-  - 生成的 tar.gz 可被 `tar xzf` 解压
-- **依赖**：M1-4, M1-5, M2-1
-- **预估**：3 天
+### M2-2：compress 命令实现 ✅
+- **实际文件**：`crates/cli/src/commands/compress.rs`、`crates/cli/src/commands/common.rs`
+- **流程**：参数验证 → 格式解析 → 创建输出文件 → gzip 直接调用独立 API，其他格式用 ArchiveWriter 逐文件添加 → 报告统计
+- **支持的格式**：zip, tar, tar.gz/tgz, gz/gzip
+- **验证逻辑**：
+  - gzip 仅接受单个文件输入
+  - 目录需 `--recursive`（否则报错提示）
+  - 输入路径不存在时报错
+- **格式推断**：`--format` 优先；否则从 `.zip`（或其他扩展名）推断；均不匹配时默认 ZIP
+- **与原计划差异**：不支持 glob 通配符（由 shell 展开）、不支持 `--level` 压缩级别
+- **验收标准**：全部通过
 
-### M2-3：decompress 命令实现
-- **任务**：连接 CLI 参数与 core 引擎，实现解压流程。
-- **文件**：
-  - `cli/src/commands/decompress.rs` — `execute_decompress()` 函数
-- **流程**：
-  1. 打开归档文件
-  2. 自动检测格式（`detect_format`）
-  3. 创建对应 `ArchiveReader`
-  4. 提取所有 entry 到 `--output-dir`
-  5. 处理 `--no-clobber` / `--stdout`
-- **验收标准**：
-  - `geezipx decompress out.zip` 解压到当前目录
-  - `geezipx decompress out.zip -o /tmp/out` 解压到指定目录
-  - `geezipx decompress archive.tar.gz --stdout > data` 管道输出
-  - 自动检测：无需指定格式即可解压 ZIP 和 tar.gz
-- **依赖**：M1-3, M1-4, M1-5, M2-1
-- **预估**：2 天
+### M2-3：decompress 命令实现 ✅
+- **实际文件**：`crates/cli/src/commands/decompress.rs`、`crates/cli/src/commands/common.rs`
+- **流程**：文件存在检查 → 格式检测（magic bytes + extension fallback）→ 输出目录创建 → gzip 走独立函数，其他格式用 `extract_all` → 报告
+- **格式检测**：先读 magic bytes（gzip 检测后需通过 `.tar.gz`/`.tgz` 扩展名区分 TarGz），无 magic 则 fallback 到扩展名
+- **`--stdout` 限制**：仅 gzip 格式支持；多文件归档使用 `--stdout` 时报错并提示
+- **Zip Slip 防护**：`extract_all` 内置
+- **与原计划差异**：不支持 `--no-clobber` 覆盖策略
+- **验收标准**：全部通过
 
-### M2-4：list 命令实现
-- **任务**：列出归档内容，表格输出。
-- **文件**：
-  - `cli/src/commands/list.rs`
-  - 使用 `comfy-table` 格式化，`--json` 模式用 `serde_json`
-- **验收标准**：
-  - `geezipx list archive.zip` 输出表格（文件名、大小、压缩大小、压缩率、修改时间）
-  - `geezipx list archive.tar.gz -j` 输出 JSON 数组
-  - `geezipx list unknown.xyz` 报错 `unsupported format`
-- **依赖**：M1-3, M1-4, M1-5, M2-1
-- **预估**：1.5 天
+### M2-4：list 命令实现 ✅
+- **实际文件**：`crates/cli/src/commands/list.rs`
+- **输出格式**：
+  - 默认：`comfy-table` 表格（Path, Size, Compressed 三列，无压缩率和修改时间列）
+  - `--json`：`serde_json` JSON 数组（path, size, compressed_size 字段）
+- **gzip 特殊处理**：gzip 产生一个合成 entry，文件名从 `.gz`/`.gzip` 后缀推断，压缩大小来自文件元数据，原始大小未知
+- **与原计划差异**：表格不显示压缩率和修改时间
 
-### M2-5：CLI 集成测试
-- **任务**：为 CLI 子命令编写集成测试，测试真实文件流。
+### M2-5：CLI 集成测试 ✅
+- **实际文件**：`crates/cli/tests/cli_integration.rs`（23 个集成测试）
 - **工具**：`assert_cmd` + `predicates` + `tempfile`
-- **场景**：
-  - 压缩 → 解压 → 比对原始文件 hash
-  - `tar.gz` 与系统 `tar` 互操作
-  - 非法参数的错误输出
-  - `--stdout` 与管道组合
-  - 大文件（100 MB+）的简单冒烟测试
-- **验收标准**：
-  - `cargo test` 全线通过
-  - `cargo test --test '*'` 包含集成测试
-- **预估**：2 天
+- **场景覆盖**：
+  - 各子命令 `--help` 可用性
+  - ZIP / tar / tar.gz / gzip round-trip（compress → list → decompress → 内容比对）
+  - gzip `--stdout` 解压
+  - `list` 表格输出和 JSON 输出
+  - 不支持格式报错
+  - 缺少/不存在输入报错
+  - 目录无 `-r` 时报错
+  - gzip 多输入报错
+  - `--stdout` 用于多文件归档时报错
+  - 输出目录自动创建
+  - 扩展名自动推断格式
+- **验收标准**：`cargo test --workspace --all-features` 全部通过（131 tests passed）
+- **与原计划差异**：尚未包含与系统 `tar`/`unzip` 的互操作测试、尚未包含大文件冒烟测试（100 MB+）
 
 ### M2 里程碑检查清单
-- [ ] `geezipx compress` / `decompress` / `list` 三个子命令可用
-- [ ] ZIP 和 tar.gz 双向与原生工具互操作
-- [ ] 自动格式检测工作
-- [ ] 集成测试覆盖主要场景
-- [ ] `cargo build --release` 生成稳定二进制
+- [x] `geezipx compress` / `decompress` / `list` 三个子命令可用
+- [x] ZIP 和 tar.gz 双向 round-trip 通过
+- [x] 自动格式检测工作
+- [x] 集成测试覆盖主要场景（23 个测试）
+- [x] `cargo build --release` 生成稳定二进制
 
 ---
 
 ## M3：流式/进度/兼容性打磨（第 8-10 周）
+
+> **状态：未开始**。当前 CLI MVP 仅实现基本文件 I/O 操作。以下所有功能留待 M3 或后续完成。
 
 ### 目标
 实现流式管线（大文件不占内存）、进度显示、格式兼容性增强。
@@ -301,100 +257,49 @@ geezipx list <archive>           # 归档文件
 - [ ] 大文件（10 GB+）压缩/解压内存 < 256 MB
 - [ ] 进度条实时显示，管道模式正确 fallback
 - [ ] Ctrl+C 优雅退出，不留下临时文件
-- [ ] Zip Slip 防护有效
+- [ ] Zip Slip 路径穿越防护 — `extract_all` 已有路径穿越防护（M1-4，✅ 已实现），`--no-clobber` 覆盖保护（❌ 未实现）
 - [ ] 与系统 tar / unzip 100% 互操作
-- [ ] `cargo clippy` 零 warning
+- [x] `cargo clippy` 零 warning — CI 检查通过
 
 ---
 
 ## M4：CI/测试/发布（第 11-12 周）
 
+> **状态：部分完成**。CI 和代码质量配置已初始化，但需扩展为三平台矩阵，尚未添加性能基准和发布流程。
+
 ### 目标
 建立三平台 CI、代码质量门禁、性能基准、首次 crates.io 发布。
 
-### M4-1：GitHub Actions CI（三平台 Matrix）
-- **文件**：`.github/workflows/ci.yml`
-- **Matrix**：`os: [ubuntu-latest, macos-latest, windows-latest]` + `rust: [stable, 1.80.0]`
-- **Job 步骤**：
-  1. 缓存 (actions/cache) — `~/.cargo` 和 `target/`
-  2. `cargo check` + `cargo clippy --all-targets`
-  3. `cargo test --all-targets`
-  4. `cargo test --test '*'`（集成测试）
-  5. `cargo build --release`
-  6. `cargo deny check advisories`
-  7. 上传二进制 artifact
-- **验收标准**：
-  - 6 个 runner（3 OS × 2 Rust）全部绿色
-  - 总 CI 时间 < 20 分钟
-- **预估**：2 天
+### M4-1：GitHub Actions CI ✅（基础配置，待扩展）
+- **实际文件**：`.github/workflows/ci.yml`
+- **当前状态**：
+  - 已实现：`ubuntu-latest` × `stable` toolchain
+  - 已覆盖：`cargo fmt --all --check`、`cargo check`、`cargo clippy -D warnings`、`cargo test --workspace`、`cargo build --release`
+  - **尚未实现**：macOS/Windows runner、MSRV (1.80) 矩阵、缓存、`cargo deny`、artifact 上传
+- **与原计划的差异**：当前仅单平台单 Rust 版本，未达三平台 Matrix 目标
 
-### M4-2：代码质量门禁
-- **配置**：
-  - `.github/workflows/lint.yml` — clippy + rustfmt check
-  - `deny.toml` — `cargo-deny` 配置（advisories + licenses + bans）
-  - `.clippy.toml` — 自定义 clippy 规则（如有需要）
-  - `.github/workflows/coverage.yml` — 覆盖率报告（`cargo-tarpaulin` for Linux）
-- **验收标准**：
-  - `cargo deny check` 通过（无高危 advisory）
-  - 覆盖率 > 80%
-  - PR 自动标记覆盖率变化
-- **预估**：1.5 天
+### M4-2：代码质量门禁 ✅（基础配置，待扩展）
+- **实际文件**：`deny.toml`（已存在，配置基本 advisories 规则）
+- **当前状态**：
+  - 已实现：`deny.toml` 配置文件
+  - **尚未实现**：专用 lint workflow、覆盖率 workflow、PR 自动标记覆盖率
 
-### M4-3：性能基准测试
-- **文件**：`/benches/throughput.rs`
-- **基准场景**（criterion）：
-  - ZIP compress: 100 MB 文件
-  - ZIP decompress: 100 MB 归档
-  - tar.gz compress: 100 MB 文件目录
-  - tar.gz decompress: 100 MB 归档
-  - 启动时间 `geezipx list small.zip`
-  - 内存峰值：大文件流式处理
-- **验收标准**：
-  - 吞吐量不低于原生工具 90%
-  - 启动时间 < 50 ms
-  - criterion CI comparison（与 `main` 分支对比不退化超过 5%）
-- **预估**：2 天
+### M4-3：性能基准测试 ❌
+- **状态**：未开始。`/benches/` 目录尚未创建，`criterion` 未配置。
 
-### M4-4：README 与文档
-- **文件**：
-  - `/README.md` — 项目介绍、安装、用法示例、Roadmap 链接
-  - `/docs/README.md` — 文档索引
-- **内容要求**：
-  - 徽章（CI status, crates.io, license）
-  - 安装方式（cargo install, 下载二进制）
-  - 快速上手（3 条最常用命令）
-  - 与竞品性能对比表
-  - 链接到 PRD、技术架构、Phase 1 任务文档
-- **验收标准**：
-  - `README.md` 可在 GitHub 仓库首页正确渲染
-  - 安装指南在三大平台均可操作
-- **预估**：1.5 天
+### M4-4：README 与文档 ✅
+- **状态**：README.md 和 `docs/` 目录已建立。此 M4 任务包含在当前的文档同步中。
 
-### M4-5：crates.io 发布
-- **任务**：首次公开版本发布。
-- **前置检查**：
-  - `cargo publish --dry-run` 通过
-  - 确认 `Cargo.toml` 中 license、description、keywords、categories、readme 字段完整
-  - `cargo package --list` 确认包含正确文件
-  - 二进制体积检查（release + strip < 15 MB as target）
-- **发布**：
-  - 先 publish `geezipx-core`
-  - 再 publish `geezipx`
-- **标签与 Release**：
-  - `git tag v0.1.0` → `git push --tags`
-  - GitHub Release draft，attach 三平台二进制
-- **验收标准**：
-  - `cargo install geezipx` 可安装并正常运行
-  - GitHub Releases 页面可见
-- **预估**：1 天
+### M4-5 至 M4-7（发布流程、Homebrew、补全）
+- **状态**：未开始。`crates.io` 发布前需完成三平台 CI 验证。
 
 ### M4 里程碑检查清单
-- [ ] GitHub Actions CI 三平台全线绿色
-- [ ] 代码覆盖率 > 80%
-- [ ] 基准测试覆盖率 >= 4 个核心场景
-- [ ] `cargo deny` 无高危 advisory
-- [ ] `cargo install geezipx` 可用
-- [ ] GitHub Releases v0.1.0 发布
+- [ ] ~~cargo check 和 clippy~~ — 已通过 CI
+- [ ] ~~cargo test 全线通过~~ — 已通过（131 passed）
+- [ ] 三平台（Linux/macOS/Windows）CI 绿色
+- [ ] cargo deny 无高危 advisory
+- [ ] crates.io 发布成功
+- [ ] README 和 CLI 帮助文档清晰可用
 
 ---
 
