@@ -413,7 +413,7 @@ M1-2 → M1-4 → M1-5 → M2-2 → M2-3 → M3-1 → M3-5 → M4-1 → M4-5
 
 以下验证项因环境、人工观察或跨平台特性，需用户在实际发布前确认：
 
-- [ ] **5 GB+ 大文件流式处理** — M3-5 冒烟测试已通过，建议在本地实际运行完整大文件冒烟确认无性能退化
+- [x] **5 GB+ 大文件流式处理** — 本地 5.0 GiB（5,368,709,120 bytes）压力测试已通过：gzip 压缩 5.0 GiB → 5.0 MiB，~9 秒；解压还原 SHA256 一致；解压峰值 RSS ~4 MB；临时文件已清理，git 工作区干净
 - [ ] **完整性能基准** — 执行 `cargo bench -p geezipx-core`，查看 gzip/archive throughput 报告，确认无显著退化（注：`--quick` 不被 Criterion 支持，已跳过；仅当用户明确确认后运行完整 bench）
 - [x] **完整互操作测试** — 已本地运行 `GEEZIPX_INTEROP_STRESS=1 bash scripts/check-interop.sh`，15 PASS / 1 SKIP（native zip 未安装）/ 0 FAIL，Stress 256MB + 1000 small files 均通过
 - [ ] **跨平台 CI 状态** — 访问 GitHub Actions 确认 ubuntu / macos / windows 三平台全部绿色
@@ -448,7 +448,7 @@ M1-2 → M1-4 → M1-5 → M2-2 → M2-3 → M3-1 → M3-5 → M4-1 → M4-5
 - [x] **管道测试**：`geezipx decompress archive.tar.gz --stdout | sha256sum`（集成测试覆盖）
 - [x] **进度测试**：`geezipx compress bigfile.iso -f zip -o big.zip -p`（M3-2 已验证）
 - [x] **取消测试**：运行压缩任务时按 Ctrl+C，确认快速退出（M3-3 已验证）
-- [ ] **大文件测试**：5 GB+ 文件流式处理（M3-5 冒烟已通过，建议用户再跑一次确认）
+- [x] **大文件测试**：5 GB+ 文件流式处理 — 本地 5.0 GiB 压力测试通过（5,368,709,120 bytes，SHA256 一致，解压峰值 RSS ~4 MB，临时文件已清理）
 - [x] **互操作测试**：`unzip -t test.zip`，`tar tzf dir.tar.gz`（check-interop.sh with Stress 已本地运行通过，15/1/0）
 - [x] **路径安全测试**：尝试解压包含 `../../etc/passwd` 的恶意归档（M3-4 已验证）
 - [x] **帮助信息**：`geezipx help compress` 等子命令帮助页面完整（CLI 冒烟已验证）
