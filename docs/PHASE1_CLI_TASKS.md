@@ -2,7 +2,7 @@
 
 > 总周期估计：**10-12 周**（单人全职开发）。  
 > 里程碑结构：4 个里程碑，每个里程碑对应可发布的增量。  
-> **当前状态：M1、M2 和 M3 已完成并提交。M4 **部分完成**（CI 已初始化，三平台矩阵及发布流程待定）。**
+> **当前状态：M1、M2、M3 已完成，M4 **大部分完成**（CI 已建立三平台矩阵 + cargo-deny 审计 + 发布工件上传；剩余性能基准和 crates.io 发布流程）。**
 
 ---
 
@@ -13,7 +13,7 @@
 | M1 | 项目骨架 + 核心引擎库 | 第 1-4 周 | `geezipx-core` lib crate，zip/tar/gz 基础读写 | **已完成** |
 | M2 | CLI 基本命令 | 第 5-7 周 | `geezipx` binary，三个子命令可用 | **已完成** |
 || M3 | 流式/进度/兼容性打磨 | 第 8-10 周 | 进度条、管道、格式检测、跨平台测试 | **已完成** |
-| M4 | CI/测试/发布 | 第 11-12 周 | CI 全线通过、crates.io 发布、文档站 | 部分完成 |
+| M4 | CI/测试/发布 | 第 11-12 周 | CI 全线通过、crates.io 发布、文档站 | 大部分完成 |
 
 ---
 
@@ -280,24 +280,29 @@ geezipx list <archive>
 
 ## M4：CI/测试/发布（第 11-12 周）
 
-> **状态：部分完成**。CI 和代码质量配置已初始化，但需扩展为三平台矩阵，尚未添加性能基准和发布流程。
+> **状态：大部分完成**。CI 已完成三平台矩阵（fmt / clippy / test / build + artifact upload）、cargo-deny 审计、互操作测试。仍待完成：性能基准测试和 crates.io 发布。
 
 ### 目标
 建立三平台 CI、代码质量门禁、性能基准、首次 crates.io 发布。
 
-### M4-1：GitHub Actions CI ✅（基础配置，待扩展）
-- **实际文件**：`.github/workflows/ci.yml`
+### M4-1：GitHub Actions CI ✅（三平台矩阵已上线）
+- **提交**：`db94c9c`
+- **实际文件**：`.github/workflows/ci.yml`、`.github/workflows/deny.yml`
 - **当前状态**：
-  - 已实现：`ubuntu-latest` × `stable` toolchain
-  - 已覆盖：`cargo fmt --all --check`、`cargo check`、`cargo clippy -D warnings`、`cargo test --workspace`、`cargo build --release`
-  - **尚未实现**：macOS/Windows runner、MSRV (1.80) 矩阵、缓存、`cargo deny`、artifact 上传
-- **与原计划的差异**：当前仅单平台单 Rust 版本，未达三平台 Matrix 目标
+  - **fmt**：`ubuntu-latest` × `stable`，`cargo fmt --all --check`
+  - **Clippy**：三平台矩阵（ubuntu / macos / windows）× `stable`，`cargo clippy -D warnings`
+  - **Test**：三平台矩阵 × `stable`，`cargo test --workspace --all-features`
+  - **Build**：三平台矩阵，`cargo build --release` + artifact 上传（`actions/upload-artifact@v4`，保留 7 天）
+  - **Interop**：`ubuntu-latest` 运行 `scripts/check-interop.sh`，依赖 clippy+test+build 通过
+  - **Audit**：独立 `deny.yml` 工作流，使用 `EmbarkStudios/cargo-deny-action@v2`，push/PR 触发 + 每周调度
+  - **缓存**：所有 step 均启用 `cache: true`（`actions-rust-lang/setup-rust-toolchain@v1` 内置）
+  - **Rust 版本**：`channel = "stable"`（跟踪最新 stable，当前 1.96），无固定 MSRV 矩阵
+- **与原计划的差异**：未设置 MSRV 1.80 矩阵（改为跟踪最新 stable）；三平台矩阵、缓存、artifact 上传、cargo-deny 全部实现。
 
-### M4-2：代码质量门禁 ✅（基础配置，待扩展）
-- **实际文件**：`deny.toml`（已存在，配置基本 advisories 规则）
-- **当前状态**：
-  - 已实现：`deny.toml` 配置文件
-  - **尚未实现**：专用 lint workflow、覆盖率 workflow、PR 自动标记覆盖率
+### M4-2：代码质量门禁 ✅（cargo-deny 审计已集成）
+- **实际文件**：`deny.toml`、`.github/workflows/deny.yml`
+- **当前状态**：已实现 `deny.toml` 配置 + 独立 `deny.yml` CI 工作流，push/PR 时运行 `cargo-deny check --all-features`，每周一自动扫描。
+- **尚未实现**：专用 lint workflow（clippy 已在 ci.yml 中覆盖）、覆盖率 workflow、PR 自动标记覆盖率
 
 ### M4-3：性能基准测试 ❌
 - **状态**：未开始。`/benches/` 目录尚未创建，`criterion` 未配置。
@@ -309,12 +314,12 @@ geezipx list <archive>
 - **状态**：未开始。`crates.io` 发布前需完成三平台 CI 验证。
 
 ### M4 里程碑检查清单
-- [ ] ~~cargo check 和 clippy~~ — 已通过 CI
-- [ ] ~~cargo test 全线通过~~ — 已通过（131 passed）
-- [ ] 三平台（Linux/macOS/Windows）CI 绿色
-- [ ] cargo deny 无高危 advisory
+- [x] 三平台（Linux/macOS/Windows）CI — fmt / clippy / test / build / artifact upload 全部上线
+- [x] cargo-deny 审计 — 独立 workflow，每周 + push/PR 触发
+- [x] 互操作测试 — `scripts/check-interop.sh` 在 CI 中运行
+- [x] README 和 CLI 帮助文档清晰可用
 - [ ] crates.io 发布成功
-- [ ] README 和 CLI 帮助文档清晰可用
+- [ ] 性能基准测试（criterion）
 
 ---
 
