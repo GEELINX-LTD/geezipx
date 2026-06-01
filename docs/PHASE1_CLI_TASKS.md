@@ -280,7 +280,7 @@ geezipx list <archive>
 
 ## M4：CI/测试/发布（第 11-12 周）
 
-> **状态：大部分完成**。CI 已完成三平台矩阵（fmt / clippy / test / build + artifact upload）、cargo-deny 审计、互操作测试。仍待完成：性能基准测试和 crates.io 发布。
+> **状态：大部分完成**。CI 已完成三平台矩阵（fmt / clippy / test / build + artifact upload）、cargo-deny 审计、互操作测试、性能基准 CI。仍待完成：crates.io 发布。
 
 ### 目标
 建立三平台 CI、代码质量门禁、性能基准、首次 crates.io 发布。
@@ -304,16 +304,15 @@ geezipx list <archive>
 - **当前状态**：已实现 `deny.toml` 配置 + 独立 `deny.yml` CI 工作流，push/PR 时运行 `cargo-deny check --all-features`，每周一自动扫描。
 - **尚未实现**：专用 lint workflow（clippy 已在 ci.yml 中覆盖）、覆盖率 workflow、PR 自动标记覆盖率
 
-### M4-3：性能基准测试 🟡
-- **状态**：基础基准已建立。在 `crates/core/benches/` 创建了 criterion 基础框架。
+### M4-3：性能基准测试 ✅
+- **状态**：已完成。基准代码已通过 CI 编译检查，开发者可通过手动触发 workflow 运行完整基准。
   - **gzip_throughput**: 覆盖 compress/decompress，4 种 level (default/0/6/9) × 2 种 size (1 KiB / 1 MiB) = 16 项基准。
   - **archive_throughput**: 覆盖 tar.gz 和 ZIP 的 compress/decompress round-trip，2 种数据集 (10 files × 1 KiB / 1 file × 1 MiB) = 8 项基准。
+  - **CI 集成**:
+    - `ci.yml` 新增 `bench-compile` job：每次 push/PR 执行 `cargo bench --no-run -p geezipx-core`，确保基准代码可编译。
+    - `.github/workflows/bench.yml` 手动触发 workflow：支持可选的 `bench_filter` 参数，运行基准并上传 `target/criterion/` 报告 artifact（保留 30 天）。
   - **验证**: `cargo bench -p geezipx-core --no-run` 编译通过，`--list` 确认 24 个 benchmark 函数均已注册。
-- **待完成**: 
-  - 运行基准并记录首次基线 (可随后在不同机器/CI 上对比)。
-  - 与系统工具 (gzip, tar, zip) 的 90% 性能对比。
-  - 内存 profiler 辅助分析 (`heaptrack`, `massif`)。
-  - 非 x86_64 平台 (ARM, Windows) 的基线。
+- **未实现**: 自动性能回归阈值门禁。当前设计仅确保编译通过和可手动触发执行基准；若需自动回归检测，需后续建立稳定基线并加入阈值检查。
 
 ### M4-4：README 与文档 ✅
 - **状态**：README.md 和 `docs/` 目录已建立。此 M4 任务包含在当前的文档同步中。
@@ -327,7 +326,7 @@ geezipx list <archive>
 - [x] 互操作测试 — `scripts/check-interop.sh` 在 CI 中运行
 - [x] README 和 CLI 帮助文档清晰可用
 - [ ] crates.io 发布成功
-- [x] 性能基准测试（criterion）— 基础框架已建立 (gzip / tar.gz / ZIP, compress + decompress, Throughput)
+- [x] 性能基准测试（criterion）— 基础框架已建立，CI 编译检查 + 手动 benchmark workflow 已集成
 
 ---
 

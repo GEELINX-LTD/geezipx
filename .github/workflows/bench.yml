@@ -1,0 +1,36 @@
+name: Benchmark
+
+on:
+  workflow_dispatch:
+    inputs:
+      bench_filter:
+        description: 'Benchmark filter (optional, e.g. "gzip/compress")'
+        type: string
+        required: false
+        default: ''
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  bench:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+          cache: true
+      - name: Run benchmarks
+        run: |
+          if [ -n "${{ github.event.inputs.bench_filter }}" ]; then
+            cargo bench -p geezipx-core -- "${{ github.event.inputs.bench_filter }}"
+          else
+            cargo bench -p geezipx-core
+          fi
+      - uses: actions/upload-artifact@v7
+        with:
+          name: criterion-report
+          path: target/criterion/
+          retention-days: 30
+          if-no-files-found: error

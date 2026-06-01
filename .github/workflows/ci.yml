@@ -92,3 +92,14 @@ jobs:
           toolchain: stable
           cache: true
       - run: bash scripts/check-interop.sh
+
+  bench-compile:
+    needs: fmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+          cache: true
+      - run: cargo bench --no-run -p geezipx-core
