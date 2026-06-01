@@ -18,8 +18,10 @@
 pub mod archive;
 pub mod detect;
 pub mod error;
+pub mod io;
 
 pub use error::{GeeZipError, GeeZipResult};
+pub use io::{Phase, ProgressCallback, ProgressEvent, ProgressReader, ProgressWriter};
 
 /// Return the crate version at compile time.
 pub fn version() -> &'static str {
