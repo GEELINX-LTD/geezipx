@@ -57,6 +57,42 @@ impl TestDir {
 }
 
 // ---------------------------------------------------------------------------
+// Interop helpers
+// ---------------------------------------------------------------------------
+
+/// Check if a system tool is available on PATH.
+fn tool_available(name: &str) -> bool {
+    std::process::Command::new(if cfg!(windows) { "where" } else { "which" })
+        .arg(name)
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+}
+
+/// Skip a test if a required tool is not installed; returns `false` when
+/// the tool is missing (caller should early-return with `return`).
+fn require_tool(name: &str) -> bool {
+    if !tool_available(name) {
+        eprintln!("skipping interop test: {name} not available on PATH");
+        return false;
+    }
+    true
+}
+
+/// Assert that a byte slice contains no ANSI escape sequences.
+fn assert_no_ansi_escape(output: &[u8]) {
+    let s = String::from_utf8_lossy(output);
+    assert!(
+        !s.contains('\x1b'),
+        "stderr should not contain ANSI escape codes"
+    );
+    assert!(
+        !s.contains('\r'),
+        "stderr should not contain carriage returns"
+    );
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -956,15 +992,7 @@ fn compress_no_progress_no_escape_codes() {
         .unwrap();
 
     assert!(output.status.success());
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(
-        !stderr.contains('\x1b'),
-        "stderr should not contain ANSI escape codes with --no-progress"
-    );
-    assert!(
-        !stderr.contains('\r'),
-        "stderr should not contain carriage returns with --no-progress"
-    );
+    assert_no_ansi_escape(&output.stderr);
 }
 
 #[test]
@@ -1019,15 +1047,7 @@ fn decompress_no_progress_no_escape_codes() {
         .unwrap();
 
     assert!(output.status.success());
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(
-        !stderr.contains('\x1b'),
-        "stderr should not contain ANSI escape codes with --no-progress"
-    );
-    assert!(
-        !stderr.contains('\r'),
-        "stderr should not contain carriage returns with --no-progress"
-    );
+    assert_no_ansi_escape(&output.stderr);
 }
 
 #[test]
@@ -1083,4 +1103,330 @@ fn compress_piped_no_progress() {
         ])
         .assert()
         .success();
+}
+
+// ---------------------------------------------------------------------------
+// M3-5: Format interop tests (against native system tools)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn interop_geezipx_zip_validates_with_unzip() {
+    if !require_tool("unzip") {
+        return;
+    }
+    let tmp = TestDir::new();
+    let content = "Hello from GeeZipX ZIP — verifying with unzip.";
+    tmp.write("hello.txt", content);
+    let archive = tmp.join("test.zip");
+
+    geezipx()
+        .args([
+            "compress",
+            tmp.join("hello.txt").to_str().unwrap(),
+            "-o",
+            archive.to_str().unwrap(),
+            "--no-progress",
+        ])
+        .assert()
+        .success();
+
+    let output = std::process::Command::new("unzip")
+        .args(["-t", archive.to_str().unwrap()])
+        .output()
+        .expect("unzip should execute");
+
+    assert!(
+        output.status.success(),
+        "unzip -t should pass: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn interop_native_zip_decompresses_with_geezipx() {
+    if !require_tool("zip") {
+        return;
+    }
+    let tmp = TestDir::new();
+    let content = "Native zip round-trip via GeeZipX.";
+    tmp.write("hello.txt", content);
+    let archive = tmp.join("native.zip");
+
+    let status = std::process::Command::new("zip")
+        .args([
+            "-j",
+            archive.to_str().unwrap(),
+            tmp.join("hello.txt").to_str().unwrap(),
+        ])
+        .status()
+        .expect("zip should execute");
+    assert!(status.success(), "native zip should succeed");
+
+    // GeeZipX list should show the file.
+    geezipx()
+        .args(["list", archive.to_str().unwrap()])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("hello.txt"));
+
+    // GeeZipX decompress.
+    let out = tmp.join("out");
+    std::fs::create_dir_all(&out).unwrap();
+    geezipx()
+        .args([
+            "decompress",
+            archive.to_str().unwrap(),
+            "-o",
+            out.to_str().unwrap(),
+            "--no-progress",
+        ])
+        .assert()
+        .success();
+
+    assert_eq!(
+        std::fs::read_to_string(out.join("hello.txt")).unwrap(),
+        content
+    );
+}
+
+#[test]
+fn interop_geezipx_tar_lists_with_native_tar() {
+    if !require_tool("tar") {
+        return;
+    }
+    let tmp = TestDir::new();
+    let src = tmp.join("src");
+    std::fs::create_dir_all(src.join("inner")).unwrap();
+    std::fs::write(src.join("top.txt"), "top level").unwrap();
+    std::fs::write(src.join("inner").join("deep.txt"), "nested").unwrap();
+
+    let archive = tmp.join("out.tar");
+    geezipx()
+        .args([
+            "compress",
+            src.to_str().unwrap(),
+            "-r",
+            "-f",
+            "tar",
+            "-o",
+            archive.to_str().unwrap(),
+            "--no-progress",
+        ])
+        .assert()
+        .success();
+
+    let output = std::process::Command::new("tar")
+        .args(["tf", archive.to_str().unwrap()])
+        .output()
+        .expect("tar should execute");
+    assert!(output.status.success(), "tar tf should succeed");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("top.txt"),
+        "tar tf output should contain top.txt: {stdout}"
+    );
+    assert!(
+        stdout.contains("deep.txt") || stdout.contains("inner/deep.txt"),
+        "tar tf output should contain deep.txt: {stdout}"
+    );
+}
+
+#[test]
+fn interop_native_tar_decompresses_with_geezipx() {
+    if !require_tool("tar") {
+        return;
+    }
+    let tmp = TestDir::new();
+    let input = tmp.join("input");
+    std::fs::create_dir_all(input.join("nested")).unwrap();
+    std::fs::write(input.join("hello.txt"), "Hello from native tar").unwrap();
+    std::fs::write(input.join("nested").join("world.txt"), "World").unwrap();
+
+    let archive = tmp.join("native.tar");
+    let status = std::process::Command::new("tar")
+        .args([
+            "cf",
+            archive.to_str().unwrap(),
+            "-C",
+            input.to_str().unwrap(),
+            ".",
+        ])
+        .status()
+        .expect("tar should execute");
+    assert!(status.success(), "native tar cf should succeed");
+
+    let out = tmp.join("out");
+    std::fs::create_dir_all(&out).unwrap();
+    geezipx()
+        .args([
+            "decompress",
+            archive.to_str().unwrap(),
+            "-o",
+            out.to_str().unwrap(),
+            "--no-progress",
+        ])
+        .assert()
+        .success();
+
+    assert!(
+        out.join("hello.txt").exists(),
+        "hello.txt should exist in output"
+    );
+    assert!(
+        out.join("nested").join("world.txt").exists(),
+        "nested/world.txt should exist in output"
+    );
+}
+
+#[test]
+fn interop_geezipx_targz_lists_with_native_tar() {
+    if !require_tool("tar") {
+        return;
+    }
+    let tmp = TestDir::new();
+    let src = tmp.join("src");
+    std::fs::create_dir_all(src.join("sub")).unwrap();
+    std::fs::write(src.join("a.txt"), "file a").unwrap();
+    std::fs::write(src.join("sub").join("b.txt"), "file b").unwrap();
+
+    let archive = tmp.join("archive.tar.gz");
+    geezipx()
+        .args([
+            "compress",
+            src.to_str().unwrap(),
+            "-r",
+            "-f",
+            "tar.gz",
+            "-o",
+            archive.to_str().unwrap(),
+            "--no-progress",
+        ])
+        .assert()
+        .success();
+
+    let output = std::process::Command::new("tar")
+        .args(["tzf", archive.to_str().unwrap()])
+        .output()
+        .expect("tar should execute");
+    assert!(output.status.success(), "tar tzf should succeed");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("a.txt"),
+        "tar tzf output should contain a.txt: {stdout}"
+    );
+    assert!(
+        stdout.contains("b.txt") || stdout.contains("sub/b.txt"),
+        "tar tzf output should contain b.txt: {stdout}"
+    );
+}
+
+#[test]
+fn interop_native_targz_decompresses_with_geezipx() {
+    if !require_tool("tar") {
+        return;
+    }
+    let tmp = TestDir::new();
+    let dir = tmp.join("mydir");
+    std::fs::create_dir_all(dir.join("sub")).unwrap();
+    std::fs::write(dir.join("hello.txt"), "Hello from native tar.gz").unwrap();
+    std::fs::write(dir.join("sub").join("deep.txt"), "Deep content").unwrap();
+
+    let archive = tmp.join("native.tar.gz");
+    let status = std::process::Command::new("tar")
+        .args([
+            "czf",
+            archive.to_str().unwrap(),
+            "-C",
+            dir.to_str().unwrap(),
+            ".",
+        ])
+        .status()
+        .expect("tar should execute");
+    assert!(status.success(), "native tar czf should succeed");
+
+    let out = tmp.join("out");
+    std::fs::create_dir_all(&out).unwrap();
+    geezipx()
+        .args([
+            "decompress",
+            archive.to_str().unwrap(),
+            "-o",
+            out.to_str().unwrap(),
+            "--no-progress",
+        ])
+        .assert()
+        .success();
+
+    assert!(
+        out.join("hello.txt").exists(),
+        "hello.txt should exist in output"
+    );
+    assert!(
+        out.join("sub").join("deep.txt").exists(),
+        "sub/deep.txt should exist in output"
+    );
+}
+
+#[test]
+fn interop_geezipx_gzip_decompresses_with_native_gzip() {
+    if !require_tool("gzip") {
+        return;
+    }
+    let tmp = TestDir::new();
+    let content = "GeeZipX-compressed data for native gzip -dc verification.";
+    tmp.write("data.txt", content);
+
+    let archive = tmp.join("data.gz");
+    geezipx()
+        .args([
+            "compress",
+            tmp.join("data.txt").to_str().unwrap(),
+            "-f",
+            "gz",
+            "-o",
+            archive.to_str().unwrap(),
+            "--no-progress",
+        ])
+        .assert()
+        .success();
+
+    let output = std::process::Command::new("gzip")
+        .args(["-dc", archive.to_str().unwrap()])
+        .output()
+        .expect("gzip should execute");
+    assert!(output.status.success(), "native gzip -dc should succeed");
+    assert_eq!(output.stdout, content.as_bytes());
+}
+
+#[test]
+fn interop_native_gzip_decompresses_with_geezipx_stdout() {
+    if !require_tool("gzip") {
+        return;
+    }
+    let tmp = TestDir::new();
+    let content = "Native gzip round-trip via GeeZipX --stdout.\n";
+    tmp.write("input.txt", content);
+
+    // Create native .gz file.
+    let native_gz = tmp.join("native.gz");
+    let output = std::process::Command::new("gzip")
+        .args(["-c", tmp.join("input.txt").to_str().unwrap()])
+        .output()
+        .expect("gzip should execute");
+    assert!(output.status.success(), "native gzip -c should succeed");
+    std::fs::write(&native_gz, &output.stdout).unwrap();
+
+    // GeeZipX decompress with --stdout.
+    geezipx()
+        .args([
+            "decompress",
+            native_gz.to_str().unwrap(),
+            "--stdout",
+            "--no-progress",
+        ])
+        .assert()
+        .success()
+        .stdout(content);
 }
