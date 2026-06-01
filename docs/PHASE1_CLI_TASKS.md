@@ -280,7 +280,7 @@ geezipx list <archive>
 
 ## M4：CI/测试/发布（第 11-12 周）
 
-> **状态：大部分完成**。CI 已完成三平台矩阵（fmt / clippy / test / build + artifact upload）、cargo-deny 审计、互操作测试、性能基准 CI。仍待完成：crates.io 发布。
+> **状态：大部分完成**。CI 已完成三平台矩阵（fmt / clippy / test / build + artifact upload）、cargo-deny 审计、互操作测试、性能基准 CI。Shell 自动补全生成已实现。仍待完成：crates.io 发布。
 
 ### 目标
 建立三平台 CI、代码质量门禁、性能基准、首次 crates.io 发布。
@@ -317,10 +317,24 @@ geezipx list <archive>
 ### M4-4：README 与文档 ✅
 - **状态**：README.md 和 `docs/` 目录已建立。此 M4 任务包含在当前的文档同步中。
 
-### M4-5 至 M4-7（发布流程、Homebrew、补全）
+### M4-5：Shell 自动补全生成 ✅
+- **任务**：通过 `clap_complete` 生成 bash/zsh/fish/powershell/elvish 补全脚本。
+- **子命令**：`geezipx completions <SHELL>`（别名 `geezipx comp`）。
+- **实际文件**：
+  - `crates/cli/Cargo.toml` — 添加 `clap_complete = "4"` 依赖
+  - `crates/cli/src/main.rs` — 新增 `Completions` 子命令变体与分发
+  - `crates/cli/tests/cli_integration.rs` — 6 个补全相关集成测试
+  - `README.md` — 新增 Shell Completions 使用说明
+- **验证**：`geezipx completions bash` 生成含 `compress`/`decompress`/`list` 的补全脚本；`cargo test` 6 个补全测试全部通过。
+- **依赖**：M2-1（CLI 参数定义）
+- **备注**：不涉及发布自动化或 install 脚本，仅提供补全生成能力。
+
+### M4-6 至 M4-7（发布流程、Homebrew）
 - **状态**：未开始。`crates.io` 发布前需完成三平台 CI 验证。
 
 ### M4 里程碑检查清单
+
+- [x] Shell 自动补全生成 — `geezipx completions <shell>` 支持 bash/zsh/fish/powershell/elvish
 - [x] 三平台（Linux/macOS/Windows）CI — fmt / clippy / test / build / artifact upload 全部上线
 - [x] cargo-deny 审计 — 独立 workflow，每周 + push/PR 触发
 - [x] 互操作测试 — `scripts/check-interop.sh` 在 CI 中运行
@@ -350,7 +364,8 @@ M1-2 错误类型 ──→ M1-4 ZIP 读写 ──→ M1-6 单元测试
                                                                        M4-2 质量
                                                                        M4-3 基准
                                                                        M4-4 文档
-                                                                       M4-5 发布
+                                                                       M4-5 补全
+                                                                       M4-6 发布
 ```
 
 ### 优先级说明

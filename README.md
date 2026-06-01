@@ -67,6 +67,37 @@ target/release/geezipx list archive.zip
 target/release/geezipx list archive.tar.gz --json
 ```
 
+## Shell Completions
+
+GeeZipX can generate shell completion scripts for **bash**, **zsh**, **fish**, **PowerShell**,
+and **elvish**.  Run:
+
+```sh
+# Bash — save to completions dir (adjust path for your OS)
+geezipx completions bash > /usr/local/share/bash-completion/completions/geezipx
+
+# Zsh — save to a directory in your $fpath
+geezipx completions zsh > /usr/local/share/zsh/site-functions/_geezipx
+
+# Fish
+geezipx completions fish > ~/.config/fish/completions/geezipx.fish
+
+# PowerShell
+geezipx completions powershell > _geezipx.ps1
+
+# Elvish
+geezipx completions elvish > geezipx.elv
+```
+
+You can also use the shorter alias `geezipx comp`:
+
+```sh
+geezipx comp bash > /usr/local/share/bash-completion/completions/geezipx
+```
+
+After installing, restart your shell or source the file for tab-completion support
+on subcommands, flags, and arguments.
+
 ## License
 
 MIT

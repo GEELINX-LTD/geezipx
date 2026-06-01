@@ -1663,3 +1663,80 @@ fn gzip_level_9_with_verbose() {
         .success()
         .stdout(content);
 }
+
+// ---------------------------------------------------------------------------
+// Completions tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn completions_bash_success() {
+    geezipx()
+        .args(["completions", "bash"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("_geezipx"))
+        .stdout(predicate::str::contains("compress"))
+        .stdout(predicate::str::contains("decompress"))
+        .stdout(predicate::str::contains("list"));
+}
+
+#[test]
+fn completions_zsh_success() {
+    geezipx()
+        .args(["completions", "zsh"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("_geezipx"))
+        .stdout(predicate::str::contains("compress"))
+        .stdout(predicate::str::contains("decompress"));
+}
+
+#[test]
+fn completions_fish_success() {
+    geezipx()
+        .args(["completions", "fish"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("complete"))
+        .stdout(predicate::str::contains("compress"))
+        .stdout(predicate::str::contains("decompress"));
+}
+
+#[test]
+fn completions_visible_alias_comp() {
+    // The `comp` alias should work the same as `completions`.
+    geezipx()
+        .args(["comp", "bash"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("_geezipx"));
+}
+
+#[test]
+fn completions_invalid_shell_fails() {
+    geezipx()
+        .args(["completions", "invalid_shell"])
+        .assert()
+        .failure();
+}
+
+#[test]
+fn completions_powershell_success() {
+    geezipx()
+        .args(["completions", "powershell"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Register-ArgumentCompleter"));
+}
+
+#[test]
+fn completions_elvish_success() {
+    geezipx()
+        .args(["completions", "elvish"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("edit:completion:arg-completer"))
+        .stdout(predicate::str::contains("compress"))
+        .stdout(predicate::str::contains("decompress"))
+        .stdout(predicate::str::contains("list"));
+}

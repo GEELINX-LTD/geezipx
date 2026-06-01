@@ -7,7 +7,8 @@
 
 use std::path::PathBuf;
 
-use clap::{Parser, Subcommand};
+use clap::{CommandFactory, Parser, Subcommand};
+use clap_complete::{generate, Shell};
 
 mod commands;
 mod render;
@@ -90,6 +91,14 @@ enum Commands {
         #[arg(short = 'j', long = "json")]
         json: bool,
     },
+
+    /// Generate shell completion scripts
+    #[command(visible_alias = "comp")]
+    Completions {
+        /// The shell to generate completions for
+        #[arg(value_enum)]
+        shell: Shell,
+    },
 }
 
 fn main() {
@@ -133,6 +142,11 @@ fn run() -> anyhow::Result<()> {
             cli.verbose,
         )?,
         Commands::List { archive, json } => commands::list::execute(&archive, json)?,
+        Commands::Completions { shell } => {
+            let mut cmd = Cli::command();
+            let name = cmd.get_name().to_string();
+            generate(shell, &mut cmd, name, &mut std::io::stdout());
+        }
     }
 
     Ok(())
