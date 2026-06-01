@@ -7,15 +7,22 @@
 use std::fmt;
 use std::path::Path;
 
-/// Supported archive and compression formats.
+// ---------------------------------------------------------------------------
+// ArchiveFormat
+// ---------------------------------------------------------------------------
+
+/// Supported archive and compression format identifiers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum ArchiveFormat {
-    /// ZIP archive (`PK\x03\x04` or `PK\x05\x06` for empty).
+    /// ZIP archive.
     Zip,
     /// GNU tar archive (no magic — extension-based).
     Tar,
     /// Gzip compressed stream (`\x1F\x8B`).
     Gzip,
+    /// Tar archive compressed with gzip (extension-based — `.tar.gz`, `.tgz`).
+    TarGz,
     /// LZMA-compressed XZ stream (`\xFD7zXZ\x00`).
     Xz,
     /// Zstandard frame (`\x28\xB5\x2F\xFD`).
@@ -30,6 +37,7 @@ impl fmt::Display for ArchiveFormat {
             ArchiveFormat::Zip => write!(f, "zip"),
             ArchiveFormat::Tar => write!(f, "tar"),
             ArchiveFormat::Gzip => write!(f, "gzip"),
+            ArchiveFormat::TarGz => write!(f, "tar.gz"),
             ArchiveFormat::Xz => write!(f, "xz"),
             ArchiveFormat::Zstd => write!(f, "zstd"),
             ArchiveFormat::Unknown => write!(f, "unknown"),
@@ -52,12 +60,12 @@ const MAGIC_ZSTD: &[u8] = &[0x28, 0xB5, 0x2F, 0xFD];
 /// XZ magic: `\xFD7zXZ\x00`.
 const MAGIC_XZ: &[u8] = &[0xFD, 0x37, 0x7A, 0x58, 0x5A, 0x00];
 
-/// Common archive file extensions mapped to their expected format.
+/// Map of well-known single extensions to their archive format.
 const EXTENSION_MAP: &[(&str, ArchiveFormat)] = &[
     (".zip", ArchiveFormat::Zip),
     (".tar", ArchiveFormat::Tar),
     (".gz", ArchiveFormat::Gzip),
-    (".tgz", ArchiveFormat::Gzip),
+    // Note: .tgz is handled by detect_from_extension's compound check → TarGz
     (".xz", ArchiveFormat::Xz),
     (".txz", ArchiveFormat::Xz),
     (".zst", ArchiveFormat::Zstd),
@@ -66,11 +74,19 @@ const EXTENSION_MAP: &[(&str, ArchiveFormat)] = &[
     (".gzip", ArchiveFormat::Gzip),
 ];
 
+// ---------------------------------------------------------------------------
+// Magic-number-based detection
+// ---------------------------------------------------------------------------
+
 /// Detect the archive format from magic bytes.
 ///
 /// Reads the first few bytes of `data` and compares against known magic
 /// sequences.  Returns `None` when no magic matches; the caller can
 /// fall back to extension-based detection.
+///
+/// **Note**: For `.tar.gz` and `.tgz` files, this function returns `Gzip`
+/// because the gzip magic header (`\x1F\x8B`) does not reveal whether the
+/// inner stream is a tar archive.
 pub fn detect_format(data: &[u8]) -> Option<ArchiveFormat> {
     if data.starts_with(MAGIC_ZIP) || data.starts_with(MAGIC_ZIP_EMPTY) {
         return Some(ArchiveFormat::Zip);
@@ -87,17 +103,24 @@ pub fn detect_format(data: &[u8]) -> Option<ArchiveFormat> {
     None
 }
 
+// ---------------------------------------------------------------------------
+// Extension-based detection
+// ---------------------------------------------------------------------------
+
 /// Detect the archive format from a file path's extension.
 ///
 /// This is a best-effort fallback for formats without a magic signature
 /// (e.g. tar) and for stream sources where magic detection isn't possible.
+///
+/// **Compound extensions** (`.tar.gz`, `.tgz`) are checked first so they
+/// take priority over the single-extension map.
 pub fn detect_from_extension(path: &Path) -> Option<ArchiveFormat> {
     let name = path.file_name()?.to_str()?;
     let lower = name.to_ascii_lowercase();
 
     // Check compound extensions first (e.g. .tar.gz, .tar.xz).
     if lower.ends_with(".tar.gz") || lower.ends_with(".tgz") {
-        return Some(ArchiveFormat::Gzip);
+        return Some(ArchiveFormat::TarGz);
     }
     if lower.ends_with(".tar.xz") || lower.ends_with(".txz") {
         return Some(ArchiveFormat::Xz);
@@ -106,10 +129,10 @@ pub fn detect_from_extension(path: &Path) -> Option<ArchiveFormat> {
         return Some(ArchiveFormat::Zstd);
     }
 
-    // Check simple extensions.
-    for (ext, fmt) in EXTENSION_MAP {
+    // Check single extensions.
+    for (ext, format) in EXTENSION_MAP {
         if lower.ends_with(ext) {
-            return Some(*fmt);
+            return Some(*format);
         }
     }
 
@@ -137,13 +160,17 @@ pub fn read_magic_bytes<R: std::io::Read>(reader: &mut R) -> std::io::Result<Vec
     Ok(buf)
 }
 
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    // -----------------------------------------------------------------------
-    // Magic-byte detection
-    // -----------------------------------------------------------------------
+    // ---------------------------------------------------------------
+    // Magic-number detection
+    // ---------------------------------------------------------------
 
     #[test]
     fn detect_zip() {
@@ -191,13 +218,12 @@ mod tests {
 
     #[test]
     fn detect_short_data() {
-        // Only 1 byte — no magic matches
         assert_eq!(detect_format(b"P"), None);
     }
 
-    // -----------------------------------------------------------------------
-    // Extension-based detection
-    // -----------------------------------------------------------------------
+    // ---------------------------------------------------------------
+    // Extension detection
+    // ---------------------------------------------------------------
 
     #[test]
     fn ext_zip() {
@@ -224,10 +250,18 @@ mod tests {
     }
 
     #[test]
+    fn ext_gzip() {
+        assert_eq!(
+            detect_from_extension(Path::new("archive.gzip")),
+            Some(ArchiveFormat::Gzip)
+        );
+    }
+
+    #[test]
     fn ext_tar_gz() {
         assert_eq!(
             detect_from_extension(Path::new("archive.tar.gz")),
-            Some(ArchiveFormat::Gzip)
+            Some(ArchiveFormat::TarGz)
         );
     }
 
@@ -235,7 +269,7 @@ mod tests {
     fn ext_tgz() {
         assert_eq!(
             detect_from_extension(Path::new("archive.tgz")),
-            Some(ArchiveFormat::Gzip)
+            Some(ArchiveFormat::TarGz)
         );
     }
 
@@ -251,6 +285,14 @@ mod tests {
     fn ext_zst() {
         assert_eq!(
             detect_from_extension(Path::new("archive.zst")),
+            Some(ArchiveFormat::Zstd)
+        );
+    }
+
+    #[test]
+    fn ext_zstd() {
+        assert_eq!(
+            detect_from_extension(Path::new("archive.zstd")),
             Some(ArchiveFormat::Zstd)
         );
     }
@@ -298,10 +340,26 @@ mod tests {
     }
 
     #[test]
-    fn ext_case_insensitive() {
+    fn ext_case_insensitive_zip() {
         assert_eq!(
             detect_from_extension(Path::new("Archive.ZIP")),
             Some(ArchiveFormat::Zip)
+        );
+    }
+
+    #[test]
+    fn ext_case_insensitive_targz() {
+        assert_eq!(
+            detect_from_extension(Path::new("ARCHIVE.TAR.GZ")),
+            Some(ArchiveFormat::TarGz)
+        );
+    }
+
+    #[test]
+    fn ext_tar_gz_mixed_case_path() {
+        assert_eq!(
+            detect_from_extension(Path::new("archive.Tar.Gz")),
+            Some(ArchiveFormat::TarGz)
         );
     }
 
@@ -313,9 +371,9 @@ mod tests {
         );
     }
 
-    // -----------------------------------------------------------------------
+    // ---------------------------------------------------------------
     // ArchiveFormat Display
-    // -----------------------------------------------------------------------
+    // ---------------------------------------------------------------
 
     #[test]
     fn display_zip() {
@@ -323,13 +381,18 @@ mod tests {
     }
 
     #[test]
+    fn display_targz() {
+        assert_eq!(ArchiveFormat::TarGz.to_string(), "tar.gz");
+    }
+
+    #[test]
     fn display_unknown() {
         assert_eq!(ArchiveFormat::Unknown.to_string(), "unknown");
     }
 
-    // -----------------------------------------------------------------------
+    // ---------------------------------------------------------------
     // read_magic_bytes
-    // -----------------------------------------------------------------------
+    // ---------------------------------------------------------------
 
     #[test]
     fn read_magic_from_slice() {

@@ -44,7 +44,7 @@ impl<R: Read + Seek + Send> TarGzReader<R> {
     pub fn new(reader: R) -> Self {
         TarGzReader {
             inner: reader,
-            format: ArchiveFormat::Tar,
+            format: ArchiveFormat::TarGz,
         }
     }
 }
@@ -179,7 +179,7 @@ impl<W: Write + Send> TarGzWriter<W> {
         let encoder = flate2::write::GzEncoder::new(counter, flate2::Compression::default());
         TarGzWriter {
             inner: Some(tar::Builder::new(encoder)),
-            format: ArchiveFormat::Tar,
+            format: ArchiveFormat::TarGz,
         }
     }
 
@@ -191,7 +191,7 @@ impl<W: Write + Send> TarGzWriter<W> {
     pub fn finalize(mut self) -> GeeZipResult<(u64, W)> {
         let builder = self.inner.take().ok_or_else(|| GeeZipError::Format {
             message: "TAR writer already finalised".into(),
-            format: ArchiveFormat::Tar,
+            format: ArchiveFormat::TarGz,
         })?;
         let encoder = builder
             .into_inner()
@@ -213,7 +213,7 @@ impl<W: Write + Send> ArchiveWriter for TarGzWriter<W> {
     fn add_entry_from_reader(&mut self, path: &Path, reader: &mut dyn Read) -> GeeZipResult<()> {
         let name = path.to_str().ok_or_else(|| GeeZipError::Format {
             message: format!("non-UTF-8 path: {}", path.display()),
-            format: ArchiveFormat::Tar,
+            format: ArchiveFormat::TarGz,
         })?;
 
         // Tar requires data size in the header, so we buffer the data.
@@ -225,14 +225,14 @@ impl<W: Write + Send> ArchiveWriter for TarGzWriter<W> {
         let mut header = tar::Header::new_gnu();
         header.set_path(path).map_err(|e| GeeZipError::Format {
             message: format!("setting tar header path: {e}"),
-            format: ArchiveFormat::Tar,
+            format: ArchiveFormat::TarGz,
         })?;
         header.set_size(data.len() as u64);
         header.set_cksum();
 
         let builder = self.inner.as_mut().ok_or_else(|| GeeZipError::Format {
             message: "TAR writer not initialised (already consumed)".into(),
-            format: ArchiveFormat::Tar,
+            format: ArchiveFormat::TarGz,
         })?;
         builder
             .append(&header, std::io::Cursor::new(data))
@@ -620,5 +620,19 @@ mod tests {
         let buf = Vec::new();
         let writer = TarGzWriter::new(buf);
         use_writer(Box::new(writer));
+    }
+
+    #[test]
+    fn targz_reader_format() {
+        let data = create_test_targz(&[("dummy.txt", b"x")]);
+        let reader = TarGzReader::from_buf(data);
+        assert_eq!(reader.format(), ArchiveFormat::TarGz);
+    }
+
+    #[test]
+    fn targz_writer_format() {
+        let buf = Vec::new();
+        let writer = TarGzWriter::new(buf);
+        assert_eq!(writer.format(), ArchiveFormat::TarGz);
     }
 }
