@@ -795,4 +795,166 @@ mod tests {
         assert!(ts > 0);
         assert!(ts > 1700000000, "2026-06-02 should be well past epoch");
     }
+
+    // ---------------------------------------------------------------------------
+    // CountWriter tests
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn count_writer_tracks_bytes() {
+        let inner = Vec::new();
+        let mut writer = CountWriter { inner, count: 0 };
+
+        let n = writer.write(b"hello").unwrap();
+        assert_eq!(n, 5);
+        assert_eq!(writer.count, 5);
+
+        let n = writer.write(b" world").unwrap();
+        assert_eq!(n, 6);
+        assert_eq!(writer.count, 11);
+
+        writer.flush().unwrap();
+
+        assert_eq!(&writer.inner, b"hello world");
+    }
+
+    // ---------------------------------------------------------------------------
+    // extract_all tests (via mock readers)
+    // ---------------------------------------------------------------------------
+
+    /// Mock reader used for testing extract_all with directory entries.
+    struct MockDirReader {
+        entries: Vec<Entry>,
+    }
+
+    impl ArchiveReader for MockDirReader {
+        fn format(&self) -> ArchiveFormat {
+            ArchiveFormat::Tar
+        }
+
+        fn entries(&mut self) -> GeeZipResult<Vec<Entry>> {
+            Ok(self.entries.clone())
+        }
+
+        fn extract(&mut self, _entry: &Entry, writer: &mut dyn Write) -> GeeZipResult<u64> {
+            // The extract_all default implementation only calls extract
+            // for non-directory entries, so this is only reached for files.
+            let content = b"file content";
+            writer.write_all(content)?;
+            Ok(content.len() as u64)
+        }
+    }
+
+    #[test]
+    fn extract_all_creates_directories() {
+        let entries = vec![
+            Entry {
+                path: "emptydir".into(),
+                size: 0,
+                compressed_size: 0,
+                crc32: None,
+                modified: None,
+                is_dir: true,
+            },
+            Entry {
+                path: "emptydir/file.txt".into(),
+                size: 12,
+                compressed_size: 0,
+                crc32: None,
+                modified: None,
+                is_dir: false,
+            },
+        ];
+
+        let mut reader = MockDirReader { entries };
+        let tmp = tempfile::tempdir().unwrap();
+        let report = reader.extract_all(tmp.path(), true).unwrap();
+
+        assert!(
+            tmp.path().join("emptydir").is_dir(),
+            "directory entry should create a directory on disk"
+        );
+        assert!(
+            tmp.path().join("emptydir/file.txt").is_file(),
+            "file entry should be extracted"
+        );
+        assert_eq!(report.files_extracted, 2);
+        assert_eq!(report.bytes_extracted, 12);
+        assert!(report.errors.is_empty(), "extract_all errors: {report:?}");
+    }
+
+    /// Mock reader that always writes the same content on extract.
+    struct MockFileReader {
+        entries: Vec<Entry>,
+    }
+
+    impl ArchiveReader for MockFileReader {
+        fn format(&self) -> ArchiveFormat {
+            ArchiveFormat::Tar
+        }
+
+        fn entries(&mut self) -> GeeZipResult<Vec<Entry>> {
+            Ok(self.entries.clone())
+        }
+
+        fn extract(&mut self, _entry: &Entry, writer: &mut dyn Write) -> GeeZipResult<u64> {
+            let content = b"mock file content";
+            writer.write_all(content)?;
+            Ok(content.len() as u64)
+        }
+    }
+
+    #[test]
+    fn extract_all_skips_existing_on_no_clobber() {
+        let entries = vec![Entry {
+            path: "existing.txt".into(),
+            size: 16,
+            compressed_size: 0,
+            crc32: None,
+            modified: None,
+            is_dir: false,
+        }];
+
+        let tmp = tempfile::tempdir().unwrap();
+        let dest = tmp.path().to_path_buf();
+
+        // First extract with overwrite = true should create the file.
+        let mut reader = MockFileReader {
+            entries: entries.clone(),
+        };
+        let report1 = reader.extract_all(&dest, true).unwrap();
+        assert_eq!(
+            report1.files_extracted, 1,
+            "should extract the file on first run"
+        );
+        assert_eq!(report1.files_skipped, 0);
+        assert!(report1.errors.is_empty(), "errors: {report1:?}");
+
+        let content = std::fs::read_to_string(dest.join("existing.txt")).unwrap();
+        assert_eq!(content, "mock file content");
+
+        // Second extract with overwrite = false should skip the existing file.
+        let mut reader2 = MockFileReader {
+            entries: entries.clone(),
+        };
+        let report2 = reader2.extract_all(&dest, false).unwrap();
+        assert_eq!(report2.files_extracted, 0);
+        assert_eq!(report2.files_skipped, 1);
+        assert_eq!(
+            report2.errors.len(),
+            1,
+            "should have one ClobberDenied error"
+        );
+        assert!(
+            matches!(report2.errors[0].1, GeeZipError::ClobberDenied { .. }),
+            "error should be ClobberDenied"
+        );
+
+        // Verify the file content was NOT overwritten.
+        let content2 = std::fs::read_to_string(dest.join("existing.txt")).unwrap();
+        assert_eq!(
+            content2, "mock file content",
+            "file should not be overwritten"
+        );
+    }
 }
