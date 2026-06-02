@@ -704,6 +704,53 @@ mod tests {
         let _bytes_written = boxed.finish().unwrap();
     }
 
+    #[test]
+    fn tarzst_writer_add_directory_roundtrip() {
+        let buf = Vec::new();
+        let mut writer = TarZstWriter::new(buf);
+
+        // Add a regular file.
+        writer
+            .add_entry_from_reader(
+                &PathBuf::from("file.txt"),
+                &mut Cursor::new(b"hello from file"),
+            )
+            .unwrap();
+
+        // Add an empty directory.
+        writer.add_directory(Path::new("emptydir")).unwrap();
+
+        let (bytes_written, data) = writer.finalize().unwrap();
+        assert!(bytes_written > 0, "should have written something");
+
+        let mut reader = TarZstReader::from_buf(data);
+        let entries = reader.entries().unwrap();
+        assert_eq!(entries.len(), 2, "should have file + directory entries");
+
+        // Verify the directory entry.
+        let dir_entry = entries.iter().find(|e| e.is_dir).expect("directory entry");
+        assert_eq!(dir_entry.path, "emptydir");
+        assert!(dir_entry.is_dir);
+
+        // Verify the file entry.
+        let file_entry = entries.iter().find(|e| !e.is_dir).expect("file entry");
+        assert_eq!(file_entry.path, "file.txt");
+        assert!(!file_entry.is_dir);
+
+        // Extract all to a tempdir.
+        let dest = tempfile::tempdir().unwrap();
+        let report = reader.extract_all(dest.path(), true).unwrap();
+        assert_eq!(report.files_extracted, 2);
+        assert!(report.errors.is_empty(), "extract_all errors: {report:?}");
+
+        // Verify directory exists.
+        assert!(dest.path().join("emptydir").is_dir());
+
+        // Verify file content.
+        let file_content = std::fs::read_to_string(dest.path().join("file.txt")).unwrap();
+        assert_eq!(file_content, "hello from file");
+    }
+
     // -------------------------------------------------------------------
     // Trait object safety (compile-time checks)
     // -------------------------------------------------------------------
