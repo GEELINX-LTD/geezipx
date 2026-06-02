@@ -17,6 +17,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Compression level `0..=9` (default: 6); `--stdout` rejected (multi-file archive)
   - Note: `.xz` / `.lzma` single-stream behavior is unaffected
 
+- **Empty directory preservation (all archive formats)**:
+  - `Entry` struct now includes `is_dir` field to distinguish directories from files
+  - Archive writers (ZIP, TAR, TAR.GZ, TAR.XZ, TAR.ZST) write directory entries for empty directories
+  - Archive readers properly enumerate directory entries; extract creates directories on disk
+  - CLI `compress -r` preserves empty subdirectories in the output archive
+  - Round-trip tests cover empty directories for all five archive formats (ZIP/TAR/TAR.GZ/TAR.XZ/TAR.ZST)
+
+- **Coverage reporting workflow**:
+  - `.github/workflows/coverage.yml` runs on push/PR/weekly schedule
+  - Uses `cargo-tarpaulin` generating HTML + JSON reports
+  - Reports uploaded as workflow artifact (30-day retention)
+  - **Informational only**; no hard coverage gate
+
+- **Additional test coverage**:
+  - Core tests grew from 224 to 239: directory writer round-trips for ZIP/TAR/TAR.GZ/TAR.XZ/TAR.ZST, cancellable extraction edge cases
+  - CLI integration tests grew from 102 to 106: empty directory round-trips for ZIP/TAR/TAR.GZ/TAR.XZ/TAR.ZST, extraction edge cases
+
 ## [0.2.0] - 2026-06-02
 
 ### Added

@@ -50,7 +50,7 @@ GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开�
 | 递归操作 | `-r` 递归添加目录，保持目录结构 | **已完成** |
 | 覆盖保护 | `--no-clobber` / `--force` 覆盖策略 | **已完成** |
 | 列表功能 | 表格 + JSON 输出，支持所有当前格式 | **已完成** |
-| 测试覆盖 | 337 个测试（core 224 + CLI lib 11 + CLI integration 102），覆盖率追踪已启用，当前基线 overall ~71%、core ~66% | **已完成**（覆盖率追踪进行中） |
+| 测试覆盖 | 356 个测试（core 239 + CLI lib 11 + CLI integration 106），覆盖率追踪已启用，当前基线 overall ~74%、core archive ~64% | **已完成**（覆盖率 workflow 为观测性/信息性，优先补真实高风险/回归路径） |
 | 三平台 CI | GitHub Actions：三平台矩阵（ubuntu/macos/windows），push/PR/tag/manual 触发 | **大部分完成** (M4) |
 
 > **扩展格式识别**：魔数检测已支持 xz（`FD 37 7A 58 5A 00`）和 zstd（`28 B5 2F FD`）。xz 和 lzma 单流压缩/解压已支持（`geezipx-core` via `xz2` crate）；`.tar.xz`/`.txz` 识别为 tar+xz 完整归档格式，与单流 `.xz` 区分。zstd 单流压缩/解压已支持（`geezipx-core` via `zstd` crate）；`.tar.zst`/`.tzst` 识别为 tar+zstd 归档格式。lzma 无固定魔数，仅通过扩展名/显式格式识别。
@@ -106,7 +106,7 @@ GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开�
 | 启动时间 | < 50 ms（首次命令到输出） | hyperfine |
 | 跨平台一致性 | 同版本在三大平台产生相同输出 | CI hash 对比 |
 | 错误信息质量 | 用户无需查手册即可理解错误 | 人工审查 |
-| 代码覆盖率 | 核心引擎 > 85%，整体 > 80%（当前基线：整体 ~71%，核心 ~66%） | cargo-tarpaulin / grcov |
+| 代码覆盖率 | 核心引擎 > 85%，整体 > 80%（当前基线：overall ~74%，core archive ~64%）。当前 workflow 为信息性观测（informational only），优先补真实高风险/回归路径而非追求覆盖数字 | cargo-tarpaulin / grcov |
 
 ## 9. 路线图
 
