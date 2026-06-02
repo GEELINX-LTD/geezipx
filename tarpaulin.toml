@@ -1,0 +1,6 @@
+[default]
+workspace = true
+all-features = true
+output-dir = "coverage"
+fail-under = 0
+clean = true
