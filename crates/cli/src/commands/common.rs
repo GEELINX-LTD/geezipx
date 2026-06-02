@@ -12,6 +12,8 @@ use geezipx_core::archive::tar::TarReader;
 use geezipx_core::archive::tar::TarWriter;
 use geezipx_core::archive::targz::TarGzReader;
 use geezipx_core::archive::targz::TarGzWriter;
+use geezipx_core::archive::tarzst::TarZstReader;
+use geezipx_core::archive::tarzst::TarZstWriter;
 use geezipx_core::archive::zip::ZipReader;
 use geezipx_core::archive::zip::ZipWriter;
 use geezipx_core::archive::{ArchiveReader, ArchiveWriter};
@@ -23,7 +25,7 @@ use geezipx_core::detect::{self, ArchiveFormat};
 
 /// Parse a user-supplied format string into an [`ArchiveFormat`].
 ///
-/// Accepts: `zip`, `tar`, `tar.gz`, `tgz`, `gz`, `gzip`, `zst`, `zstd`.
+/// Accepts: `zip`, `tar`, `tar.gz`, `tgz`, `gz`, `gzip`, `zst`, `zstd`, `tar.zst`, `tzst`.
 pub fn parse_format(s: &str) -> Result<ArchiveFormat> {
     match s.to_ascii_lowercase().as_str() {
         "zip" => Ok(ArchiveFormat::Zip),
@@ -31,8 +33,9 @@ pub fn parse_format(s: &str) -> Result<ArchiveFormat> {
         "tar.gz" | "tgz" => Ok(ArchiveFormat::TarGz),
         "gz" | "gzip" => Ok(ArchiveFormat::Gzip),
         "zst" | "zstd" => Ok(ArchiveFormat::Zstd),
+        "tar.zst" | "tzst" => Ok(ArchiveFormat::TarZst),
         other => Err(anyhow::anyhow!(
-            "unsupported format '{other}'; expected: zip, tar, tar.gz, tgz, gz, gzip, zst, zstd"
+            "unsupported format '{other}'; expected: zip, tar, tar.gz, tgz, gz, gzip, zst, zstd, tar.zst, tzst"
         )),
     }
 }
@@ -69,6 +72,14 @@ pub fn detect_archive_format(path: &Path) -> Result<ArchiveFormat> {
                 Ok(ArchiveFormat::TarGz)
             } else {
                 Ok(ArchiveFormat::Gzip)
+            }
+        }
+        Some(ArchiveFormat::Zstd) => {
+            // Zstd magic but the file might be .tar.zst / .tzst — check extension.
+            if let Some(ArchiveFormat::TarZst) = detect::detect_from_extension(path) {
+                Ok(ArchiveFormat::TarZst)
+            } else {
+                Ok(ArchiveFormat::Zstd)
             }
         }
         Some(fmt) => Ok(fmt),
@@ -164,6 +175,7 @@ pub fn open_reader(path: &Path, format: ArchiveFormat) -> Result<Box<dyn Archive
         ArchiveFormat::Zip => Box::new(ZipReader::new(file)?),
         ArchiveFormat::Tar => Box::new(TarReader::new(file)),
         ArchiveFormat::TarGz => Box::new(TarGzReader::new(file)),
+        ArchiveFormat::TarZst => Box::new(TarZstReader::new(file)),
         ArchiveFormat::Gzip | ArchiveFormat::Zstd => {
             anyhow::bail!(
                 "'{format}' is a single-stream compression format; use 'decompress' directly, not an archive reader"
@@ -184,6 +196,7 @@ pub fn create_writer(
         ArchiveFormat::Zip => Ok(Box::new(ZipWriter::new(file))),
         ArchiveFormat::Tar => Ok(Box::new(TarWriter::new(file))),
         ArchiveFormat::TarGz => Ok(Box::new(TarGzWriter::new_with_level(file, level))),
+        ArchiveFormat::TarZst => Ok(Box::new(TarZstWriter::new_with_level(file, level))),
         ArchiveFormat::Gzip | ArchiveFormat::Zstd => {
             anyhow::bail!(
                 "'{format}' is a single-stream compression format; use 'compress' directly, not an archive writer"

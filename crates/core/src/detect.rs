@@ -27,6 +27,8 @@ pub enum ArchiveFormat {
     Xz,
     /// Zstandard frame (`\x28\xB5\x2F\xFD`).
     Zstd,
+    /// Tar archive compressed with Zstandard (extension-based — `.tar.zst`, `.tzst`).
+    TarZst,
     /// Unknown or unrecognised format.
     Unknown,
 }
@@ -40,6 +42,7 @@ impl fmt::Display for ArchiveFormat {
             ArchiveFormat::TarGz => write!(f, "tar.gz"),
             ArchiveFormat::Xz => write!(f, "xz"),
             ArchiveFormat::Zstd => write!(f, "zstd"),
+            ArchiveFormat::TarZst => write!(f, "tar.zst"),
             ArchiveFormat::Unknown => write!(f, "unknown"),
         }
     }
@@ -70,7 +73,7 @@ const EXTENSION_MAP: &[(&str, ArchiveFormat)] = &[
     (".txz", ArchiveFormat::Xz),
     (".zst", ArchiveFormat::Zstd),
     (".zstd", ArchiveFormat::Zstd),
-    (".tzst", ArchiveFormat::Zstd),
+    (".tzst", ArchiveFormat::Zstd), // overridden by compound check below
     (".gzip", ArchiveFormat::Gzip),
 ];
 
@@ -126,7 +129,7 @@ pub fn detect_from_extension(path: &Path) -> Option<ArchiveFormat> {
         return Some(ArchiveFormat::Xz);
     }
     if lower.ends_with(".tar.zst") || lower.ends_with(".tzst") {
-        return Some(ArchiveFormat::Zstd);
+        return Some(ArchiveFormat::TarZst);
     }
 
     // Check single extensions.
@@ -317,7 +320,7 @@ mod tests {
     fn ext_tar_zst() {
         assert_eq!(
             detect_from_extension(Path::new("archive.tar.zst")),
-            Some(ArchiveFormat::Zstd)
+            Some(ArchiveFormat::TarZst)
         );
     }
 
@@ -325,7 +328,7 @@ mod tests {
     fn ext_tzst() {
         assert_eq!(
             detect_from_extension(Path::new("archive.tzst")),
-            Some(ArchiveFormat::Zstd)
+            Some(ArchiveFormat::TarZst)
         );
     }
 

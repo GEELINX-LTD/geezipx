@@ -9,12 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Archive format — TarZst (tar.zst / .tzst)**:
+  - Full round-trip archive support combining TAR format with Zstandard compression
+  - `.tar.zst` / `.tzst` files now recognized as archive format (not single-stream zstd)
+  - CLI `--format tar.zst` / `--format tzst` support; auto-detection from `.tar.zst` / `.tzst` extension
+  - Automatic decompression with archive entry extraction (list, extract)
+  - Compression level `0..=22` (default: zstd default); `--stdout` rejected (multi-file archive)
+  - Note: `.zst` / `.zstd` single-stream behavior is unaffected
+
 - **Format support — Zstandard (single-stream)**:
   - .zst / .zstd single-file compression and decompression via `zstd` crate
   - CLI `--format zst` / `--format zstd` support; auto-detection from `.zst` / `.zstd` extension
   - Compression level `0..=22` (default: 3); `--stdout` decompress supported
   - `list` shows synthetic single-stream entries (table/json)
-  - Note: `.tar.zst` currently decompresses as raw zstd stream (tar layer ignored); full tar.zst pending future work
+  - Note: `.tar.zst` / `.tzst` are handled by the TarZst archive format; `.zst` / `.zstd` remain single-stream
 
 ## [0.1.0] - 2026-06-01
 
