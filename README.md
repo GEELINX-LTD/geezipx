@@ -14,12 +14,12 @@
 
 ## Features
 
-- **Multi-format** -- ZIP, TAR, TAR.GZ/TGZ, GZIP/GZ, and Zstandard/ZST (read/write)
+- **Multi-format** -- ZIP, TAR, TAR.GZ/TGZ, TAR.ZST/TZST, GZIP/GZ, and Zstandard/ZST (read/write)
 - **Streaming I/O** -- process large files with bounded memory usage
 - **Live progress bars** -- real-time speed, ETA, and per-file status on TTY
 - **Cancel-safe** -- graceful Ctrl+C with partial-file cleanup; double Ctrl+C force-kill
 - **Auto-format detection** -- magic-byte recognition with extension-based fallback
-- **Compression levels** -- `--level 0-9` for gzip/tar.gz; `--level 0-22` for zstd
+- **Compression levels** -- `--level 0-9` for gzip/tar.gz; `--level 0-22` for zstd/tar.zst
 - **Clobber controls** -- `--no-clobber` to skip existing files, `--force` to overwrite
 - **Zip Slip protection** -- blocks path-traversal attacks in all archive formats
 - **JSON output** -- `list --json` for machine-readable inspection
@@ -31,7 +31,7 @@
 
 ## Status
 
-Phase 1 (CLI MVP) is **complete**. All core subcommands (`compress`, `decompress`, `list`, `completions`) work for the four supported formats.
+Phase 1 (CLI MVP) is **complete**. All core subcommands (`compress`, `decompress`, `list`, `completions`) work for the six supported formats.
 
 | Milestone | Theme | Status |
 |-----------|-------|--------|
@@ -94,6 +94,15 @@ geezipx compress hello.txt -f zst -o hello.txt.zst
 # Decompress zstandard to stdout
 geezipx decompress hello.txt.zst --stdout > output.txt
 
+# Compress directory into tar.zst archive
+geezipx compress mydir -r -f tar.zst -o mydir.tar.zst
+
+# Decompress tar.zst archive
+geezipx decompress mydir.tar.zst
+
+# List contents of tar.zst archive
+geezipx list mydir.tar.zst
+
 # Decompress to a specific directory
 geezipx decompress archive.tar.gz -o /tmp/out
 
@@ -130,9 +139,9 @@ geezipx compress <inputs...> -o <output> [options]
 | Option | Description |
 |--------|-------------|
 | `-o`, `--output` | Output file path **(required)** |
-| `-f`, `--format` | Format: `zip`, `tar`, `tar.gz`, `tgz`, `gz`, `gzip`, `zst`, `zstd` (inferred from extension if omitted, defaults to zip) |
+| `-f`, `--format` | Format: `zip`, `tar`, `tar.gz`, `tgz`, `gz`, `gzip`, `tar.zst`, `tzst`, `zst`, `zstd` (inferred from extension if omitted, defaults to zip) |
 | `-r`, `--recursive` | Recursively add directories |
-| `-L`, `--level` | Compression level 0-9 (gzip/tar.gz, default: 6); 0-22 (zstd/zst, default: 3) |
+| `-L`, `--level` | Compression level 0-9 (gzip/tar.gz, default: 6); 0-22 (zstd/zst/tar.zst/tzst, default: zstd default) |
 
 ### `decompress` — Extract archives
 
@@ -145,7 +154,7 @@ Auto-detects the format via magic bytes (with extension fallback).
 | Option | Description |
 |--------|-------------|
 | `-o`, `--output-dir` | Output directory (default: current directory) |
-| `--stdout` | Decompress to stdout (gzip/zstd only; errors on multi-file archives) |
+| `--stdout` | Decompress to stdout (gzip/zstd only; errors on multi-file archives like tar.gz, tar.zst) |
 | `--no-clobber` | Skip files that already exist |
 | `--force` | Overwrite existing files (default; mutually exclusive with `--no-clobber`) |
 
@@ -272,7 +281,7 @@ cargo bench --no-run -p geezipx-core
 cargo bench -p geezipx-core
 ```
 
-Benchmarks cover gzip throughput (4 levels × 2 sizes) and archive throughput (tar.gz, ZIP round-trip).
+Benchmarks cover gzip throughput (4 levels × 2 sizes) and archive throughput (tar.gz, TarZst, ZIP round-trip).
 
 ### Interoperability Tests
 
@@ -302,7 +311,7 @@ cargo build --release --workspace
 
 All core features are implemented and verified:
 
-- [x] ZIP / TAR / TAR.GZ / GZIP read/write
+- [x] ZIP / TAR / TAR.GZ / TAR.ZST / GZIP / ZST read/write
 - [x] Streaming I/O with bounded memory usage
 - [x] Progress bars with indicatif
 - [x] Ctrl+C graceful cancellation
@@ -317,11 +326,11 @@ All core features are implemented and verified:
 - [x] Criterion benchmarks
 - [x] **crates.io release**
 
-> **Note**: Zstandard (zst/zstd) single-stream read/write was added after Phase 1 as an early Phase 2 format extension.
+> **Note**: Zstandard (zst/zstd) and TarZst (tar.zst/tzst) read/write were added after Phase 1 milestones as early Phase 2 format extensions folded back into the MVP.
 
 ### Phase 2 (CLI Enhancements) — Planned
 
-- Multi-threaded compression (rayon) — planned; zstd single-stream done, tar.zst pending
+- Multi-threaded compression (rayon) — planned
 - xz / LZMA read/write
 - Encrypted ZIP (AES-256)
 - Volume-split archives
