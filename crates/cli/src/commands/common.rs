@@ -19,6 +19,7 @@ use geezipx_core::archive::tarzst::TarZstWriter;
 use geezipx_core::archive::zip::ZipReader;
 use geezipx_core::archive::zip::ZipWriter;
 use geezipx_core::archive::{ArchiveReader, ArchiveWriter};
+use geezipx_core::config::CompressOptions;
 use geezipx_core::detect::{self, ArchiveFormat};
 
 // ---------------------------------------------------------------------------
@@ -245,24 +246,23 @@ pub fn open_reader(path: &Path, format: ArchiveFormat) -> Result<Box<dyn Archive
     })
 }
 
-/// Create an archive writer for the given output file, format, and optional
-/// compression level.
+/// Create an archive writer with the given compression options.
 pub fn create_writer(
     file: fs::File,
     format: ArchiveFormat,
-    level: Option<u32>,
+    options: CompressOptions,
 ) -> Result<Box<dyn ArchiveWriter>> {
     match format {
         ArchiveFormat::Zip => Ok(Box::new(ZipWriter::new(file))),
         ArchiveFormat::Tar => Ok(Box::new(TarWriter::new(file))),
-        ArchiveFormat::TarGz => Ok(Box::new(TarGzWriter::new_with_level(file, level))),
-        ArchiveFormat::TarZst => Ok(Box::new(TarZstWriter::new_with_level(file, level))),
+        ArchiveFormat::TarGz => Ok(Box::new(TarGzWriter::new_with_options(file, options))),
+        ArchiveFormat::TarZst => Ok(Box::new(TarZstWriter::new_with_options(file, options))),
         ArchiveFormat::Gzip | ArchiveFormat::Zstd | ArchiveFormat::Xz | ArchiveFormat::Lzma => {
             anyhow::bail!(
                 "'{format}' is a single-stream compression format; use 'compress' directly, not an archive writer"
             )
         }
-        ArchiveFormat::TarXz => Ok(Box::new(TarXzWriter::new_with_level(file, level))),
+        ArchiveFormat::TarXz => Ok(Box::new(TarXzWriter::new_with_options(file, options))),
         _ => anyhow::bail!("unsupported format for writing: {format}"),
     }
 }

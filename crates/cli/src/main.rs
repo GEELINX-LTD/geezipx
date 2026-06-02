@@ -56,6 +56,12 @@ enum Commands {
         /// Compression level (0-22, default: varies; gzip/tar.gz/xz/lzma/tar.xz: 0..=9, zstd/tar.zst: 0..=22)
         #[arg(short = 'L', long = "level", value_parser = clap::value_parser!(u32).range(0..=22))]
         level: Option<u32>,
+
+        /// Number of worker threads (0 = auto, default: 1 = single-threaded).
+        /// Only zstd and tar.zst currently use multiple threads; other formats
+        /// accept this flag for forward compatibility but ignore it.
+        #[arg(short = 'j', long = "jobs", default_value_t = 1, value_parser = clap::value_parser!(u32).range(0..=256))]
+        jobs: u32,
     },
 
     /// Decompress an archive or compressed file
@@ -118,12 +124,14 @@ fn run() -> anyhow::Result<()> {
             format,
             recursive,
             level,
+            jobs,
         } => commands::compress::execute(
             &inputs,
             &output,
             format.as_deref(),
             recursive,
             level,
+            jobs,
             cli.no_progress,
             cli.verbose,
         )?,

@@ -12,6 +12,7 @@
 
 use std::io::{Read, Write};
 
+use crate::config::CompressOptions;
 use crate::error::{GeeZipError, GeeZipResult};
 
 /// Convert an optional compression level (0-9) to a `flate2::Compression`.
@@ -47,6 +48,20 @@ pub fn gzip_compress_with_level<R: Read, W: Write>(
         .try_finish()
         .map_err(|e| GeeZipError::io(e, "gzip compression finalisation failed"))?;
     Ok(bytes)
+}
+
+/// Compress data from `reader` into `writer` using gzip with full options.
+///
+/// Currently only `options.level` is applied; `options.jobs` is accepted
+/// but ignored (gzip/deflate is single-threaded in `flate2`).
+///
+/// Returns the number of bytes read from the source (uncompressed size).
+pub fn gzip_compress_with_options<R: Read, W: Write>(
+    reader: &mut R,
+    writer: W,
+    options: CompressOptions,
+) -> GeeZipResult<u64> {
+    gzip_compress_with_level(reader, writer, options.level)
 }
 
 /// Compress data from `reader` into `writer` using gzip with the default level.

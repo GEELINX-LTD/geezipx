@@ -8,6 +8,7 @@ use anyhow::{Context, Result};
 use geezipx_core::archive::gzip;
 use geezipx_core::archive::xz;
 use geezipx_core::archive::zstd;
+use geezipx_core::config::CompressOptions;
 use geezipx_core::detect::ArchiveFormat;
 
 use crate::render::progress::{ProgressBarWrapper, SharedCallback};
@@ -16,19 +17,25 @@ use geezipx_core::ProgressReader;
 use super::common;
 
 /// Execute the `compress` subcommand.
+#[allow(clippy::too_many_arguments)]
 pub fn execute(
     inputs: &[std::path::PathBuf],
     output: &Path,
     format: Option<&str>,
     recursive: bool,
     level: Option<u32>,
+    jobs: u32,
     no_progress: bool,
     verbose: bool,
 ) -> Result<()> {
+    let compress_options = CompressOptions {
+        level,
+        jobs: if jobs == 1 { None } else { Some(jobs) },
+    };
     let format = common::resolve_format(format, output)?;
     // Create a cancellation token for Ctrl+C (SIGINT) handling.
     let cancel_token = crate::signal::CancellationToken::new();
-    validate_compress_inputs(inputs, format, level)?;
+    validate_compress_inputs(inputs, format, &compress_options)?;
 
     // Create the output file early so we fail-fast if the path is invalid.
     let output_file = fs::File::create(output)
@@ -56,7 +63,8 @@ pub fn execute(
                 let mut pr = ProgressReader::new(reader)
                     .with_total(file_size)
                     .with_callback(Box::new(shared));
-                let r = match compress_single_stream(&mut pr, output_file, level, format) {
+                let r = match compress_single_stream(&mut pr, output_file, compress_options, format)
+                {
                     Ok(bytes) => {
                         inner
                             .lock()
@@ -84,7 +92,8 @@ pub fn execute(
                 let mut pr = ProgressReader::new(reader)
                     .with_total(file_size)
                     .with_callback(Box::new(shared));
-                let r = match compress_single_stream(&mut pr, output_file, level, format) {
+                let r = match compress_single_stream(&mut pr, output_file, compress_options, format)
+                {
                     Ok(bytes) => bytes,
                     Err(e) => {
                         if cancel_token.is_cancelled() {
@@ -145,7 +154,7 @@ pub fn execute(
                 }
             };
 
-            let mut writer = common::create_writer(output_file, format, level)?;
+            let mut writer = common::create_writer(output_file, format, compress_options)?;
 
             for entry in &files {
                 if entry.is_dir {
@@ -243,7 +252,7 @@ pub fn execute(
 fn validate_compress_inputs(
     inputs: &[std::path::PathBuf],
     format: ArchiveFormat,
-    level: Option<u32>,
+    options: &CompressOptions,
 ) -> Result<()> {
     if inputs.is_empty() {
         anyhow::bail!("at least one input file is required");
@@ -263,13 +272,14 @@ fn validate_compress_inputs(
         );
     }
 
-    // Gzip/xz/lzma/tar.xz level is limited to 0..=9; zstd supports 0..=22.
+    // Gzip/xz/lzma/tar.gz/tar.xz level is limited to 0..=9; zstd/tar.zst supports 0..=22.
     if format == ArchiveFormat::Gzip
         || format == ArchiveFormat::Xz
         || format == ArchiveFormat::Lzma
+        || format == ArchiveFormat::TarGz
         || format == ArchiveFormat::TarXz
     {
-        if let Some(l) = level {
+        if let Some(l) = options.level {
             if l > 9 {
                 anyhow::bail!("{} compression level must be 0..=9, got {}", format, l);
             }
@@ -305,21 +315,21 @@ fn open_input(path: &Path) -> Result<impl Read> {
     Ok(BufReader::new(file))
 }
 
-/// Compress a single stream using either gzip or zstd based on `format`.
+/// Compress a single stream using format-appropriate encoder with options.
 fn compress_single_stream<R: Read, W: Write>(
     reader: &mut R,
     writer: W,
-    level: Option<u32>,
+    options: CompressOptions,
     format: ArchiveFormat,
 ) -> anyhow::Result<u64> {
     match format {
-        ArchiveFormat::Gzip => gzip::gzip_compress_with_level(reader, writer, level)
+        ArchiveFormat::Gzip => gzip::gzip_compress_with_options(reader, writer, options)
             .map_err(|e| anyhow::anyhow!("gzip compression error: {}", e)),
-        ArchiveFormat::Zstd => zstd::zstd_compress_with_level(reader, writer, level)
+        ArchiveFormat::Zstd => zstd::zstd_compress_with_options(reader, writer, options)
             .map_err(|e| anyhow::anyhow!("zstd compression error: {}", e)),
-        ArchiveFormat::Xz => xz::xz_compress_with_level(reader, writer, level)
+        ArchiveFormat::Xz => xz::xz_compress_with_options(reader, writer, options)
             .map_err(|e| anyhow::anyhow!("xz compression error: {}", e)),
-        ArchiveFormat::Lzma => xz::lzma_compress_with_level(reader, writer, level)
+        ArchiveFormat::Lzma => xz::lzma_compress_with_options(reader, writer, options)
             .map_err(|e| anyhow::anyhow!("lzma compression error: {}", e)),
         _ => anyhow::bail!("cannot compress '{}' as a single stream", format),
     }

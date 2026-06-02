@@ -9,6 +9,7 @@
 
 use std::io::{Read, Write};
 
+use crate::config::CompressOptions;
 use crate::error::{GeeZipError, GeeZipResult};
 
 /// Compress data from `reader` into `writer` using Zstandard at the given level.
@@ -30,6 +31,38 @@ pub fn zstd_compress_with_level<R: Read, W: Write>(
     };
     let mut encoder = zstd::stream::write::Encoder::new(writer, level_i32)
         .map_err(|e| GeeZipError::io(e, "zstd compression init failed"))?;
+    let bytes = std::io::copy(reader, &mut encoder)
+        .map_err(|e| GeeZipError::io(e, "zstd compression failed"))?;
+    encoder
+        .finish()
+        .map_err(|e| GeeZipError::io(e, "zstd compression finalisation failed"))?;
+    Ok(bytes)
+}
+
+/// Compress data from `reader` into `writer` using Zstandard with full options.
+///
+/// Supports both compression level and multi-threaded encoding via
+/// [`CompressOptions`].  When `options.effective_jobs() > 1` the underlying
+/// zstd encoder is configured to use that many worker threads.
+///
+/// Returns the number of bytes read from the source (uncompressed size).
+pub fn zstd_compress_with_options<R: Read, W: Write>(
+    reader: &mut R,
+    writer: W,
+    options: CompressOptions,
+) -> GeeZipResult<u64> {
+    let level_i32 = match options.level {
+        None | Some(0) => 0,
+        Some(l) => l as i32,
+    };
+    let workers = options.effective_jobs() as u32;
+    let mut encoder = zstd::stream::write::Encoder::new(writer, level_i32)
+        .map_err(|e| GeeZipError::io(e, "zstd compression init failed"))?;
+    if workers > 1 {
+        encoder
+            .set_parameter(zstd::stream::raw::CParameter::NbWorkers(workers))
+            .map_err(|e| GeeZipError::io(e, "zstd multithread init failed"))?;
+    }
     let bytes = std::io::copy(reader, &mut encoder)
         .map_err(|e| GeeZipError::io(e, "zstd compression failed"))?;
     encoder

@@ -10,6 +10,7 @@ use std::path::Path;
 
 use super::CountWriter;
 use crate::archive::{ArchiveReader, ArchiveWriter, Entry};
+use crate::config::CompressOptions;
 use crate::detect::ArchiveFormat;
 use crate::error::{GeeZipError, GeeZipResult};
 
@@ -191,6 +192,17 @@ impl<W: Write + Send> TarXzWriter<W> {
     /// `level: None`.
     pub fn new(writer: W) -> Self {
         Self::new_with_level(writer, None)
+    }
+
+    /// Create a new tar.xz writer with the given compression options.
+    ///
+    /// Currently only `options.level` is applied; `options.jobs` is accepted
+    /// but ignored because the `xz2` crate does not expose a stable
+    /// multi-threaded API in its current version.
+    ///
+    /// TODO: Revisit when `xz2` gets multithread support.
+    pub fn new_with_options(writer: W, options: CompressOptions) -> Self {
+        Self::new_with_level(writer, options.level)
     }
 
     /// Finalise the archive and return the inner writer alongside

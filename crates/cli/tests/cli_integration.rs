@@ -115,7 +115,8 @@ fn compress_help_available() {
         .success()
         .stdout(predicate::str::contains("--format"))
         .stdout(predicate::str::contains("--recursive"))
-        .stdout(predicate::str::contains("--level"));
+        .stdout(predicate::str::contains("--level"))
+        .stdout(predicate::str::contains("--jobs"));
 }
 
 #[test]
@@ -2000,6 +2001,173 @@ fn zstd_compress_level_22() {
     let extracted = output_dir.join("test");
     let actual = std::fs::read_to_string(&extracted).unwrap();
     assert_eq!(actual, content);
+}
+
+// ---------------------------------------------------------------------------
+// --jobs integration
+// ---------------------------------------------------------------------------
+
+#[test]
+fn zstd_with_jobs_roundtrip() {
+    let tmp = TestDir::new();
+    let content = "hello from jobs test\n";
+    tmp.write("jobs.txt", content);
+    let archive = tmp.join("jobs.txt.zst");
+
+    // Compress with --jobs 2
+    geezipx()
+        .args(["compress", "-j", "2", "-o"])
+        .arg(&archive)
+        .arg(tmp.join("jobs.txt"))
+        .assert()
+        .success();
+
+    assert!(archive.is_file(), "compressed archive should exist");
+
+    // Decompress back
+    let out = tmp.join("out");
+    std::fs::create_dir_all(&out).unwrap();
+    geezipx()
+        .args(["decompress", "-o"])
+        .arg(&out)
+        .arg(&archive)
+        .assert()
+        .success();
+
+    let extracted = out.join("jobs.txt");
+    assert!(
+        extracted.is_file(),
+        "decompressed file should exist: {:?}",
+        extracted
+    );
+    let actual = std::fs::read_to_string(&extracted).unwrap();
+    assert_eq!(actual, content);
+}
+
+#[test]
+fn tarzst_with_jobs_roundtrip() {
+    let tmp = TestDir::new();
+    let content = "tar.zst with --jobs 2";
+    tmp.write("jobs_tar.txt", content);
+    let archive = tmp.join("out.tar.zst");
+
+    // Compress tar.zst with --jobs 2 (exercises multithread path).
+    geezipx()
+        .args([
+            "compress",
+            tmp.join("jobs_tar.txt").to_str().unwrap(),
+            "-f",
+            "tar.zst",
+            "-j",
+            "2",
+            "-o",
+            archive.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    assert!(archive.is_file(), "tar.zst archive should exist");
+
+    // Decompress and verify.
+    let out = tmp.join("extracted");
+    std::fs::create_dir_all(&out).unwrap();
+    geezipx()
+        .args([
+            "decompress",
+            archive.to_str().unwrap(),
+            "-o",
+            out.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    let extracted = out.join("jobs_tar.txt");
+    assert!(extracted.is_file());
+    assert_eq!(std::fs::read_to_string(&extracted).unwrap(), content);
+}
+
+#[test]
+fn gzip_jobs_roundtrip() {
+    let tmp = TestDir::new();
+    let content = "gzip with --jobs 4 (should be silently ignored)";
+    tmp.write("gzip_jobs.txt", content);
+    let archive = tmp.join("gzip_jobs.txt.gz");
+
+    // Compress gzip with --jobs 4 — gzip ignores jobs but should not fail.
+    geezipx()
+        .args([
+            "compress",
+            tmp.join("gzip_jobs.txt").to_str().unwrap(),
+            "-f",
+            "gz",
+            "-j",
+            "4",
+            "-o",
+            archive.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    assert!(archive.is_file(), "gzip archive should exist");
+
+    // Decompress and verify.
+    let out = tmp.join("out");
+    std::fs::create_dir_all(&out).unwrap();
+    geezipx()
+        .args([
+            "decompress",
+            archive.to_str().unwrap(),
+            "-o",
+            out.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    let extracted = out.join("gzip_jobs.txt");
+    assert!(extracted.is_file());
+    assert_eq!(std::fs::read_to_string(&extracted).unwrap(), content);
+}
+
+#[test]
+fn targz_jobs_roundtrip() {
+    let tmp = TestDir::new();
+    let content = "tar.gz with --jobs 4";
+    tmp.write("targz_jobs.txt", content);
+    let archive = tmp.join("out.tar.gz");
+
+    // Compress tar.gz with --jobs 4 — tar.gz ignores jobs but should not fail.
+    geezipx()
+        .args([
+            "compress",
+            tmp.join("targz_jobs.txt").to_str().unwrap(),
+            "-f",
+            "tar.gz",
+            "-j",
+            "4",
+            "-o",
+            archive.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    assert!(archive.is_file(), "tar.gz archive should exist");
+
+    // Decompress and verify.
+    let out = tmp.join("extracted");
+    std::fs::create_dir_all(&out).unwrap();
+    geezipx()
+        .args([
+            "decompress",
+            archive.to_str().unwrap(),
+            "-o",
+            out.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    let extracted = out.join("targz_jobs.txt");
+    assert!(extracted.is_file());
+    assert_eq!(std::fs::read_to_string(&extracted).unwrap(), content);
 }
 
 // ---------------------------------------------------------------------------

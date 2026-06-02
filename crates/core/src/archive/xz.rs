@@ -9,6 +9,7 @@
 
 use std::io::{Read, Write};
 
+use crate::config::CompressOptions;
 use crate::error::{GeeZipError, GeeZipResult};
 
 // ---------------------------------------------------------------------------
@@ -38,6 +39,26 @@ pub fn xz_compress_with_level<R: Read, W: Write>(
         .finish()
         .map_err(|e| GeeZipError::io(e, "xz compression finalisation failed"))?;
     Ok(bytes)
+}
+
+/// Compress data from `reader` into `writer` using XZ with full options.
+///
+/// Currently only `options.level` is applied; `options.jobs` is accepted
+/// but ignored because the `xz2` crate does not expose a stable
+/// multi-threaded XZ encoder API in its current version.
+///
+/// TODO: Revisit when `xz2` gets an `XzEncoder::new_with_options` or
+/// equivalent multithread API, or when we migrate to a more featureful
+/// xz binding (`liblzma` / `lzma-sys`).
+///
+/// Returns the number of bytes read from the source (uncompressed size).
+pub fn xz_compress_with_options<R: Read, W: Write>(
+    reader: &mut R,
+    writer: W,
+    options: CompressOptions,
+) -> GeeZipResult<u64> {
+    // TODO: apply options.effective_jobs() when xz2 supports multithread.
+    xz_compress_with_level(reader, writer, options.level)
 }
 
 /// Compress data from `reader` into `writer` using XZ with the default level.
@@ -86,6 +107,21 @@ pub fn lzma_compress_with_level<R: Read, W: Write>(
         .finish()
         .map_err(|e| GeeZipError::io(e, "lzma compression finalisation failed"))?;
     Ok(bytes)
+}
+
+/// Compress data from `reader` into `writer` using LZMA with full options.
+///
+/// Currently only `options.level` is applied; `options.jobs` is accepted
+/// but ignored (LZMA is inherently single-stream, no multithread encoder
+/// support is expected).
+///
+/// Returns the number of bytes read from the source (uncompressed size).
+pub fn lzma_compress_with_options<R: Read, W: Write>(
+    reader: &mut R,
+    writer: W,
+    options: CompressOptions,
+) -> GeeZipResult<u64> {
+    lzma_compress_with_level(reader, writer, options.level)
 }
 
 /// Compress data from `reader` into `writer` using LZMA with the default level.
