@@ -16,6 +16,7 @@ geezipx/
 │   │       ├── detect.rs      # 格式自动检测（魔数 + 扩展名）
 │   │       ├── error.rs       # 统一错误类型
 │   │       └── io.rs          # 流式读/写/计数/进度封装
+32d|│   │       ├── config.rs     # 压缩配置（CompressOptions, level + jobs 统一传递）
 │   └── cli/                   # CLI 二进制 — clap + 进度渲染
 │       ├── Cargo.toml
 │       └── src/
@@ -195,12 +196,13 @@ GUI 实现：通过 Tauri `emit` 事件推送进度到前端。
 
 | 子命令 | 主要参数 | 核心流程 |
 |--------|---------|---------|
-| `compress` | `<inputs...>` `--format` `-o` `--level` `-r` | 收集文件 → 创建 ArchiveWriter → 写入 |
+|| `compress` | `<inputs...>` `--format` `-o` `-L` `--level` `-j` `--jobs` `-r` | 收集文件 → 创建 ArchiveWriter → 写入 |
 | `decompress` | `<archive>` `-o` `--stdout` `--no-clobber` `--force` | 检测格式 → 创建 ArchiveReader → 解包 |
 | `list` | `<archive>` `--json` | 检测格式 → 读取 entries → 表格/JSON 输出 |
 | `completions` | `<shell>` | 生成指定 Shell 的自动补全脚本 |
 
 全局参数：`--no-progress`（禁用进度条）、`--verbose`（逐文件日志）。
+压缩特有参数：`-j`/`--jobs`（多线程工作数，默认 1 单线程；`0` auto；当前仅 `zstd`/`tar.zst` 实际启用多线程）
 
 ### 2.7 cli/render — 输出渲染
 
@@ -219,8 +221,8 @@ Phase 1 实际依赖（以 `crates/core/Cargo.toml` 和 `crates/cli/Cargo.toml` 
 | `flate2` 1.x | gzip/deflate（`rust_backend` — 纯 Rust，无 C 依赖） |
 | `thiserror` 2 | 错误类型 derive |
 | `log` 0.4 | 日志门面 |
-| `xz2` 0.1 | xz (.xz) / LZMA (.lzma) 单流压缩/解压（features = ["static"] — 静态链接 liblzma） |
-| `zstd` 0.13 | Zstandard（zstd/zst）单流压缩/解压（`legacy` 特性关闭，`zstd-safe` 内部） |
+| `xz2` 0.1 | xz (.xz) / LZMA (.lzma) 单流压缩/解压（features = ["static"] — 静态链接 liblzma；当前无稳定多线程 API，`--jobs` 向前兼容占位） |
+| `zstd` 0.13 | Zstandard（zstd/zst）单流压缩/解压；启用 `zstdmt` feature 支持多线程（`NbWorkers`） |
 
 ##### dev-dependencies
 
@@ -250,7 +252,7 @@ Phase 1 实际依赖（以 `crates/core/Cargo.toml` 和 `crates/cli/Cargo.toml` 
 | `predicates` 3 | CLI 输出断言 |
 | `tempfile` 3 | 测试临时目录 |
 
-> **与早期草案的变化**：Phase 1 初始不包含 `xz2`/`zstd`/`crossterm`/`owo-colors`/`env_logger`/`snapbox`。zstd 后已用 `zstd` crate 添加单流读写支持（`archive::zstd` 模块 + CLI `-f zst`/`-f zstd` 参数 + 扩展名自动推断）；TarZst（tar.zst/tzst）也基于 `zstd` crate 和 `tar` crate 实现完整归档压缩/解压/list（`archive::tarzst` 模块）。xz 和 lzma 已通过 `xz2` crate 实现单流压缩/解压（`archive::xz` 模块 + CLI `-f xz`/`-f lzma` 参数）；TarXz（tar.xz/txz）基于 `xz2` crate 和 `tar` crate 实现完整归档压缩/解压/list（`archive::tarxz` 模块）。当前 core 不使用 feature flags 进行条件编译——zip、flate2、zstd、xz2 均为必选依赖。
+> **与早期草案的变化**：Phase 1 初始不包含 `xz2`/`zstd`/`crossterm`/`owo-colors`/`env_logger`/`snapbox`。zstd 后已用 `zstd` crate 添加单流读写支持（`archive::zstd` 模块 + CLI `-f zst`/`-f zstd` 参数 + 扩展名自动推断）；TarZst（tar.zst/tzst）也基于 `zstd` crate 和 `tar` crate 实现完整归档压缩/解压/list（`archive::tarzst` 模块）。xz 和 lzma 已通过 `xz2` crate 实现单流压缩/解压（`archive::xz` 模块 + CLI `-f xz`/`-f lzma` 参数）；TarXz（tar.xz/txz）基于 `xz2` crate 和 `tar` crate 实现完整归档压缩/解压/list（`archive::tarxz` 模块）。后续新增了 `config.rs`（`CompressOptions`）统一传递压缩参数（level + jobs），`zstd` 启用 `zstdmt` feature 支持多线程（`-j`/`--jobs`）。当前 core 不使用 feature flags 进行条件编译——zip、flate2、zstd（含 zstdmt）、xz2 均为必选依赖。
 
 ## 4. 进度与取消机制
 
@@ -365,8 +367,8 @@ gui-tauri/
 | 风险 | 影响 | 缓解 |
 |------|------|------|
 | `zip` crate 对 Deflate64 支持不完整 | 部分 ZIP 无法解压 | Phase 2 回退到系统 `unzip`；社区 PR |
-| zstd 的 C 库交叉编译（zstd crate 纯 Rust 现已解） | Phase 1 已通过 pure-Rust `zstd` crate 解决此风险 |
-| 大文件进度精度受限于预扫描 | 压缩前需要遍历目标文件计算总大小 | Phase 1 接受首次扫描开销；Phase 2 用 `rayon` 并行 |
+|| zstd 的 C 库交叉编译（zstd crate 纯 Rust 现已解） | Phase 1 已通过 pure-Rust `zstd` crate 解决；`zstdmt` feature 开启后仍为纯 Rust |
+|| 大文件进度精度受限于预扫描 | 压缩前需要遍历目标文件计算总大小 | Phase 1 接受首次扫描开销；Phase 2 考虑文件扫描并行化 |
 | Windows 下符号链接/长路径不一致 | 功能受限 | 清晰文档说明限制；渐进式支持 |
 | 不同平台 gzip 压缩默认级别差异 | 产生不同二进制 | CI 强制 `--level` 保证一致性；默认值文档说明 |
 

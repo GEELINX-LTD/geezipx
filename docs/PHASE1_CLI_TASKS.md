@@ -3,6 +3,7 @@
 > 总周期估计：**10-12 周**（单人全职开发）。  
 > 里程碑结构：4 个里程碑，每个里程碑对应可发布的增量。  
 > **当前状态：** M1、M2、M3 已完成。M4 本地与远程发布验证全部通过（详见附录检查表）。`geezipx-core` 和 `geezipx` 均已发布至 crates.io，GitHub Release v0.1.0 已创建。远端 CI 三平台全线绿色，crates.io 页面渲染确认正常，Phase 1 发布验证已完成。
+> **后期增加：** `compress` 命令新增 `-j`/`--jobs` 多线程参数（`feat(cli): add jobs option for zstd compression`）。默认 1（单线程，向后兼容），`0`（auto），或指定线程数。当前 `zstd`/`tar.zst` 实际启用多线程（zstdmt），其他格式接受参数但暂不生效。
 
 ---
 
@@ -96,6 +97,7 @@ geezipx compress <inputs...>
   -f, --format <FORMAT>          # zip | tar | tar.gz | tgz | tar.zst | tzst | tar.xz | txz | gz | gzip | zst | zstd | xz | lzma (default: 从扩展名推断或者 zip)
   -o, --output <PATH>            # 输出文件（必填）
   -r, --recursive                # 递归添加目录
+  -j, --jobs <JOBS>              # Worker 线程数: 1(默认单线程), 0(auto), N(指定); 当前 zstd/tar.zst 生效
 
 geezipx decompress <archive>
   -o, --output-dir <PATH>        # 输出目录 (default: .)
@@ -111,6 +113,7 @@ geezipx list <archive>
   - `--level` 压缩级别 — 已完成（`-L, --level <LEVEL>`，接受 0-22；gzip/tar.gz/xz/lzma/tar.xz 使用 0-9，zstd/zst/tar.zst/tzst 使用 0-22；zip/tar 参数接受但暂不生效）
   - `--no-progress` 进度条控制（opt-out 模式） — 已实现（M3-2）
   - `--no-clobber` 覆盖保护 — 已提前实现（见 M3-4）
+  - `--jobs` 多线程 — 已实现（`-j, --jobs <JOBS>`，默认 1 保持向后兼容；`0` 自动选择可用 CPU 数；当前 `zstd`/`tar.zst` 实际启用多线程，其他格式接受参数但不生效）
 - **验收标准**：三个子命令均可通过 `--help` 查看参数说明 — 通过（见集成测试 `help_available`）。
 
 ### M2-2：compress 命令实现 ✅
@@ -123,6 +126,7 @@ geezipx list <archive>
   - 输入路径不存在时报错
 - **格式推断**：`--format` 优先；否则从 `.zip`（或其他扩展名，包括 `.zst`/`.zstd`）推断；均不匹配时默认 ZIP
 - **与原计划差异**：不支持 glob 通配符（由 shell 展开）、不支持 `--level` 压缩级别
+  - `--jobs` 多线程参数（`-j`）为 post-Phase-1 增强，在 `feat(cli): add jobs option for zstd compression`（`3dc668d`）中添加
 - **验收标准**：全部通过
 
 ### M2-3：decompress 命令实现 ✅

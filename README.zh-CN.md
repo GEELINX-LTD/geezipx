@@ -336,7 +336,7 @@ cargo build --release --workspace
 
 ### 第二阶段（CLI 增强）— 规划中
 
-- 多线程压缩（rayon）
+- zstd/tar.zst 多线程压缩（`-j`/`--jobs`，zstd 原生 NbWorkers）— **已完成**
 - xz / LZMA 读写
 - Zstandard 读写
 - 加密 ZIP（AES-256）

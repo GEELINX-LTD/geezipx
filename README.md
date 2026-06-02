@@ -26,6 +26,7 @@
 - **Shell completions** -- bash, zsh, fish, PowerShell, elvish
 - **Cross-platform** -- Linux, macOS, Windows (3-platform CI)
 - **Single binary** -- no runtime dependencies, `cargo install` ready
+b5d|- **Multi-threaded compression** -- `-j`/`--jobs` for parallel zstd and tar.zst compression
 
 ---
 
@@ -117,6 +118,9 @@ geezipx compress hello.txt -f zst -o hello.txt.zst
 # Decompress zstandard to stdout
 geezipx decompress hello.txt.zst --stdout > output.txt
 
+# Multi-threaded zstd compression (4 workers)
+geezipx compress hello.txt -f zst -o hello.txt.zst -j 4
+
 # Compress directory into tar.zst archive
 geezipx compress mydir -r -f tar.zst -o mydir.tar.zst
 
@@ -165,6 +169,7 @@ geezipx compress <inputs...> -o <output> [options]
 - `-f`, `--format` | Format: `zip`, `tar`, `tar.gz`, `tgz`, `gz`, `gzip`, `tar.zst`, `tzst`, `zst`, `zstd`, `tar.xz`, `txz` (inferred from extension if omitted, defaults to zip) |
 | `-r`, `--recursive` | Recursively add directories |
 - `-L`, `--level` | Compression level 0-9 (gzip/tar.gz/xz/tar.xz, default: 6); 0-22 (zstd/zst/tar.zst/tzst, default: zstd default) |
+bd0|| `-j`, `--jobs` | Worker threads: 1 (default, single-threaded), 0 (auto, use all CPUs), or N (explicit). Currently effective for zstd/tar.zst only; other formats accept but ignore for forward compat |
 
 ### `decompress` — Extract archives
 
@@ -228,6 +233,7 @@ geezipx/
 │   ├── core/               # Compression/decompression engine library
 │   │   └── src/
 │   │       ├── archive/    # ZIP, TAR, TAR.GZ, GZIP format implementations
+b3a|│   │       ├── config.rs   # Compression options (CompressOptions, --jobs/--level)
 │   │       ├── detect.rs   # Format detection (magic bytes + extension)
 │   │       ├── error.rs    # Unified error types (GeeZipError)
 │   │       └── io.rs       # Streaming I/O wrappers (ProgressReader, etc.)
@@ -368,7 +374,7 @@ All core features are implemented and verified:
 
 ### Phase 2 (CLI Enhancements) — Planned
 
-- Multi-threaded compression (rayon) — planned
+- Multi-threaded zstd/tar.zst compression via `-j`/`--jobs` (zstd native NbWorkers) — **done** (see `compress --help`)
 - xz / LZMA read/write
 - Encrypted ZIP (AES-256)
 - Volume-split archives
