@@ -16,6 +16,7 @@ pub mod gzip;
 pub mod tar;
 pub mod targz;
 pub mod tarzst;
+pub mod xz;
 pub mod zip;
 pub mod zstd;
 

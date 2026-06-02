@@ -2280,3 +2280,392 @@ fn tarzst_stdout_fails_for_archive_format() {
         .failure()
         .stderr(predicate::str::contains("--stdout"));
 }
+
+// ---------------------------------------------------------------------------
+// XZ single-stream tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn xz_roundtrip() {
+    let tmp = TestDir::new();
+    tmp.write(
+        "hello.txt",
+        "Hello, GeeZipX! Round-trip through xz compression.",
+    );
+    let archive = tmp.join("hello.txt.xz");
+
+    // Compress to xz.
+    geezipx()
+        .args([
+            "compress",
+            tmp.join("hello.txt").to_str().unwrap(),
+            "-f",
+            "xz",
+            "-o",
+            archive.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    assert!(archive.exists(), "xz archive should exist");
+
+    // Decompress with --stdout and verify content.
+    geezipx()
+        .args(["decompress", archive.to_str().unwrap(), "--stdout"])
+        .assert()
+        .success()
+        .stdout("Hello, GeeZipX! Round-trip through xz compression.");
+}
+
+#[test]
+fn xz_stdout_roundtrip() {
+    let tmp = TestDir::new();
+    tmp.write("hello.txt", "Hello, GeeZipX! xz --stdout round-trip.");
+    let archive = tmp.join("hello.txt.xz");
+
+    geezipx()
+        .args([
+            "compress",
+            tmp.join("hello.txt").to_str().unwrap(),
+            "-f",
+            "xz",
+            "-o",
+            archive.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    geezipx()
+        .args(["decompress", archive.to_str().unwrap(), "--stdout"])
+        .assert()
+        .success()
+        .stdout("Hello, GeeZipX! xz --stdout round-trip.");
+}
+
+#[test]
+fn xz_explicit_format_roundtrip() {
+    let tmp = TestDir::new();
+    tmp.write("data.txt", "Explicit xz format test.");
+    let archive = tmp.join("data.txt.xz");
+
+    geezipx()
+        .args([
+            "compress",
+            tmp.join("data.txt").to_str().unwrap(),
+            "-f",
+            "xz",
+            "-o",
+            archive.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    let output = tmp.join("extracted_xz");
+    std::fs::create_dir_all(&output).unwrap();
+    geezipx()
+        .args([
+            "decompress",
+            archive.to_str().unwrap(),
+            "-o",
+            output.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    assert!(output.join("data.txt").exists());
+    assert_eq!(
+        std::fs::read_to_string(output.join("data.txt")).unwrap(),
+        "Explicit xz format test."
+    );
+}
+
+#[test]
+fn xz_list_table_output() {
+    let tmp = TestDir::new();
+    tmp.write("data.txt", "List xz table test.");
+    let archive = tmp.join("data.txt.xz");
+
+    geezipx()
+        .args([
+            "compress",
+            tmp.join("data.txt").to_str().unwrap(),
+            "-f",
+            "xz",
+            "-o",
+            archive.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    geezipx()
+        .args(["list", archive.to_str().unwrap()])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("data.txt"))
+        .stdout(predicate::str::contains("Ratio"));
+}
+
+#[test]
+fn xz_list_json_output() {
+    let tmp = TestDir::new();
+    tmp.write("data.txt", "List xz JSON test.");
+    let archive = tmp.join("data.txt.xz");
+
+    geezipx()
+        .args([
+            "compress",
+            tmp.join("data.txt").to_str().unwrap(),
+            "-f",
+            "xz",
+            "-o",
+            archive.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    geezipx()
+        .args(["list", archive.to_str().unwrap(), "--json"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(r#""path":"#))
+        .stdout(predicate::str::contains(r#""compression_ratio""#));
+}
+
+#[test]
+fn xz_auto_extension_from_xz() {
+    let tmp = TestDir::new();
+    tmp.write("hello.txt", "Auto-extension xz.");
+    let archive = tmp.join("out.xz");
+
+    // Without --format, xz should be inferred from .xz extension.
+    geezipx()
+        .args([
+            "compress",
+            tmp.join("hello.txt").to_str().unwrap(),
+            "-o",
+            archive.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    let out2 = tmp.join("extract");
+    std::fs::create_dir(&out2).unwrap();
+    geezipx()
+        .args([
+            "decompress",
+            archive.to_str().unwrap(),
+            "-o",
+            out2.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+}
+
+#[test]
+fn xz_level_9_success() {
+    let tmp = TestDir::new();
+    let content = "Level 9 xz compression test.";
+    tmp.write("test.txt", content);
+    let archive = tmp.join("test.txt.xz");
+
+    geezipx()
+        .args([
+            "compress",
+            tmp.join("test.txt").to_str().unwrap(),
+            "-f",
+            "xz",
+            "-L",
+            "9",
+            "-o",
+            archive.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    geezipx()
+        .args(["decompress", archive.to_str().unwrap(), "--stdout"])
+        .assert()
+        .success()
+        .stdout(content);
+}
+
+#[test]
+fn xz_level_10_rejected() {
+    let tmp = TestDir::new();
+    tmp.write("test.txt", "Level 10 xz reject test.");
+    let archive = tmp.join("test.txt.xz");
+
+    geezipx()
+        .args([
+            "compress",
+            tmp.join("test.txt").to_str().unwrap(),
+            "-f",
+            "xz",
+            "-L",
+            "10",
+            "-o",
+            archive.to_str().unwrap(),
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("0..=9"));
+}
+
+#[test]
+fn xz_multiple_inputs_fails() {
+    let tmp = TestDir::new();
+    let f1 = tmp.join("a.txt");
+    let f2 = tmp.join("b.txt");
+    std::fs::write(&f1, "first").unwrap();
+    std::fs::write(&f2, "second").unwrap();
+
+    geezipx()
+        .args([
+            "compress",
+            f1.to_str().unwrap(),
+            f2.to_str().unwrap(),
+            "-f",
+            "xz",
+            "-o",
+            tmp.join("out.xz").to_str().unwrap(),
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("single input"));
+}
+
+// ---------------------------------------------------------------------------
+// LZMA single-stream tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn lzma_roundtrip() {
+    let tmp = TestDir::new();
+    tmp.write(
+        "hello.txt",
+        "Hello, GeeZipX! Round-trip through lzma compression.",
+    );
+    let archive = tmp.join("hello.txt.lzma");
+
+    geezipx()
+        .args([
+            "compress",
+            tmp.join("hello.txt").to_str().unwrap(),
+            "-f",
+            "lzma",
+            "-o",
+            archive.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    assert!(archive.exists(), "lzma archive should exist");
+
+    geezipx()
+        .args(["decompress", archive.to_str().unwrap(), "--stdout"])
+        .assert()
+        .success()
+        .stdout("Hello, GeeZipX! Round-trip through lzma compression.");
+}
+
+#[test]
+fn lzma_stdout_roundtrip() {
+    let tmp = TestDir::new();
+    tmp.write("hello.txt", "Hello, GeeZipX! lzma --stdout.");
+    let archive = tmp.join("hello.txt.lzma");
+
+    geezipx()
+        .args([
+            "compress",
+            tmp.join("hello.txt").to_str().unwrap(),
+            "-f",
+            "lzma",
+            "-o",
+            archive.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    geezipx()
+        .args(["decompress", archive.to_str().unwrap(), "--stdout"])
+        .assert()
+        .success()
+        .stdout("Hello, GeeZipX! lzma --stdout.");
+}
+
+#[test]
+fn lzma_list_json_output() {
+    let tmp = TestDir::new();
+    tmp.write("data.txt", "List lzma JSON test.");
+    let archive = tmp.join("data.txt.lzma");
+
+    geezipx()
+        .args([
+            "compress",
+            tmp.join("data.txt").to_str().unwrap(),
+            "-f",
+            "lzma",
+            "-o",
+            archive.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    geezipx()
+        .args(["list", archive.to_str().unwrap(), "--json"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(r#""path":"#))
+        .stdout(predicate::str::contains(r#""compression_ratio""#));
+}
+
+#[test]
+fn lzma_auto_extension_from_lzma() {
+    let tmp = TestDir::new();
+    tmp.write("hello.txt", "Auto-extension lzma.");
+    let archive = tmp.join("out.lzma");
+
+    geezipx()
+        .args([
+            "compress",
+            tmp.join("hello.txt").to_str().unwrap(),
+            "-o",
+            archive.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    let out2 = tmp.join("extract");
+    std::fs::create_dir(&out2).unwrap();
+    geezipx()
+        .args([
+            "decompress",
+            archive.to_str().unwrap(),
+            "-o",
+            out2.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+}
+
+#[test]
+fn lzma_level_10_rejected() {
+    let tmp = TestDir::new();
+    tmp.write("test.txt", "Level 10 lzma reject test.");
+    let archive = tmp.join("test.txt.lzma");
+
+    geezipx()
+        .args([
+            "compress",
+            tmp.join("test.txt").to_str().unwrap(),
+            "-f",
+            "lzma",
+            "-L",
+            "10",
+            "-o",
+            archive.to_str().unwrap(),
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("0..=9"));
+}

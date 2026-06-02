@@ -24,6 +24,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `list` shows synthetic single-stream entries (table/json)
   - Note: `.tar.zst` / `.tzst` are handled by the TarZst archive format; `.zst` / `.zstd` remain single-stream
 
+- **Format support — XZ single-stream (.xz)**:
+  - .xz single-file compression and decompression via `xz2` crate
+  - CLI `--format xz` support; auto-detection from `.xz` extension
+  - Compression level `0..=9` (default: 6); `--stdout` decompress supported
+  - `list` shows synthetic single-stream entries (table/json)
+  - Note: `.tar.xz` / `.txz` files are NOT yet handled as full archive format — decompression
+    produces the underlying `.tar` stream only
+
+- **Format support — LZMA single-stream (.lzma)**:
+  - .lzma single-file compression and decompression via `xz2` crate (LZMA_Alone)
+  - CLI `--format lzma` support; auto-detection from `.lzma` extension
+  - Compression level `0..=9` (default: 6); `--stdout` decompress supported
+  - `list` shows synthetic single-stream entries (table/json)
+
 ## [0.1.0] - 2026-06-01
 
 ### Added

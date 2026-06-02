@@ -29,6 +29,8 @@ pub enum ArchiveFormat {
     Zstd,
     /// Tar archive compressed with Zstandard (extension-based — `.tar.zst`, `.tzst`).
     TarZst,
+    /// LZMA Alone compressed stream (no magic — extension-based).
+    Lzma,
     /// Unknown or unrecognised format.
     Unknown,
 }
@@ -43,6 +45,7 @@ impl fmt::Display for ArchiveFormat {
             ArchiveFormat::Xz => write!(f, "xz"),
             ArchiveFormat::Zstd => write!(f, "zstd"),
             ArchiveFormat::TarZst => write!(f, "tar.zst"),
+            ArchiveFormat::Lzma => write!(f, "lzma"),
             ArchiveFormat::Unknown => write!(f, "unknown"),
         }
     }
@@ -74,6 +77,7 @@ const EXTENSION_MAP: &[(&str, ArchiveFormat)] = &[
     (".zst", ArchiveFormat::Zstd),
     (".zstd", ArchiveFormat::Zstd),
     (".tzst", ArchiveFormat::Zstd), // overridden by compound check below
+    (".lzma", ArchiveFormat::Lzma),
     (".gzip", ArchiveFormat::Gzip),
 ];
 
@@ -333,6 +337,14 @@ mod tests {
     }
 
     #[test]
+    fn ext_lzma() {
+        assert_eq!(
+            detect_from_extension(Path::new("archive.lzma")),
+            Some(ArchiveFormat::Lzma)
+        );
+    }
+
+    #[test]
     fn ext_unknown() {
         assert_eq!(detect_from_extension(Path::new("readme.md")), None);
     }
@@ -391,6 +403,11 @@ mod tests {
     #[test]
     fn display_unknown() {
         assert_eq!(ArchiveFormat::Unknown.to_string(), "unknown");
+    }
+
+    #[test]
+    fn display_lzma() {
+        assert_eq!(ArchiveFormat::Lzma.to_string(), "lzma");
     }
 
     // ---------------------------------------------------------------

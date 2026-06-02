@@ -14,12 +14,12 @@
 
 ## Features
 
-- **Multi-format** -- ZIP, TAR, TAR.GZ/TGZ, TAR.ZST/TZST, GZIP/GZ, and Zstandard/ZST (read/write)
+- **Multi-format** -- ZIP, TAR, TAR.GZ/TGZ, TAR.ZST/TZST, GZIP/GZ, Zstandard/ZST, XZ, and LZMA (read/write)
 - **Streaming I/O** -- process large files with bounded memory usage
 - **Live progress bars** -- real-time speed, ETA, and per-file status on TTY
 - **Cancel-safe** -- graceful Ctrl+C with partial-file cleanup; double Ctrl+C force-kill
 - **Auto-format detection** -- magic-byte recognition with extension-based fallback
-- **Compression levels** -- `--level 0-9` for gzip/tar.gz; `--level 0-22` for zstd/tar.zst
+- **Compression levels** -- `--level 0-9` for gzip/tar.gz/xz/lzma; `--level 0-22` for zstd/tar.zst
 - **Clobber controls** -- `--no-clobber` to skip existing files, `--force` to overwrite
 - **Zip Slip protection** -- blocks path-traversal attacks in all archive formats
 - **JSON output** -- `list --json` for machine-readable inspection
@@ -31,7 +31,7 @@
 
 ## Status
 
-Phase 1 (CLI MVP) is **complete**. All core subcommands (`compress`, `decompress`, `list`, `completions`) work for the six supported formats.
+Phase 1 (CLI MVP) is **complete**. All core subcommands (`compress`, `decompress`, `list`, `completions`) work for the eight supported formats.
 
 | Milestone | Theme | Status |
 |-----------|-------|--------|

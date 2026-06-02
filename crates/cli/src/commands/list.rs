@@ -32,6 +32,31 @@ pub fn execute(archive: &Path, json: bool) -> Result<()> {
                 modified: None,
             }]
         }
+
+        ArchiveFormat::Xz => {
+            // Xz is a single-stream compression — produce a synthetic entry.
+            let inferred_name = common::xz_output_filename(archive);
+            let compressed_size = fs::metadata(archive).map(|m| m.len()).unwrap_or(0);
+            vec![Entry {
+                path: inferred_name.to_string_lossy().into_owned(),
+                size: 0,
+                compressed_size,
+                crc32: None,
+                modified: None,
+            }]
+        }
+        ArchiveFormat::Lzma => {
+            // Lzma is a single-stream compression — produce a synthetic entry.
+            let inferred_name = common::lzma_output_filename(archive);
+            let compressed_size = fs::metadata(archive).map(|m| m.len()).unwrap_or(0);
+            vec![Entry {
+                path: inferred_name.to_string_lossy().into_owned(),
+                size: 0,
+                compressed_size,
+                crc32: None,
+                modified: None,
+            }]
+        }
         ArchiveFormat::Zstd => {
             // Zstd is a single-stream compression — produce a synthetic entry.
             let inferred_name = common::zstd_output_filename(archive);

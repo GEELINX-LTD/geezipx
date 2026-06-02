@@ -6,6 +6,7 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 use geezipx_core::archive::gzip;
+use geezipx_core::archive::xz;
 use geezipx_core::archive::zstd;
 use geezipx_core::detect::ArchiveFormat;
 
@@ -34,7 +35,7 @@ pub fn execute(
         .with_context(|| format!("creating output '{}'", output.display()))?;
 
     match format {
-        ArchiveFormat::Gzip | ArchiveFormat::Zstd => {
+        ArchiveFormat::Gzip | ArchiveFormat::Zstd | ArchiveFormat::Xz | ArchiveFormat::Lzma => {
             // Gzip/Zstd are single-stream compression formats — no ArchiveWriter trait.
             let input = &inputs[0];
             let file_size = std::fs::metadata(input)
@@ -233,8 +234,13 @@ fn validate_compress_inputs(
         anyhow::bail!("at least one input file is required");
     }
 
-    // Single-stream formats (gzip, zstd) only accept one input.
-    if (format == ArchiveFormat::Gzip || format == ArchiveFormat::Zstd) && inputs.len() > 1 {
+    // Single-stream formats (gzip, zstd, xz, lzma) only accept one input.
+    if (format == ArchiveFormat::Gzip
+        || format == ArchiveFormat::Zstd
+        || format == ArchiveFormat::Xz
+        || format == ArchiveFormat::Lzma)
+        && inputs.len() > 1
+    {
         anyhow::bail!(
             "{} compression only supports a single input file (got {})",
             format,
@@ -243,10 +249,12 @@ fn validate_compress_inputs(
     }
 
     // Gzip level is limited to 0..=9; zstd supports 0..=22.
-    if format == ArchiveFormat::Gzip {
+    // Gzip/xz/lzma level is limited to 0..=9; zstd supports 0..=22.
+    if format == ArchiveFormat::Gzip || format == ArchiveFormat::Xz || format == ArchiveFormat::Lzma
+    {
         if let Some(l) = level {
             if l > 9 {
-                anyhow::bail!("gzip compression level must be 0..=9, got {}", l);
+                anyhow::bail!("{} compression level must be 0..=9, got {}", format, l);
             }
         }
     }
@@ -256,7 +264,12 @@ fn validate_compress_inputs(
         if !input.exists() {
             anyhow::bail!("input '{}' does not exist", input.display());
         }
-        if (format == ArchiveFormat::Gzip || format == ArchiveFormat::Zstd) && input.is_dir() {
+        if (format == ArchiveFormat::Gzip
+            || format == ArchiveFormat::Zstd
+            || format == ArchiveFormat::Xz
+            || format == ArchiveFormat::Lzma)
+            && input.is_dir()
+        {
             anyhow::bail!(
                 "{} compression does not support directories ('{}')",
                 format,
@@ -287,6 +300,10 @@ fn compress_single_stream<R: Read, W: Write>(
             .map_err(|e| anyhow::anyhow!("gzip compression error: {}", e)),
         ArchiveFormat::Zstd => zstd::zstd_compress_with_level(reader, writer, level)
             .map_err(|e| anyhow::anyhow!("zstd compression error: {}", e)),
+        ArchiveFormat::Xz => xz::xz_compress_with_level(reader, writer, level)
+            .map_err(|e| anyhow::anyhow!("xz compression error: {}", e)),
+        ArchiveFormat::Lzma => xz::lzma_compress_with_level(reader, writer, level)
+            .map_err(|e| anyhow::anyhow!("lzma compression error: {}", e)),
         _ => anyhow::bail!("cannot compress '{}' as a single stream", format),
     }
 }

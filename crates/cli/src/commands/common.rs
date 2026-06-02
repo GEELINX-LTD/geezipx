@@ -34,8 +34,10 @@ pub fn parse_format(s: &str) -> Result<ArchiveFormat> {
         "gz" | "gzip" => Ok(ArchiveFormat::Gzip),
         "zst" | "zstd" => Ok(ArchiveFormat::Zstd),
         "tar.zst" | "tzst" => Ok(ArchiveFormat::TarZst),
+        "xz" => Ok(ArchiveFormat::Xz),
+        "lzma" => Ok(ArchiveFormat::Lzma),
         other => Err(anyhow::anyhow!(
-            "unsupported format '{other}'; expected: zip, tar, tar.gz, tgz, gz, gzip, zst, zstd, tar.zst, tzst"
+            "unsupported format '{other}'; expected: zip, tar, tar.gz, tgz, gz, gzip, zst, zstd, tar.zst, tzst, xz, lzma"
         )),
     }
 }
@@ -81,6 +83,16 @@ pub fn detect_archive_format(path: &Path) -> Result<ArchiveFormat> {
             } else {
                 Ok(ArchiveFormat::Zstd)
             }
+        }
+        Some(ArchiveFormat::Xz) => {
+            // XZ magic is also present in `.tar.xz` / `.txz`; treat them as
+            // single-stream XZ for now, so decompression produces the underlying tar file.
+            Ok(ArchiveFormat::Xz)
+        }
+        Some(ArchiveFormat::Lzma) => {
+            // Unreachable in practice: LZMA has no reliable magic, so detection
+            // relies on explicit format or extension fallback.
+            Ok(ArchiveFormat::Lzma)
         }
         Some(fmt) => Ok(fmt),
         None => {
@@ -176,7 +188,7 @@ pub fn open_reader(path: &Path, format: ArchiveFormat) -> Result<Box<dyn Archive
         ArchiveFormat::Tar => Box::new(TarReader::new(file)),
         ArchiveFormat::TarGz => Box::new(TarGzReader::new(file)),
         ArchiveFormat::TarZst => Box::new(TarZstReader::new(file)),
-        ArchiveFormat::Gzip | ArchiveFormat::Zstd => {
+        ArchiveFormat::Gzip | ArchiveFormat::Zstd | ArchiveFormat::Xz | ArchiveFormat::Lzma => {
             anyhow::bail!(
                 "'{format}' is a single-stream compression format; use 'decompress' directly, not an archive reader"
             )
@@ -197,7 +209,7 @@ pub fn create_writer(
         ArchiveFormat::Tar => Ok(Box::new(TarWriter::new(file))),
         ArchiveFormat::TarGz => Ok(Box::new(TarGzWriter::new_with_level(file, level))),
         ArchiveFormat::TarZst => Ok(Box::new(TarZstWriter::new_with_level(file, level))),
-        ArchiveFormat::Gzip | ArchiveFormat::Zstd => {
+        ArchiveFormat::Gzip | ArchiveFormat::Zstd | ArchiveFormat::Xz | ArchiveFormat::Lzma => {
             anyhow::bail!(
                 "'{format}' is a single-stream compression format; use 'compress' directly, not an archive writer"
             )
@@ -231,5 +243,25 @@ pub fn zstd_output_filename(archive: &Path) -> PathBuf {
         .strip_suffix(".zst")
         .or_else(|| name.strip_suffix(".zstd"))
         .unwrap_or(&name);
+    PathBuf::from(stripped)
+}
+
+/// Infer the decompressed filename for an xz file by stripping `.xz`.
+pub fn xz_output_filename(archive: &Path) -> PathBuf {
+    let name = archive
+        .file_name()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_else(|| "output".to_string());
+    let stripped = name.strip_suffix(".xz").unwrap_or(&name);
+    PathBuf::from(stripped)
+}
+
+/// Infer the decompressed filename for an lzma file by stripping `.lzma`.
+pub fn lzma_output_filename(archive: &Path) -> PathBuf {
+    let name = archive
+        .file_name()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_else(|| "output".to_string());
+    let stripped = name.strip_suffix(".lzma").unwrap_or(&name);
     PathBuf::from(stripped)
 }
