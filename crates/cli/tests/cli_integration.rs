@@ -3236,3 +3236,70 @@ fn corrupted_zip_graceful_error() {
         "decompress should report error on stderr for corrupted zip"
     );
 }
+
+#[test]
+fn recursive_directory_zip_roundtrip_preserves_empty_dirs() {
+    let tmp = TestDir::new();
+    let src = tmp.join("src");
+    // Nested directory structure: empty dir + subdir with file + root file.
+    std::fs::create_dir_all(src.join("empty_subdir")).unwrap();
+    std::fs::create_dir_all(src.join("subdir")).unwrap();
+    std::fs::write(src.join("root.txt"), "root level").unwrap();
+    std::fs::write(src.join("subdir").join("nested.txt"), "nested content").unwrap();
+
+    let archive = tmp.join("recursive_dir.zip");
+    let output = tmp.join("extracted");
+
+    // Recursive compress.
+    geezipx()
+        .args([
+            "compress",
+            src.to_str().unwrap(),
+            "-r",
+            "-f",
+            "zip",
+            "-o",
+            archive.to_str().unwrap(),
+            "--no-progress",
+        ])
+        .assert()
+        .success();
+
+    assert!(archive.exists(), "zip archive should exist");
+
+    // List should show files and the empty directory entry.
+    geezipx()
+        .args(["list", archive.to_str().unwrap()])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("root.txt"))
+        .stdout(predicate::str::contains("nested.txt"))
+        .stdout(predicate::str::contains("empty_subdir/"));
+
+    // Decompress.
+    std::fs::create_dir_all(&output).unwrap();
+    geezipx()
+        .args([
+            "decompress",
+            archive.to_str().unwrap(),
+            "-o",
+            output.to_str().unwrap(),
+            "--no-progress",
+        ])
+        .assert()
+        .success();
+
+    // Verify both files and the empty directory are correctly restored.
+    assert!(
+        output.join("src").join("empty_subdir").is_dir(),
+        "empty_subdir should be preserved as a directory in round-trip"
+    );
+    assert_eq!(
+        std::fs::read_to_string(output.join("src").join("root.txt")).unwrap(),
+        "root level"
+    );
+    assert_eq!(
+        std::fs::read_to_string(output.join("src").join("subdir").join("nested.txt")).unwrap(),
+        "nested content"
+    );
+}
