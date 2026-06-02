@@ -620,7 +620,7 @@ mod tests {
             .unwrap();
 
         // Add an empty directory.
-        tar_writer.add_directory(&Path::new("emptydir")).unwrap();
+        tar_writer.add_directory(Path::new("emptydir")).unwrap();
 
         let (bytes_written, writer) = tar_writer.finalize().unwrap();
         assert!(bytes_written > 0, "should have written something");

@@ -639,6 +639,54 @@ mod tests {
     }
 
     #[test]
+    fn zip_writer_add_directory_roundtrip() {
+        let buf = Cursor::new(Vec::new());
+        let mut zip_writer = ZipWriter::new(buf);
+
+        // Add a regular file.
+        zip_writer
+            .add_entry_from_reader(
+                &PathBuf::from("file.txt"),
+                &mut Cursor::new(b"hello from file"),
+            )
+            .unwrap();
+
+        // Add an empty directory.
+        zip_writer.add_directory(Path::new("emptydir")).unwrap();
+
+        let (bytes_written, writer) = zip_writer.finalize().unwrap();
+        assert!(bytes_written > 0, "should have written something");
+
+        let data = writer.into_inner();
+        let mut reader = ZipReader::from_buf(data).unwrap();
+        let entries = reader.entries().unwrap();
+        assert_eq!(entries.len(), 2, "should have file + directory entries");
+
+        // Verify the directory entry.
+        let dir_entry = entries.iter().find(|e| e.is_dir).expect("directory entry");
+        assert!(dir_entry.path.contains("emptydir"));
+        assert!(dir_entry.is_dir);
+
+        // Verify the file entry.
+        let file_entry = entries.iter().find(|e| !e.is_dir).expect("file entry");
+        assert_eq!(file_entry.path, "file.txt");
+        assert!(!file_entry.is_dir);
+
+        // Extract all to a tempdir.
+        let dest = tempfile::tempdir().unwrap();
+        let report = reader.extract_all(dest.path(), true).unwrap();
+        assert_eq!(report.files_extracted, 2);
+        assert!(report.errors.is_empty(), "extract_all errors: {report:?}");
+
+        // Verify directory exists.
+        assert!(dest.path().join("emptydir").is_dir());
+
+        // Verify file content.
+        let file_content = std::fs::read_to_string(dest.path().join("file.txt")).unwrap();
+        assert_eq!(file_content, "hello from file");
+    }
+
+    #[test]
     fn zip_writer_finish_returns_bytes() {
         let buf = Cursor::new(Vec::new());
         let mut zip_writer = ZipWriter::new(buf);
