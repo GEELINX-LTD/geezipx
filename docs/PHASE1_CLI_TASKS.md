@@ -60,7 +60,8 @@
   - `crates/core/src/archive/tar.rs` — tar（无压缩）ArchiveReader/ArchiveWriter
   - `crates/core/src/archive/gzip.rs` — 单文件 gzip `gzip_compress()` / `gzip_decompress()`（独立 API，不通过 ArchiveWriter trait，因为 gzip 是单流压缩）
   - `crates/core/src/archive/targz.rs` — tar + gzip 组合的 ArchiveReader/ArchiveWriter
-- **设计决策**：使用 flate2 的 `rust_backend`（纯 Rust）。gzip 格式是单流压缩，不适合 ArchiveWriter trait 的 add_entry 模式，因此在 CLI 层直接调用独立函数。
+- **设计决策**：使用 flate2 的 `rust_backend`（纯 Rust）。gzip 和 zstd 是单流压缩，不适合 ArchiveWriter trait 的 add_entry 模式，因此在 CLI 层直接调用独立函数。
+  - zstd 单流支持在 M1-M4 里程碑之后添加（`feat: add zstandard compression support`），模块位于 `crates/core/src/archive/zstd.rs`。
 
 ### M1-6：核心模块的单元测试 ✅
 - **覆盖范围**：detect 模块（magic detection、extension detection、Display、read_magic_bytes）、archive 模块（path normalization、Zip Slip 检查）、error 模块
@@ -114,12 +115,12 @@ geezipx list <archive>
 ### M2-2：compress 命令实现 ✅
 - **实际文件**：`crates/cli/src/commands/compress.rs`、`crates/cli/src/commands/common.rs`
 - **流程**：参数验证 → 格式解析 → 创建输出文件 → gzip 直接调用独立 API，其他格式用 ArchiveWriter 逐文件添加 → 报告统计
-- **支持的格式**：zip, tar, tar.gz/tgz, gz/gzip
+- **支持的格式**：zip, tar, tar.gz/tgz, gz/gzip, zst/zstd
 - **验证逻辑**：
   - gzip 仅接受单个文件输入
   - 目录需 `--recursive`（否则报错提示）
   - 输入路径不存在时报错
-- **格式推断**：`--format` 优先；否则从 `.zip`（或其他扩展名）推断；均不匹配时默认 ZIP
+- **格式推断**：`--format` 优先；否则从 `.zip`（或其他扩展名，包括 `.zst`/`.zstd`）推断；均不匹配时默认 ZIP
 - **与原计划差异**：不支持 glob 通配符（由 shell 展开）、不支持 `--level` 压缩级别
 - **验收标准**：全部通过
 
@@ -127,7 +128,7 @@ geezipx list <archive>
 - **实际文件**：`crates/cli/src/commands/decompress.rs`、`crates/cli/src/commands/common.rs`
 - **流程**：文件存在检查 → 格式检测（magic bytes + extension fallback）→ 输出目录创建 → gzip 走独立函数，其他格式用 `extract_all` → 报告
 - **格式检测**：先读 magic bytes（gzip 检测后需通过 `.tar.gz`/`.tgz` 扩展名区分 TarGz），无 magic 则 fallback 到扩展名
-- **`--stdout` 限制**：仅 gzip 格式支持；多文件归档使用 `--stdout` 时报错并提示
+- **`--stdout` 限制**：仅 gzip/zstd 单流格式支持；多文件归档使用 `--stdout` 时报错并提示
 - **Zip Slip 防护**：`extract_all` 内置
 - **与原计划差异**：`--no-clobber` 覆盖策略当时未实现，已在 M3-4 中补充（含 `--force` 显式覆盖）
 - **验收标准**：全部通过

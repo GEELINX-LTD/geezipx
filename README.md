@@ -14,12 +14,12 @@
 
 ## Features
 
-- **Multi-format** -- ZIP, TAR, TAR.GZ/TGZ, and GZIP/GZ (read/write)
+- **Multi-format** -- ZIP, TAR, TAR.GZ/TGZ, GZIP/GZ, and Zstandard/ZST (read/write)
 - **Streaming I/O** -- process large files with bounded memory usage
 - **Live progress bars** -- real-time speed, ETA, and per-file status on TTY
 - **Cancel-safe** -- graceful Ctrl+C with partial-file cleanup; double Ctrl+C force-kill
 - **Auto-format detection** -- magic-byte recognition with extension-based fallback
-- **Compression levels** -- `--level 0-9` for gzip / tar.gz formats
+- **Compression levels** -- `--level 0-9` for gzip/tar.gz; `--level 0-22` for zstd
 - **Clobber controls** -- `--no-clobber` to skip existing files, `--force` to overwrite
 - **Zip Slip protection** -- blocks path-traversal attacks in all archive formats
 - **JSON output** -- `list --json` for machine-readable inspection
@@ -88,6 +88,12 @@ geezipx decompress hello.zip
 # Decompress gzip to stdout
 geezipx decompress hello.txt.gz --stdout > output.txt
 
+# Compress with zstandard
+geezipx compress hello.txt -f zst -o hello.txt.zst
+
+# Decompress zstandard to stdout
+geezipx decompress hello.txt.zst --stdout > output.txt
+
 # Decompress to a specific directory
 geezipx decompress archive.tar.gz -o /tmp/out
 
@@ -124,9 +130,9 @@ geezipx compress <inputs...> -o <output> [options]
 | Option | Description |
 |--------|-------------|
 | `-o`, `--output` | Output file path **(required)** |
-| `-f`, `--format` | Format: `zip`, `tar`, `tar.gz`, `tgz`, `gz`, `gzip` (inferred from extension if omitted, defaults to zip) |
+| `-f`, `--format` | Format: `zip`, `tar`, `tar.gz`, `tgz`, `gz`, `gzip`, `zst`, `zstd` (inferred from extension if omitted, defaults to zip) |
 | `-r`, `--recursive` | Recursively add directories |
-| `-L`, `--level` | Compression level 0-9 (gzip/tar.gz only, default: 6) |
+| `-L`, `--level` | Compression level 0-9 (gzip/tar.gz, default: 6); 0-22 (zstd/zst, default: 3) |
 
 ### `decompress` — Extract archives
 
@@ -139,7 +145,7 @@ Auto-detects the format via magic bytes (with extension fallback).
 | Option | Description |
 |--------|-------------|
 | `-o`, `--output-dir` | Output directory (default: current directory) |
-| `--stdout` | Decompress to stdout (gzip only; errors on multi-file archives) |
+| `--stdout` | Decompress to stdout (gzip/zstd only; errors on multi-file archives) |
 | `--no-clobber` | Skip files that already exist |
 | `--force` | Overwrite existing files (default; mutually exclusive with `--no-clobber`) |
 
@@ -296,7 +302,7 @@ cargo build --release --workspace
 
 All core features are implemented and verified:
 
-- [x] ZIP / TAR / TAR.GZ / GZIP read/write
+- [x] ZIP / TAR / TAR.GZ / GZIP / Zstandard read/write
 - [x] Streaming I/O with bounded memory usage
 - [x] Progress bars with indicatif
 - [x] Ctrl+C graceful cancellation
@@ -313,9 +319,8 @@ All core features are implemented and verified:
 
 ### Phase 2 (CLI Enhancements) — Planned
 
-- Multi-threaded compression (rayon)
+- Single-stream zstd done; tar.zst / multi-threaded zstd pending
 - xz / LZMA read/write
-- Zstandard read/write
 - Encrypted ZIP (AES-256)
 - Volume-split archives
 - 7z read-only support

@@ -12,7 +12,7 @@ geezipx/
 │   │   ├── Cargo.toml
 │   │   └── src/
 │   │       ├── lib.rs
-│   │       ├── archive/       # 各归档格式的读写实现 (zip/tar/tar.gz/gzip)
+│   │       ├── archive/       # 各归档格式的读写实现 (zip/tar/tar.gz/gzip/zstd)
 │   │       ├── detect.rs      # 格式自动检测（魔数 + 扩展名）
 │   │       ├── error.rs       # 统一错误类型
 │   │       └── io.rs          # 流式读/写/计数/进度封装
@@ -81,6 +81,7 @@ pub trait ArchiveWriter: Send {
 | `archive::targz` | tar + gzip 组合 | `tar`, `flate2` |
 | `archive::tar` | 纯 tar 打包 | `tar` |
 | `archive::gzip` | .gz 单文件压缩 | `flate2` |
+| `archive::zstd` | .zst/.zstd 单文件压缩/解压 | `zstd` |
 
 ### 2.2 core/io — 流式接口
 
@@ -214,6 +215,7 @@ Phase 1 实际依赖（以 `crates/core/Cargo.toml` 和 `crates/cli/Cargo.toml` 
 | `flate2` 1.x | gzip/deflate（`rust_backend` — 纯 Rust，无 C 依赖） |
 | `thiserror` 2 | 错误类型 derive |
 | `log` 0.4 | 日志门面 |
+| `zstd` 0.13 | Zstandard（zstd/zst）单流压缩/解压（`legacy` 特性关闭，`zstd-safe` 内部） |
 
 ##### dev-dependencies
 
@@ -243,7 +245,7 @@ Phase 1 实际依赖（以 `crates/core/Cargo.toml` 和 `crates/cli/Cargo.toml` 
 | `predicates` 3 | CLI 输出断言 |
 | `tempfile` 3 | 测试临时目录 |
 
-> **与早期草案的变化**：Phase 1 不包含 `xz2`/`zstd`/`crossterm`/`owo-colors`/`env_logger`/`snapbox`。xz/zstd 的 `ArchiveFormat` 枚举变体虽已定义（格式检测占位），但读写实现留待 Phase 2。当前 core 也不使用 feature flags 进行条件编译——zip 和 flate2 为必选依赖。
+> **与早期草案的变化**：Phase 1 初始不包含 `xz2`/`zstd`/`crossterm`/`owo-colors`/`env_logger`/`snapbox`。zstd 后已用 `zstd` crate 添加单流读写支持（`archive::zstd` 模块 + CLI `-f zst`/`-f zstd` 参数 + 扩展名自动推断）。xz 仍留待后续版本。xz/zstd 的 `ArchiveFormat` 枚举变体最初仅用于格式检测占位。当前 core 不使用 feature flags 进行条件编译——zip、flate2、zstd 均为必选依赖。
 
 ## 4. 进度与取消机制
 

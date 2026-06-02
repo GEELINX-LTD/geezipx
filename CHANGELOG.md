@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Format support — Zstandard (single-stream)**:
+  - .zst / .zstd single-file compression and decompression via `zstd` crate
+  - CLI `--format zst` / `--format zstd` support; auto-detection from `.zst` / `.zstd` extension
+  - Compression level `0..=22` (default: 3); `--stdout` decompress supported
+  - `list` shows synthetic single-stream entries (table/json)
+  - Note: `.tar.zst` currently decompresses as raw zstd stream (tar layer ignored); full tar.zst pending future work
+
+
+
 
 ## [0.1.0] - 2026-06-01
 
