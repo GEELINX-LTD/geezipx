@@ -115,7 +115,7 @@ geezipx list <archive>
 ### M2-2：compress 命令实现 ✅
 - **实际文件**：`crates/cli/src/commands/compress.rs`、`crates/cli/src/commands/common.rs`
 - **流程**：参数验证 → 格式解析 → 创建输出文件 → gzip 直接调用独立 API，其他格式用 ArchiveWriter 逐文件添加 → 报告统计
-- **支持的格式**：zip, tar, tar.gz/tgz, gz/gzip, zst/zstd
+- **支持的格式**：zip, tar, tar.gz/tgz, gz/gzip, zst/zstd（M4 后添加）
 - **验证逻辑**：
   - gzip 仅接受单个文件输入
   - 目录需 `--recursive`（否则报错提示）

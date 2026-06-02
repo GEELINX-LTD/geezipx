@@ -302,7 +302,7 @@ cargo build --release --workspace
 
 All core features are implemented and verified:
 
-- [x] ZIP / TAR / TAR.GZ / GZIP / Zstandard read/write
+- [x] ZIP / TAR / TAR.GZ / GZIP read/write
 - [x] Streaming I/O with bounded memory usage
 - [x] Progress bars with indicatif
 - [x] Ctrl+C graceful cancellation
@@ -317,9 +317,11 @@ All core features are implemented and verified:
 - [x] Criterion benchmarks
 - [x] **crates.io release**
 
+> **Note**: Zstandard (zst/zstd) single-stream read/write was added after Phase 1 as an early Phase 2 format extension.
+
 ### Phase 2 (CLI Enhancements) — Planned
 
-- Single-stream zstd done; tar.zst / multi-threaded zstd pending
+- Multi-threaded compression (rayon) — planned; zstd single-stream done, tar.zst pending
 - xz / LZMA read/write
 - Encrypted ZIP (AES-256)
 - Volume-split archives

@@ -16,9 +16,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `list` shows synthetic single-stream entries (table/json)
   - Note: `.tar.zst` currently decompresses as raw zstd stream (tar layer ignored); full tar.zst pending future work
 
-
-
-
 ## [0.1.0] - 2026-06-01
 
 ### Added
