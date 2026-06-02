@@ -728,3 +728,15 @@ mod tests {
         use_writer(Box::new(writer));
     }
 }
+
+#[test]
+fn zip_truncated_not_panic() {
+    // Empty local file header (50 4B 03 04) followed by nothing more.
+    // Must NOT panic; should return a proper error.
+    let err = ZipReader::from_buf(vec![0x50, 0x4B, 0x03, 0x04]).unwrap_err();
+    let msg = err.to_string().to_lowercase();
+    assert!(
+        msg.contains("zip") || msg.contains("invalid"),
+        "expected ZIP error for truncated zip, got: {err}"
+    );
+}

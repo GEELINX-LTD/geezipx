@@ -244,4 +244,18 @@ mod tests {
         gzip_decompress(&mut reader2, &mut out2).unwrap();
         assert_eq!(out2, original);
     }
+
+    #[test]
+    fn gzip_truncated_stream_fails() {
+        // Valid gzip header (1f 8b) but truncated body.
+        let truncated = b"\x1f\x8b\x08\x00\x00\x00\x00\x00\x00\x03";
+        let mut reader = std::io::Cursor::new(truncated.as_slice());
+        let mut output = Vec::new();
+        let err = gzip_decompress(&mut reader, &mut output).unwrap_err();
+        let msg = err.to_string().to_lowercase();
+        assert!(
+            msg.contains("gzip") || msg.contains("io") || msg.contains("invalid"),
+            "expected gzip/io error for truncated gzip stream, got: {err}"
+        );
+    }
 }

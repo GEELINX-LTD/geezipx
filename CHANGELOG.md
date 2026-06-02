@@ -5,19 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
-
-- **`list` output enhancement**: table now includes `Ratio` and `Modified` columns;
-  JSON output includes `compression_ratio` and `modified` fields.
-  Ratio shown with 1 decimal place, modified time as UTC `YYYY-MM-DD HH:MM:SS`.
-  For gzip entries with unknown original size or modification time:
-  table shows `-`, JSON outputs `null`.
 
 ## [0.1.0] - 2026-06-01
 
 ### Added
 
 - **Core compression/decompression engine** (`geezipx-core` crate):
+- **`list` output enhancement**: table now includes `Ratio` and `Modified` columns;
+  JSON output includes `compression_ratio` and `modified` fields.
+  Ratio shown with 1 decimal place, modified time as UTC `YYYY-MM-DD HH:MM:SS`.
+  For gzip entries with unknown original size or modification time:
+  table shows `-`, JSON outputs `null`.
   - ZIP archive reading and writing via the `zip` crate
   - TAR archive reading and writing via the `tar` crate
   - GZIP single-stream compression and decompression via `flate2`
@@ -78,6 +76,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Benchmark compile check on every push/PR
   - Manual trigger benchmark workflow with optional filter parameter
 
-[Unreleased]: https://github.com/GEELINX-LTD/geezipx/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/GEELINX-LTD/geezipx/releases/tag/v0.1.0
 

@@ -698,3 +698,17 @@ mod tests {
         use_writer(Box::new(writer));
     }
 }
+
+#[test]
+fn tar_truncated_header_not_panic() {
+    // Partial tar header (only 100 bytes of a 512-byte header).
+    // Must NOT panic; should return a proper error.
+    let partial = vec![b'a'; 100];
+    let mut reader = TarReader::from_buf(partial);
+    let err = reader.entries().unwrap_err();
+    let msg = err.to_string().to_lowercase();
+    assert!(
+        msg.contains("tar") || msg.contains("io") || msg.contains("failed"),
+        "expected TAR/I/O error for truncated tar header, got: {err}"
+    );
+}

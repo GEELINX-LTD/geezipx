@@ -708,3 +708,17 @@ mod tests {
         assert_eq!(writer.format(), ArchiveFormat::TarGz);
     }
 }
+
+#[test]
+fn targz_truncated_not_panic() {
+    // Only valid gzip magic bytes (1f 8b), no tar data at all.
+    // Must NOT panic; should return a proper error.
+    let truncated = vec![0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03];
+    let mut reader = TarGzReader::from_buf(truncated);
+    let err = reader.entries().unwrap_err();
+    let msg = err.to_string().to_lowercase();
+    assert!(
+        msg.contains("tar") || msg.contains("gz") || msg.contains("io") || msg.contains("failed"),
+        "expected tar/gz/io error for truncated targz, got: {err}"
+    );
+}

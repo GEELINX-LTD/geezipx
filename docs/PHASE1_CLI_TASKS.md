@@ -2,7 +2,7 @@
 
 > 总周期估计：**10-12 周**（单人全职开发）。  
 > 里程碑结构：4 个里程碑，每个里程碑对应可发布的增量。  
-> **当前状态：M1、M2、M3 已完成，M4 **大部分完成**（CI 已建立三平台矩阵 + cargo-deny 审计 + 发布工件上传；剩余性能基准和 crates.io 发布流程）。**
+> **当前状态：M1、M2、M3 已完成，M4 **发布就绪**（CI 三平台矩阵 + cargo-deny 审计 + 发布工件上传正常运行；`geezipx-core` 的 `cargo publish --dry-run` 已通过；`geezipx` CLI crate 因依赖 `geezipx-core` 尚未真实发布，publish dry-run 预期失败，但 `cargo package` 验证通过——此限制为发布顺序所致，非缺陷）。**
 
 ---
 
@@ -280,7 +280,7 @@ geezipx list <archive>
 
 ## M4：CI/测试/发布（第 11-12 周）
 
-> **状态：大部分完成**。CI 已完成三平台矩阵（fmt / clippy / test / build + artifact upload）、cargo-deny 审计、互操作测试、性能基准 CI。Shell 自动补全生成已实现。仍待完成：crates.io 发布。
+> **状态：发布就绪**。CI 三平台矩阵 + cargo-deny 审计 + 互操作测试 + 性能基准均正常运行。crates.io 发布已本地 dry-run/package 验证通过。**仍需人工执行真实 `cargo publish`**。
 
 ### 目标
 建立三平台 CI、代码质量门禁、性能基准、首次 crates.io 发布。
@@ -330,7 +330,8 @@ geezipx list <archive>
 - **备注**：不涉及发布自动化或 install 脚本，仅提供补全生成能力。
 
 ### M4-6 至 M4-7（发布流程、Homebrew）
-- **状态**：未开始。`crates.io` 发布前需完成三平台 CI 验证。
+- **状态**：M4-6 发布就绪 / 本地 dry-run 和 package 验证通过，待人工执行真实 `cargo publish`。
+  Homebrew 配方（M4-7）推迟到 CLI 稳定发布后考虑。
 
 ### M4 里程碑检查清单
 
@@ -339,7 +340,7 @@ geezipx list <archive>
 - [x] cargo-deny 审计 — 独立 workflow，每周 + push/PR 触发
 - [x] 互操作测试 — `scripts/check-interop.sh` 在 CI 中运行
 - [x] README 和 CLI 帮助文档清晰可用
-- [ ] crates.io 发布成功
+- [x] crates.io 发布准备就绪（dry-run / package 验证通过）— 待人工执行真实 cargo publish
 - [x] 性能基准测试（criterion）— 基础框架已建立，CI 编译检查 + 手动 benchmark workflow 已集成
 
 ---
