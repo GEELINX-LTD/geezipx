@@ -40,6 +40,7 @@ pub struct Entry {
     pub crc32: Option<u32>,
     /// Last modification time as Unix timestamp (seconds since epoch), if available.
     pub modified: Option<u64>,
+    pub is_dir: bool,
 }
 
 /// Convert a calendar date/time to a Unix timestamp (seconds since epoch).
@@ -144,6 +145,19 @@ pub trait ArchiveReader: Send {
                     continue;
                 }
             };
+
+            // Handle directory entries — create directory and skip file I/O.
+            if entry.is_dir {
+                if let Err(e) = std::fs::create_dir_all(&target) {
+                    report.errors.push((
+                        entry.path.clone(),
+                        crate::error::GeeZipError::io(e, "creating directory"),
+                    ));
+                    continue;
+                }
+                report.files_extracted += 1;
+                continue;
+            }
 
             // Create parent directory.
             if let Some(parent) = target.parent() {
@@ -255,6 +269,19 @@ pub trait ArchiveReader: Send {
                 }
             };
 
+            // Handle directory entries — create directory and skip file I/O.
+            if entry.is_dir {
+                if let Err(e) = std::fs::create_dir_all(&target) {
+                    report.errors.push((
+                        entry.path.clone(),
+                        crate::error::GeeZipError::io(e, "creating directory"),
+                    ));
+                    continue;
+                }
+                report.files_extracted += 1;
+                continue;
+            }
+
             // Create parent directory.
             if let Some(parent) = target.parent() {
                 if !parent.exists() {
@@ -354,6 +381,16 @@ pub trait ArchiveWriter: Send {
     ///
     /// After this call the writer is consumed and must not be used again.
     fn finish(self: Box<Self>) -> GeeZipResult<u64>;
+
+    /// Add a directory entry to the archive.
+    ///
+    /// The default implementation does nothing, which is correct for formats
+    /// that don't require explicit directory entries (ZIP stores them
+    /// implicitly via path prefixes in file entries). Override this for
+    /// formats like tar that require explicit directory headers.
+    fn add_directory(&mut self, _path: &Path) -> GeeZipResult<()> {
+        Ok(())
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -692,5 +729,232 @@ mod tests {
         assert!(writer.was_cancelled());
         // Data written before cancellation should still be present.
         assert_eq!(&buf, b"data");
+    }
+
+    #[test]
+    #[cfg(not(windows))]
+    fn check_entry_path_safety_rejects_absolute() {
+        // Absolute entry paths (e.g., /etc/passwd) should be rejected.
+        // Unix absolute paths (starting with /) are used because the function's
+        // has_root() check is independent of platform-specific path conventions.
+        let dest = Path::new("/tmp/out");
+        let result = check_entry_path_safety(Path::new("/etc/passwd"), "/etc/passwd", dest);
+        assert!(result.is_err());
+        let (name, err) = result.unwrap_err();
+        assert_eq!(name, "/etc/passwd");
+        assert!(matches!(err, GeeZipError::PathTraversal { .. }));
+    }
+
+    #[test]
+    fn check_entry_path_safety_rejects_traversal() {
+        // Path traversal via .. should be rejected.
+        let dest = Path::new("/tmp/out");
+        let result = check_entry_path_safety(Path::new("../etc/passwd"), "../etc/passwd", dest);
+        assert!(result.is_err());
+        let (name, err) = result.unwrap_err();
+        assert_eq!(name, "../etc/passwd");
+        assert!(matches!(err, GeeZipError::PathTraversal { .. }));
+    }
+
+    #[test]
+    fn check_entry_path_safety_accepts_normal() {
+        // Normal relative paths should be accepted.
+        let dest = Path::new("/tmp/out");
+        let result = check_entry_path_safety(Path::new("file.txt"), "file.txt", dest);
+        assert!(result.is_ok());
+        let target = result.unwrap();
+        assert_eq!(target, Path::new("/tmp/out/file.txt"));
+    }
+
+    #[test]
+    fn normalize_path_edge_cases() {
+        // Empty path normalizes to "."
+        assert_eq!(normalize_path(Path::new("")), Path::new("."));
+        // Single root
+        assert_eq!(normalize_path(Path::new("/")), Path::new("/"));
+        // Trailing dot cancels out
+        assert_eq!(normalize_path(Path::new("foo/.")), Path::new("foo"));
+        // Multiple consecutive slashes (collapsed by path components)
+        assert_eq!(normalize_path(Path::new("a//b")), Path::new("a/b"));
+        assert!(!normalize_path(Path::new("a//b")).as_os_str().is_empty());
+    }
+
+    #[test]
+    fn datetime_to_timestamp_leap_year() {
+        // 2024-02-29 12:00:00 is a valid leap year date.
+        let ts = datetime_to_timestamp(2024, 2, 29, 12, 0, 0);
+        assert!(ts > 0, "leap year Feb 29 should produce a valid timestamp");
+        // 2023-02-29 is not a leap year, so should be rejected.
+        assert_eq!(datetime_to_timestamp(2023, 2, 29, 0, 0, 0), 0);
+    }
+
+    #[test]
+    fn datetime_to_timestamp_valid_date_range() {
+        // A date well past epoch should produce a large timestamp.
+        let ts = datetime_to_timestamp(2026, 6, 2, 0, 0, 0);
+        assert!(ts > 0);
+        assert!(ts > 1700000000, "2026-06-02 should be well past epoch");
+    }
+
+    // ---------------------------------------------------------------------------
+    // CountWriter tests
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn count_writer_tracks_bytes() {
+        let inner = Vec::new();
+        let mut writer = CountWriter { inner, count: 0 };
+
+        let n = writer.write(b"hello").unwrap();
+        assert_eq!(n, 5);
+        assert_eq!(writer.count, 5);
+
+        let n = writer.write(b" world").unwrap();
+        assert_eq!(n, 6);
+        assert_eq!(writer.count, 11);
+
+        writer.flush().unwrap();
+
+        assert_eq!(&writer.inner, b"hello world");
+    }
+
+    // ---------------------------------------------------------------------------
+    // extract_all tests (via mock readers)
+    // ---------------------------------------------------------------------------
+
+    /// Mock reader used for testing extract_all with directory entries.
+    struct MockDirReader {
+        entries: Vec<Entry>,
+    }
+
+    impl ArchiveReader for MockDirReader {
+        fn format(&self) -> ArchiveFormat {
+            ArchiveFormat::Tar
+        }
+
+        fn entries(&mut self) -> GeeZipResult<Vec<Entry>> {
+            Ok(self.entries.clone())
+        }
+
+        fn extract(&mut self, _entry: &Entry, writer: &mut dyn Write) -> GeeZipResult<u64> {
+            // The extract_all default implementation only calls extract
+            // for non-directory entries, so this is only reached for files.
+            let content = b"file content";
+            writer.write_all(content)?;
+            Ok(content.len() as u64)
+        }
+    }
+
+    #[test]
+    fn extract_all_creates_directories() {
+        let entries = vec![
+            Entry {
+                path: "emptydir".into(),
+                size: 0,
+                compressed_size: 0,
+                crc32: None,
+                modified: None,
+                is_dir: true,
+            },
+            Entry {
+                path: "emptydir/file.txt".into(),
+                size: 12,
+                compressed_size: 0,
+                crc32: None,
+                modified: None,
+                is_dir: false,
+            },
+        ];
+
+        let mut reader = MockDirReader { entries };
+        let tmp = tempfile::tempdir().unwrap();
+        let report = reader.extract_all(tmp.path(), true).unwrap();
+
+        assert!(
+            tmp.path().join("emptydir").is_dir(),
+            "directory entry should create a directory on disk"
+        );
+        assert!(
+            tmp.path().join("emptydir/file.txt").is_file(),
+            "file entry should be extracted"
+        );
+        assert_eq!(report.files_extracted, 2);
+        assert_eq!(report.bytes_extracted, 12);
+        assert!(report.errors.is_empty(), "extract_all errors: {report:?}");
+    }
+
+    /// Mock reader that always writes the same content on extract.
+    struct MockFileReader {
+        entries: Vec<Entry>,
+    }
+
+    impl ArchiveReader for MockFileReader {
+        fn format(&self) -> ArchiveFormat {
+            ArchiveFormat::Tar
+        }
+
+        fn entries(&mut self) -> GeeZipResult<Vec<Entry>> {
+            Ok(self.entries.clone())
+        }
+
+        fn extract(&mut self, _entry: &Entry, writer: &mut dyn Write) -> GeeZipResult<u64> {
+            let content = b"mock file content";
+            writer.write_all(content)?;
+            Ok(content.len() as u64)
+        }
+    }
+
+    #[test]
+    fn extract_all_skips_existing_on_no_clobber() {
+        let entries = vec![Entry {
+            path: "existing.txt".into(),
+            size: 16,
+            compressed_size: 0,
+            crc32: None,
+            modified: None,
+            is_dir: false,
+        }];
+
+        let tmp = tempfile::tempdir().unwrap();
+        let dest = tmp.path().to_path_buf();
+
+        // First extract with overwrite = true should create the file.
+        let mut reader = MockFileReader {
+            entries: entries.clone(),
+        };
+        let report1 = reader.extract_all(&dest, true).unwrap();
+        assert_eq!(
+            report1.files_extracted, 1,
+            "should extract the file on first run"
+        );
+        assert_eq!(report1.files_skipped, 0);
+        assert!(report1.errors.is_empty(), "errors: {report1:?}");
+
+        let content = std::fs::read_to_string(dest.join("existing.txt")).unwrap();
+        assert_eq!(content, "mock file content");
+
+        // Second extract with overwrite = false should skip the existing file.
+        let mut reader2 = MockFileReader {
+            entries: entries.clone(),
+        };
+        let report2 = reader2.extract_all(&dest, false).unwrap();
+        assert_eq!(report2.files_extracted, 0);
+        assert_eq!(report2.files_skipped, 1);
+        assert_eq!(
+            report2.errors.len(),
+            1,
+            "should have one ClobberDenied error"
+        );
+        assert!(
+            matches!(report2.errors[0].1, GeeZipError::ClobberDenied { .. }),
+            "error should be ClobberDenied"
+        );
+
+        // Verify the file content was NOT overwritten.
+        let content2 = std::fs::read_to_string(dest.join("existing.txt")).unwrap();
+        assert_eq!(
+            content2, "mock file content",
+            "file should not be overwritten"
+        );
     }
 }

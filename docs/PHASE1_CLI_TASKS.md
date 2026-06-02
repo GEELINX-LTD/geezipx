@@ -13,7 +13,7 @@
 | M1 | 项目骨架 + 核心引擎库 | 第 1-4 周 | `geezipx-core` lib crate，zip/tar/gz 基础读写 | **已完成** |
 | M2 | CLI 基本命令 | 第 5-7 周 | `geezipx` binary，三个子命令可用 | **已完成** |
 || M3 | 流式/进度/兼容性打磨 | 第 8-10 周 | 进度条、管道、格式检测、跨平台测试 | **已完成** |
-| M4 | CI/测试/发布 | 第 11-12 周 | CI 全线通过、crates.io 发布、文档站 | 大部分完成 |
+| M4 | CI/测试/发布 | 第 11-12 周 | CI 全线通过、crates.io 发布、覆盖率追踪、文档站 | 大部分完成 |
 
 ---
 
@@ -65,9 +65,9 @@
   - TarZst（tar.zst/tzst）归档支持在后续添加（`feat: add tar.zst archive format support`），模块位于 `crates/core/src/archive/tarzst.rs`。通过 `ArchiveReader`/`ArchiveWriter` trait 实现完整归档压缩/解压/list，与 gzip 单流不同。
 
 ### M1-6：核心模块的单元测试 ✅
-- **覆盖范围**：detect 模块（magic detection、extension detection、Display、read_magic_bytes）、archive 模块（path normalization、Zip Slip 检查）、error 模块
+- **覆盖范围**：detect 模块（magic detection、extension detection、Display、read_magic_bytes）、archive 模块（path normalization、Zip Slip 检查、path safety 拒绝绝对路径/路径穿越、normalize_path 边界、datetime_to_timestamp 闰年）、error 模块
 - **验收标准**：`cargo test -p geezipx-core` 全部通过（数十个单元测试）
-- **未完成**：覆盖率 > 60% 指标尚未使用 `cargo-tarpaulin` 测量。
+- **未完成**：覆盖率 > 60% 指标尚未使用 `cargo-tarpaulin` 测量；已补充 path safety、normalize_path 边界和 datetime_to_timestamp 单元测试。
 
 ### M1 里程碑检查清单
 - [x] `cargo build` 全线通过
@@ -143,7 +143,7 @@ geezipx list <archive>
 - **与原计划差异**：已新增压缩率和修改时间列（commit d82600d）。gzip 条目未知原始大小/修改时间时，表格显示 `-`，JSON 输出 `null`
 
 ### M2-5：CLI 集成测试 ✅
-- **实际文件**：`crates/cli/tests/cli_integration.rs`（23 个集成测试）
+- **实际文件**：`crates/cli/tests/cli_integration.rs`（102 个集成测试）
 - **工具**：`assert_cmd` + `predicates` + `tempfile`
 - **场景覆盖**：
   - 各子命令 `--help` 可用性
@@ -156,15 +156,19 @@ geezipx list <archive>
   - gzip 多输入报错
   - `--stdout` 用于多文件归档时报错
   - 输出目录自动创建
+
+  - Unicode 文件名 ZIP round-trip
+  - 递归目录 tar.gz round-trip（嵌套目录 + 文件结构）
+  - 损坏 ZIP 输入优雅报错（无 panic）
   - 扩展名自动推断格式
-- **验收标准**：`cargo test --workspace --all-features` 全部通过（131 tests passed）
+- **验收标准**：`cargo test --workspace --all-features` 全部通过（356 tests passed；CLI lib 11 + CLI integration 106 + core 239）
 - **与原计划差异**：尚未包含与系统 `tar`/`unzip` 的互操作测试、尚未包含大文件冒烟测试（100 MB+）
 
 ### M2 里程碑检查清单
 - [x] `geezipx compress` / `decompress` / `list` 三个子命令可用
 - [x] ZIP 和 tar.gz 双向 round-trip 通过
 - [x] 自动格式检测工作
-- [x] 集成测试覆盖主要场景（23 个测试）
+- [x] 集成测试覆盖主要场景（102 个测试）
 - [x] `cargo build --release` 生成稳定二进制
 
 ---
@@ -306,7 +310,8 @@ geezipx list <archive>
 ### M4-2：代码质量门禁 ✅（cargo-deny 审计已集成）
 - **实际文件**：`deny.toml`、`.github/workflows/deny.yml`
 - **当前状态**：已实现 `deny.toml` 配置 + 独立 `deny.yml` CI 工作流，`v*` 标签 push 或手动触发时运行 `cargo-deny check --all-features`。
-- **尚未实现**：专用 lint workflow（clippy 已在 ci.yml 中覆盖）、覆盖率 workflow、PR 自动标记覆盖率
+- **覆盖率 workflow**：已添加 `.github/workflows/coverage.yml`（push/PR/每周一触发），使用 `cargo-tarpaulin` 生成 HTML+JSON 报告，报告上传至 workflow artifact（保留 30 天）。当前为**观测性/信息性**（informational only），不设硬门禁。最新基线：overall ~74%，core archive/mod.rs ~64%。
+- **尚未实现**：专用 lint workflow（clippy 已在 ci.yml 中覆盖）、PR 自动标记覆盖率
 
 ### M4-3：性能基准测试 ✅
 - **状态**：已完成。基准代码已通过 CI 编译检查，开发者可通过手动触发 workflow 运行完整基准。
@@ -361,6 +366,8 @@ geezipx list <archive>
 - [x] 性能基准测试（criterion）— 基础框架已建立，CI 编译检查 + 手动 benchmark workflow 已集成
 
 - [x] GitHub Release 二进制 artifacts 自动化 workflow（`.github/workflows/release.yml`）— tag 触发，三平台 build，tar.gz/zip 打包，SHA256 校验，上传至 GitHub Release
+
+- [x] 覆盖率 workflow — `.github/workflows/coverage.yml` 已上线，cargo-tarpaulin HTML+JSON 报告，30 天保留，informational only
 - [x] 不含 cargo publish — crates.io 发布仍手工操作
 
 ---

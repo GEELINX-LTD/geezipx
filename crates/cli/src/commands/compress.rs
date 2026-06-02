@@ -124,7 +124,8 @@ pub fn execute(
 
             let total_bytes_all: u64 = files
                 .iter()
-                .filter_map(|(p, _)| std::fs::metadata(p).ok().map(|m| m.len()))
+                .filter(|e| !e.is_dir)
+                .filter_map(|e| std::fs::metadata(&e.real_path).ok().map(|m| m.len()))
                 .sum();
 
             let show_progress = !no_progress
@@ -146,22 +147,36 @@ pub fn execute(
 
             let mut writer = common::create_writer(output_file, format, level)?;
 
-            for (src_path, archive_path) in &files {
-                let file_size = std::fs::metadata(src_path)
-                    .with_context(|| format!("reading metadata for '{}'", src_path.display()))?
+            for entry in &files {
+                if entry.is_dir {
+                    writer.add_directory(&entry.archive_path).with_context(|| {
+                        format!("failed to add directory '{}'", entry.archive_path.display())
+                    })?;
+                    processed_files += 1;
+                    continue;
+                }
+
+                let file_size = std::fs::metadata(&entry.real_path)
+                    .with_context(|| {
+                        format!("reading metadata for '{}'", entry.real_path.display())
+                    })?
                     .len();
-                let reader = open_input(src_path)?;
+                let reader = open_input(&entry.real_path)?;
 
                 if let Some(ref cb) = shared_cb {
                     let inner = cb.clone_inner();
                     if verbose {
-                        eprintln!("Adding: {} ({} bytes)", src_path.display(), file_size);
+                        eprintln!(
+                            "Adding: {} ({} bytes)",
+                            entry.real_path.display(),
+                            file_size
+                        );
                     }
                     if show_progress {
                         inner
                             .lock()
                             .unwrap()
-                            .set_message(&format!("Compressing: {}", archive_path.display()));
+                            .set_message(&format!("Compressing: {}", entry.archive_path.display()));
                     }
                     let mut pr = ProgressReader::new(reader)
                         .with_total(file_size)
@@ -169,7 +184,7 @@ pub fn execute(
                             inner: inner.clone(),
                             cancelled: cb.cancelled.clone(),
                         }));
-                    if let Err(e) = writer.add_entry_from_reader(archive_path, &mut pr) {
+                    if let Err(e) = writer.add_entry_from_reader(&entry.archive_path, &mut pr) {
                         inner.lock().unwrap().finish("Compression failed");
                         if cancel_token.is_cancelled() {
                             let _ = std::fs::remove_file(output);
@@ -178,7 +193,7 @@ pub fn execute(
                         }
                         return Err(anyhow::anyhow!(
                             "failed to add {}: {}",
-                            archive_path.display(),
+                            entry.archive_path.display(),
                             e
                         ));
                     }

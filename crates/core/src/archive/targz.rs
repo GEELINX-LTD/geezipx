@@ -74,19 +74,13 @@ fn collect_targz_entries<R: Read>(archive: &mut tar::Archive<R>) -> GeeZipResult
             continue;
         }
 
-        // Skip directory entries — extract_all handles parent directory
-        // creation implicitly, and treating a directory as a file would
-        // break extraction of files inside it.
-        if header.entry_type().is_dir() {
-            continue;
-        }
-
         let path = tar_entry
             .path()
             .map_err(convert_targz_error)?
             .to_string_lossy()
             .into_owned();
         let size = tar_entry.size();
+        let is_dir = header.entry_type().is_dir();
 
         entries.push(Entry {
             path,
@@ -94,6 +88,7 @@ fn collect_targz_entries<R: Read>(archive: &mut tar::Archive<R>) -> GeeZipResult
             compressed_size: 0,
             crc32: None,
             modified: header.mtime().ok(),
+            is_dir,
         });
     }
 
@@ -261,6 +256,27 @@ impl<W: Write + Send> ArchiveWriter for TarGzWriter<W> {
         })?;
         builder
             .append(&header, std::io::Cursor::new(data))
+            .map_err(convert_targz_error)?;
+
+        Ok(())
+    }
+
+    fn add_directory(&mut self, path: &Path) -> GeeZipResult<()> {
+        let mut header = tar::Header::new_gnu();
+        header.set_entry_type(tar::EntryType::Directory);
+        header.set_path(path).map_err(|e| GeeZipError::Format {
+            message: format!("setting tar header path: {e}"),
+            format: ArchiveFormat::TarGz,
+        })?;
+        header.set_size(0);
+        header.set_cksum();
+
+        let builder = self.inner.as_mut().ok_or_else(|| GeeZipError::Format {
+            message: "TAR writer not initialised (already consumed)".into(),
+            format: ArchiveFormat::TarGz,
+        })?;
+        builder
+            .append(&header, std::io::Cursor::new(&[] as &[u8]))
             .map_err(convert_targz_error)?;
 
         Ok(())
@@ -560,13 +576,25 @@ mod tests {
 
         let mut reader = TarGzReader::from_buf(buf);
         let entries = reader.entries().unwrap();
-        // Directory entry should NOT appear in entries.
-        assert_eq!(entries.len(), 1, "only the file entry should be present");
-        assert_eq!(entries[0].path, "mydir/file.txt");
+        assert_eq!(
+            entries.len(),
+            2,
+            "both directory and file entries should be present"
+        );
+        assert!(
+            entries.iter().any(|e| e.is_dir && e.path == "mydir"),
+            "expected directory entry 'mydir'"
+        );
+        assert!(
+            entries
+                .iter()
+                .any(|e| !e.is_dir && e.path == "mydir/file.txt"),
+            "expected file entry 'mydir/file.txt'"
+        );
 
         let dest = tempfile::tempdir().unwrap();
         let report = reader.extract_all(dest.path(), true).unwrap();
-        assert_eq!(report.files_extracted, 1);
+        assert_eq!(report.files_extracted, 2);
         assert_eq!(report.bytes_extracted, 5);
         assert!(report.errors.is_empty());
 
@@ -672,6 +700,53 @@ mod tests {
 
         let boxed: Box<dyn ArchiveWriter> = Box::new(writer);
         let _bytes_written = boxed.finish().unwrap();
+    }
+
+    #[test]
+    fn targz_writer_add_directory_roundtrip() {
+        let buf = Vec::new();
+        let mut writer = TarGzWriter::new(buf);
+
+        // Add a regular file.
+        writer
+            .add_entry_from_reader(
+                &PathBuf::from("file.txt"),
+                &mut Cursor::new(b"hello from file"),
+            )
+            .unwrap();
+
+        // Add an empty directory.
+        writer.add_directory(Path::new("emptydir")).unwrap();
+
+        let (bytes_written, data) = writer.finalize().unwrap();
+        assert!(bytes_written > 0, "should have written something");
+
+        let mut reader = TarGzReader::from_buf(data);
+        let entries = reader.entries().unwrap();
+        assert_eq!(entries.len(), 2, "should have file + directory entries");
+
+        // Verify the directory entry.
+        let dir_entry = entries.iter().find(|e| e.is_dir).expect("directory entry");
+        assert_eq!(dir_entry.path, "emptydir");
+        assert!(dir_entry.is_dir);
+
+        // Verify the file entry.
+        let file_entry = entries.iter().find(|e| !e.is_dir).expect("file entry");
+        assert_eq!(file_entry.path, "file.txt");
+        assert!(!file_entry.is_dir);
+
+        // Extract all to a tempdir.
+        let dest = tempfile::tempdir().unwrap();
+        let report = reader.extract_all(dest.path(), true).unwrap();
+        assert_eq!(report.files_extracted, 2);
+        assert!(report.errors.is_empty(), "extract_all errors: {report:?}");
+
+        // Verify directory exists.
+        assert!(dest.path().join("emptydir").is_dir());
+
+        // Verify file content.
+        let file_content = std::fs::read_to_string(dest.path().join("file.txt")).unwrap();
+        assert_eq!(file_content, "hello from file");
     }
 
     // -------------------------------------------------------------------

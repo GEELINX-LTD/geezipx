@@ -308,6 +308,21 @@ Benchmarks cover gzip throughput (4 levels × 2 sizes) and archive throughput (t
 
 ### Interoperability Tests
 
+### Code Coverage
+
+Code coverage is tracked via [cargo-tarpaulin](https://github.com/xd009642/tarpaulin).
+A scheduled CI workflow (`Coverage`) generates HTML and JSON reports on every push to `main`,
+every pull request, and weekly, then uploads them as build artifacts.
+
+The workflow is **informational only** — no hard fail-under threshold is enforced yet.
+The PRD target is overall >80%, core engine >85%.
+
+```sh
+# Generate coverage report (output: coverage/tarpaulin-report.html and .json)
+cargo tarpaulin
+```
+
+
 ```sh
 # Standard checks against system tar, unzip, gzip
 bash scripts/check-interop.sh

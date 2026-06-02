@@ -3045,3 +3045,462 @@ fn lzma_level_10_rejected() {
         .failure()
         .stderr(predicate::str::contains("0..=9"));
 }
+
+// ---------------------------------------------------------------------------
+// Additional edge-case tests: Unicode, empty directories, corrupted input
+// ---------------------------------------------------------------------------
+
+#[test]
+fn unicode_filename_zip_roundtrip() {
+    let tmp = TestDir::new();
+    let filename = "\u{6d4b}\u{8bd5}\u{6587}\u{4ef6}.txt"; // 测试文件.txt
+    tmp.write(filename, "Chinese filename round-trip test.");
+    let archive = tmp.join("unicode.zip");
+    let output = tmp.join("extracted_unicode");
+
+    // Compress.
+    geezipx()
+        .args([
+            "compress",
+            tmp.join(filename).to_str().unwrap(),
+            "-o",
+            archive.to_str().unwrap(),
+            "--no-progress",
+        ])
+        .assert()
+        .success();
+
+    assert!(archive.exists(), "ZIP archive should exist");
+
+    // List should contain the filename.
+    geezipx()
+        .args(["list", archive.to_str().unwrap()])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(filename));
+
+    // Decompress.
+    std::fs::create_dir_all(&output).unwrap();
+    geezipx()
+        .args([
+            "decompress",
+            archive.to_str().unwrap(),
+            "-o",
+            output.to_str().unwrap(),
+            "--no-progress",
+        ])
+        .assert()
+        .success();
+
+    let extracted = output.join(filename);
+    assert!(extracted.exists(), "extracted file should exist");
+    assert_eq!(
+        std::fs::read_to_string(&extracted).unwrap(),
+        "Chinese filename round-trip test."
+    );
+}
+
+#[test]
+fn recursive_directory_targz_roundtrip() {
+    let tmp = TestDir::new();
+    let src = tmp.join("src");
+    // Nested directory structure: empty dir + subdir with file + root file.
+    std::fs::create_dir_all(src.join("empty_subdir")).unwrap();
+    std::fs::create_dir_all(src.join("subdir")).unwrap();
+    std::fs::write(src.join("root.txt"), "root level").unwrap();
+    std::fs::write(src.join("subdir").join("nested.txt"), "nested content").unwrap();
+
+    let archive = tmp.join("recursive_dir.tar.gz");
+    let output = tmp.join("extracted");
+
+    // Recursive compress.
+    geezipx()
+        .args([
+            "compress",
+            src.to_str().unwrap(),
+            "-r",
+            "-f",
+            "tar.gz",
+            "-o",
+            archive.to_str().unwrap(),
+            "--no-progress",
+        ])
+        .assert()
+        .success();
+
+    assert!(archive.exists(), "tar.gz archive should exist");
+
+    // List should show the files in the archive.
+    geezipx()
+        .args(["list", archive.to_str().unwrap()])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("root.txt"))
+        .stdout(predicate::str::contains("nested.txt"));
+
+    // Decompress.
+    std::fs::create_dir_all(&output).unwrap();
+    geezipx()
+        .args([
+            "decompress",
+            archive.to_str().unwrap(),
+            "-o",
+            output.to_str().unwrap(),
+            "--no-progress",
+        ])
+        .assert()
+        .success();
+
+    // Verify both files and the empty directory are correctly restored.
+    assert!(
+        output.join("src").join("empty_subdir").is_dir(),
+        "empty_subdir should be preserved as a directory in round-trip"
+    );
+    assert_eq!(
+        std::fs::read_to_string(output.join("src").join("root.txt")).unwrap(),
+        "root level"
+    );
+    assert_eq!(
+        std::fs::read_to_string(output.join("src").join("subdir").join("nested.txt")).unwrap(),
+        "nested content"
+    );
+}
+
+#[test]
+fn corrupted_zip_graceful_error() {
+    let tmp = TestDir::new();
+    tmp.write("good.txt", "Original file data for valid ZIP.");
+    let archive = tmp.join("test.zip");
+
+    // Create a valid ZIP archive first.
+    geezipx()
+        .args([
+            "compress",
+            tmp.join("good.txt").to_str().unwrap(),
+            "-o",
+            archive.to_str().unwrap(),
+            "--no-progress",
+        ])
+        .assert()
+        .success();
+
+    assert!(archive.exists(), "ZIP archive should exist");
+
+    // Corrupt the archive: overwrite with garbage bytes.
+    std::fs::write(&archive, b"CORRUPTEDGARBAGE").unwrap();
+
+    // list should fail gracefully (not panic).
+    let list_output = geezipx()
+        .args(["list", archive.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(
+        !list_output.status.success(),
+        "list should fail on corrupted zip"
+    );
+    let stderr = String::from_utf8_lossy(&list_output.stderr);
+    assert!(
+        !stderr.contains("panicked"),
+        "list should not panic on corrupted zip: {stderr}"
+    );
+
+    assert!(
+        !stderr.is_empty(),
+        "list should report error on stderr for corrupted zip"
+    );
+
+    // decompress should also fail gracefully (not panic).
+    let output_dir = tmp.join("extracted");
+    std::fs::create_dir_all(&output_dir).unwrap();
+    let decompress_output = geezipx()
+        .args([
+            "decompress",
+            archive.to_str().unwrap(),
+            "-o",
+            output_dir.to_str().unwrap(),
+            "--no-progress",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        !decompress_output.status.success(),
+        "decompress should fail on corrupted zip"
+    );
+    let stderr2 = String::from_utf8_lossy(&decompress_output.stderr);
+    assert!(
+        !stderr2.contains("panicked"),
+        "decompress should not panic on corrupted zip: {stderr2}"
+    );
+    assert!(
+        !stderr2.is_empty(),
+        "decompress should report error on stderr for corrupted zip"
+    );
+}
+
+#[test]
+fn recursive_directory_zip_roundtrip_preserves_empty_dirs() {
+    let tmp = TestDir::new();
+    let src = tmp.join("src");
+    // Nested directory structure: empty dir + subdir with file + root file.
+    std::fs::create_dir_all(src.join("empty_subdir")).unwrap();
+    std::fs::create_dir_all(src.join("subdir")).unwrap();
+    std::fs::write(src.join("root.txt"), "root level").unwrap();
+    std::fs::write(src.join("subdir").join("nested.txt"), "nested content").unwrap();
+
+    let archive = tmp.join("recursive_dir.zip");
+    let output = tmp.join("extracted");
+
+    // Recursive compress.
+    geezipx()
+        .args([
+            "compress",
+            src.to_str().unwrap(),
+            "-r",
+            "-f",
+            "zip",
+            "-o",
+            archive.to_str().unwrap(),
+            "--no-progress",
+        ])
+        .assert()
+        .success();
+
+    assert!(archive.exists(), "zip archive should exist");
+
+    // List should show files and the empty directory entry.
+    geezipx()
+        .args(["list", archive.to_str().unwrap()])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("root.txt"))
+        .stdout(predicate::str::contains("nested.txt"))
+        .stdout(predicate::str::contains("empty_subdir/"));
+
+    // Decompress.
+    std::fs::create_dir_all(&output).unwrap();
+    geezipx()
+        .args([
+            "decompress",
+            archive.to_str().unwrap(),
+            "-o",
+            output.to_str().unwrap(),
+            "--no-progress",
+        ])
+        .assert()
+        .success();
+
+    // Verify both files and the empty directory are correctly restored.
+    assert!(
+        output.join("src").join("empty_subdir").is_dir(),
+        "empty_subdir should be preserved as a directory in round-trip"
+    );
+    assert_eq!(
+        std::fs::read_to_string(output.join("src").join("root.txt")).unwrap(),
+        "root level"
+    );
+    assert_eq!(
+        std::fs::read_to_string(output.join("src").join("subdir").join("nested.txt")).unwrap(),
+        "nested content"
+    );
+}
+
+#[test]
+fn recursive_directory_tar_roundtrip_preserves_empty_dirs() {
+    let tmp = TestDir::new();
+    let src = tmp.join("src");
+    // Nested directory structure: empty dir + subdir with file + root file.
+    std::fs::create_dir_all(src.join("empty_subdir")).unwrap();
+    std::fs::create_dir_all(src.join("subdir")).unwrap();
+    std::fs::write(src.join("root.txt"), "root level").unwrap();
+    std::fs::write(src.join("subdir").join("nested.txt"), "nested content").unwrap();
+
+    let archive = tmp.join("recursive_dir.tar");
+    let output = tmp.join("extracted");
+
+    // Recursive compress.
+    geezipx()
+        .args([
+            "compress",
+            src.to_str().unwrap(),
+            "-r",
+            "-f",
+            "tar",
+            "-o",
+            archive.to_str().unwrap(),
+            "--no-progress",
+        ])
+        .assert()
+        .success();
+
+    assert!(archive.exists(), "tar archive should exist");
+
+    // List should show files and the empty directory entry.
+    geezipx()
+        .args(["list", archive.to_str().unwrap()])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("root.txt"))
+        .stdout(predicate::str::contains("nested.txt"))
+        .stdout(predicate::str::contains("empty_subdir"));
+
+    // Decompress.
+    std::fs::create_dir_all(&output).unwrap();
+    geezipx()
+        .args([
+            "decompress",
+            archive.to_str().unwrap(),
+            "-o",
+            output.to_str().unwrap(),
+            "--no-progress",
+        ])
+        .assert()
+        .success();
+
+    // Verify both files and the empty directory are correctly restored.
+    assert!(
+        output.join("src").join("empty_subdir").is_dir(),
+        "empty_subdir should be preserved as a directory in round-trip"
+    );
+    assert_eq!(
+        std::fs::read_to_string(output.join("src").join("root.txt")).unwrap(),
+        "root level"
+    );
+    assert_eq!(
+        std::fs::read_to_string(output.join("src").join("subdir").join("nested.txt")).unwrap(),
+        "nested content"
+    );
+}
+
+#[test]
+fn recursive_directory_tarxz_roundtrip_preserves_empty_dirs() {
+    let tmp = TestDir::new();
+    let src = tmp.join("src");
+    // Nested directory structure: empty dir + subdir with file + root file.
+    std::fs::create_dir_all(src.join("empty_subdir")).unwrap();
+    std::fs::create_dir_all(src.join("subdir")).unwrap();
+    std::fs::write(src.join("root.txt"), "root level").unwrap();
+    std::fs::write(src.join("subdir").join("nested.txt"), "nested content").unwrap();
+
+    let archive = tmp.join("recursive_dir.tar.xz");
+    let output = tmp.join("extracted");
+
+    // Recursive compress.
+    geezipx()
+        .args([
+            "compress",
+            src.to_str().unwrap(),
+            "-r",
+            "-f",
+            "tar.xz",
+            "-o",
+            archive.to_str().unwrap(),
+            "--no-progress",
+        ])
+        .assert()
+        .success();
+
+    assert!(archive.exists(), "tar.xz archive should exist");
+
+    // List should show files and the empty directory entry.
+    geezipx()
+        .args(["list", archive.to_str().unwrap()])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("root.txt"))
+        .stdout(predicate::str::contains("nested.txt"))
+        .stdout(predicate::str::contains("empty_subdir"));
+
+    // Decompress.
+    std::fs::create_dir_all(&output).unwrap();
+    geezipx()
+        .args([
+            "decompress",
+            archive.to_str().unwrap(),
+            "-o",
+            output.to_str().unwrap(),
+            "--no-progress",
+        ])
+        .assert()
+        .success();
+
+    // Verify both files and the empty directory are correctly restored.
+    assert!(
+        output.join("src").join("empty_subdir").is_dir(),
+        "empty_subdir should be preserved as a directory in round-trip"
+    );
+    assert_eq!(
+        std::fs::read_to_string(output.join("src").join("root.txt")).unwrap(),
+        "root level"
+    );
+    assert_eq!(
+        std::fs::read_to_string(output.join("src").join("subdir").join("nested.txt")).unwrap(),
+        "nested content"
+    );
+}
+
+#[test]
+fn recursive_directory_tarzst_roundtrip_preserves_empty_dirs() {
+    let tmp = TestDir::new();
+    let src = tmp.join("src");
+    // Nested directory structure: empty dir + subdir with file + root file.
+    std::fs::create_dir_all(src.join("empty_subdir")).unwrap();
+    std::fs::create_dir_all(src.join("subdir")).unwrap();
+    std::fs::write(src.join("root.txt"), "root level").unwrap();
+    std::fs::write(src.join("subdir").join("nested.txt"), "nested content").unwrap();
+
+    let archive = tmp.join("recursive_dir.tar.zst");
+    let output = tmp.join("extracted");
+
+    // Recursive compress.
+    geezipx()
+        .args([
+            "compress",
+            src.to_str().unwrap(),
+            "-r",
+            "-f",
+            "tar.zst",
+            "-o",
+            archive.to_str().unwrap(),
+            "--no-progress",
+        ])
+        .assert()
+        .success();
+
+    assert!(archive.exists(), "tar.zst archive should exist");
+
+    // List should show files and the empty directory entry.
+    geezipx()
+        .args(["list", archive.to_str().unwrap()])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("root.txt"))
+        .stdout(predicate::str::contains("nested.txt"))
+        .stdout(predicate::str::contains("empty_subdir"));
+
+    // Decompress.
+    std::fs::create_dir_all(&output).unwrap();
+    geezipx()
+        .args([
+            "decompress",
+            archive.to_str().unwrap(),
+            "-o",
+            output.to_str().unwrap(),
+            "--no-progress",
+        ])
+        .assert()
+        .success();
+
+    // Verify both files and the empty directory are correctly restored.
+    assert!(
+        output.join("src").join("empty_subdir").is_dir(),
+        "empty_subdir should be preserved as a directory in round-trip"
+    );
+    assert_eq!(
+        std::fs::read_to_string(output.join("src").join("root.txt")).unwrap(),
+        "root level"
+    );
+    assert_eq!(
+        std::fs::read_to_string(output.join("src").join("subdir").join("nested.txt")).unwrap(),
+        "nested content"
+    );
+}

@@ -79,19 +79,13 @@ fn collect_tar_entries<R: Read>(archive: &mut tar::Archive<R>) -> GeeZipResult<V
             continue;
         }
 
-        // Skip directory entries — extract_all handles parent directory
-        // creation implicitly, and treating a directory as a file would
-        // break extraction of files inside it.
-        if header.entry_type().is_dir() {
-            continue;
-        }
-
         let path = tar_entry
             .path()
             .map_err(convert_tar_error)?
             .to_string_lossy()
             .into_owned();
         let size = tar_entry.size();
+        let is_dir = header.entry_type().is_dir();
 
         entries.push(Entry {
             path,
@@ -99,6 +93,7 @@ fn collect_tar_entries<R: Read>(archive: &mut tar::Archive<R>) -> GeeZipResult<V
             compressed_size: 0,
             crc32: None,
             modified: header.mtime().ok(),
+            is_dir,
         });
     }
 
@@ -240,6 +235,27 @@ impl<W: Write + Send> ArchiveWriter for TarWriter<W> {
         })?;
         builder
             .append(&header, std::io::Cursor::new(data))
+            .map_err(convert_tar_error)?;
+
+        Ok(())
+    }
+
+    fn add_directory(&mut self, path: &Path) -> GeeZipResult<()> {
+        let mut header = tar::Header::new_gnu();
+        header.set_entry_type(tar::EntryType::Directory);
+        header.set_path(path).map_err(|e| GeeZipError::Format {
+            message: format!("setting tar header path: {e}"),
+            format: ArchiveFormat::Tar,
+        })?;
+        header.set_size(0);
+        header.set_cksum();
+
+        let builder = self.inner.as_mut().ok_or_else(|| GeeZipError::Format {
+            message: "TAR writer not initialised (already consumed)".into(),
+            format: ArchiveFormat::Tar,
+        })?;
+        builder
+            .append(&header, std::io::Cursor::new(&[] as &[u8]))
             .map_err(convert_tar_error)?;
 
         Ok(())
@@ -445,6 +461,7 @@ mod tests {
             compressed_size: 0,
             crc32: None,
             modified: None,
+            is_dir: false,
         };
 
         let mut output = Vec::new();
@@ -503,13 +520,25 @@ mod tests {
 
         let mut reader = TarReader::from_buf(buf);
         let entries = reader.entries().unwrap();
-        // Directory entry should NOT appear in entries.
-        assert_eq!(entries.len(), 1, "only the file entry should be present");
-        assert_eq!(entries[0].path, "mydir/file.txt");
+        assert_eq!(
+            entries.len(),
+            2,
+            "both directory and file entries should be present"
+        );
+        assert!(
+            entries.iter().any(|e| e.is_dir && e.path == "mydir"),
+            "expected directory entry 'mydir'"
+        );
+        assert!(
+            entries
+                .iter()
+                .any(|e| !e.is_dir && e.path == "mydir/file.txt"),
+            "expected file entry 'mydir/file.txt'"
+        );
 
         let dest = tempfile::tempdir().unwrap();
         let report = reader.extract_all(dest.path(), true).unwrap();
-        assert_eq!(report.files_extracted, 1);
+        assert_eq!(report.files_extracted, 2);
         assert_eq!(report.bytes_extracted, 5);
         assert!(report.errors.is_empty());
 
@@ -571,6 +600,57 @@ mod tests {
 
         let boxed: Box<dyn ArchiveWriter> = Box::new(tar_writer);
         let _bytes_written = boxed.finish().unwrap();
+    }
+
+    // -------------------------------------------------------------------
+    // Directory round-trip with add_directory
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn tar_writer_add_directory_roundtrip() {
+        let buf = Vec::new();
+        let mut tar_writer = TarWriter::new(buf);
+
+        // Add a regular file.
+        tar_writer
+            .add_entry_from_reader(
+                &PathBuf::from("file.txt"),
+                &mut Cursor::new(b"hello from file"),
+            )
+            .unwrap();
+
+        // Add an empty directory.
+        tar_writer.add_directory(Path::new("emptydir")).unwrap();
+
+        let (bytes_written, writer) = tar_writer.finalize().unwrap();
+        assert!(bytes_written > 0, "should have written something");
+
+        let mut reader = TarReader::from_buf(writer);
+        let entries = reader.entries().unwrap();
+        assert_eq!(entries.len(), 2, "should have file + directory entries");
+
+        // Verify the directory entry.
+        let dir_entry = entries.iter().find(|e| e.is_dir).expect("directory entry");
+        assert_eq!(dir_entry.path, "emptydir");
+        assert!(dir_entry.is_dir);
+
+        // Verify the file entry.
+        let file_entry = entries.iter().find(|e| !e.is_dir).expect("file entry");
+        assert_eq!(file_entry.path, "file.txt");
+        assert!(!file_entry.is_dir);
+
+        // Extract all to a tempdir.
+        let dest = tempfile::tempdir().unwrap();
+        let report = reader.extract_all(dest.path(), true).unwrap();
+        assert_eq!(report.files_extracted, 2);
+        assert!(report.errors.is_empty(), "extract_all errors: {report:?}");
+
+        // Verify directory exists.
+        assert!(dest.path().join("emptydir").is_dir());
+
+        // Verify file content.
+        let file_content = std::fs::read_to_string(dest.path().join("file.txt")).unwrap();
+        assert_eq!(file_content, "hello from file");
     }
 
     // -------------------------------------------------------------------
@@ -675,6 +755,124 @@ mod tests {
                 .iter()
                 .any(|(_, e)| matches!(e, GeeZipError::ClobberDenied { .. })),
             "expected ClobberDenied error"
+        );
+    }
+
+    // -------------------------------------------------------------------
+    // extract_all_with_cancel
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn tar_extract_all_with_cancel_basic() {
+        let data = create_test_tar(&[("a.txt", b"aaa"), ("b.txt", b"bbb")]);
+        let mut reader = TarReader::from_buf(data);
+        let dest = tempfile::tempdir().unwrap();
+
+        let report = reader
+            .extract_all_with_cancel(dest.path(), true, &|| false)
+            .unwrap();
+        assert_eq!(report.files_extracted, 2);
+        assert_eq!(report.bytes_extracted, 6);
+        assert!(report.errors.is_empty());
+
+        // Verify file contents.
+        assert_eq!(
+            std::fs::read_to_string(dest.path().join("a.txt")).unwrap(),
+            "aaa"
+        );
+        assert_eq!(
+            std::fs::read_to_string(dest.path().join("b.txt")).unwrap(),
+            "bbb"
+        );
+    }
+
+    #[test]
+    fn tar_extract_all_with_cancel_before_start() {
+        let data = create_test_tar(&[("only.txt", b"data")]);
+        let mut reader = TarReader::from_buf(data);
+        let dest = tempfile::tempdir().unwrap();
+
+        let err = reader
+            .extract_all_with_cancel(dest.path(), true, &|| true)
+            .unwrap_err();
+        assert!(matches!(err, GeeZipError::Cancelled));
+
+        // Ensure no file was extracted.
+        assert!(!dest.path().join("only.txt").exists());
+    }
+
+    #[test]
+    fn tar_extract_all_with_cancel_between_entries() {
+        use std::cell::Cell;
+
+        let data = create_test_tar(&[("first.txt", b"AAA"), ("second.txt", b"BBB")]);
+        let mut reader = TarReader::from_buf(data);
+        let dest = tempfile::tempdir().unwrap();
+
+        let call_count = Cell::new(0u32);
+        let is_cancelled = || {
+            call_count.set(call_count.get() + 1);
+            // Pre-entry check for entry 1 -> proceed (count 1)
+            // Write check for entry 1 (CancellableWriter) -> proceed (count 2)
+            // Pre-entry check for entry 2 -> cancel (count 3)
+            call_count.get() > 2
+        };
+
+        let result = reader.extract_all_with_cancel(dest.path(), true, &is_cancelled);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), GeeZipError::Cancelled));
+
+        // First file should exist and have correct content.
+        assert_eq!(
+            std::fs::read_to_string(dest.path().join("first.txt")).unwrap(),
+            "AAA"
+        );
+        // Second file should NOT exist.
+        assert!(!dest.path().join("second.txt").exists());
+    }
+
+    #[test]
+    fn tar_extract_all_with_cancel_with_dir_entry() {
+        let mut buf = Vec::new();
+        let mut builder = tar::Builder::new(&mut buf);
+
+        // Directory entry.
+        let mut dir_header = tar::Header::new_gnu();
+        dir_header.set_path("mydir").unwrap();
+        dir_header.set_entry_type(tar::EntryType::Directory);
+        dir_header.set_size(0);
+        dir_header.set_cksum();
+        builder
+            .append(&dir_header, std::io::Cursor::new(&[] as &[u8]))
+            .unwrap();
+
+        // File inside the directory.
+        let mut file_header = tar::Header::new_gnu();
+        file_header.set_path("mydir/file.txt").unwrap();
+        file_header.set_size(5);
+        file_header.set_cksum();
+        builder
+            .append(&file_header, std::io::Cursor::new(b"hello"))
+            .unwrap();
+
+        drop(builder);
+
+        let mut reader = TarReader::from_buf(buf);
+        let dest = tempfile::tempdir().unwrap();
+
+        let report = reader
+            .extract_all_with_cancel(dest.path(), true, &|| false)
+            .unwrap();
+        assert_eq!(report.files_extracted, 2);
+        assert_eq!(report.bytes_extracted, 5);
+        assert!(report.errors.is_empty());
+
+        // Verify directory was created.
+        assert!(dest.path().join("mydir").is_dir());
+        // Verify file inside directory.
+        assert_eq!(
+            std::fs::read_to_string(dest.path().join("mydir/file.txt")).unwrap(),
+            "hello"
         );
     }
 

@@ -115,7 +115,16 @@ pub fn detect_archive_format(path: &Path) -> Result<ArchiveFormat> {
 // ---------------------------------------------------------------------------
 
 /// Result of collecting input files: `(source_path, archive_entry_path)`.
-pub type FileEntry = (PathBuf, PathBuf);
+/// A file or directory entry collected for compression.
+#[derive(Debug, Clone)]
+pub struct FileEntry {
+    /// Real path on the filesystem.
+    pub real_path: PathBuf,
+    /// Relative path inside the archive.
+    pub archive_path: PathBuf,
+    /// Whether this entry represents a directory (not a regular file).
+    pub is_dir: bool,
+}
 
 /// Collect input files, handling directories with `--recursive`.
 ///
@@ -149,15 +158,26 @@ pub fn collect_inputs(inputs: &[PathBuf], recursive: bool) -> Result<Vec<FileEnt
                 .unwrap_or(input.as_os_str())
                 .to_os_string();
             let prefix = PathBuf::from(&dir_name);
-            collect_dir_contents(&input, &prefix, &mut result)
+            let has_children = collect_dir_contents(&input, &prefix, &mut result)
                 .with_context(|| format!("reading directory '{}'", input.display()))?;
+            if !has_children {
+                result.push(FileEntry {
+                    real_path: input.clone(),
+                    archive_path: prefix.clone(),
+                    is_dir: true,
+                });
+            }
         } else if input.is_file() {
             // Use the file's basename as the archive entry path.
             let name = input
                 .file_name()
                 .unwrap_or(input.as_os_str())
                 .to_os_string();
-            result.push((input.clone(), PathBuf::from(name)));
+            result.push(FileEntry {
+                real_path: input.clone(),
+                archive_path: PathBuf::from(name),
+                is_dir: false,
+            });
         } else {
             anyhow::bail!("'{}' does not exist", input.display());
         }
@@ -168,18 +188,39 @@ pub fn collect_inputs(inputs: &[PathBuf], recursive: bool) -> Result<Vec<FileEnt
 
 /// Recursively walk `dir` and add files to `entries`, prepending `prefix`
 /// to each entry path.
-fn collect_dir_contents(dir: &Path, prefix: &Path, entries: &mut Vec<FileEntry>) -> io::Result<()> {
+fn collect_dir_contents(
+    dir: &Path,
+    prefix: &Path,
+    entries: &mut Vec<FileEntry>,
+) -> io::Result<bool> {
+    let mut has_children = false;
     for entry in fs::read_dir(dir)? {
         let entry = entry?;
         let path = entry.path();
         let relative = prefix.join(entry.file_name());
         if path.is_dir() {
-            collect_dir_contents(&path, &relative, entries)?;
+            let child_has_children = collect_dir_contents(&path, &relative, entries)?;
+            if child_has_children {
+                has_children = true;
+            } else {
+                // Empty directory: add it as a directory entry.
+                entries.push(FileEntry {
+                    real_path: path,
+                    archive_path: relative,
+                    is_dir: true,
+                });
+                has_children = true;
+            }
         } else if path.is_file() {
-            entries.push((path, relative));
+            entries.push(FileEntry {
+                real_path: path,
+                archive_path: relative,
+                is_dir: false,
+            });
+            has_children = true;
         }
     }
-    Ok(())
+    Ok(has_children)
 }
 
 // ---------------------------------------------------------------------------

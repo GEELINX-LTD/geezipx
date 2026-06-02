@@ -89,6 +89,7 @@ impl<R: Read + Seek + Send> ArchiveReader for ZipReader<R> {
                 compressed_size: file.compressed_size(),
                 crc32: Some(file.crc32()),
                 modified,
+                is_dir: file.is_dir(),
             });
         }
 
@@ -126,6 +127,18 @@ impl<R: Read + Seek + Send> ArchiveReader for ZipReader<R> {
                     continue;
                 }
             };
+
+            // Handle directory entries — create directory and skip file I/O.
+            if entry.is_dir {
+                if let Err(e) = std::fs::create_dir_all(&target) {
+                    report
+                        .errors
+                        .push((entry.path.clone(), GeeZipError::io(e, "creating directory")));
+                    continue;
+                }
+                report.files_extracted += 1;
+                continue;
+            }
 
             // Create parent directory.
             if let Some(parent) = target.parent() {
@@ -259,6 +272,27 @@ impl<W: Write + Seek + Send> ArchiveWriter for ZipWriter<W> {
 
         std::io::copy(reader, &mut self.inner)
             .map_err(|e| GeeZipError::io(e, format!("writing entry '{}'", name)))?;
+
+        Ok(())
+    }
+
+    fn add_directory(&mut self, path: &Path) -> GeeZipResult<()> {
+        // ZIP stores directories implicitly via a trailing slash in the entry
+        // path. Write an empty entry with trailing slash.
+        let dir_path = format!("{}/", path.display());
+        let _name = path.to_str().ok_or_else(|| GeeZipError::Format {
+            message: format!("non-UTF-8 path: {}", path.display()),
+            format: ArchiveFormat::Zip,
+        })?;
+
+        let options = zip::write::FileOptions::<()>::default()
+            .compression_method(zip::CompressionMethod::Stored);
+        self.inner
+            .start_file(&dir_path, options)
+            .map_err(|e| GeeZipError::Format {
+                message: format!("starting ZIP directory entry: {e}"),
+                format: ArchiveFormat::Zip,
+            })?;
 
         Ok(())
     }
@@ -605,6 +639,54 @@ mod tests {
     }
 
     #[test]
+    fn zip_writer_add_directory_roundtrip() {
+        let buf = Cursor::new(Vec::new());
+        let mut zip_writer = ZipWriter::new(buf);
+
+        // Add a regular file.
+        zip_writer
+            .add_entry_from_reader(
+                &PathBuf::from("file.txt"),
+                &mut Cursor::new(b"hello from file"),
+            )
+            .unwrap();
+
+        // Add an empty directory.
+        zip_writer.add_directory(Path::new("emptydir")).unwrap();
+
+        let (bytes_written, writer) = zip_writer.finalize().unwrap();
+        assert!(bytes_written > 0, "should have written something");
+
+        let data = writer.into_inner();
+        let mut reader = ZipReader::from_buf(data).unwrap();
+        let entries = reader.entries().unwrap();
+        assert_eq!(entries.len(), 2, "should have file + directory entries");
+
+        // Verify the directory entry.
+        let dir_entry = entries.iter().find(|e| e.is_dir).expect("directory entry");
+        assert!(dir_entry.path.contains("emptydir"));
+        assert!(dir_entry.is_dir);
+
+        // Verify the file entry.
+        let file_entry = entries.iter().find(|e| !e.is_dir).expect("file entry");
+        assert_eq!(file_entry.path, "file.txt");
+        assert!(!file_entry.is_dir);
+
+        // Extract all to a tempdir.
+        let dest = tempfile::tempdir().unwrap();
+        let report = reader.extract_all(dest.path(), true).unwrap();
+        assert_eq!(report.files_extracted, 2);
+        assert!(report.errors.is_empty(), "extract_all errors: {report:?}");
+
+        // Verify directory exists.
+        assert!(dest.path().join("emptydir").is_dir());
+
+        // Verify file content.
+        let file_content = std::fs::read_to_string(dest.path().join("file.txt")).unwrap();
+        assert_eq!(file_content, "hello from file");
+    }
+
+    #[test]
     fn zip_writer_finish_returns_bytes() {
         let buf = Cursor::new(Vec::new());
         let mut zip_writer = ZipWriter::new(buf);
@@ -631,6 +713,7 @@ mod tests {
             compressed_size: 0,
             crc32: None,
             modified: None,
+            is_dir: false,
         };
 
         let mut output = Vec::new();
@@ -706,6 +789,79 @@ mod tests {
                 .any(|(_, e)| matches!(e, GeeZipError::ClobberDenied { .. })),
             "expected at least one ClobberDenied error"
         );
+    }
+
+    // -------------------------------------------------------------------
+    // extract_all_with_cancel
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn zip_extract_all_with_cancel_normal() {
+        let data = create_test_zip(&[("a.txt", b"aaa"), ("b.txt", b"bbb")]);
+        let mut reader = ZipReader::from_buf(data).unwrap();
+        let dest = tempfile::tempdir().unwrap();
+
+        let report = reader
+            .extract_all_with_cancel(dest.path(), true, &|| false)
+            .unwrap();
+        assert_eq!(report.files_extracted, 2);
+        assert_eq!(report.bytes_extracted, 6);
+        assert!(report.errors.is_empty());
+
+        // Verify file contents.
+        assert_eq!(
+            std::fs::read_to_string(dest.path().join("a.txt")).unwrap(),
+            "aaa"
+        );
+        assert_eq!(
+            std::fs::read_to_string(dest.path().join("b.txt")).unwrap(),
+            "bbb"
+        );
+    }
+
+    #[test]
+    fn zip_extract_all_with_cancel_before_first_entry() {
+        let data = create_test_zip(&[("only.txt", b"data")]);
+        let mut reader = ZipReader::from_buf(data).unwrap();
+        let dest = tempfile::tempdir().unwrap();
+
+        let err = reader
+            .extract_all_with_cancel(dest.path(), true, &|| true)
+            .unwrap_err();
+        assert!(matches!(err, GeeZipError::Cancelled));
+
+        // Ensure no file was extracted.
+        assert!(!dest.path().join("only.txt").exists());
+    }
+
+    #[test]
+    fn zip_extract_all_with_cancel_between_entries() {
+        use std::cell::Cell;
+
+        let data = create_test_zip(&[("first.txt", b"AAA"), ("second.txt", b"BBB")]);
+        let mut reader = ZipReader::from_buf(data).unwrap();
+        let dest = tempfile::tempdir().unwrap();
+
+        let call_count = Cell::new(0u32);
+        let is_cancelled = || {
+            call_count.set(call_count.get() + 1);
+            // Pre-entry check for entry 1 -> proceed (count 1)
+            // Write check for entry 1 (CancellableWriter) -> proceed (count 2)
+            // Pre-entry check for entry 2 -> cancel (count 3)
+            call_count.get() > 2
+        };
+
+        let result = reader.extract_all_with_cancel(dest.path(), true, &is_cancelled);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), GeeZipError::Cancelled));
+
+        // First file should exist and have correct content.
+        assert_eq!(
+            std::fs::read_to_string(dest.path().join("first.txt")).unwrap(),
+            "AAA"
+        );
+        // Second file should NOT exist.
+        assert!(!dest.path().join("second.txt").exists());
     }
 
     // -------------------------------------------------------------------
