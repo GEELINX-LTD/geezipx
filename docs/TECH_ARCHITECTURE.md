@@ -311,7 +311,25 @@ Jobs (串行依赖):
   6. bench-compile — cargo bench --no-run -p geezipx-core (依赖 fmt)
 ```
 
-> 注意：CI 不含 `cargo publish` 步骤。`cargo-deny` 安全审计由独立 `deny.yml` 工作流覆盖（`v*` 标签 push + 手动触发）。发布流程目前通过 `v*` 标签推送触发构建产物，再由人工执行 `cargo publish`。
+> 注意：CI 不含 `cargo publish` 步骤。`cargo-deny` 安全审计由独立 `deny.yml` 工作流覆盖（`v*` 标签 push + 手动触发）。crates.io 发布目前为手工操作（`cargo publish -p geezipx-core && cargo publish -p geezipx`），不纳入 CI/CD。
+
+### 7.1 Release 二进制 artifacts workflow
+
+独立工作流 `.github/workflows/release.yml`，专注于发布构建产物：
+
+- **触发**：`v*` 标签 push 或手动 `workflow_dispatch`
+- **权限**：全局 `contents: read`，release job 单独 `contents: write`
+- **三平台构建**：
+  - `ubuntu-latest` → `geezipx-linux-x86_64.tar.gz` + `.sha256`
+  - `macos-latest` → `geezipx-macos-x86_64.tar.gz` + `.sha256`
+  - `windows-latest` → `geezipx-windows-x86_64.zip` + `.sha256`
+- **校验**：每个 artifact 附带 `shasum -a 256`（Unix）或 `Get-FileHash`（Windows）生成的 `.sha256` 文件
+- **汇总**：release job 合并所有平台 `.sha256` 为单个 `SHA256SUMS`
+- **上传**：使用 `softprops/action-gh-release@v2` 将包、独立校验文件和汇总校验文件全部上传至 GitHub Release
+- **draft/prerelease**：均设为 `false`（正式 release）
+- **不包含**：`cargo publish`（crates.io 发布仍手工操作）
+
+> 工作流文件已加入仓库，将在后续 `v*` 标签 push 时自动触发。当前已发布版本（v0.x）无二进制 artifacts。
 
 ## 8. Tauri 后续接入方式（Phase 3 占位）
 

@@ -64,6 +64,29 @@ cargo build --release
 cargo install geezipx
 ```
 
+### Pre-built binaries
+
+Pre-compiled binaries are available for each [GitHub Release](https://github.com/GEELINX-LTD/geezipx/releases):
+
+| Platform | Artifact |
+|----------|----------|
+| Linux (x86_64) | `geezipx-linux-x86_64.tar.gz` |
+| macOS (x86_64) | `geezipx-macos-x86_64.tar.gz` |
+| Windows (x86_64) | `geezipx-windows-x86_64.zip` |
+
+Each artifact is published with a `.sha256` checksum file and a combined `SHA256SUMS` file for verification.
+
+```sh
+# Download and verify (Linux example)
+curl -LO https://github.com/GEELINX-LTD/geezipx/releases/latest/download/geezipx-linux-x86_64.tar.gz
+curl -LO https://github.com/GEELINX-LTD/geezipx/releases/latest/download/geezipx-linux-x86_64.tar.gz.sha256
+shasum -a 256 -c geezipx-linux-x86_64.tar.gz.sha256
+tar -xzf geezipx-linux-x86_64.tar.gz
+sudo mv geezipx /usr/local/bin/
+```
+
+> **Note:** Starting from a future release, binaries will be uploaded to the Releases page. The v0.2.0 release only provides source via crates.io and GitHub.
+
 ### Prerequisites
 
 - [Rust](https://rustup.rs/) stable toolchain (see `.rust-toolchain.toml`)

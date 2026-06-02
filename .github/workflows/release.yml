@@ -1,0 +1,108 @@
+name: Release
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: Build ${{ matrix.artifact }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact: geezipx-linux-x86_64
+            binary: geezipx
+            ext: tar.gz
+          - os: macos-latest
+            artifact: geezipx-macos-x86_64
+            binary: geezipx
+            ext: tar.gz
+          - os: windows-latest
+            artifact: geezipx-windows-x86_64
+            binary: geezipx.exe
+            ext: zip
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+          cache: true
+      - run: cargo build --release --workspace
+
+      # Package and checksum — Unix (Linux / macOS)
+      - name: Package archive and checksum
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          mkdir -p dist
+          cp "target/release/${{ matrix.binary }}" "dist/"
+          cd dist
+          tar -czf "../${{ matrix.artifact }}.${{ matrix.ext }}" "${{ matrix.binary }}"
+          cd ..
+          shasum -a 256 "${{ matrix.artifact }}.${{ matrix.ext }}" > "${{ matrix.artifact }}.${{ matrix.ext }}.sha256"
+
+      # Package and checksum — Windows
+      - name: Package archive and checksum
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist
+          Copy-Item "target/release/${{ matrix.binary }}" "dist/"
+          cd dist
+          Compress-Archive -Path "*" -DestinationPath "../${{ matrix.artifact }}.${{ matrix.ext }}"
+          cd ..
+          $hash = (Get-FileHash -Algorithm SHA256 -Path "${{ matrix.artifact }}.${{ matrix.ext }}").Hash.ToLower()
+          "$hash  ${{ matrix.artifact }}.${{ matrix.ext }}" | Out-File -Encoding ASCII "${{ matrix.artifact }}.${{ matrix.ext }}.sha256"
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.artifact }}
+          path: |
+            ${{ matrix.artifact }}.${{ matrix.ext }}
+            ${{ matrix.artifact }}.${{ matrix.ext }}.sha256
+          if-no-files-found: error
+          retention-days: 3
+
+  release:
+    name: Create Release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: geezipx-*
+          merge-multiple: true
+          path: release-assets
+
+      - name: Generate combined SHA256SUMS
+        run: |
+          cat release-assets/*.sha256 | sort > SHA256SUMS
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release-assets/*.tar.gz
+            release-assets/*.zip
+            release-assets/*.sha256
+            SHA256SUMS
+          draft: false
+          prerelease: false
+          fail_on_unmatched_files: true

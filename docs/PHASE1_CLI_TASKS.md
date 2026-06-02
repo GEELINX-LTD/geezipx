@@ -282,10 +282,10 @@ geezipx list <archive>
 
 ## M4：CI/测试/发布（第 11-12 周）
 
-> **状态：本地与远程发布验证全部通过**。所有 A 组验证项 PASS（fmt/clippy/test/build/bench/interop/CLI 冒烟/cargo install）。crates.io 已发布 `geezipx-core` 和 `geezipx` v0.1.0；GitHub Release 已创建。CI 远端状态与 crates.io 页面渲染均已确认。
+> **状态：本地与远程发布验证全部通过**。所有 A 组验证项 PASS（fmt/clippy/test/build/bench/interop/CLI 冒烟/cargo install）。crates.io 已发布 `geezipx-core` 和 `geezipx` v0.1.0；GitHub Release 已创建。GitHub Release 二进制 artifacts workflow 已加入（`.github/workflows/release.yml`），tag push 自动构建三平台二进制并上传至 Releases。CI 远端状态与 crates.io 页面渲染均已确认。
 
 ### 目标
-建立三平台 CI、代码质量门禁、性能基准、首次 crates.io 发布。
+建立三平台 CI、代码质量门禁、性能基准、首次 crates.io 发布、GitHub Release 二进制 artifacts 自动化。
 
 ### M4-1：GitHub Actions CI ✅（三平台矩阵已上线）
 - **提交**：`db94c9c`
@@ -337,6 +337,19 @@ geezipx list <archive>
 - **状态**：所有本地与远程验证项全部 PASS。crates.io 上 `geezipx-core` 和 `geezipx` 均已发布（crates.io 远端安装验证通过，页面渲染确认正常）。GitHub Actions CI 三平台全线绿色（最近 6 条 workflow runs 全部成功，v0.1.0 tag 触发的 CI 和 Audit 均通过）。GitHub Release v0.1.0 已创建，本地和远程 tag 已同步。
 - **Homebrew（M4-7）**：推迟到 CLI 稳定发布后考虑。
 
+### M4-7：GitHub Release 二进制 artifacts workflow ✅
+
+- **实际文件**：`.github/workflows/release.yml`
+- **触发条件**：`v*` 标签 push 或手动 workflow_dispatch
+- **构建矩阵**：
+  - `ubuntu-latest` → `geezipx-linux-x86_64.tar.gz` + `.sha256`
+  - `macos-latest` → `geezipx-macos-x86_64.tar.gz` + `.sha256`
+  - `windows-latest` → `geezipx-windows-x86_64.zip` + `.sha256`
+- **发布 job**：下载所有构建产物，合并生成 `SHA256SUMS`，通过 `softprops/action-gh-release@v2` 上传至 GitHub Release
+- **权限**：全局 `contents: read`，release job 单独 `contents: write`
+- **不包含**：`cargo publish`（发布 crates.io 仍手工执行）
+- **注意**：工作流已加入仓库，将在后续 `v*` tag push 时自动触发。当前已发布版本无二进制 artifacts。
+
 ### M4 里程碑检查清单
 
 - [x] Shell 自动补全生成 — `geezipx completions <shell>` 支持 bash/zsh/fish/powershell/elvish
@@ -346,6 +359,9 @@ geezipx list <archive>
 - [x] README 和 CLI 帮助文档清晰可用
 - [x] crates.io 发布完成 — 包已发布至 crates.io（页面渲染已确认正常：README、许可证、文档/仓库/docs.rs 链接均正确渲染）
 - [x] 性能基准测试（criterion）— 基础框架已建立，CI 编译检查 + 手动 benchmark workflow 已集成
+
+- [x] GitHub Release 二进制 artifacts 自动化 workflow（`.github/workflows/release.yml`）— tag 触发，三平台 build，tar.gz/zip 打包，SHA256 校验，上传至 GitHub Release
+- [x] 不含 cargo publish — crates.io 发布仍手工操作
 
 ---
 

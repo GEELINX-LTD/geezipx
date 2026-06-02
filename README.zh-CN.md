@@ -63,6 +63,29 @@ cargo build --release
 cargo install geezipx
 ```
 
+### 预构建二进制
+
+每个 [GitHub Release](https://github.com/GEELINX-LTD/geezipx/releases) 均提供预编译二进制：
+
+| 平台 | 文件 |
+|------|------|
+| Linux (x86_64) | `geezipx-linux-x86_64.tar.gz` |
+| macOS (x86_64)  | `geezipx-macos-x86_64.tar.gz` |
+| Windows (x86_64) | `geezipx-windows-x86_64.zip` |
+
+每个文件附带 `.sha256` 校验文件和合并的 `SHA256SUMS` 用于验证。
+
+```sh
+# 下载并验证（Linux 示例）
+curl -LO https://github.com/GEELINX-LTD/geezipx/releases/latest/download/geezipx-linux-x86_64.tar.gz
+curl -LO https://github.com/GEELINX-LTD/geezipx/releases/latest/download/geezipx-linux-x86_64.tar.gz.sha256
+shasum -a 256 -c geezipx-linux-x86_64.tar.gz.sha256
+tar -xzf geezipx-linux-x86_64.tar.gz
+sudo mv geezipx /usr/local/bin/
+```
+
+> **注意：** 从后续 release 开始，二进制文件将自动上传至 Releases 页面。v0.2.0 仅提供 crates.io 和 GitHub 源码。
+
 ### 前置条件
 
 - [Rust](https://rustup.rs/) stable 工具链（参见 `.rust-toolchain.toml`）
