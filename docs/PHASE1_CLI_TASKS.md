@@ -65,9 +65,9 @@
   - TarZst（tar.zst/tzst）归档支持在后续添加（`feat: add tar.zst archive format support`），模块位于 `crates/core/src/archive/tarzst.rs`。通过 `ArchiveReader`/`ArchiveWriter` trait 实现完整归档压缩/解压/list，与 gzip 单流不同。
 
 ### M1-6：核心模块的单元测试 ✅
-- **覆盖范围**：detect 模块（magic detection、extension detection、Display、read_magic_bytes）、archive 模块（path normalization、Zip Slip 检查）、error 模块
+- **覆盖范围**：detect 模块（magic detection、extension detection、Display、read_magic_bytes）、archive 模块（path normalization、Zip Slip 检查、path safety 拒绝绝对路径/路径穿越、normalize_path 边界、datetime_to_timestamp 闰年）、error 模块
 - **验收标准**：`cargo test -p geezipx-core` 全部通过（数十个单元测试）
-- **未完成**：覆盖率 > 60% 指标尚未使用 `cargo-tarpaulin` 测量。
+- **未完成**：覆盖率 > 60% 指标尚未使用 `cargo-tarpaulin` 测量；已补充 path safety、normalize_path 边界和 datetime_to_timestamp 单元测试。
 
 ### M1 里程碑检查清单
 - [x] `cargo build` 全线通过
@@ -143,7 +143,7 @@ geezipx list <archive>
 - **与原计划差异**：已新增压缩率和修改时间列（commit d82600d）。gzip 条目未知原始大小/修改时间时，表格显示 `-`，JSON 输出 `null`
 
 ### M2-5：CLI 集成测试 ✅
-- **实际文件**：`crates/cli/tests/cli_integration.rs`（23 个集成测试）
+- **实际文件**：`crates/cli/tests/cli_integration.rs`（102 个集成测试）
 - **工具**：`assert_cmd` + `predicates` + `tempfile`
 - **场景覆盖**：
   - 各子命令 `--help` 可用性
@@ -156,15 +156,19 @@ geezipx list <archive>
   - gzip 多输入报错
   - `--stdout` 用于多文件归档时报错
   - 输出目录自动创建
+
+  - Unicode 文件名 ZIP round-trip
+  - 递归目录 tar.gz round-trip（嵌套目录 + 文件结构）
+  - 损坏 ZIP 输入优雅报错（无 panic）
   - 扩展名自动推断格式
-- **验收标准**：`cargo test --workspace --all-features` 全部通过（131 tests passed）
+- **验收标准**：`cargo test --workspace --all-features` 全部通过（337 tests passed；CLI lib 11 + CLI integration 102 + core 224）
 - **与原计划差异**：尚未包含与系统 `tar`/`unzip` 的互操作测试、尚未包含大文件冒烟测试（100 MB+）
 
 ### M2 里程碑检查清单
 - [x] `geezipx compress` / `decompress` / `list` 三个子命令可用
 - [x] ZIP 和 tar.gz 双向 round-trip 通过
 - [x] 自动格式检测工作
-- [x] 集成测试覆盖主要场景（23 个测试）
+- [x] 集成测试覆盖主要场景（102 个测试）
 - [x] `cargo build --release` 生成稳定二进制
 
 ---

@@ -40,6 +40,7 @@ pub struct Entry {
     pub crc32: Option<u32>,
     /// Last modification time as Unix timestamp (seconds since epoch), if available.
     pub modified: Option<u64>,
+    pub is_dir: bool,
 }
 
 /// Convert a calendar date/time to a Unix timestamp (seconds since epoch).
@@ -144,6 +145,19 @@ pub trait ArchiveReader: Send {
                     continue;
                 }
             };
+
+            // Handle directory entries — create directory and skip file I/O.
+            if entry.is_dir {
+                if let Err(e) = std::fs::create_dir_all(&target) {
+                    report.errors.push((
+                        entry.path.clone(),
+                        crate::error::GeeZipError::io(e, "creating directory"),
+                    ));
+                    continue;
+                }
+                report.files_extracted += 1;
+                continue;
+            }
 
             // Create parent directory.
             if let Some(parent) = target.parent() {
@@ -255,6 +269,19 @@ pub trait ArchiveReader: Send {
                 }
             };
 
+            // Handle directory entries — create directory and skip file I/O.
+            if entry.is_dir {
+                if let Err(e) = std::fs::create_dir_all(&target) {
+                    report.errors.push((
+                        entry.path.clone(),
+                        crate::error::GeeZipError::io(e, "creating directory"),
+                    ));
+                    continue;
+                }
+                report.files_extracted += 1;
+                continue;
+            }
+
             // Create parent directory.
             if let Some(parent) = target.parent() {
                 if !parent.exists() {
@@ -354,6 +381,16 @@ pub trait ArchiveWriter: Send {
     ///
     /// After this call the writer is consumed and must not be used again.
     fn finish(self: Box<Self>) -> GeeZipResult<u64>;
+
+    /// Add a directory entry to the archive.
+    ///
+    /// The default implementation does nothing, which is correct for formats
+    /// that don't require explicit directory entries (ZIP stores them
+    /// implicitly via path prefixes in file entries). Override this for
+    /// formats like tar that require explicit directory headers.
+    fn add_directory(&mut self, _path: &Path) -> GeeZipResult<()> {
+        Ok(())
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -692,5 +729,70 @@ mod tests {
         assert!(writer.was_cancelled());
         // Data written before cancellation should still be present.
         assert_eq!(&buf, b"data");
+    }
+
+    #[test]
+    #[cfg(not(windows))]
+    fn check_entry_path_safety_rejects_absolute() {
+        // Absolute entry paths (e.g., /etc/passwd) should be rejected.
+        // Unix absolute paths (starting with /) are used because the function's
+        // has_root() check is independent of platform-specific path conventions.
+        let dest = Path::new("/tmp/out");
+        let result = check_entry_path_safety(Path::new("/etc/passwd"), "/etc/passwd", dest);
+        assert!(result.is_err());
+        let (name, err) = result.unwrap_err();
+        assert_eq!(name, "/etc/passwd");
+        assert!(matches!(err, GeeZipError::PathTraversal { .. }));
+    }
+
+    #[test]
+    fn check_entry_path_safety_rejects_traversal() {
+        // Path traversal via .. should be rejected.
+        let dest = Path::new("/tmp/out");
+        let result = check_entry_path_safety(Path::new("../etc/passwd"), "../etc/passwd", dest);
+        assert!(result.is_err());
+        let (name, err) = result.unwrap_err();
+        assert_eq!(name, "../etc/passwd");
+        assert!(matches!(err, GeeZipError::PathTraversal { .. }));
+    }
+
+    #[test]
+    fn check_entry_path_safety_accepts_normal() {
+        // Normal relative paths should be accepted.
+        let dest = Path::new("/tmp/out");
+        let result = check_entry_path_safety(Path::new("file.txt"), "file.txt", dest);
+        assert!(result.is_ok());
+        let target = result.unwrap();
+        assert_eq!(target, Path::new("/tmp/out/file.txt"));
+    }
+
+    #[test]
+    fn normalize_path_edge_cases() {
+        // Empty path normalizes to "."
+        assert_eq!(normalize_path(Path::new("")), Path::new("."));
+        // Single root
+        assert_eq!(normalize_path(Path::new("/")), Path::new("/"));
+        // Trailing dot cancels out
+        assert_eq!(normalize_path(Path::new("foo/.")), Path::new("foo"));
+        // Multiple consecutive slashes (collapsed by path components)
+        assert_eq!(normalize_path(Path::new("a//b")), Path::new("a/b"));
+        assert!(!normalize_path(Path::new("a//b")).as_os_str().is_empty());
+    }
+
+    #[test]
+    fn datetime_to_timestamp_leap_year() {
+        // 2024-02-29 12:00:00 is a valid leap year date.
+        let ts = datetime_to_timestamp(2024, 2, 29, 12, 0, 0);
+        assert!(ts > 0, "leap year Feb 29 should produce a valid timestamp");
+        // 2023-02-29 is not a leap year, so should be rejected.
+        assert_eq!(datetime_to_timestamp(2023, 2, 29, 0, 0, 0), 0);
+    }
+
+    #[test]
+    fn datetime_to_timestamp_valid_date_range() {
+        // A date well past epoch should produce a large timestamp.
+        let ts = datetime_to_timestamp(2026, 6, 2, 0, 0, 0);
+        assert!(ts > 0);
+        assert!(ts > 1700000000, "2026-06-02 should be well past epoch");
     }
 }

@@ -89,6 +89,7 @@ impl<R: Read + Seek + Send> ArchiveReader for ZipReader<R> {
                 compressed_size: file.compressed_size(),
                 crc32: Some(file.crc32()),
                 modified,
+                is_dir: file.is_dir(),
             });
         }
 
@@ -126,6 +127,18 @@ impl<R: Read + Seek + Send> ArchiveReader for ZipReader<R> {
                     continue;
                 }
             };
+
+            // Handle directory entries — create directory and skip file I/O.
+            if entry.is_dir {
+                if let Err(e) = std::fs::create_dir_all(&target) {
+                    report
+                        .errors
+                        .push((entry.path.clone(), GeeZipError::io(e, "creating directory")));
+                    continue;
+                }
+                report.files_extracted += 1;
+                continue;
+            }
 
             // Create parent directory.
             if let Some(parent) = target.parent() {
@@ -259,6 +272,27 @@ impl<W: Write + Seek + Send> ArchiveWriter for ZipWriter<W> {
 
         std::io::copy(reader, &mut self.inner)
             .map_err(|e| GeeZipError::io(e, format!("writing entry '{}'", name)))?;
+
+        Ok(())
+    }
+
+    fn add_directory(&mut self, path: &Path) -> GeeZipResult<()> {
+        // ZIP stores directories implicitly via a trailing slash in the entry
+        // path. Write an empty entry with trailing slash.
+        let dir_path = format!("{}/", path.display());
+        let _name = path.to_str().ok_or_else(|| GeeZipError::Format {
+            message: format!("non-UTF-8 path: {}", path.display()),
+            format: ArchiveFormat::Zip,
+        })?;
+
+        let options = zip::write::FileOptions::<()>::default()
+            .compression_method(zip::CompressionMethod::Stored);
+        self.inner
+            .start_file(&dir_path, options)
+            .map_err(|e| GeeZipError::Format {
+                message: format!("starting ZIP directory entry: {e}"),
+                format: ArchiveFormat::Zip,
+            })?;
 
         Ok(())
     }
@@ -631,6 +665,7 @@ mod tests {
             compressed_size: 0,
             crc32: None,
             modified: None,
+            is_dir: false,
         };
 
         let mut output = Vec::new();

@@ -79,19 +79,13 @@ fn collect_tar_entries<R: Read>(archive: &mut tar::Archive<R>) -> GeeZipResult<V
             continue;
         }
 
-        // Skip directory entries — extract_all handles parent directory
-        // creation implicitly, and treating a directory as a file would
-        // break extraction of files inside it.
-        if header.entry_type().is_dir() {
-            continue;
-        }
-
         let path = tar_entry
             .path()
             .map_err(convert_tar_error)?
             .to_string_lossy()
             .into_owned();
         let size = tar_entry.size();
+        let is_dir = header.entry_type().is_dir();
 
         entries.push(Entry {
             path,
@@ -99,6 +93,7 @@ fn collect_tar_entries<R: Read>(archive: &mut tar::Archive<R>) -> GeeZipResult<V
             compressed_size: 0,
             crc32: None,
             modified: header.mtime().ok(),
+            is_dir,
         });
     }
 
@@ -240,6 +235,27 @@ impl<W: Write + Send> ArchiveWriter for TarWriter<W> {
         })?;
         builder
             .append(&header, std::io::Cursor::new(data))
+            .map_err(convert_tar_error)?;
+
+        Ok(())
+    }
+
+    fn add_directory(&mut self, path: &Path) -> GeeZipResult<()> {
+        let mut header = tar::Header::new_gnu();
+        header.set_entry_type(tar::EntryType::Directory);
+        header.set_path(path).map_err(|e| GeeZipError::Format {
+            message: format!("setting tar header path: {e}"),
+            format: ArchiveFormat::Tar,
+        })?;
+        header.set_size(0);
+        header.set_cksum();
+
+        let builder = self.inner.as_mut().ok_or_else(|| GeeZipError::Format {
+            message: "TAR writer not initialised (already consumed)".into(),
+            format: ArchiveFormat::Tar,
+        })?;
+        builder
+            .append(&header, std::io::Cursor::new(&[] as &[u8]))
             .map_err(convert_tar_error)?;
 
         Ok(())
@@ -445,6 +461,7 @@ mod tests {
             compressed_size: 0,
             crc32: None,
             modified: None,
+            is_dir: false,
         };
 
         let mut output = Vec::new();
@@ -503,13 +520,25 @@ mod tests {
 
         let mut reader = TarReader::from_buf(buf);
         let entries = reader.entries().unwrap();
-        // Directory entry should NOT appear in entries.
-        assert_eq!(entries.len(), 1, "only the file entry should be present");
-        assert_eq!(entries[0].path, "mydir/file.txt");
+        assert_eq!(
+            entries.len(),
+            2,
+            "both directory and file entries should be present"
+        );
+        assert!(
+            entries.iter().any(|e| e.is_dir && e.path == "mydir"),
+            "expected directory entry 'mydir'"
+        );
+        assert!(
+            entries
+                .iter()
+                .any(|e| !e.is_dir && e.path == "mydir/file.txt"),
+            "expected file entry 'mydir/file.txt'"
+        );
 
         let dest = tempfile::tempdir().unwrap();
         let report = reader.extract_all(dest.path(), true).unwrap();
-        assert_eq!(report.files_extracted, 1);
+        assert_eq!(report.files_extracted, 2);
         assert_eq!(report.bytes_extracted, 5);
         assert!(report.errors.is_empty());
 

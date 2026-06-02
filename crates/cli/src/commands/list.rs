@@ -30,6 +30,7 @@ pub fn execute(archive: &Path, json: bool) -> Result<()> {
                 compressed_size,
                 crc32: None,
                 modified: None,
+                is_dir: false,
             }]
         }
 
@@ -43,6 +44,7 @@ pub fn execute(archive: &Path, json: bool) -> Result<()> {
                 compressed_size,
                 crc32: None,
                 modified: None,
+                is_dir: false,
             }]
         }
         ArchiveFormat::Lzma => {
@@ -55,6 +57,7 @@ pub fn execute(archive: &Path, json: bool) -> Result<()> {
                 compressed_size,
                 crc32: None,
                 modified: None,
+                is_dir: false,
             }]
         }
         ArchiveFormat::Zstd => {
@@ -67,6 +70,7 @@ pub fn execute(archive: &Path, json: bool) -> Result<()> {
                 compressed_size,
                 crc32: None,
                 modified: None,
+                is_dir: false,
             }]
         }
         _ => {
