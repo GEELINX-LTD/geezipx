@@ -289,6 +289,7 @@ Reader(File) → ProgressReader → Decompress → ProgressWriter → File
 
 ## 7. CI/CD（GitHub Actions）
 
+**主 CI 触发条件**：对 `main` 分支的 push、任意 `v*` 标签的 push、任意分支的 pull_request，以及手动 workflow_dispatch。
 Matrix:
   - os: ubuntu-latest, macos-latest, windows-latest
   - toolchain: stable (单一版本)
@@ -303,7 +304,7 @@ Jobs (串行依赖):
   6. bench-compile — cargo bench --no-run -p geezipx-core (依赖 fmt)
 ```
 
-> 注意：当前 CI 不包含 `cargo deny`（安全审计）或 `cargo publish`，这些将在 Phase 1 MVP 稳定后加入。发布流程目前仅通过手动 tag 触发 workflow artifact 生成。
+> 注意：CI 不含 `cargo publish` 步骤。`cargo-deny` 安全审计由独立 `deny.yml` 工作流覆盖（`v*` 标签 push + 手动触发）。发布流程目前通过 `v*` 标签推送触发构建产物，再由人工执行 `cargo publish`。
 
 ## 8. Tauri 后续接入方式（Phase 3 占位）
 

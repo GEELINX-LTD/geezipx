@@ -289,19 +289,21 @@ geezipx list <archive>
 - **提交**：`db94c9c`
 - **实际文件**：`.github/workflows/ci.yml`、`.github/workflows/deny.yml`
 - **当前状态**：
+
+  - **主 CI 触发条件**：`main` 分支 push、任意 `v*` 标签 push、任意分支 pull_request、manual workflow_dispatch
   - **fmt**：`ubuntu-latest` × `stable`，`cargo fmt --all --check`
   - **Clippy**：三平台矩阵（ubuntu / macos / windows）× `stable`，`cargo clippy -D warnings`
   - **Test**：三平台矩阵 × `stable`，`cargo test --workspace --all-features`
   - **Build**：三平台矩阵，`cargo build --release` + artifact 上传（`actions/upload-artifact@v7`，保留 7 天）
   - **Interop**：`ubuntu-latest` 运行 `scripts/check-interop.sh`，依赖 clippy+test+build 通过
-  - **Audit**：独立 `deny.yml` 工作流，使用 `EmbarkStudios/cargo-deny-action@v2`，push/PR 触发 + 每周调度
+  - **Audit**：独立 `deny.yml` 工作流，使用 `EmbarkStudios/cargo-deny-action@v2`，`v*` 标签 push + 手动触发
   - **缓存**：所有 step 均启用 `cache: true`（`actions-rust-lang/setup-rust-toolchain@v1` 内置）
   - **Rust 版本**：`channel = "stable"`（跟踪最新 stable，当前 1.96），无固定 MSRV 矩阵
 - **与原计划的差异**：未设置 MSRV 1.80 矩阵（改为跟踪最新 stable）；三平台矩阵、缓存、artifact 上传、cargo-deny 全部实现。
 
 ### M4-2：代码质量门禁 ✅（cargo-deny 审计已集成）
 - **实际文件**：`deny.toml`、`.github/workflows/deny.yml`
-- **当前状态**：已实现 `deny.toml` 配置 + 独立 `deny.yml` CI 工作流，push/PR 时运行 `cargo-deny check --all-features`，每周一自动扫描。
+- **当前状态**：已实现 `deny.toml` 配置 + 独立 `deny.yml` CI 工作流，`v*` 标签 push 或手动触发时运行 `cargo-deny check --all-features`。
 - **尚未实现**：专用 lint workflow（clippy 已在 ci.yml 中覆盖）、覆盖率 workflow、PR 自动标记覆盖率
 
 ### M4-3：性能基准测试 ✅
@@ -337,7 +339,7 @@ geezipx list <archive>
 
 - [x] Shell 自动补全生成 — `geezipx completions <shell>` 支持 bash/zsh/fish/powershell/elvish
 - [x] 三平台（Linux/macOS/Windows）CI — fmt / clippy / test / build / artifact upload 全部上线
-- [x] cargo-deny 审计 — 独立 workflow，每周 + push/PR 触发
+- [x] cargo-deny 审计 — 独立 workflow，`v*` 标签 push + 手动触发
 - [x] 互操作测试 — `scripts/check-interop.sh` 在 CI 中运行
 - [x] README 和 CLI 帮助文档清晰可用
 - [x] crates.io 发布准备就绪（dry-run / package 验证通过）— 待人工执行真实 cargo publish
