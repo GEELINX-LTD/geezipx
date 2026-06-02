@@ -1,103 +1,359 @@
 # GeeZipX
 
-A cross-platform compression/decompression tool built with Rust.
+[![CI](https://github.com/GEELINX-LTD/geezipx/actions/workflows/ci.yml/badge.svg)](https://github.com/GEELINX-LTD/geezipx/actions/workflows/ci.yml)
+[![Audit](https://github.com/GEELINX-LTD/geezipx/actions/workflows/deny.yml/badge.svg)](https://github.com/GEELINX-LTD/geezipx/actions/workflows/deny.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![crates.io](https://img.shields.io/crates/v/geezipx.svg)](https://crates.io/crates/geezipx)
+
+> **A cross-platform compression and decompression CLI tool, built with Rust.**  
+> One tool to compress, decompress, and inspect archives across formats.
+
+[简体中文](README.zh-CN.md)
+
+---
+
+## Features
+
+- **Multi-format** -- ZIP, TAR, TAR.GZ/TGZ, and GZIP/GZ (read/write)
+- **Streaming I/O** -- process large files with bounded memory usage
+- **Live progress bars** -- real-time speed, ETA, and per-file status on TTY
+- **Cancel-safe** -- graceful Ctrl+C with partial-file cleanup; double Ctrl+C force-kill
+- **Auto-format detection** -- magic-byte recognition with extension-based fallback
+- **Compression levels** -- `--level 0-9` for gzip / tar.gz formats
+- **Clobber controls** -- `--no-clobber` to skip existing files, `--force` to overwrite
+- **Zip Slip protection** -- blocks path-traversal attacks in all archive formats
+- **JSON output** -- `list --json` for machine-readable inspection
+- **Shell completions** -- bash, zsh, fish, PowerShell, elvish
+- **Cross-platform** -- Linux, macOS, Windows (3-platform CI)
+- **Single binary** -- no runtime dependencies, `cargo install` ready
+
+---
 
 ## Status
 
-**Phase 1: CLI MVP complete** — the `compress`, `decompress`, and `list` subcommands
-are implemented for zip, tar, tar.gz, and gzip formats.  Live progress bars,
-graceful Ctrl+C cancellation, streaming I/O, and external-tool interoperability
-testing are also implemented.
-See [`docs/PHASE1_CLI_TASKS.md`](docs/PHASE1_CLI_TASKS.md) for the complete task breakdown.
+Phase 1 (CLI MVP) is **complete**. All core subcommands (`compress`, `decompress`, `list`, `completions`) work for the four supported formats.
+
+| Milestone | Theme | Status |
+|-----------|-------|--------|
+| M1 | Project skeleton + core engine library | Done |
+| M2 | CLI basic commands | Done |
+| M3 | Streaming / progress / polish | Done |
+| M4 | CI / testing / release | Mostly done (release-ready) |
+
+See [`docs/PHASE1_CLI_TASKS.md`](docs/PHASE1_CLI_TASKS.md) for the full task breakdown.
+
+---
+
+## Install
+
+### From source
+
+```sh
+# Clone and build
+git clone https://github.com/GEELINX-LTD/geezipx.git
+cd geezipx
+cargo build --release
+
+# The binary is at ./target/release/geezipx
+./target/release/geezipx --version
+```
+
+### Via cargo
+
+```sh
+cargo install geezipx
+```
+
+### Prerequisites
+
+- [Rust](https://rustup.rs/) stable toolchain (see `.rust-toolchain.toml`)
+
+---
+
+## Quick Start
+
+```sh
+# Compress a file to ZIP
+geezipx compress hello.txt -o hello.zip
+
+# Compress with explicit format
+geezipx compress hello.txt -f gzip -o hello.txt.gz
+
+# Compress a directory recursively to tar.gz
+geezipx compress mydir/ -r -f tar.gz -o mydir.tar.gz
+
+# Decompress an archive (auto-detects format)
+geezipx decompress hello.zip
+
+# Decompress gzip to stdout
+geezipx decompress hello.txt.gz --stdout > output.txt
+
+# Decompress to a specific directory
+geezipx decompress archive.tar.gz -o /tmp/out
+
+# Decompress skipping existing files
+geezipx decompress archive.zip --no-clobber
+
+# Decompress overwriting existing files
+geezipx decompress archive.zip --force
+
+# List archive contents
+geezipx list archive.zip
+
+# List archive contents as JSON
+geezipx list archive.tar.gz --json
+```
+
+---
+
+## Usage
+
+### Global Flags
+
+| Flag | Description |
+|------|-------------|
+| `--no-progress` | Disable progress bar (ideal for scripts) |
+| `-v`, `--verbose` | Log each file as it's processed |
+
+### `compress` — Create archives
+
+```sh
+geezipx compress <inputs...> -o <output> [options]
+```
+
+| Option | Description |
+|--------|-------------|
+| `-o`, `--output` | Output file path **(required)** |
+| `-f`, `--format` | Format: `zip`, `tar`, `tar.gz`, `tgz`, `gz`, `gzip` (inferred from extension if omitted, defaults to zip) |
+| `-r`, `--recursive` | Recursively add directories |
+| `-L`, `--level` | Compression level 0-9 (gzip/tar.gz only, default: 6) |
+
+### `decompress` — Extract archives
+
+```sh
+geezipx decompress <archive> [options]
+```
+
+Auto-detects the format via magic bytes (with extension fallback).
+
+| Option | Description |
+|--------|-------------|
+| `-o`, `--output-dir` | Output directory (default: current directory) |
+| `--stdout` | Decompress to stdout (gzip only; errors on multi-file archives) |
+| `--no-clobber` | Skip files that already exist |
+| `--force` | Overwrite existing files (default; mutually exclusive with `--no-clobber`) |
+
+### `list` — Inspect archives
+
+```sh
+geezipx list <archive> [options]
+```
+
+Displays a table of entries with path, size, compressed size, ratio, and modification time.
+
+| Option | Description |
+|--------|-------------|
+| `-j`, `--json` | Output as a JSON array |
+
+### `completions` — Shell completion scripts
+
+```sh
+geezipx completions <SHELL>    # alias: geezipx comp <SHELL>
+```
+
+Supported shells: `bash`, `zsh`, `fish`, `powershell`, `elvish`.
+
+Example:
+```sh
+# Bash
+geezipx completions bash > /usr/local/share/bash-completion/completions/geezipx
+
+# Zsh
+geezipx completions zsh > /usr/local/share/zsh/site-functions/_geezipx
+
+# Fish
+geezipx completions fish > ~/.config/fish/completions/geezipx.fish
+```
+
+After installing, restart your shell or source the file for tab-completion on subcommands, flags, and arguments.
+
+---
 
 ## Project Structure
 
 ```
 geezipx/
-├── Cargo.toml          # Workspace root
+├── AGENTS.md               # AI agent collaboration guide
+├── CHANGELOG.md            # Release changelog
+├── Cargo.toml              # Workspace root
 ├── crates/
-│   ├── core/           # Compression/decompression engine library
-│   └── cli/            # CLI binary entry point
-├── docs/               # Product & architecture documentation
-└── AGENTS.md           # AI agent collaboration guide
+│   ├── core/               # Compression/decompression engine library
+│   │   └── src/
+│   │       ├── archive/    # ZIP, TAR, TAR.GZ, GZIP format implementations
+│   │       ├── detect.rs   # Format detection (magic bytes + extension)
+│   │       ├── error.rs    # Unified error types (GeeZipError)
+│   │       └── io.rs       # Streaming I/O wrappers (ProgressReader, etc.)
+│   └── cli/                # CLI binary (clap-based, thin shell over core)
+│       └── src/
+│           ├── commands/   # compress / decompress / list
+│           ├── render/     # Progress bar rendering
+│           └── signal.rs   # Ctrl+C cancellation
+├── docs/                   # Product & architecture documentation
+├── scripts/                # Build, CI, and interoperability test scripts
+├── tests/                  # Integration tests
+├── .github/workflows/      # CI, audit, and benchmark workflows
+├── deny.toml               # cargo-deny configuration
+└── .rust-toolchain.toml    # Rust toolchain pin
 ```
 
-## Prerequisites
+### Architecture
 
-- [Rust](https://rustup.rs/) (stable toolchain, see `.rust-toolchain.toml`)
+GeeZipX follows a layered workspace architecture:
 
-## Quick Start
+```
+┌─────────────┐  ┌─────────────┐
+│  cli (bin)  │  │  gui-tauri  │  ← Frontend layers (CLI / future GUI)
+└──────┬──────┘  └──────┬──────┘
+       │                │
+       └───────┬────────┘
+               │  depends on
+       ┌───────▼────────┐
+       │  core (lib)     │  ← Core engine: all archive/compression logic
+       │  ─ pure data   │     - No I/O assumptions
+       │  ─ no terminal │     - Reusable by CLI and future Tauri GUI
+       └────────────────┘
+```
+
+The core library handles all format logic through unified `ArchiveReader` / `ArchiveWriter` traits. The CLI is a thin shell that handles argument parsing and progress display only. This design ensures the same compression engine will power the future Tauri desktop GUI without duplication.
+
+---
+
+## Development
+
+### Prerequisites
+
+- Rust stable (install via [rustup](https://rustup.rs/))
+
+### Build & Test
 
 ```sh
+# Build all workspace crates
+cargo build
+
+# Run all tests (unit + integration)
+cargo test --workspace --all-features
+
+# Release build
 cargo build --release
-./target/release/geezipx --help
+
+# Check formatting
+cargo fmt --all --check
+
+# Run clippy (strict mode)
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+
+# Generate documentation
+cargo doc --no-deps
 ```
 
-### Examples
+### Running Benchmarks
 
 ```sh
-# Compress a file to ZIP
-target/release/geezipx compress hello.txt -o hello.zip
+# Verify benchmarks compile
+cargo bench --no-run -p geezipx-core
 
-# Compress with explicit format
-target/release/geezipx compress hello.txt -f gzip -o hello.txt.gz
-
-# Compress a directory recursively to tar.gz
-target/release/geezipx compress mydir/ -r -f tar.gz -o mydir.tar.gz
-
-# Decompress an archive (auto-detects format)
-target/release/geezipx decompress hello.zip
-
-# Decompress gzip to stdout
-target/release/geezipx decompress hello.txt.gz --stdout > output.txt
-
-# Decompress to a specific directory
-target/release/geezipx decompress archive.tar.gz -o /tmp/out
-d05|
-6bb:# Decompress skipping existing files
-8fb:target/release/geezipx decompress archive.zip --no-clobber
-d05|
-e4f:# Decompress overwriting existing files
-775:target/release/geezipx decompress archive.zip --force
-
-# List archive contents
-target/release/geezipx list archive.zip
-
-# List archive contents as JSON
-target/release/geezipx list archive.tar.gz --json
+# Run full benchmarks
+cargo bench -p geezipx-core
 ```
 
-## Shell Completions
+Benchmarks cover gzip throughput (4 levels × 2 sizes) and archive throughput (tar.gz, ZIP round-trip).
 
-GeeZipX can generate shell completion scripts for **bash**, **zsh**, **fish**, **PowerShell**,
-and **elvish**.  Run:
+### Interoperability Tests
 
 ```sh
-# Bash — save to completions dir (adjust path for your OS)
-geezipx completions bash > /usr/local/share/bash-completion/completions/geezipx
+# Standard checks against system tar, unzip, gzip
+bash scripts/check-interop.sh
 
-# Zsh — save to a directory in your $fpath
-geezipx completions zsh > /usr/local/share/zsh/site-functions/_geezipx
-
-# Fish
-geezipx completions fish > ~/.config/fish/completions/geezipx.fish
-
-# PowerShell
-geezipx completions powershell > _geezipx.ps1
-
-# Elvish
-geezipx completions elvish > geezipx.elv
+# Heavy stress mode (256 MB gzip, 1000-file tar.gz)
+GEEZIPX_INTEROP_STRESS=1 bash scripts/check-interop.sh
 ```
 
-You can also use the shorter alias `geezipx comp`:
+### Release Build Verification
 
 ```sh
-geezipx comp bash > /usr/local/share/bash-completion/completions/geezipx
+# Full quality gate (run before committing)
+cargo fmt --all --check && \
+cargo clippy --workspace --all-targets --all-features -- -D warnings && \
+cargo test --workspace --all-features && \
+cargo build --release --workspace
 ```
 
-After installing, restart your shell or source the file for tab-completion support
-on subcommands, flags, and arguments.
+---
+
+## Roadmap
+
+### Phase 1 (CLI MVP) — Current ✓
+
+All core features are implemented and verified:
+
+- [x] ZIP / TAR / TAR.GZ / GZIP read/write
+- [x] Streaming I/O with bounded memory usage
+- [x] Progress bars with indicatif
+- [x] Ctrl+C graceful cancellation
+- [x] Auto-format detection (magic bytes + extension)
+- [x] Clobber protection (`--no-clobber` / `--force`)
+- [x] Zip Slip path traversal protection
+- [x] Shell completions (5 shells)
+- [x] `list --json` machine-readable output
+- [x] 200+ tests (unit + integration + interop)
+- [x] 3-platform CI (Linux/macOS/Windows)
+- [x] cargo-deny security audit
+- [x] Criterion benchmarks
+- [x] **crates.io release**
+
+### Phase 2 (CLI Enhancements) — Planned
+
+- Multi-threaded compression (rayon)
+- xz / LZMA read/write
+- Zstandard read/write
+- Encrypted ZIP (AES-256)
+- Volume-split archives
+- 7z read-only support
+- RAR read-only support
+
+### Phase 3 (Desktop GUI) — Future
+
+- Tauri-based desktop application
+- Drag-and-drop compression
+- Task queue for batch operations
+- Right-click shell integration
+- Platform-native installers (Homebrew, winget, APT)
+
+### Not Planned for Phase 1
+
+GUI, 7z write, RAR create, cloud sync, plugin system, or auto-update -- these will be considered in later phases.
+
+---
+
+## Configuration
+
+GeeZipX follows the [XDG Base Directory Specification](https://specifications.freedesktop.org/basedir-spec/basedir-spec-latest.html) for config files. At present, all configuration is done through command-line flags; no config file is needed.
+
+---
+
+## Contributing
+
+Contributions are welcome! Please read [AGENTS.md](AGENTS.md) for development conventions and collaboration guidelines.
+
+Before submitting a PR:
+
+1. Ensure all tests pass: `cargo test --workspace --all-features`
+2. Run clippy with no warnings: `cargo clippy --workspace --all-targets --all-features -- -D warnings`
+3. Check formatting: `cargo fmt --all --check`
+4. Update documentation if your change affects the public API or CLI behavior
+
+---
 
 ## License
 
-MIT
+This project is licensed under the MIT License -- see [LICENSE](LICENSE) for details.
