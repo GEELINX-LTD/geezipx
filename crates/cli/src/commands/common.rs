@@ -12,6 +12,8 @@ use geezipx_core::archive::tar::TarReader;
 use geezipx_core::archive::tar::TarWriter;
 use geezipx_core::archive::targz::TarGzReader;
 use geezipx_core::archive::targz::TarGzWriter;
+use geezipx_core::archive::tarxz::TarXzReader;
+use geezipx_core::archive::tarxz::TarXzWriter;
 use geezipx_core::archive::tarzst::TarZstReader;
 use geezipx_core::archive::tarzst::TarZstWriter;
 use geezipx_core::archive::zip::ZipReader;
@@ -34,10 +36,11 @@ pub fn parse_format(s: &str) -> Result<ArchiveFormat> {
         "gz" | "gzip" => Ok(ArchiveFormat::Gzip),
         "zst" | "zstd" => Ok(ArchiveFormat::Zstd),
         "tar.zst" | "tzst" => Ok(ArchiveFormat::TarZst),
+        "tar.xz" | "txz" => Ok(ArchiveFormat::TarXz),
         "xz" => Ok(ArchiveFormat::Xz),
         "lzma" => Ok(ArchiveFormat::Lzma),
         other => Err(anyhow::anyhow!(
-            "unsupported format '{other}'; expected: zip, tar, tar.gz, tgz, gz, gzip, zst, zstd, tar.zst, tzst, xz, lzma"
+            "unsupported format '{other}'; expected: zip, tar, tar.gz, tgz, gz, gzip, zst, zstd, tar.zst, tzst, tar.xz, txz, xz, lzma"
         )),
     }
 }
@@ -85,9 +88,12 @@ pub fn detect_archive_format(path: &Path) -> Result<ArchiveFormat> {
             }
         }
         Some(ArchiveFormat::Xz) => {
-            // XZ magic is also present in `.tar.xz` / `.txz`; treat them as
-            // single-stream XZ for now, so decompression produces the underlying tar file.
-            Ok(ArchiveFormat::Xz)
+            // XZ magic is also present in `.tar.xz` / `.txz` — check extension.
+            if let Some(ArchiveFormat::TarXz) = detect::detect_from_extension(path) {
+                Ok(ArchiveFormat::TarXz)
+            } else {
+                Ok(ArchiveFormat::Xz)
+            }
         }
         Some(ArchiveFormat::Lzma) => {
             // Unreachable in practice: LZMA has no reliable magic, so detection
@@ -188,6 +194,7 @@ pub fn open_reader(path: &Path, format: ArchiveFormat) -> Result<Box<dyn Archive
         ArchiveFormat::Tar => Box::new(TarReader::new(file)),
         ArchiveFormat::TarGz => Box::new(TarGzReader::new(file)),
         ArchiveFormat::TarZst => Box::new(TarZstReader::new(file)),
+        ArchiveFormat::TarXz => Box::new(TarXzReader::new(file)),
         ArchiveFormat::Gzip | ArchiveFormat::Zstd | ArchiveFormat::Xz | ArchiveFormat::Lzma => {
             anyhow::bail!(
                 "'{format}' is a single-stream compression format; use 'decompress' directly, not an archive reader"
@@ -214,6 +221,7 @@ pub fn create_writer(
                 "'{format}' is a single-stream compression format; use 'compress' directly, not an archive writer"
             )
         }
+        ArchiveFormat::TarXz => Ok(Box::new(TarXzWriter::new_with_level(file, level))),
         _ => anyhow::bail!("unsupported format for writing: {format}"),
     }
 }

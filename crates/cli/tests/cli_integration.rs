@@ -2282,6 +2282,382 @@ fn tarzst_stdout_fails_for_archive_format() {
 }
 
 // ---------------------------------------------------------------------------
+// TAR.XZ archive format tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn tarxz_roundtrip() {
+    let tmp = TestDir::new();
+    tmp.write(
+        "hello.txt",
+        "Hello, GeeZipX! Round-trip through tar.xz compression.",
+    );
+    let archive = tmp.join("out.tar.xz");
+
+    // Compress to tar.xz (auto-detect from .tar.xz extension).
+    geezipx()
+        .args([
+            "compress",
+            tmp.join("hello.txt").to_str().unwrap(),
+            "-o",
+            archive.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    assert!(archive.exists(), "tar.xz archive should exist");
+
+    // List contents.
+    geezipx()
+        .args(["list", archive.to_str().unwrap()])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("hello.txt"));
+
+    // Decompress.
+    let output = tmp.join("out");
+    std::fs::create_dir_all(&output).unwrap();
+    geezipx()
+        .args([
+            "decompress",
+            archive.to_str().unwrap(),
+            "-o",
+            output.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    assert!(output.join("hello.txt").exists());
+    assert_eq!(
+        std::fs::read_to_string(output.join("hello.txt")).unwrap(),
+        "Hello, GeeZipX! Round-trip through tar.xz compression."
+    );
+}
+
+#[test]
+fn tarxz_recursive_roundtrip() {
+    let tmp = TestDir::new();
+    let src = tmp.join("src");
+    std::fs::create_dir_all(src.join("nested")).unwrap();
+
+    std::fs::write(src.join("root.txt"), "root level").unwrap();
+    std::fs::write(src.join("nested").join("deep.txt"), "nested level").unwrap();
+
+    let archive = tmp.join("out.tar.xz");
+    let output = tmp.join("extracted");
+
+    // Recursive compress.
+    geezipx()
+        .args([
+            "compress",
+            src.to_str().unwrap(),
+            "-r",
+            "-f",
+            "tar.xz",
+            "-o",
+            archive.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    assert!(archive.exists(), "tar.xz archive should exist");
+
+    // List.
+    geezipx()
+        .args(["list", archive.to_str().unwrap()])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("root.txt"))
+        .stdout(predicate::str::contains("nested/deep.txt"));
+
+    // Decompress.
+    std::fs::create_dir_all(&output).unwrap();
+    geezipx()
+        .args([
+            "decompress",
+            archive.to_str().unwrap(),
+            "-o",
+            output.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    assert!(output.join("src").join("root.txt").exists());
+    assert!(output.join("src").join("nested").join("deep.txt").exists());
+}
+
+#[test]
+fn tarxz_auto_format_from_tar_xz_extension() {
+    // Without --format, tar.xz is inferred from .tar.xz extension.
+    let tmp = TestDir::new();
+    tmp.write("hello.txt", "Auto-format tar.xz.");
+    let archive = tmp.join("out.tar.xz");
+
+    geezipx()
+        .args([
+            "compress",
+            tmp.join("hello.txt").to_str().unwrap(),
+            "-o",
+            archive.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    assert!(archive.exists(), "tar.xz archive should exist");
+
+    // Decompress (auto-detect .tar.xz).
+    let output = tmp.join("out2");
+    std::fs::create_dir_all(&output).unwrap();
+    geezipx()
+        .args([
+            "decompress",
+            archive.to_str().unwrap(),
+            "-o",
+            output.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+}
+
+#[test]
+fn tarxz_auto_format_from_txz_extension() {
+    // .txz extension should also auto-detect as TarXz.
+    let tmp = TestDir::new();
+    tmp.write("data.txt", "Auto-format .txz.");
+    let archive = tmp.join("out.txz");
+
+    geezipx()
+        .args([
+            "compress",
+            tmp.join("data.txt").to_str().unwrap(),
+            "-o",
+            archive.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    assert!(archive.exists(), "txz archive should exist");
+
+    let output = tmp.join("out2");
+    std::fs::create_dir_all(&output).unwrap();
+    geezipx()
+        .args([
+            "decompress",
+            archive.to_str().unwrap(),
+            "-o",
+            output.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+}
+
+#[test]
+fn tarxz_explicit_format_roundtrip() {
+    let tmp = TestDir::new();
+    let content = "TarXz explicit -f tar.xz round-trip.";
+    tmp.write("input.bin", content);
+    // Use .txz extension so decompress auto-detection works (decompress has no -f).
+    let archive = tmp.join("out.txz");
+
+    // Compress with -f tar.xz (no extension-based inference).
+    geezipx()
+        .args([
+            "compress",
+            tmp.join("input.bin").to_str().unwrap(),
+            "-f",
+            "tar.xz",
+            "-o",
+            archive.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    assert!(archive.exists(), "txz archive should exist");
+
+    // Decompress (auto-detected from .txz extension).
+    let output = tmp.join("out");
+    std::fs::create_dir_all(&output).unwrap();
+    geezipx()
+        .args([
+            "decompress",
+            archive.to_str().unwrap(),
+            "-o",
+            output.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    let extracted = output.join("input.bin");
+    let actual = std::fs::read_to_string(&extracted).unwrap();
+    assert_eq!(actual, content);
+}
+
+#[test]
+fn tarxz_list_table_output() {
+    let tmp = TestDir::new();
+    tmp.write("hello.txt", "List tar.xz table test.");
+    let archive = tmp.join("hello.tar.xz");
+
+    geezipx()
+        .args([
+            "compress",
+            tmp.join("hello.txt").to_str().unwrap(),
+            "-o",
+            archive.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    // List in table mode.
+    geezipx()
+        .args(["list", archive.to_str().unwrap()])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("hello.txt"))
+        .stdout(predicate::str::contains("Ratio"))
+        .stdout(predicate::str::contains("Modified"));
+}
+
+#[test]
+fn tarxz_list_json_output() {
+    let tmp = TestDir::new();
+    tmp.write("data.txt", "List tar.xz JSON test.");
+    let archive = tmp.join("data.tar.xz");
+
+    geezipx()
+        .args([
+            "compress",
+            tmp.join("data.txt").to_str().unwrap(),
+            "-o",
+            archive.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    // List with --json.
+    geezipx()
+        .args(["list", archive.to_str().unwrap(), "--json"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(r#""path":"#))
+        .stdout(predicate::str::contains(r#""compression_ratio""#))
+        .stdout(predicate::str::contains(r#""modified""#));
+}
+
+#[test]
+fn tarxz_level_9() {
+    let tmp = TestDir::new();
+    let content = "TarXz compression at level 9.";
+    tmp.write("test.txt", content);
+    let archive = tmp.join("test.tar.xz");
+
+    geezipx()
+        .args([
+            "compress",
+            tmp.join("test.txt").to_str().unwrap(),
+            "-f",
+            "tar.xz",
+            "-L",
+            "9",
+            "-o",
+            archive.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    assert!(archive.exists(), "tar.xz level 9 archive should exist");
+
+    // Decompress and verify.
+    let output_dir = tmp.join("out");
+    std::fs::create_dir_all(&output_dir).unwrap();
+    geezipx()
+        .args([
+            "decompress",
+            archive.to_str().unwrap(),
+            "-o",
+            output_dir.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    let extracted = output_dir.join("test.txt");
+    let actual = std::fs::read_to_string(&extracted).unwrap();
+    assert_eq!(actual, content);
+}
+
+#[test]
+fn tarxz_stdout_fails_for_archive_format() {
+    // --stdout should be rejected for multi-file archive formats.
+    let tmp = TestDir::new();
+    tmp.write("data.txt", "stdout should fail");
+    let archive = tmp.join("out.tar.xz");
+
+    geezipx()
+        .args([
+            "compress",
+            tmp.join("data.txt").to_str().unwrap(),
+            "-o",
+            archive.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    geezipx()
+        .args(["decompress", archive.to_str().unwrap(), "--stdout"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("--stdout"));
+}
+
+#[test]
+fn tarxz_level_10_rejected() {
+    let tmp = TestDir::new();
+    tmp.write("test.txt", "Level 10 tar.xz reject test.");
+    let archive = tmp.join("test.tar.xz");
+
+    geezipx()
+        .args([
+            "compress",
+            tmp.join("test.txt").to_str().unwrap(),
+            "-f",
+            "tar.xz",
+            "-L",
+            "10",
+            "-o",
+            archive.to_str().unwrap(),
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("0..=9"));
+}
+
+#[test]
+fn xz_single_stream_stdout_still_works_after_tarxz() {
+    // Verify that .xz single-stream --stdout is NOT broken by TarXz changes.
+    let tmp = TestDir::new();
+    tmp.write("hello.txt", "xz single-stream stdout test.");
+    let archive = tmp.join("hello.txt.xz");
+
+    geezipx()
+        .args([
+            "compress",
+            tmp.join("hello.txt").to_str().unwrap(),
+            "-f",
+            "xz",
+            "-o",
+            archive.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    geezipx()
+        .args(["decompress", archive.to_str().unwrap(), "--stdout"])
+        .assert()
+        .success()
+        .stdout("xz single-stream stdout test.");
+}
+
+// ---------------------------------------------------------------------------
 // XZ single-stream tests
 // ---------------------------------------------------------------------------
 

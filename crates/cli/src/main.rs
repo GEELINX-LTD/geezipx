@@ -45,7 +45,7 @@ enum Commands {
         #[arg(short = 'o', long = "output", required = true)]
         output: PathBuf,
 
-        /// Archive format: zip, tar, tar.gz, tgz, gz, gzip, zst, zstd, tar.zst, tzst, xz, lzma (default: derived from output extension or zip)
+        /// Archive format: zip, tar, tar.gz, tgz, gz, gzip, zst, zstd, tar.zst, tzst, tar.xz, txz, xz, lzma (default: derived from output extension or zip)
         #[arg(short = 'f', long = "format")]
         format: Option<String>,
 
@@ -53,7 +53,7 @@ enum Commands {
         #[arg(short = 'r', long = "recursive")]
         recursive: bool,
 
-        /// Compression level (0-22, default: varies; gzip/tar.gz/xz/lzma: 0..=9, zstd/tar.zst: 0..=22)
+        /// Compression level (0-22, default: varies; gzip/tar.gz/xz/lzma/tar.xz: 0..=9, zstd/tar.zst: 0..=22)
         #[arg(short = 'L', long = "level", value_parser = clap::value_parser!(u32).range(0..=22))]
         level: Option<u32>,
     },
@@ -68,7 +68,7 @@ enum Commands {
         #[arg(short = 'o', long = "output-dir", default_value = ".")]
         output_dir: PathBuf,
 
-        /// Decompress to stdout (gzip/zstd/xz/lzma only; error for multi-file archives)
+        /// Decompress to stdout (gzip/zstd/xz/lzma only; error for multi-file/archives)
         #[arg(long = "stdout")]
         stdout: bool,
 

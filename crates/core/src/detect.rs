@@ -31,6 +31,8 @@ pub enum ArchiveFormat {
     TarZst,
     /// LZMA Alone compressed stream (no magic — extension-based).
     Lzma,
+    /// Tar archive compressed with XZ (extension-based — `.tar.xz`, `.txz`).
+    TarXz,
     /// Unknown or unrecognised format.
     Unknown,
 }
@@ -45,6 +47,7 @@ impl fmt::Display for ArchiveFormat {
             ArchiveFormat::Xz => write!(f, "xz"),
             ArchiveFormat::Zstd => write!(f, "zstd"),
             ArchiveFormat::TarZst => write!(f, "tar.zst"),
+            ArchiveFormat::TarXz => write!(f, "tar.xz"),
             ArchiveFormat::Lzma => write!(f, "lzma"),
             ArchiveFormat::Unknown => write!(f, "unknown"),
         }
@@ -73,10 +76,8 @@ const EXTENSION_MAP: &[(&str, ArchiveFormat)] = &[
     (".gz", ArchiveFormat::Gzip),
     // Note: .tgz is handled by detect_from_extension's compound check → TarGz
     (".xz", ArchiveFormat::Xz),
-    (".txz", ArchiveFormat::Xz),
     (".zst", ArchiveFormat::Zstd),
     (".zstd", ArchiveFormat::Zstd),
-    (".tzst", ArchiveFormat::Zstd), // overridden by compound check below
     (".lzma", ArchiveFormat::Lzma),
     (".gzip", ArchiveFormat::Gzip),
 ];
@@ -130,7 +131,7 @@ pub fn detect_from_extension(path: &Path) -> Option<ArchiveFormat> {
         return Some(ArchiveFormat::TarGz);
     }
     if lower.ends_with(".tar.xz") || lower.ends_with(".txz") {
-        return Some(ArchiveFormat::Xz);
+        return Some(ArchiveFormat::TarXz);
     }
     if lower.ends_with(".tar.zst") || lower.ends_with(".tzst") {
         return Some(ArchiveFormat::TarZst);
@@ -308,7 +309,7 @@ mod tests {
     fn ext_tar_xz() {
         assert_eq!(
             detect_from_extension(Path::new("archive.tar.xz")),
-            Some(ArchiveFormat::Xz)
+            Some(ArchiveFormat::TarXz)
         );
     }
 
@@ -316,7 +317,7 @@ mod tests {
     fn ext_txz() {
         assert_eq!(
             detect_from_extension(Path::new("archive.txz")),
-            Some(ArchiveFormat::Xz)
+            Some(ArchiveFormat::TarXz)
         );
     }
 
@@ -410,6 +411,10 @@ mod tests {
         assert_eq!(ArchiveFormat::Lzma.to_string(), "lzma");
     }
 
+    #[test]
+    fn display_tarxz() {
+        assert_eq!(ArchiveFormat::TarXz.to_string(), "tar.xz");
+    }
     // ---------------------------------------------------------------
     // read_magic_bytes
     // ---------------------------------------------------------------

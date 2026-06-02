@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Archive format — TarXz (tar.xz / .txz)**:
+  - Full round-trip archive support combining TAR format with XZ compression
+  - `.tar.xz` / `.txz` files now recognized as archive format (not single-stream xz)
+  - CLI `--format tar.xz` / `--format txz` support; auto-detection from `.tar.xz` / `.txz` extension
+  - Automatic decompression with archive entry extraction (list, extract)
+  - Compression level `0..=9` (default: 6); `--stdout` rejected (multi-file archive)
+  - Note: `.xz` / `.lzma` single-stream behavior is unaffected
+
 ## [0.2.0] - 2026-06-02
 
 ### Added

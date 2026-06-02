@@ -44,9 +44,9 @@
 ### M1-3：格式检测模块 ✅
 - **实际文件**：`crates/core/src/detect.rs`
 - **魔数匹配**：ZIP(50 4B 03 04), gzip(1F 8B), zstd(28 B5 2F FD), xz(FD 37 7A 58 5A 00)
-- **扩展名匹配**：`.zip`, `.tar`, `.gz`/`.gzip`, `.tar.gz`/`.tgz`, `.xz`/`.txz`, `.zst`/`.zstd`/`.tzst`
+- **扩展名匹配**：`.zip`, `.tar`, `.gz`/`.gzip`, `.tar.gz`/`.tgz`, `.tar.xz`/`.txz`, `.xz`, `.zst`/`.zstd`, `.tzst`
 - **验收标准**：已通过，含完整单元测试覆盖。
-- **注意**：未知格式返回 `None`（非 `Unknown` 枚举值），由调用方处理错误。`.tzst` 和 `.tar.zst` 识别为 `ArchiveFormat::TarZst`（tar+zstd 归档格式），与单流 `.zst`/`.zstd` 区分。
+- **注意**：未知格式返回 `None`（非 `Unknown` 枚举值），由调用方处理错误。`.tzst` 和 `.tar.zst` 识别为 `ArchiveFormat::TarZst`（tar+zstd 归档格式），与单流 `.zst`/`.zstd` 区分。`.tar.xz` 和 `.txz` 识别为 `ArchiveFormat::TarXz`（tar+xz 归档格式），与单流 `.xz` 区分。
 
 ### M1-4：ZIP 读写基础 ✅
 - **实际文件**：
@@ -93,13 +93,13 @@
 
 ```
 geezipx compress <inputs...>
-  -f, --format <FORMAT>          # zip | tar | tar.gz | tgz | tar.zst | tzst | gz | gzip | zst | zstd | xz | lzma (default: 从扩展名推断或者 zip)
+  -f, --format <FORMAT>          # zip | tar | tar.gz | tgz | tar.zst | tzst | tar.xz | txz | gz | gzip | zst | zstd | xz | lzma (default: 从扩展名推断或者 zip)
   -o, --output <PATH>            # 输出文件（必填）
   -r, --recursive                # 递归添加目录
 
 geezipx decompress <archive>
   -o, --output-dir <PATH>        # 输出目录 (default: .)
-  --stdout                       # 解压到 stdout（仅 gzip/zstd 单流；tar.gz/tar.zst 等多文件归档时报错）
+  --stdout                       # 解压到 stdout（仅 gzip/zstd/xz/lzma 单流；tar.gz/tar.zst/tar.xz 等多文件归档时报错）
 d05|
 f8e:  --no-clobber                   # 跳过已存在的输出文件
 f8e:  --force                        # 覆盖已存在的输出文件（默认行为）
@@ -108,7 +108,7 @@ geezipx list <archive>
   -j, --json                     # JSON 格式输出
 ```
 
-  - `--level` 压缩级别 — 已完成（`-L, --level <LEVEL>`，接受 0-22；gzip/tar.gz/xz/lzma 使用 0-9，zstd/zst/tar.zst/tzst 使用 0-22；zip/tar 参数接受但暂不生效）
+  - `--level` 压缩级别 — 已完成（`-L, --level <LEVEL>`，接受 0-22；gzip/tar.gz/xz/lzma/tar.xz 使用 0-9，zstd/zst/tar.zst/tzst 使用 0-22；zip/tar 参数接受但暂不生效）
   - `--no-progress` 进度条控制（opt-out 模式） — 已实现（M3-2）
   - `--no-clobber` 覆盖保护 — 已提前实现（见 M3-4）
 - **验收标准**：三个子命令均可通过 `--help` 查看参数说明 — 通过（见集成测试 `help_available`）。
@@ -116,7 +116,7 @@ geezipx list <archive>
 ### M2-2：compress 命令实现 ✅
 - **实际文件**：`crates/cli/src/commands/compress.rs`、`crates/cli/src/commands/common.rs`
 - **流程**：参数验证 → 格式解析 → 创建输出文件 → gzip 直接调用独立 API，其他格式用 ArchiveWriter 逐文件添加 → 报告统计
-- **支持的格式**：zip, tar, tar.gz/tgz, tar.zst/tzst, gz/gzip, zst/zstd, xz, lzma
+- **支持的格式**：zip, tar, tar.gz/tgz, tar.zst/tzst, tar.xz/txz, gz/gzip, zst/zstd, xz, lzma
 - **验证逻辑**：
   - gzip 仅接受单个文件输入
   - 目录需 `--recursive`（否则报错提示）
@@ -129,7 +129,7 @@ geezipx list <archive>
 - **实际文件**：`crates/cli/src/commands/decompress.rs`、`crates/cli/src/commands/common.rs`
 - **流程**：文件存在检查 → 格式检测（magic bytes + extension fallback）→ 输出目录创建 → gzip 走独立函数，其他格式用 `extract_all` → 报告
 - **格式检测**：先读 magic bytes（gzip 检测后需通过 `.tar.gz`/`.tgz` 扩展名区分 TarGz），无 magic 则 fallback 到扩展名
-- **`--stdout` 限制**：仅 gzip/zstd/xz/lzma 单流格式支持；tar.gz、tar.zst 等多文件归档使用 `--stdout` 时报错并提示
+- **`--stdout` 限制**：仅 gzip/zstd/xz/lzma 单流格式支持；tar.gz、tar.zst、tar.xz 等多文件归档使用 `--stdout` 时报错并提示
 - **Zip Slip 防护**：`extract_all` 内置
 - **与原计划差异**：`--no-clobber` 覆盖策略当时未实现，已在 M3-4 中补充（含 `--force` 显式覆盖）
 - **验收标准**：全部通过
@@ -147,7 +147,7 @@ geezipx list <archive>
 - **工具**：`assert_cmd` + `predicates` + `tempfile`
 - **场景覆盖**：
   - 各子命令 `--help` 可用性
-  - ZIP / tar / tar.gz / tar.zst / gzip / zstd / xz / lzma round-trip（compress → list → decompress → 内容比对）
+  - ZIP / tar / tar.gz / tar.zst / tar.xz / gzip / zstd / xz / lzma round-trip（compress → list → decompress → 内容比对）
   - gzip `--stdout` 解压
   - `list` 表格输出和 JSON 输出
   - 不支持格式报错

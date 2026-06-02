@@ -12,7 +12,7 @@ geezipx/
 │   │   ├── Cargo.toml
 │   │   └── src/
 │   │       ├── lib.rs
-│   │       ├── archive/       # 各归档格式的读写实现 (zip/tar/tar.gz/tar.zst/gzip/zstd)
+│   │       ├── archive/       # 各归档格式的读写实现 (zip/tar/tar.gz/tar.zst/tar.xz/gzip/zstd/xz)
 │   │       ├── detect.rs      # 格式自动检测（魔数 + 扩展名）
 │   │       ├── error.rs       # 统一错误类型
 │   │       └── io.rs          # 流式读/写/计数/进度封装
@@ -84,6 +84,7 @@ pub trait ArchiveWriter: Send {
 | `archive::gzip` | .gz 单文件压缩 | `flate2` |
 | `archive::zstd` | .zst/.zstd 单文件压缩/解压 | `zstd` |
 | `archive::xz` | .xz/.lzma 单文件压缩/解压 | `xz2` |
+| `archive::tarxz` | .tar.xz/.txz 归档压缩/解压/list | `tar` + `xz2` |
 ### 2.2 core/io — 流式接口
 
 关键抽象：`ProgressReader` 和 `ProgressWriter`，包裹任意 `Read + Write`，计数并调用进度回调。
@@ -139,6 +140,7 @@ pub fn detect_format(reader: &mut dyn Read) -> Result<ArchiveFormat>;
 | gzip | `1F 8B` |
 | tar.gz | 同 gzip (`1F 8B`)，配合 `.tar.gz`/`.tgz` 扩展名 |
 | tar.zst/tzst | 同 zstd (`28 B5 2F FD`)，配合 `.tar.zst`/`.tzst` 扩展名 |
+| tar.xz/txz | 同 xz (`FD 37 7A 58 5A 00`)，配合 `.tar.xz`/`.txz` 扩展名 |
 | xz | `FD 37 7A 58 5A 00` |
 | lzma | 无固定魔数 — 仅通过 `.lzma` 扩展名或显式 `--format lzma` 识别 |
 | tar | 无魔数，fallback 到 `.tar` 扩展名 |
@@ -248,7 +250,7 @@ Phase 1 实际依赖（以 `crates/core/Cargo.toml` 和 `crates/cli/Cargo.toml` 
 | `predicates` 3 | CLI 输出断言 |
 | `tempfile` 3 | 测试临时目录 |
 
-> **与早期草案的变化**：Phase 1 初始不包含 `xz2`/`zstd`/`crossterm`/`owo-colors`/`env_logger`/`snapbox`。zstd 后已用 `zstd` crate 添加单流读写支持（`archive::zstd` 模块 + CLI `-f zst`/`-f zstd` 参数 + 扩展名自动推断）；TarZst（tar.zst/tzst）也基于 `zstd` crate 和 `tar` crate 实现完整归档压缩/解压/list（`archive::tarzst` 模块）。xz 和 lzma 已通过 `xz2` crate 实现单流压缩/解压（`archive::xz` 模块 + CLI `-f xz`/`-f lzma` 参数）。当前 core 不使用 feature flags 进行条件编译——zip、flate2、zstd、xz2 均为必选依赖。
+> **与早期草案的变化**：Phase 1 初始不包含 `xz2`/`zstd`/`crossterm`/`owo-colors`/`env_logger`/`snapbox`。zstd 后已用 `zstd` crate 添加单流读写支持（`archive::zstd` 模块 + CLI `-f zst`/`-f zstd` 参数 + 扩展名自动推断）；TarZst（tar.zst/tzst）也基于 `zstd` crate 和 `tar` crate 实现完整归档压缩/解压/list（`archive::tarzst` 模块）。xz 和 lzma 已通过 `xz2` crate 实现单流压缩/解压（`archive::xz` 模块 + CLI `-f xz`/`-f lzma` 参数）；TarXz（tar.xz/txz）基于 `xz2` crate 和 `tar` crate 实现完整归档压缩/解压/list（`archive::tarxz` 模块）。当前 core 不使用 feature flags 进行条件编译——zip、flate2、zstd、xz2 均为必选依赖。
 
 ## 4. 进度与取消机制
 

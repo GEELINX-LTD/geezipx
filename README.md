@@ -14,12 +14,12 @@
 
 ## Features
 
-- **Multi-format** -- ZIP, TAR, TAR.GZ/TGZ, TAR.ZST/TZST, GZIP/GZ, Zstandard/ZST, XZ, and LZMA (read/write)
+- **Multi-format** -- ZIP, TAR, TAR.GZ/TGZ, TAR.ZST/TZST, TAR.XZ/TXZ, GZIP/GZ, Zstandard/ZST, XZ, and LZMA (read/write)
 - **Streaming I/O** -- process large files with bounded memory usage
 - **Live progress bars** -- real-time speed, ETA, and per-file status on TTY
 - **Cancel-safe** -- graceful Ctrl+C with partial-file cleanup; double Ctrl+C force-kill
 - **Auto-format detection** -- magic-byte recognition with extension-based fallback
-- **Compression levels** -- `--level 0-9` for gzip/tar.gz/xz/lzma; `--level 0-22` for zstd/tar.zst
+- **Compression levels** -- `--level 0-9` for gzip/tar.gz/xz/lzma/tar.xz; `--level 0-22` for zstd/tar.zst
 - **Clobber controls** -- `--no-clobber` to skip existing files, `--force` to overwrite
 - **Zip Slip protection** -- blocks path-traversal attacks in all archive formats
 - **JSON output** -- `list --json` for machine-readable inspection
@@ -31,7 +31,7 @@
 
 ## Status
 
-Phase 1 (CLI MVP) is **complete**. All core subcommands (`compress`, `decompress`, `list`, `completions`) work for the eight supported formats.
+Phase 1 (CLI MVP) is **complete**. All core subcommands (`compress`, `decompress`, `list`, `completions`) work for the nine supported formats.
 
 | Milestone | Theme | Status |
 |-----------|-------|--------|
@@ -139,9 +139,9 @@ geezipx compress <inputs...> -o <output> [options]
 | Option | Description |
 |--------|-------------|
 | `-o`, `--output` | Output file path **(required)** |
-| `-f`, `--format` | Format: `zip`, `tar`, `tar.gz`, `tgz`, `gz`, `gzip`, `tar.zst`, `tzst`, `zst`, `zstd` (inferred from extension if omitted, defaults to zip) |
+- `-f`, `--format` | Format: `zip`, `tar`, `tar.gz`, `tgz`, `gz`, `gzip`, `tar.zst`, `tzst`, `zst`, `zstd`, `tar.xz`, `txz` (inferred from extension if omitted, defaults to zip) |
 | `-r`, `--recursive` | Recursively add directories |
-| `-L`, `--level` | Compression level 0-9 (gzip/tar.gz, default: 6); 0-22 (zstd/zst/tar.zst/tzst, default: zstd default) |
+- `-L`, `--level` | Compression level 0-9 (gzip/tar.gz/xz/tar.xz, default: 6); 0-22 (zstd/zst/tar.zst/tzst, default: zstd default) |
 
 ### `decompress` — Extract archives
 
@@ -154,7 +154,7 @@ Auto-detects the format via magic bytes (with extension fallback).
 | Option | Description |
 |--------|-------------|
 | `-o`, `--output-dir` | Output directory (default: current directory) |
-| `--stdout` | Decompress to stdout (gzip/zstd only; errors on multi-file archives like tar.gz, tar.zst) |
+| `--stdout` | Decompress to stdout (gzip/zstd/xz/lzma only; errors on multi-file archives like tar.gz, tar.zst, tar.xz) |
 | `--no-clobber` | Skip files that already exist |
 | `--force` | Overwrite existing files (default; mutually exclusive with `--no-clobber`) |
 

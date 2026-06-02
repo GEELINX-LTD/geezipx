@@ -248,9 +248,11 @@ fn validate_compress_inputs(
         );
     }
 
-    // Gzip level is limited to 0..=9; zstd supports 0..=22.
-    // Gzip/xz/lzma level is limited to 0..=9; zstd supports 0..=22.
-    if format == ArchiveFormat::Gzip || format == ArchiveFormat::Xz || format == ArchiveFormat::Lzma
+    // Gzip/xz/lzma/tar.xz level is limited to 0..=9; zstd supports 0..=22.
+    if format == ArchiveFormat::Gzip
+        || format == ArchiveFormat::Xz
+        || format == ArchiveFormat::Lzma
+        || format == ArchiveFormat::TarXz
     {
         if let Some(l) = level {
             if l > 9 {

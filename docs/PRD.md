@@ -41,19 +41,19 @@ GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开�
 
 | 特性 | 说明 | 状态 |
 |------|------|------|
-| 格式支持 | `.tar.gz`, `.tgz`, `.zip`, `.tar`, `.gz`, `.tar.zst`, `.tzst`, `.zst`, `.zstd`, `.xz`, `.lzma`（读/写） | **已完成** (8 格式) |
+| 格式支持 | `.tar.gz`, `.tgz`, `.zip`, `.tar`, `.gz`, `.tar.zst`, `.tzst`, `.zst`, `.zstd`, `.tar.xz`, `.txz`, `.xz`, `.lzma`（读/写） | **已完成** (9 格式) |
 | 流式处理 | 文件流读写，内存占用与文件大小解耦 | **未完成** (M3) |
 | 进度显示 | 进度条，支持 `--progress` / `--no-progress` | **未完成** (M3) |
 | 格式自动检测 | 根据文件魔数（magic bytes）自动检测归档格式 | **已完成** |
-| 压缩级别 | `--level 0-9`（gzip/tar.gz/xz/lzma）；`--level 0-22`（zstd/tar.zst） | **已完成** |
-| 标准管道 | `--stdout` 支持 gzip/zstd/xz/lzma 单流解压到标准输出；tar.gz/tar.zst 等多文件归档使用 `--stdout` 时报错 | **部分完成** |
+| 压缩级别 | `--level 0-9`（gzip/tar.gz/xz/lzma/tar.xz）；`--level 0-22`（zstd/tar.zst） | **已完成** |
+| 标准管道 | `--stdout` 支持 gzip/zstd/xz/lzma 单流解压到标准输出；tar.gz/tar.zst/tar.xz 等多文件归档使用 `--stdout` 时报错 | **已完成** |
 | 递归操作 | `-r` 递归添加目录，保持目录结构 | **已完成** |
 | 覆盖保护 | `--no-clobber` / `--force` 覆盖策略 | **已完成** |
 | 列表功能 | 表格 + JSON 输出，支持所有当前格式 | **已完成** |
 | 测试覆盖 | 295 个测试（核心单元测试 + 88 个 CLI 集成测试），覆盖率未测量 | **已完成**（功能测试） |
 | 三平台 CI | GitHub Actions：三平台矩阵（ubuntu/macos/windows），push/PR/tag/manual 触发 | **大部分完成** (M4) |
 
-> **扩展格式识别**：魔数检测已支持 xz（`FD 37 7A 58 5A 00`）和 zstd（`28 B5 2F FD`）。xz 和 lzma 单流压缩/解压已支持（`geezipx-core` via `xz2` crate）；`.tar.xz`/`.txz` 按 xz 单流解压为 `.tar` 文件，不实现完整归档解包。zstd 单流压缩/解压已支持（`geezipx-core` via `zstd` crate）；`.tar.zst`/`.tzst` 识别为 tar+zstd 归档格式。lzma 无固定魔数，仅通过扩展名/显式格式识别。
+> **扩展格式识别**：魔数检测已支持 xz（`FD 37 7A 58 5A 00`）和 zstd（`28 B5 2F FD`）。xz 和 lzma 单流压缩/解压已支持（`geezipx-core` via `xz2` crate）；`.tar.xz`/`.txz` 识别为 tar+xz 完整归档格式，与单流 `.xz` 区分。zstd 单流压缩/解压已支持（`geezipx-core` via `zstd` crate）；`.tar.zst`/`.tzst` 识别为 tar+zstd 归档格式。lzma 无固定魔数，仅通过扩展名/显式格式识别。
 
 ## 6. 非目标（Phase 1 明确不做）
 
@@ -75,8 +75,8 @@ GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开�
 
 ### FR-2: 解压缩
 - `geezipx decompress archive.zip` — 自动检测格式并解压到当前目录
-- `geezipx decompress archive.tar.zst -o /tmp/out` — 指定输出目录（支持 tar.gz、tar.zst 等归档格式）
-- `geezipx decompress archive.zip --stdout` — 解压到标准输出（仅 gzip/zstd 单流格式支持；tar.gz、tar.zst 等多文件归档使用 `--stdout` 时报错）
+- `geezipx decompress archive.tar.zst -o /tmp/out` — 指定输出目录（支持 tar.gz、tar.zst、tar.xz 等归档格式）
+- `geezipx decompress archive.zip --stdout` — 解压到标准输出（仅 gzip/zstd/xz/lzma 单流格式支持；tar.gz、tar.zst、tar.xz 等多文件归档使用 `--stdout` 时报错）
 
 ### FR-3: 格式自动检测
 - 检查文件头部魔数字节
