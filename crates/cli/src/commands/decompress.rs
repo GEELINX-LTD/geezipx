@@ -75,10 +75,45 @@ pub fn execute(
                 }
             }
         }
+        ArchiveFormat::Zstd => {
+            let cancel_flag = cancel_token.clone().into_inner();
+
+            let result = if stdout {
+                decompress_zstd_stdout(archive, cancel_flag)
+            } else {
+                decompress_zstd_to_file(archive, output_dir, overwrite, cancel_flag)
+            };
+
+            let spinner = if show_progress {
+                Some(crate::render::progress::ProgressBarWrapper::spinner(
+                    "Decompressing...",
+                ))
+            } else {
+                None
+            };
+
+            match result {
+                Ok(()) => {
+                    if let Some(s) = &spinner {
+                        s.finish("Decompressed");
+                    }
+                }
+                Err(e) => {
+                    if let Some(s) = &spinner {
+                        s.finish("Decompression failed");
+                    }
+                    if cancel_token.is_cancelled() {
+                        eprintln!("Cancelled");
+                        std::process::exit(130);
+                    }
+                    return Err(anyhow::anyhow!("zstd decompression error: {}", e));
+                }
+            }
+        }
         _ => {
             if stdout {
                 anyhow::bail!(
-                    "--stdout is only supported for single-stream formats (gzip); \
+                    "--stdout is only supported for single-stream formats (gzip, zstd); \
                      '{}' is a multi-file archive",
                     format
                 );
@@ -181,6 +216,71 @@ fn decompress_gzip_to_file(
     let mut reader = ProgressReader::new(input_file).with_callback(Box::new(shared));
 
     let bytes = geezipx_core::archive::gzip::gzip_decompress(&mut reader, &mut output_file)
+        .with_context(|| format!("decompressing '{}'", archive.display()))?;
+
+    eprintln!(
+        "Decompressed {} -> {} ({} bytes)",
+        archive.display(),
+        output_path.display(),
+        bytes,
+    );
+    Ok(())
+}
+
+/// Decompress a zstd stream to stdout.
+fn decompress_zstd_stdout(archive: &Path, cancel_flag: Arc<AtomicBool>) -> Result<()> {
+    let file_size = std::fs::metadata(archive).map(|m| m.len()).unwrap_or(0);
+    let file =
+        fs::File::open(archive).with_context(|| format!("opening '{}'", archive.display()))?;
+    let mut stdout = std::io::stdout().lock();
+
+    // Wrap reader with cancellation support.
+    let wrapper = crate::render::progress::ProgressBarWrapper::hidden();
+    let shared = crate::render::progress::SharedCallback::new(wrapper, cancel_flag);
+    let mut reader = geezipx_core::ProgressReader::new(file)
+        .with_total(file_size)
+        .with_callback(Box::new(shared));
+
+    let bytes = geezipx_core::archive::zstd::zstd_decompress(&mut reader, &mut stdout)
+        .with_context(|| format!("decompressing '{}'", archive.display()))?;
+    // Flush stdout to ensure all bytes are written before exiting.
+    stdout
+        .flush()
+        .context("flushing stdout after decompression")?;
+    eprintln!("Decompressed {} bytes to stdout", bytes);
+    Ok(())
+}
+
+/// Decompress a zstd file to a new file in the output directory.
+fn decompress_zstd_to_file(
+    archive: &Path,
+    output_dir: &Path,
+    overwrite: bool,
+    cancel_flag: Arc<AtomicBool>,
+) -> Result<()> {
+    let output_name = common::zstd_output_filename(archive);
+    let output_path = output_dir.join(&output_name);
+
+    let input_file =
+        fs::File::open(archive).with_context(|| format!("opening '{}'", archive.display()))?;
+    // Check for clobber (no-clobber mode).
+    if !overwrite && output_path.exists() {
+        eprintln!(
+            "Warning: '{}' already exists, skipping (use --force to overwrite)",
+            output_path.display()
+        );
+        return Ok(());
+    }
+
+    let mut output_file = fs::File::create(&output_path)
+        .with_context(|| format!("creating '{}'", output_path.display()))?;
+
+    // Wrap reader with cancellation support.
+    let wrapper = ProgressBarWrapper::hidden();
+    let shared = SharedCallback::new(wrapper, cancel_flag);
+    let mut reader = ProgressReader::new(input_file).with_callback(Box::new(shared));
+
+    let bytes = geezipx_core::archive::zstd::zstd_decompress(&mut reader, &mut output_file)
         .with_context(|| format!("decompressing '{}'", archive.display()))?;
 
     eprintln!(

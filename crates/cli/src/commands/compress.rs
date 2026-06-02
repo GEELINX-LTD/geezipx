@@ -1,10 +1,12 @@
 //! `geezipx compress` — create an archive or compressed file.
 
 use std::fs;
-use std::io::{BufReader, Read};
+use std::io::{BufReader, Read, Write};
 use std::path::Path;
 
 use anyhow::{Context, Result};
+use geezipx_core::archive::gzip;
+use geezipx_core::archive::zstd;
 use geezipx_core::detect::ArchiveFormat;
 
 use crate::render::progress::{ProgressBarWrapper, SharedCallback};
@@ -25,15 +27,15 @@ pub fn execute(
     let format = common::resolve_format(format, output)?;
     // Create a cancellation token for Ctrl+C (SIGINT) handling.
     let cancel_token = crate::signal::CancellationToken::new();
-    validate_compress_inputs(inputs, format)?;
+    validate_compress_inputs(inputs, format, level)?;
 
     // Create the output file early so we fail-fast if the path is invalid.
     let output_file = fs::File::create(output)
         .with_context(|| format!("creating output '{}'", output.display()))?;
 
     match format {
-        ArchiveFormat::Gzip => {
-            // Gzip is a single-stream compression — no ArchiveWriter trait.
+        ArchiveFormat::Gzip | ArchiveFormat::Zstd => {
+            // Gzip/Zstd are single-stream compression formats — no ArchiveWriter trait.
             let input = &inputs[0];
             let file_size = std::fs::metadata(input)
                 .with_context(|| format!("reading metadata for '{}'", input.display()))?
@@ -53,11 +55,7 @@ pub fn execute(
                 let mut pr = ProgressReader::new(reader)
                     .with_total(file_size)
                     .with_callback(Box::new(shared));
-                let r = match geezipx_core::archive::gzip::gzip_compress_with_level(
-                    &mut pr,
-                    output_file,
-                    level,
-                ) {
+                let r = match compress_single_stream(&mut pr, output_file, level, format) {
                     Ok(bytes) => {
                         inner
                             .lock()
@@ -72,7 +70,7 @@ pub fn execute(
                             eprintln!("Cancelled");
                             std::process::exit(130);
                         }
-                        return Err(anyhow::anyhow!("gzip compression error: {}", e));
+                        return Err(e);
                     }
                 };
                 r
@@ -85,11 +83,7 @@ pub fn execute(
                 let mut pr = ProgressReader::new(reader)
                     .with_total(file_size)
                     .with_callback(Box::new(shared));
-                let r = match geezipx_core::archive::gzip::gzip_compress_with_level(
-                    &mut pr,
-                    output_file,
-                    level,
-                ) {
+                let r = match compress_single_stream(&mut pr, output_file, level, format) {
                     Ok(bytes) => bytes,
                     Err(e) => {
                         if cancel_token.is_cancelled() {
@@ -97,7 +91,7 @@ pub fn execute(
                             eprintln!("Cancelled");
                             std::process::exit(130);
                         }
-                        return Err(anyhow::anyhow!("gzip compression error: {}", e));
+                        return Err(e);
                     }
                 };
                 if verbose {
@@ -230,16 +224,31 @@ pub fn execute(
 }
 
 /// Validate input constraints for the given format.
-fn validate_compress_inputs(inputs: &[std::path::PathBuf], format: ArchiveFormat) -> Result<()> {
+fn validate_compress_inputs(
+    inputs: &[std::path::PathBuf],
+    format: ArchiveFormat,
+    level: Option<u32>,
+) -> Result<()> {
     if inputs.is_empty() {
         anyhow::bail!("at least one input file is required");
     }
 
-    if format == ArchiveFormat::Gzip && inputs.len() > 1 {
+    // Single-stream formats (gzip, zstd) only accept one input.
+    if (format == ArchiveFormat::Gzip || format == ArchiveFormat::Zstd) && inputs.len() > 1 {
         anyhow::bail!(
-            "gzip compression only supports a single input file (got {})",
+            "{} compression only supports a single input file (got {})",
+            format,
             inputs.len()
         );
+    }
+
+    // Gzip level is limited to 0..=9; zstd supports 0..=22.
+    if format == ArchiveFormat::Gzip {
+        if let Some(l) = level {
+            if l > 9 {
+                anyhow::bail!("gzip compression level must be 0..=9, got {}", l);
+            }
+        }
     }
 
     // Resolve all paths and check they exist.
@@ -247,9 +256,10 @@ fn validate_compress_inputs(inputs: &[std::path::PathBuf], format: ArchiveFormat
         if !input.exists() {
             anyhow::bail!("input '{}' does not exist", input.display());
         }
-        if format == ArchiveFormat::Gzip && input.is_dir() {
+        if (format == ArchiveFormat::Gzip || format == ArchiveFormat::Zstd) && input.is_dir() {
             anyhow::bail!(
-                "gzip compression does not support directories ('{}')",
+                "{} compression does not support directories ('{}')",
+                format,
                 input.display()
             );
         }
@@ -263,4 +273,20 @@ fn open_input(path: &Path) -> Result<impl Read> {
     let file =
         fs::File::open(path).with_context(|| format!("opening input '{}'", path.display()))?;
     Ok(BufReader::new(file))
+}
+
+/// Compress a single stream using either gzip or zstd based on `format`.
+fn compress_single_stream<R: Read, W: Write>(
+    reader: &mut R,
+    writer: W,
+    level: Option<u32>,
+    format: ArchiveFormat,
+) -> anyhow::Result<u64> {
+    match format {
+        ArchiveFormat::Gzip => gzip::gzip_compress_with_level(reader, writer, level)
+            .map_err(|e| anyhow::anyhow!("gzip compression error: {}", e)),
+        ArchiveFormat::Zstd => zstd::zstd_compress_with_level(reader, writer, level)
+            .map_err(|e| anyhow::anyhow!("zstd compression error: {}", e)),
+        _ => anyhow::bail!("cannot compress '{}' as a single stream", format),
+    }
 }

@@ -23,15 +23,16 @@ use geezipx_core::detect::{self, ArchiveFormat};
 
 /// Parse a user-supplied format string into an [`ArchiveFormat`].
 ///
-/// Accepts: `zip`, `tar`, `tar.gz`, `tgz`, `gz`, `gzip`.
+/// Accepts: `zip`, `tar`, `tar.gz`, `tgz`, `gz`, `gzip`, `zst`, `zstd`.
 pub fn parse_format(s: &str) -> Result<ArchiveFormat> {
     match s.to_ascii_lowercase().as_str() {
         "zip" => Ok(ArchiveFormat::Zip),
         "tar" => Ok(ArchiveFormat::Tar),
         "tar.gz" | "tgz" => Ok(ArchiveFormat::TarGz),
         "gz" | "gzip" => Ok(ArchiveFormat::Gzip),
+        "zst" | "zstd" => Ok(ArchiveFormat::Zstd),
         other => Err(anyhow::anyhow!(
-            "unsupported format '{other}'; expected: zip, tar, tar.gz, tgz, gz, gzip"
+            "unsupported format '{other}'; expected: zip, tar, tar.gz, tgz, gz, gzip, zst, zstd"
         )),
     }
 }
@@ -163,6 +164,11 @@ pub fn open_reader(path: &Path, format: ArchiveFormat) -> Result<Box<dyn Archive
         ArchiveFormat::Zip => Box::new(ZipReader::new(file)?),
         ArchiveFormat::Tar => Box::new(TarReader::new(file)),
         ArchiveFormat::TarGz => Box::new(TarGzReader::new(file)),
+        ArchiveFormat::Gzip | ArchiveFormat::Zstd => {
+            anyhow::bail!(
+                "'{format}' is a single-stream compression format; use 'decompress' directly, not an archive reader"
+            )
+        }
         _ => anyhow::bail!("unsupported format for reading: {format}"),
     })
 }
@@ -178,6 +184,11 @@ pub fn create_writer(
         ArchiveFormat::Zip => Ok(Box::new(ZipWriter::new(file))),
         ArchiveFormat::Tar => Ok(Box::new(TarWriter::new(file))),
         ArchiveFormat::TarGz => Ok(Box::new(TarGzWriter::new_with_level(file, level))),
+        ArchiveFormat::Gzip | ArchiveFormat::Zstd => {
+            anyhow::bail!(
+                "'{format}' is a single-stream compression format; use 'compress' directly, not an archive writer"
+            )
+        }
         _ => anyhow::bail!("unsupported format for writing: {format}"),
     }
 }
@@ -192,6 +203,20 @@ pub fn gzip_output_filename(archive: &Path) -> PathBuf {
     let stripped = name
         .strip_suffix(".gz")
         .or_else(|| name.strip_suffix(".gzip"))
+        .unwrap_or(&name);
+    PathBuf::from(stripped)
+}
+
+/// Infer the decompressed filename for a zstd file by stripping `.zst` or
+/// `.zstd` from the filename.
+pub fn zstd_output_filename(archive: &Path) -> PathBuf {
+    let name = archive
+        .file_name()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_else(|| "output".to_string());
+    let stripped = name
+        .strip_suffix(".zst")
+        .or_else(|| name.strip_suffix(".zstd"))
         .unwrap_or(&name);
     PathBuf::from(stripped)
 }

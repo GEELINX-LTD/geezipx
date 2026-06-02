@@ -1598,7 +1598,7 @@ fn tar_accepts_level_no_error() {
 
 #[test]
 fn compress_level_out_of_range_rejected() {
-    // --level 10 should be rejected by clap validation (range 0..=9).
+    // --level 23 should be rejected by clap validation (range 0..=22).
     let tmp = TestDir::new();
     tmp.write("test.txt", "level out of range");
 
@@ -1609,13 +1609,13 @@ fn compress_level_out_of_range_rejected() {
             "-f",
             "gz",
             "-L",
-            "10",
+            "23",
             "-o",
             tmp.join("out.gz").to_str().unwrap(),
         ])
         .assert()
         .failure()
-        .stderr(predicate::str::contains("0..=9"));
+        .stderr(predicate::str::contains("0..=22"));
 }
 
 #[test]
@@ -1668,6 +1668,31 @@ fn gzip_level_9_with_verbose() {
         .assert()
         .success()
         .stdout(content);
+}
+
+#[test]
+fn gzip_level_10_rejected_with_runtime_error() {
+    // --level 10 passes clap validation (range 0..=22) but should be rejected
+    // at runtime by gzip-specific level validation (gzip only supports 0..=9).
+    let tmp = TestDir::new();
+    tmp.write("test.txt", "level 10 gzip runtime reject");
+
+    geezipx()
+        .args([
+            "compress",
+            tmp.join("test.txt").to_str().unwrap(),
+            "-f",
+            "gz",
+            "-L",
+            "10",
+            "-o",
+            tmp.join("out.gz").to_str().unwrap(),
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "gzip compression level must be 0..=9",
+        ));
 }
 
 // ---------------------------------------------------------------------------
@@ -1745,4 +1770,234 @@ fn completions_elvish_success() {
         .stdout(predicate::str::contains("compress"))
         .stdout(predicate::str::contains("decompress"))
         .stdout(predicate::str::contains("list"));
+}
+
+// ---------------------------------------------------------------------------
+// Zstandard (zst) tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn zstd_roundtrip() {
+    let tmp = TestDir::new();
+    let content = "Hello, GeeZipX! Zstd round-trip test.";
+    tmp.write("data.txt", content);
+    let archive = tmp.join("data.txt.zst");
+
+    // Compress to zstd (auto-detect by .zst extension).
+    geezipx()
+        .args([
+            "compress",
+            tmp.join("data.txt").to_str().unwrap(),
+            "-o",
+            archive.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    assert!(archive.exists(), "zstd archive should exist");
+
+    // Decompress to output dir.
+    let output_dir = tmp.join("out");
+    std::fs::create_dir_all(&output_dir).unwrap();
+    geezipx()
+        .args([
+            "decompress",
+            archive.to_str().unwrap(),
+            "-o",
+            output_dir.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    let extracted = output_dir.join("data.txt");
+    let actual = std::fs::read_to_string(&extracted).unwrap();
+    assert_eq!(actual, content, "zstd round-trip content mismatch");
+}
+
+#[test]
+fn zstd_stdout_roundtrip() {
+    let tmp = TestDir::new();
+    let content = "Hello, GeeZipX! Zstd --stdout round-trip.";
+    tmp.write("hello.txt", content);
+    let archive = tmp.join("hello.txt.zst");
+
+    // Compress.
+    geezipx()
+        .args([
+            "compress",
+            tmp.join("hello.txt").to_str().unwrap(),
+            "-f",
+            "zstd",
+            "-o",
+            archive.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    assert!(archive.exists(), "zstd archive should exist");
+
+    // Decompress with --stdout.
+    geezipx()
+        .args(["decompress", archive.to_str().unwrap(), "--stdout"])
+        .assert()
+        .success()
+        .stdout(content);
+}
+
+#[test]
+fn zstd_explicit_format_roundtrip() {
+    let tmp = TestDir::new();
+    let content = "Zstd explicit -f zstd round-trip.";
+    tmp.write("input.bin", content);
+    let archive = tmp.join("out.zst");
+
+    // Compress with -f zstd.
+    geezipx()
+        .args([
+            "compress",
+            tmp.join("input.bin").to_str().unwrap(),
+            "-f",
+            "zstd",
+            "-o",
+            archive.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    assert!(archive.exists(), "zstd archive should exist");
+
+    // Decompress to output dir.
+    let output_dir = tmp.join("out");
+    std::fs::create_dir_all(&output_dir).unwrap();
+    geezipx()
+        .args([
+            "decompress",
+            archive.to_str().unwrap(),
+            "-o",
+            output_dir.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    // Output filename derived from archive name: out.zst -> out
+    let extracted = output_dir.join("out");
+    let actual = std::fs::read_to_string(&extracted).unwrap();
+    assert_eq!(actual, content);
+}
+
+#[test]
+fn zstd_multiple_inputs_fails() {
+    let tmp = TestDir::new();
+    let f1 = tmp.join("a.txt");
+    let f2 = tmp.join("b.txt");
+    std::fs::write(&f1, "first").unwrap();
+    std::fs::write(&f2, "second").unwrap();
+
+    geezipx()
+        .args([
+            "compress",
+            f1.to_str().unwrap(),
+            f2.to_str().unwrap(),
+            "-f",
+            "zstd",
+            "-o",
+            tmp.join("out.zst").to_str().unwrap(),
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("single"));
+}
+
+#[test]
+fn list_zstd_table_output() {
+    let tmp = TestDir::new();
+    tmp.write("hello.txt", "List zstd table test.");
+    let archive = tmp.join("hello.txt.zst");
+
+    geezipx()
+        .args([
+            "compress",
+            tmp.join("hello.txt").to_str().unwrap(),
+            "-o",
+            archive.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    // List in table mode.
+    geezipx()
+        .args(["list", archive.to_str().unwrap()])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("hello.txt"))
+        .stdout(predicate::str::contains("Ratio"))
+        .stdout(predicate::str::contains("Modified"));
+}
+
+#[test]
+fn list_zstd_json_output() {
+    let tmp = TestDir::new();
+    tmp.write("data.txt", "List zstd JSON test.");
+    let archive = tmp.join("data.txt.zst");
+
+    geezipx()
+        .args([
+            "compress",
+            tmp.join("data.txt").to_str().unwrap(),
+            "-o",
+            archive.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    // List with --json.
+    geezipx()
+        .args(["list", archive.to_str().unwrap(), "--json"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(r#""path":"#))
+        .stdout(predicate::str::contains(r#""compression_ratio""#))
+        .stdout(predicate::str::contains(r#""modified""#));
+}
+
+#[test]
+fn zstd_compress_level_22() {
+    let tmp = TestDir::new();
+    let content = "Zstd compression at level 22.";
+    tmp.write("test.txt", content);
+    let archive = tmp.join("test.zst");
+
+    geezipx()
+        .args([
+            "compress",
+            tmp.join("test.txt").to_str().unwrap(),
+            "-f",
+            "zstd",
+            "-L",
+            "22",
+            "-o",
+            archive.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    assert!(archive.exists(), "zstd level 22 archive should exist");
+
+    // Decompress to output dir.
+    let output_dir = tmp.join("out");
+    std::fs::create_dir_all(&output_dir).unwrap();
+    geezipx()
+        .args([
+            "decompress",
+            archive.to_str().unwrap(),
+            "-o",
+            output_dir.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    // Output filename derived from archive name: test.zst -> test
+    let extracted = output_dir.join("test");
+    let actual = std::fs::read_to_string(&extracted).unwrap();
+    assert_eq!(actual, content);
 }
