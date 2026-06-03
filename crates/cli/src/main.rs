@@ -101,6 +101,17 @@ enum Commands {
         json: bool,
     },
 
+    /// Verify the integrity of an archive or compressed file
+    #[command(visible_alias = "t")]
+    Test {
+        /// Archive file to verify
+        archive: PathBuf,
+
+        /// Output as JSON
+        #[arg(short = 'j', long = "json")]
+        json: bool,
+    },
+
     /// Generate shell completion scripts
     #[command(visible_alias = "comp")]
     Completions {
@@ -156,6 +167,7 @@ fn run() -> anyhow::Result<()> {
             cli.verbose,
         )?,
         Commands::List { archive, json } => commands::list::execute(&archive, json)?,
+        Commands::Test { archive, json } => commands::test::execute(&archive, json)?,
         Commands::Completions { shell } => {
             let mut cmd = Cli::command();
             let name = cmd.get_name().to_string();

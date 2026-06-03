@@ -17,6 +17,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - JSON output (`--json`) is not affected on stdout — the warning goes to
     stderr, keeping stdout valid JSON.
 
+- **`test` archive integrity command**:
+  - `geezipx test <archive>` reads every entry to completion without writing to
+    disk and reports whether the archive is structurally sound.
+  - Supported formats: zip, tar, tar.gz, tar.zst, tar.xz, gzip, zstd, xz, lzma.
+  - ZIP files get CRC-32 verification via the `zip` crate's internal checks.
+  - `--json` output provides machine-readable results.
+  - Exit code 0 on success, 1 on failure.
+
 ## [0.2.2] - 2026-06-03
 
 ### Added

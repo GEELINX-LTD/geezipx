@@ -20,6 +20,7 @@ pub mod config;
 pub mod detect;
 pub mod error;
 pub mod io;
+pub mod test;
 
 pub use error::{GeeZipError, GeeZipResult};
 pub use io::{Phase, ProgressCallback, ProgressEvent, ProgressReader, ProgressWriter};
