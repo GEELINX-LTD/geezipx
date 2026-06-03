@@ -133,9 +133,6 @@ jobs:
 
   bench-regression:
     needs: test
-    # Advisory: GitHub-hosted runners have noisy benchmark variance.
-    # Failures here do not block PRs.
-    continue-on-error: true
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -150,4 +147,7 @@ jobs:
       - name: Run benchmarks
         run: cargo bench -p geezipx-core
       - name: Check benchmark regression
+        # Advisory: GitHub-hosted runners have noisy benchmark variance.
+        # Keep logs visible but do not fail the PR when the threshold is exceeded.
+        continue-on-error: true
         run: bash scripts/check-bench-regression.sh
