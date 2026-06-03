@@ -166,7 +166,7 @@ geezipx list <archive>
   - 损坏 ZIP 输入优雅报错（无 panic）
   - 扩展名自动推断格式
 - **验收标准**：`cargo test --workspace --all-features` 全部通过（356 tests passed；CLI lib 11 + CLI integration 106 + core 239）
-- **与原计划差异**：尚未包含与系统 `tar`/`unzip` 的互操作测试、尚未包含大文件冒烟测试（100 MB+）
+- **与原计划差异**：尚未包含与系统 `tar`/`unzip` 的互操作测试（已在 M3-5 中补充）、尚未包含大文件冒烟测试（100 MB+）；轻量流式冒烟测试已新增为 CI `streaming-smoke` job（16 MiB 单流 gzip round-trip + 32 MiB tar.gz 递归 round-trip），标记 `#[ignore]` 不拖慢默认测试。
 
 ### M2 里程碑检查清单
 - [x] `geezipx compress` / `decompress` / `list` 三个子命令可用
@@ -277,6 +277,7 @@ geezipx list <archive>
 - **预估**：3 天
 - **依赖**：M3-1、M3-2、M3-4
 - **原计划差异**：`scripts/check-interop.sh` 为额外产出，未在原计划中列出。
+- **额外补充**：新增 CI `streaming-smoke` job（`ubuntu-latest`），自动运行标记为 `#[ignore]` 的轻量流式冒烟测试（16 MiB gzip round-trip + 32 MiB tar.gz 递归 round-trip），确保流式管道在 CI 中定期验证，不依赖人工大文件测试。
 
 ### M3 里程碑检查清单
 - [x] 大文件（5 GB+）压缩/解压流式处理已验证（M3-5 大文件冒烟测试通过）
@@ -306,6 +307,7 @@ geezipx list <archive>
   - **Test**：三平台矩阵 × `stable`，`cargo test --workspace --all-features`
   - **Build**：三平台矩阵，`cargo build --release` + artifact 上传（`actions/upload-artifact@v7`，保留 7 天）
   - **Interop**：`ubuntu-latest` 运行 `scripts/check-interop.sh`，依赖 clippy+test+build 通过
+  - **Streaming Smoke**：`ubuntu-latest` 运行 `cargo test -p geezipx --test streaming_smoke -- --test-threads=1 --ignored`，依赖 clippy+test 通过；覆盖 16 MiB gzip + 32 MiB tar.gz 流式 round-trip
   - **Audit**：独立 `deny.yml` 工作流，使用 `EmbarkStudios/cargo-deny-action@v2`，`v*` 标签 push + 手动触发
   - **缓存**：所有 step 均启用 `cache: true`（`actions-rust-lang/setup-rust-toolchain@v1` 内置）
   - **Rust 版本**：`channel = "stable"`（跟踪最新 stable，当前 1.96），无固定 MSRV 矩阵
