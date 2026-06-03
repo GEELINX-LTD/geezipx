@@ -4986,3 +4986,168 @@ fn corrupted_tarxz_graceful_error() {
         "decompress should report error on stderr for corrupted tar.xz"
     );
 }
+
+// ---------------------------------------------------------------------------
+// `geezipx test` — archive integrity verification
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_help_available() {
+    geezipx()
+        .args(["test", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("--json"));
+}
+
+#[test]
+fn test_zip_valid() {
+    let tmp = TestDir::new();
+    tmp.write("data.txt", "ZIP test verification content.");
+    let archive = tmp.join("archive.zip");
+
+    // Create a zip.
+    geezipx()
+        .args([
+            "compress",
+            tmp.join("data.txt").to_str().unwrap(),
+            "-o",
+            archive.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    // Test it (text output).
+    geezipx()
+        .args(["test", archive.to_str().unwrap()])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Status:"))
+        .stdout(predicate::str::contains("ok"))
+        .stdout(predicate::str::contains("result: OK"));
+}
+
+#[test]
+fn test_zip_valid_json() {
+    let tmp = TestDir::new();
+    tmp.write("data.txt", "ZIP JSON test.");
+    let archive = tmp.join("archive.zip");
+
+    geezipx()
+        .args([
+            "compress",
+            tmp.join("data.txt").to_str().unwrap(),
+            "-o",
+            archive.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    // Test with --json.
+    geezipx()
+        .args(["test", archive.to_str().unwrap(), "--json"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(r#"ok":true"#))
+        .stdout(predicate::str::contains(r#"format":"zip""#))
+        .stdout(predicate::str::contains(r#"archive":"#));
+}
+
+#[test]
+fn test_corrupted_zip_fails() {
+    let tmp = TestDir::new();
+    let archive = tmp.join("broken.zip");
+    // Write garbage that's not a valid zip.
+    std::fs::write(&archive, b"not a zip file").unwrap();
+
+    geezipx()
+        .args(["test", archive.to_str().unwrap()])
+        .assert()
+        .failure();
+}
+
+#[test]
+fn test_corrupted_zip_json_fails() {
+    let tmp = TestDir::new();
+    let archive = tmp.join("broken.zip");
+    std::fs::write(&archive, b"not a zip file").unwrap();
+
+    geezipx()
+        .args(["test", archive.to_str().unwrap(), "--json"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::is_empty())
+        .stdout(predicate::str::contains(r#"ok":false"#));
+}
+
+#[test]
+fn test_tar_gz_valid() {
+    let tmp = TestDir::new();
+    tmp.write("data.txt", "tar.gz test content.");
+    let archive = tmp.join("archive.tar.gz");
+
+    geezipx()
+        .args([
+            "compress",
+            tmp.join("data.txt").to_str().unwrap(),
+            "-o",
+            archive.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    // Test it.
+    geezipx()
+        .args(["test", archive.to_str().unwrap()])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Format:"))
+        .stdout(predicate::str::contains("tar.gz"))
+        .stdout(predicate::str::contains("result: OK"));
+}
+
+#[test]
+fn test_gzip_corrupted_fails() {
+    let tmp = TestDir::new();
+    let archive = tmp.join("broken.gz");
+    // Write only the gzip magic header, no body/footer.
+    std::fs::write(&archive, [0x1F, 0x8B]).unwrap();
+
+    geezipx()
+        .args(["test", archive.to_str().unwrap()])
+        .assert()
+        .failure();
+}
+
+#[test]
+fn test_zstd_valid() {
+    let tmp = TestDir::new();
+    let archive = tmp.join("test.zst");
+    tmp.write("data.txt", "zstd verification content.");
+
+    geezipx()
+        .args([
+            "compress",
+            tmp.join("data.txt").to_str().unwrap(),
+            "-o",
+            archive.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    geezipx()
+        .args(["test", archive.to_str().unwrap()])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Status:"))
+        .stdout(predicate::str::contains("ok"));
+}
+
+#[test]
+fn test_nonexistent_fails() {
+    geezipx()
+        .args(["test", "/nonexistent/archive.zip"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("does not exist"));
+}

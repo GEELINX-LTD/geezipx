@@ -211,6 +211,20 @@ Displays a table of entries with path, size, compressed size, ratio, and modific
 |--------|-------------|
 | `-j`, `--json` | Output as a JSON array |
 
+### `test` — Verify archive integrity
+
+```sh
+geezipx test <archive> [options]
+```
+
+Reads every entry to completion without extracting to disk and reports whether
+the archive is structurally sound.
+
+Supports CRC-32 verification for zip archives.
+
+| Option | Description |
+|--------|-------------|
+| `-j`, `--json` | Output as JSON with `ok` boolean |
 ### `completions` — Shell completion scripts
 
 ```sh
