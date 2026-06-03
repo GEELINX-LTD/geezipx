@@ -7,7 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-06-03
+
 ### Added
+
+- **Release dry-run workflow**:
+  - `.github/workflows/release.yml` now supports `workflow_dispatch` for artifact verification
+  - Manual trigger builds all three platform artifacts, generates `.sha256` files, and creates
+    a consolidated `SHA256SUMS` file with cross-platform checksum verification
+  - CRLF line endings in Windows `.sha256` files are normalized before checksum validation
+  - `Create Release` job strictly limited to `push` on `refs/tags/v*`; `workflow_dispatch` never
+    creates a GitHub Release regardless of `dry_run` input
+
+- **CLI `--jobs` option for Zstandard compression**:
+  - `compress --jobs <N>` / `-j <N>` sets thread count for Zstd compression
+  - Compatible with `.zst` single-stream and `.tar.zst` archive formats
+  - Default: 0 (auto-detect CPU count via `zstdmt`)
+
+- **Built-in glob expansion for compress inputs**:
+  - CLI `compress` expands glob patterns (e.g., `*.txt`) internally before processing
+  - Consistent cross-platform behavior; no longer reliant on shell glob expansion
 
 - **Benchmark regression detection pipeline**:
   - New `scripts/setup-bench-baseline.sh` downloads the Criterion baseline artifact
@@ -19,6 +38,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Missing baseline is handled gracefully: when no prior run exists or `gh` is
     unavailable, the download step is skipped and the regression check passes
     without failure.
+
+- **CI improvements**:
+  - New streaming smoke test job (`scripts/check-streaming-smoke.sh`) for 5GB+ file handling
+  - New rustdoc warning check on Ubuntu (doc linting in CI)
+  - New benchmark regression threshold check (`scripts/check-bench-regression.sh`)
+
 - **CLI integration test coverage — XZ/LZMA single-stream formats**:
   - XZ/LZMA `--no-clobber` decompress skips existing output
   - XZ/LZMA `--force` decompress overwrites existing output
@@ -33,12 +58,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     without affecting the other field
   - `zstd_compress_with_options` round-trip with explicit level 9
   - `zstd_compress_with_options` multi-threaded (2 workers) round-trip
+
 - **Compressed TAR archive cancellation coverage**:
   - `targz::extract_all_with_cancel`: basic, before-start, between-entries
   - `tarxz::extract_all_with_cancel`: basic, before-start, between-entries
   - `tarzst::extract_all_with_cancel`: basic, before-start, between-entries
   - Core lib tests grow from 249 to 258
 
+### Changed
+
+- **Documentation prioritized over coverage targets**:
+  - `docs/PRD.md`, `docs/TECH_ARCHITECTURE.md`, `docs/PHASE1_CLI_TASKS.md` updated to reflect
+    shift from coverage-driven to release-ready and product-quality focus
+  - Coverage explicitly documented as informational only; no hard coverage gate or `fail-under`
+  - `docs/PHASE1_CLI_TASKS.md` clarified remaining follow-ups for Phase One
+  - Chinese README updated and markdown formatting artifacts fixed
+
+### Fixed
+
+- **CRLF normalization in release checksum verification**:
+  - Windows `shasum -a 256` produces CRLF line endings; Linux `shasum -c` treats `\r` as part of
+    the filename causing checksum mismatch
+  - `.sha256` files now normalized to LF before generating `SHA256SUMS` and before running
+    `shasum -c` validation in both `consolidate` and `release` jobs
 ## [0.2.1] - 2026-06-02
 
 ### Added
@@ -174,4 +216,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [0.1.0]: https://github.com/GEELINX-LTD/geezipx/releases/tag/v0.1.0
 [0.2.0]: https://github.com/GEELINX-LTD/geezipx/releases/tag/v0.2.0
 [0.2.1]: https://github.com/GEELINX-LTD/geezipx/releases/tag/v0.2.1
+[0.2.2]: https://github.com/GEELINX-LTD/geezipx/releases/tag/v0.2.2
 
