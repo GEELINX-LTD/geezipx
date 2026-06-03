@@ -46,7 +46,7 @@ Phase 1 (CLI MVP) is **complete for core CLI functionality**. All core subcomman
 These are not blockers for the CLI MVP, but remain open according to the project documents:
 
 - Coverage targets are tracked but not enforced yet; current coverage is below the PRD targets of overall >80% and core >85%.
-- Performance benchmarks exist, but there is no automatic regression threshold/gate yet.
+- Performance benchmarks now have a manual Criterion regression threshold check; stable baselines and mandatory comparison data remain follow-ups.
 - PR coverage annotations or coverage badges are not implemented yet.
 - Release binaries are built by the release workflow for future `v*` tag releases; older releases may still be source-only.
 - True stdin-driven pipeline support needs design; `--stdout` currently supports only single-stream formats (`gzip`, `zstd`, `xz`, `lzma`), not multi-file archive formats.
@@ -397,7 +397,7 @@ All core features are implemented and verified:
 - RAR read-only support
 - Multi-threading for additional formats such as tar.gz, zip, and xz where practical
 - True stdin pipeline support for script-heavy workflows
-- Automatic performance regression thresholds
+- Stable benchmark baselines and mandatory performance regression gates
 
 ### Phase 3 (Desktop GUI) — Future
 

@@ -294,7 +294,7 @@ Reader(File) → ProgressReader → Decompress → ProgressWriter → File
 | 单元测试 | 内联 `#[cfg(test)]` | 每个模块的基础逻辑（魔数检测、路径安全、错误转换） |
 | 集成测试 | `/tests/*.rs` | 真实文件压缩→解压→对比 hash；CLI 命令调用 |
 | 格式互操作测试 | 脚本 + 原生工具 | 用 Info-ZIP / GNU tar 创建归档，GeeZipX 解压；反之 |
-| 基准测试 | `/benches/*.rs` | `criterion` 吞吐量、内存峰值、启动时间 |
+| 基准测试 | `/benches/*.rs` + `scripts/check-bench-regression.sh` | `criterion` 吞吐量；手动 benchmark workflow 可基于 comparison JSON 检查回归阈值 |
 | 模糊测试 | `cargo-fuzz`（Phase 2） | 格式鲁棒性，确保恶意文件不会 panic |
 
 ## 7. CI/CD（GitHub Actions）
@@ -313,6 +313,8 @@ Jobs (串行依赖):
   5. interop       — bash scripts/check-interop.sh (依赖 clippy+test+build)
   6. bench-compile — cargo bench --no-run -p geezipx-core (依赖 fmt)
 ```
+
+独立的 `Benchmark` workflow 通过手动触发运行 Criterion benchmarks，并在 comparison JSON 存在时执行 `scripts/check-bench-regression.sh` 阈值检查。
 
 > 注意：CI 不含 `cargo publish` 步骤。`cargo-deny` 安全审计由独立 `deny.yml` 工作流覆盖（`v*` 标签 push + 手动触发）。crates.io 发布目前为手工操作（`cargo publish -p geezipx-core && cargo publish -p geezipx`），不纳入 CI/CD。
 

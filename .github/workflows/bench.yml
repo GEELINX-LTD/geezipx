@@ -8,6 +8,16 @@ on:
         type: string
         required: false
         default: ''
+      max_regression_percent:
+        description: 'Fail if Criterion mean regression exceeds this percent'
+        type: string
+        required: false
+        default: '10'
+      require_comparison:
+        description: 'Fail if Criterion comparison data is missing'
+        type: boolean
+        required: false
+        default: false
 
 env:
   CARGO_TERM_COLOR: always
@@ -28,6 +38,11 @@ jobs:
           else
             cargo bench -p geezipx-core
           fi
+      - name: Check benchmark regression threshold
+        env:
+          GEEZIPX_BENCH_MAX_REGRESSION_PERCENT: ${{ inputs.max_regression_percent }}
+          GEEZIPX_BENCH_REQUIRE_COMPARISON: ${{ inputs.require_comparison }}
+        run: bash scripts/check-bench-regression.sh
       - uses: actions/upload-artifact@v7
         with:
           name: criterion-report

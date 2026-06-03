@@ -46,7 +46,7 @@
 这些不是 CLI MVP 的阻塞项，但仍是文档中明确提到的后续工作：
 
 - 覆盖率已追踪但尚未作为硬门禁；当前覆盖率低于 PRD 目标（整体 >80%、core >85%）。
-- Criterion 基准已建立，但尚未配置自动性能回归阈值。
+- Criterion 基准已建立，并已加入手动性能回归阈值检查；稳定基线和强制比较数据仍待完善。
 - PR 覆盖率注释、coverage badge 或 diff coverage 反馈尚未实现。
 - Release workflow 已能为后续 `v*` tag 自动构建二进制；历史 release 可能仍只有源码包，需要逐个 release 页面确认。
 - 真正的 stdin 管道输入仍需设计；当前 `--stdout` 仅支持 gzip/zstd/xz/lzma 单流格式，不支持 tar.gz/tar.zst/tar.xz 等多文件归档。
@@ -385,7 +385,7 @@ cargo build --release --workspace
 - RAR 只读支持
 - tar.gz、zip、xz 等更多格式的多线程压缩
 - 面向脚本场景的真正 stdin 管道输入
-- 自动性能回归阈值门禁
+- 稳定 benchmark 基线与强制性能回归门禁
 
 ### 第三阶段（桌面 GUI）— 未来
 

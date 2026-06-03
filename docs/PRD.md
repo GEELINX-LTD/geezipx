@@ -110,7 +110,7 @@ GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开�
 | 错误信息质量 | 用户无需查手册即可理解错误 | 人工审查 |
 | 代码覆盖率 | 核心引擎 > 85%，整体 > 80%（当前基线：overall ~74%，core archive ~64%）。当前 workflow 为信息性观测（informational only），优先补真实高风险/回归路径而非追求覆盖数字 | cargo-tarpaulin / grcov |
 
-> 注：覆盖率和性能目前更偏“观测性”而非硬门禁。后续应优先补真实高风险路径与回归路径，再决定是否引入 fail-under 或性能阈值。
+> 注：覆盖率目前仍偏“观测性”而非硬门禁。性能方面已加入基于 Criterion comparison JSON 的手动阈值检查；后续仍需稳定基线并决定是否强制要求 comparison data。
 
 ## 9. 路线图
 
@@ -121,7 +121,7 @@ Phase 1 (MVP — CLI)        ← 当前阶段
 ├── M3 流式/进度/兼容性打磨     ── ✅ 已完成
 └── M4 CI/测试/发布            ── 🔶 大部分完成（发布自动化与观测性 workflow 已建立）
     ├── 待补：覆盖率硬门禁 / PR 覆盖率反馈
-    ├── 待补：自动性能回归阈值
+    ├── 部分完成：手动性能回归阈值检查已接入；待补稳定基线 / 强制 comparison data
     └── 待验证：后续 tag release 的二进制 artifacts 实际上传
 
 Phase 2 (CLI 增强)
@@ -130,7 +130,7 @@ Phase 2 (CLI 增强)
 ├── 密码加密 ZIP (AES-256)
 ├── tar.gz/zip/xz 等更多格式的多线程压缩
 ├── 真正 stdin 管道输入 / 更完整的脚本集成
-└── 性能吞吐优化
+└── 稳定 benchmark 基线与性能吞吐优化
 
 Phase 3 (Tauri GUI)
 ├── Tauri + Vue/Svelte 外壳

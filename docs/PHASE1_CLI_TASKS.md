@@ -2,7 +2,7 @@
 
 > 总周期估计：**10-12 周**（单人全职开发）。  
 > 里程碑结构：4 个里程碑，每个里程碑对应可发布的增量。  
-> **当前状态：** M1、M2、M3 已完成。M4 的 CI、测试、发布验证、crates.io 发布、GitHub Release 和 release workflow 均已建立；Phase 1 核心 CLI 交付完成。仍需作为后续跟进的事项包括：覆盖率硬门禁/PR 覆盖率反馈、自动性能回归阈值、后续 tag release 的二进制 artifacts 实际验证，以及可选公告。
+> **当前状态：** M1、M2、M3 已完成。M4 的 CI、测试、发布验证、crates.io 发布、GitHub Release 和 release workflow 均已建立；Phase 1 核心 CLI 交付完成。仍需作为后续跟进的事项包括：覆盖率硬门禁/PR 覆盖率反馈、稳定 benchmark 基线与强制性能比较数据、后续 tag release 的二进制 artifacts 实际验证，以及可选公告。
 > **后期增加：** `compress` 命令新增 `-j`/`--jobs` 多线程参数（`feat(cli): add jobs option for zstd compression`）。默认 1（单线程，向后兼容），`0`（auto），或指定线程数。当前 `zstd`/`tar.zst` 实际启用多线程（zstdmt），其他格式接受参数但暂不生效。
 
 ---
@@ -290,7 +290,7 @@ geezipx list <archive>
 
 ## M4：CI/测试/发布（第 11-12 周）
 
-> **状态：核心交付完成，后续门禁与发布体验仍可增强**。本地与远程发布验证已通过，crates.io 已发布，GitHub Release 已创建，release workflow 已加入仓库。剩余工作主要不是功能阻塞项，而是质量/体验跟进：覆盖率硬门禁、PR 覆盖率反馈、自动性能回归阈值、后续 tag release 的二进制 artifacts 实际上传验证，以及可选公告。
+> **状态：核心交付完成，后续门禁与发布体验仍可增强**。本地与远程发布验证已通过，crates.io 已发布，GitHub Release 已创建，release workflow 已加入仓库。剩余工作主要不是功能阻塞项，而是质量/体验跟进：覆盖率硬门禁、PR 覆盖率反馈、稳定 benchmark 基线与强制性能比较数据、后续 tag release 的二进制 artifacts 实际上传验证，以及可选公告。
 
 ### 目标
 建立三平台 CI、代码质量门禁、性能基准、首次 crates.io 发布、GitHub Release 二进制 artifacts 自动化。
@@ -319,15 +319,20 @@ geezipx list <archive>
 - **覆盖率 workflow**：已添加 `.github/workflows/coverage.yml`（push/PR/每周一触发），使用 `cargo-tarpaulin` 生成 HTML+JSON 报告，报告上传至 workflow artifact（保留 30 天）。当前为**观测性/信息性**（informational only），不设硬门禁。最新基线：overall ~74%，core archive/mod.rs ~64%。
 - **尚未实现**：专用 lint workflow（clippy 已在 ci.yml 中覆盖）、PR 自动标记覆盖率
 
-### M4-3：性能基准测试 ✅
-- **状态**：已完成。基准代码已通过 CI 编译检查，开发者可通过手动触发 workflow 运行完整基准。
-  - **gzip_throughput**: 覆盖 compress/decompress，4 种 level (default/0/6/9) × 2 种 size (1 KiB / 1 MiB) = 16 项基准。
-  - **archive_throughput**: 覆盖 tar.gz、TarZst 和 ZIP 的 compress/decompress round-trip，2 种数据集 (10 files × 1 KiB / 1 file × 1 MiB) = 8 项基准。
-  - **CI 集成**:
-    - `ci.yml` 新增 `bench-compile` job：每次 push/PR 执行 `cargo bench --no-run -p geezipx-core`，确保基准代码可编译。
-    - `.github/workflows/bench.yml` 手动触发 workflow：支持可选的 `bench_filter` 参数，运行基准并上传 `target/criterion/` 报告 artifact（保留 30 天）。
-  - **验证**: `cargo bench -p geezipx-core --no-run` 编译通过，`--list` 确认 24 个 benchmark 函数均已注册。
-- **未实现**: 自动性能回归阈值门禁。当前设计仅确保编译通过和可手动触发执行基准；若需自动回归检测，需后续建立稳定基线并加入阈值检查。
+### M4-3：性能基准测试 ✅（阈值检查已初步接入）
+- **状态**：已完成基准框架，并加入手动 benchmark workflow 的回归阈值检查。开发者可通过手动触发 workflow 运行完整基准；当 Criterion comparison JSON 存在时，`scripts/check-bench-regression.sh` 会按阈值检查平均性能回退。
+- **实际文件**：
+  - `crates/core/benches/gzip_throughput.rs`
+  - `crates/core/benches/archive_throughput.rs`
+  - `.github/workflows/bench.yml`
+  - `scripts/check-bench-regression.sh`
+  - `scripts/README.md`
+- **覆盖场景**：
+  - GZIP 压缩/解压：1 KiB、1 MiB；default/0/6/9 级别
+  - TAR.GZ 压缩/解压：10×1 KiB、1×1 MiB
+  - ZIP 压缩/解压：10×1 KiB、1×1 MiB
+- **验证**：`cargo bench -p geezipx-core --no-run` 编译通过，`--list` 确认 24 个 benchmark 函数均已注册；本地已有 Criterion comparison 时，`bash scripts/check-bench-regression.sh` 可检查默认 +10% 回退阈值。
+- **仍需完善**：建立稳定 benchmark 基线，并决定是否在 CI 中强制要求 comparison data（`GEEZIPX_BENCH_REQUIRE_COMPARISON=1`）。
 
 ### M4-4：README 与文档 ✅
 - **状态**：README.md 和 `docs/` 目录已建立。此 M4 任务包含在当前的文档同步中。
@@ -369,7 +374,7 @@ geezipx list <archive>
 - [x] 互操作测试 — `scripts/check-interop.sh` 在 CI 中运行
 - [x] README 和 CLI 帮助文档清晰可用
 - [x] crates.io 发布完成 — 包已发布至 crates.io（页面渲染已确认正常：README、许可证、文档/仓库/docs.rs 链接均正确渲染）
-- [x] 性能基准测试（criterion）— 基础框架已建立，CI 编译检查 + 手动 benchmark workflow 已集成
+- [x] 性能基准测试（criterion）— 基础框架已建立，CI 编译检查 + 手动 benchmark workflow + Criterion comparison 阈值脚本已集成
 
 - [x] GitHub Release 二进制 artifacts 自动化 workflow（`.github/workflows/release.yml`）— tag 触发，三平台 build，tar.gz/zip 打包，SHA256 校验，上传至 GitHub Release
 
@@ -380,7 +385,7 @@ geezipx list <archive>
 
 - [ ] 覆盖率从 informational workflow 升级为可执行目标：补足测试后再考虑 `fail-under`，避免当前低于目标时直接阻塞 CI。
 - [ ] PR 覆盖率反馈：coverage badge、PR 注释或 diff coverage 三者至少选一种。
-- [ ] 自动性能回归阈值：在 Criterion 基线稳定后，为关键压缩/解压路径设置阈值。
+- [ ] 稳定 benchmark 基线与强制性能比较数据：当前已有阈值脚本；后续需稳定基线后再开启强制 comparison data。
 - [ ] 后续 `v*` tag release 的二进制 artifacts 实际上传验证：确认 Linux/macOS/Windows 包和 SHA256SUMS 出现在 GitHub Release。
 - [ ] 公告（可选）：Twitter / Reddit / 博客，可在版本稳定后考虑。
 ---
