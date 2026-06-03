@@ -6,7 +6,7 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 use comfy_table::Table;
-use geezipx_core::archive::Entry;
+use geezipx_core::archive::{is_entry_path_dangerous, Entry};
 use geezipx_core::detect::ArchiveFormat;
 
 use super::common;
@@ -78,6 +78,16 @@ pub fn execute(archive: &Path, json: bool) -> Result<()> {
             reader.entries().context("reading archive entries")?
         }
     };
+
+    // Warn about potentially unsafe entry paths without blocking the listing.
+    let has_dangerous: bool = entries
+        .iter()
+        .any(|e| is_entry_path_dangerous(Path::new(&e.path)));
+    if has_dangerous {
+        eprintln!(
+            "warning: archive contains entries with potentially unsafe paths (use with caution)"
+        );
+    }
 
     if json {
         print_json(&entries)?;

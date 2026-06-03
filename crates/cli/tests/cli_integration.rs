@@ -3887,6 +3887,230 @@ fn corrupted_lzma_graceful_error() {
 }
 
 // ---------------------------------------------------------------------------
+// Dangerous path warning tests
+// ---------------------------------------------------------------------------
+
+/// Create a minimal POSIX tar archive with a single entry at the given
+/// path.  This lets us craft entries with `../` traversal that would be
+/// rejected by normal archive creation tools.
+fn create_minimal_tar(entry_path: &str, content: &[u8]) -> Vec<u8> {
+    let name_bytes = entry_path.as_bytes();
+    let name_len = name_bytes.len().min(99);
+
+    let mut header = [0u8; 512];
+    header[..name_len].copy_from_slice(&name_bytes[..name_len]);
+    // File mode 0644 (octal)
+    header[100..108].copy_from_slice(b"0000644\0");
+    // UID / GID
+    header[108..116].copy_from_slice(b"0000000\0");
+    header[116..124].copy_from_slice(b"0000000\0");
+    // File size in octal (11 digits + NUL at 135, but we use 11 digits + space)
+    let size_str = format!("{:011o}", content.len());
+    header[124..135].copy_from_slice(size_str.as_bytes());
+    header[135] = b' ';
+    // Mtime
+    header[136..147].copy_from_slice(b"00000000000");
+    header[147] = b' ';
+    // Type flag: '0' = regular file
+    header[156] = b'0';
+    // ustar magic
+    header[257..263].copy_from_slice(b"ustar\0");
+    header[263..265].copy_from_slice(b"00");
+
+    // Compute checksum: fill field with spaces, sum all bytes, then write
+    for b in &mut header[148..156] {
+        *b = b' ';
+    }
+    let checksum: u32 = header.iter().map(|&b| b as u32).sum();
+    let ck = format!("{:06o}\0 ", checksum & 0o777777);
+    header[148..156].copy_from_slice(ck.as_bytes());
+
+    let mut result = Vec::new();
+    result.extend_from_slice(&header);
+    result.extend_from_slice(content);
+
+    // Pad to 512-byte block boundary.
+    let tail = result.len() % 512;
+    if tail != 0 {
+        result.resize(result.len() + 512 - tail, 0);
+    }
+
+    // End-of-archive marker: two zero blocks.
+    result.extend_from_slice(&[0u8; 1024]);
+    result
+}
+
+/// Create a minimal POSIX tar archive with multiple entries, each at the
+/// given `(path, content)` pair.  Useful for testing dangerous path detection
+/// where multiple entries must share the same archive.
+fn create_minimal_tar_multi(entries: &[(&str, &[u8])]) -> Vec<u8> {
+    let mut result = Vec::new();
+
+    for &(entry_path, content) in entries {
+        let name_bytes = entry_path.as_bytes();
+        let name_len = name_bytes.len().min(99);
+
+        let mut header = [0u8; 512];
+        header[..name_len].copy_from_slice(&name_bytes[..name_len]);
+        // File mode 0644 (octal)
+        header[100..108].copy_from_slice(b"0000644\0");
+        // UID / GID
+        header[108..116].copy_from_slice(b"0000000\0");
+        header[116..124].copy_from_slice(b"0000000\0");
+        // File size in octal (11 digits + NUL at 135, but we use 11 digits + space)
+        let size_str = format!("{:011o}", content.len());
+        header[124..135].copy_from_slice(size_str.as_bytes());
+        header[135] = b' ';
+        // Mtime
+        header[136..147].copy_from_slice(b"00000000000");
+        header[147] = b' ';
+        // Type flag: '0' = regular file
+        header[156] = b'0';
+        // ustar magic
+        header[257..263].copy_from_slice(b"ustar\0");
+        header[263..265].copy_from_slice(b"00");
+
+        // Compute checksum: fill field with spaces, sum all bytes, then write
+        for b in &mut header[148..156] {
+            *b = b' ';
+        }
+        let checksum: u32 = header.iter().map(|&b| b as u32).sum();
+        let ck = format!("{:06o}\0 ", checksum & 0o777777);
+        header[148..156].copy_from_slice(ck.as_bytes());
+
+        result.extend_from_slice(&header);
+        result.extend_from_slice(content);
+
+        // Pad to 512-byte block boundary.
+        let tail = result.len() % 512;
+        if tail != 0 {
+            result.resize(result.len() + 512 - tail, 0);
+        }
+    }
+
+    // End-of-archive marker: two zero blocks.
+    result.extend_from_slice(&[0u8; 1024]);
+    result
+}
+
+#[test]
+fn list_shows_warning_for_dangerous_paths() {
+    let tmp = TestDir::new();
+    let tar_bytes = create_minimal_tar_multi(&[
+        ("../evil.txt", b"dangerous"),
+        ("foo/../../evil.txt", b"also dangerous"),
+    ]);
+    let archive = tmp.join("dangerous.tar");
+    std::fs::write(&archive, &tar_bytes).unwrap();
+
+    let output = geezipx()
+        .args(["list", archive.to_str().unwrap()])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "list should succeed despite dangerous paths"
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stdout.contains("../evil.txt"),
+        "stdout should contain the first entry path: {stdout}"
+    );
+    assert!(
+        stdout.contains("foo/../../evil.txt"),
+        "stdout should contain the second entry path: {stdout}"
+    );
+    assert!(
+        stderr.to_lowercase().contains("warning"),
+        "stderr should contain a warning: {stderr}"
+    );
+    assert!(
+        stderr.to_lowercase().contains("unsafe"),
+        "stderr should mention 'unsafe': {stderr}"
+    );
+}
+
+#[test]
+fn list_json_shows_warning_for_dangerous_paths() {
+    let tmp = TestDir::new();
+    let tar_bytes = create_minimal_tar_multi(&[
+        ("../evil.txt", b"dangerous"),
+        ("foo/../../evil.txt", b"also dangerous"),
+    ]);
+    let archive = tmp.join("dangerous-json.tar");
+    std::fs::write(&archive, &tar_bytes).unwrap();
+
+    let output = geezipx()
+        .args(["list", "--json", archive.to_str().unwrap()])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "list --json should succeed despite dangerous paths"
+    );
+    // Stdout must be valid JSON and contain both dangerous entries
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value =
+        serde_json::from_str(&stdout).expect("stdout should be valid JSON");
+    let entries = parsed.as_array().expect("JSON output should be an array");
+    assert!(
+        entries.iter().any(|e| e["path"] == "../evil.txt"),
+        "JSON entries should contain '../evil.txt': {stdout}"
+    );
+    assert!(
+        entries.iter().any(|e| e["path"] == "foo/../../evil.txt"),
+        "JSON entries should contain 'foo/../../evil.txt': {stdout}"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.to_lowercase().contains("warning"),
+        "stderr should contain a warning: {stderr}"
+    );
+    assert!(
+        stderr.to_lowercase().contains("unsafe"),
+        "stderr should mention 'unsafe': {stderr}"
+    );
+}
+
+#[test]
+fn list_does_not_warn_for_safe_paths() {
+    let tmp = TestDir::new();
+    let tar_bytes = create_minimal_tar_multi(&[
+        ("safe/readme.txt", b"hello"),
+        ("normal/path/file.bin", b"data"),
+    ]);
+    let archive = tmp.join("safe.tar");
+    std::fs::write(&archive, &tar_bytes).unwrap();
+
+    let output = geezipx()
+        .args(["list", archive.to_str().unwrap()])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "list should succeed for safe paths"
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stdout.contains("safe/readme.txt"),
+        "stdout should contain the first safe path: {stdout}"
+    );
+    assert!(
+        stdout.contains("normal/path/file.bin"),
+        "stdout should contain the second safe path: {stdout}"
+    );
+    assert!(
+        !stderr.to_lowercase().contains("unsafe"),
+        "stderr should NOT mention 'unsafe' for safe paths: {stderr}"
+    );
+}
+
+// ---------------------------------------------------------------------------
 // Additional edge-case tests: Unicode, empty directories, corrupted input
 // ---------------------------------------------------------------------------
 

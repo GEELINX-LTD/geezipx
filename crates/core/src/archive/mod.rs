@@ -507,6 +507,38 @@ pub(crate) fn check_entry_path_safety(
     Ok(target)
 }
 
+/// Check whether an entry path is potentially dangerous (Zip Slip)
+/// **without** requiring a destination directory.
+///
+/// Returns `true` if the path:
+/// - Is absolute (e.g. `/etc/passwd`, `C:\\foo`).
+/// - Starts with a Windows UNC / device prefix (`\\`).
+/// - Normalises to a path that escapes the current directory
+///   (e.g. `../evil.txt`, `foo/../../evil.txt`).
+///
+/// This is suitable for read-only operations such as `list` where
+/// we only need to warn the user, not block extraction.
+pub fn is_entry_path_dangerous(path: &Path) -> bool {
+    // Reject absolute entry paths.
+    if path.has_root() {
+        return true;
+    }
+
+    // On Windows, also reject UNC / device-prefixed paths.
+    #[cfg(windows)]
+    {
+        let path_os = path.to_string_lossy().replace("/", "\\");
+        if path_os.starts_with("\\\\") {
+            return true;
+        }
+    }
+
+    // Normalise and check whether the result escapes above cwd.
+    let normalised = normalize_path(path);
+    let first = normalised.components().next();
+    matches!(first, Some(std::path::Component::ParentDir))
+}
+
 /// Counting writer wrapper that tracks total bytes written through a
 /// writer chain.
 ///
