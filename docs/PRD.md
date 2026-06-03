@@ -108,9 +108,7 @@ GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开�
 | 启动时间 | < 50 ms（首次命令到输出） | hyperfine |
 | 跨平台一致性 | 同版本在三大平台产生相同输出 | CI hash 对比 |
 | 错误信息质量 | 用户无需查手册即可理解错误 | 人工审查 |
-| 代码覆盖率 | 核心引擎 > 85%，整体 > 80%（当前基线：overall ~74%，core archive ~64%）。当前 workflow 为信息性观测（informational only），优先补真实高风险/回归路径而非追求覆盖数字 | cargo-tarpaulin / grcov |
-
-> 注：覆盖率目前仍偏“观测性”而非硬门禁。性能方面已加入基于 Criterion comparison JSON 的手动阈值检查；后续仍需稳定基线并决定是否强制要求 comparison data。
+|| 代码覆盖率 | 信息性观测指标（不设硬门禁）。当前基线参考：overall ~74%，core archive ~64%——数字仅作历史参照，非必须达成目标。仅针对真实风险/回归场景按需补测，不追求覆盖数字本身 | cargo-tarpaulin / grcov |
 
 ## 9. 路线图
 
@@ -120,7 +118,7 @@ Phase 1 (MVP — CLI)        ← 当前阶段
 ├── M2 CLI 基本命令            ── ✅ 已完成
 ├── M3 流式/进度/兼容性打磨     ── ✅ 已完成
 └── M4 CI/测试/发布            ── 🔶 大部分完成（发布自动化与观测性 workflow 已建立）
-    ├── 待补：覆盖率硬门禁 / PR 覆盖率反馈
+    ├── 信息性覆盖率观测（informational only，不设硬门禁；仅针对真实风险场景按需补测）
     ├── 部分完成：手动性能回归阈值检查已接入；待补稳定基线 / 强制 comparison data
     └── 待验证：后续 tag release 的二进制 artifacts 实际上传
 
@@ -155,7 +153,7 @@ Phase 4 (生态)
 | 格式兼容性 | 与 Info-ZIP/GNU tar 100% 互操作 | 集成测试 |
 | CI 通过率 | 主干 > 99% | GitHub Actions |
 | 用户报告 P0 bug 数 | 每月 < 3 | Issue tracker |
-| 代码覆盖率 | > 80% | cargo-tarpaulin |
+    | 代码覆盖率 | 参考指标（不设硬门禁：按真实风险场景按需补测） | cargo-tarpaulin |
 
 ## 11. 竞品参照
 

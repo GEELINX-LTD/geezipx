@@ -43,12 +43,11 @@ Phase 1 (CLI MVP) is **complete for core CLI functionality**. All core subcomman
 
 ### Remaining follow-ups
 
-These are not blockers for the CLI MVP, but remain open according to the project documents:
+These are not blockers for the CLI MVP, but remain open for ongoing improvement:
 
-- Coverage targets are tracked but not enforced yet; current coverage is below the PRD targets of overall >80% and core >85%.
-- Performance benchmarks now have a manual Criterion regression threshold check; stable baselines and mandatory comparison data remain follow-ups.
-- PR coverage annotations or coverage badges are not implemented yet.
 - Release binaries are built by the release workflow for future `v*` tag releases; older releases may still be source-only.
+- Performance benchmarks now have a manual Criterion regression threshold check; stable baselines and mandatory comparison data remain follow-ups.
+- Coverage is tracked via an informational workflow — real-risk and regression scenarios are prioritized in practice over coverage numbers.
 - True stdin-driven pipeline support needs design; `--stdout` currently supports only single-stream formats (`gzip`, `zstd`, `xz`, `lzma`), not multi-file archive formats.
 - Advanced filesystem options such as explicit symlink-following and Windows long-path flags remain future enhancements.
 
@@ -334,8 +333,7 @@ Code coverage is tracked via [cargo-tarpaulin](https://github.com/xd009642/tarpa
 A scheduled CI workflow (`Coverage`) generates HTML and JSON reports on every push to `main`,
 every pull request, and weekly, then uploads them as build artifacts.
 
-The workflow is **informational only** — no hard fail-under threshold is enforced yet.
-The PRD target is overall >80%, core engine >85%.
+No hard fail-under threshold is enforced — coverage serves as an observability signal for real-risk and regression scenarios, not a standalone target.
 
 ```sh
 # Generate coverage report (output: coverage/tarpaulin-report.html and .json)

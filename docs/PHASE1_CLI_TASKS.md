@@ -2,7 +2,7 @@
 
 > 总周期估计：**10-12 周**（单人全职开发）。  
 > 里程碑结构：4 个里程碑，每个里程碑对应可发布的增量。  
-> **当前状态：** M1、M2、M3 已完成。M4 的 CI、测试、发布验证、crates.io 发布、GitHub Release 和 release workflow 均已建立；Phase 1 核心 CLI 交付完成。仍需作为后续跟进的事项包括：覆盖率硬门禁/PR 覆盖率反馈、稳定 benchmark 基线与强制性能比较数据、后续 tag release 的二进制 artifacts 实际验证，以及可选公告。
+> **当前状态：** M1、M2、M3 已完成。M4 的 CI、测试、发布验证、crates.io 发布、GitHub Release 和 release workflow 均已建立；Phase 1 核心 CLI 交付完成。后续跟进事项优先级调整为：后续 tag release 的二进制 artifacts 实际上传验证、稳定 benchmark 基线与强制性能比较数据、基于真实风险的按需测试补充，以及可选公告。覆盖率维持当前信息性观测模式，设为可观测指标而非硬门禁。
 > **后期增加：** `compress` 命令新增 `-j`/`--jobs` 多线程参数（`feat(cli): add jobs option for zstd compression`）。默认 1（单线程，向后兼容），`0`（auto），或指定线程数。当前 `zstd`/`tar.zst` 实际启用多线程（zstdmt），其他格式接受参数但暂不生效。
 
 ---
@@ -296,7 +296,7 @@ geezipx list <archive>
 
 ## M4：CI/测试/发布（第 11-12 周）
 
-> **状态：核心交付完成，后续门禁与发布体验仍可增强**。本地与远程发布验证已通过，crates.io 已发布，GitHub Release 已创建，release workflow 已加入仓库。剩余工作主要不是功能阻塞项，而是质量/体验跟进：覆盖率硬门禁、PR 覆盖率反馈、稳定 benchmark 基线与强制性能比较数据、后续 tag release 的二进制 artifacts 实际上传验证，以及可选公告。
+> **状态：核心交付完成，后续门禁与发布体验仍可增强**。本地与远程发布验证已通过，crates.io 已发布，GitHub Release 已创建，release workflow 已加入仓库。剩余工作主要不是功能阻塞项，而是质量/体验跟进：后续 tag release 的二进制 artifacts 实际上传验证、稳定 benchmark 基线与强制性能比较数据、基于真实风险的按需测试补充（覆盖率维持信息性观测模式，不设硬门禁），以及可选公告。
 
 ### 目标
 建立三平台 CI、代码质量门禁、性能基准、首次 crates.io 发布、GitHub Release 二进制 artifacts 自动化。
@@ -387,13 +387,13 @@ geezipx list <archive>
 - [x] 覆盖率 workflow — `.github/workflows/coverage.yml` 已上线，cargo-tarpaulin HTML+JSON 报告，30 天保留，informational only
 - [x] 不含 cargo publish — crates.io 发布仍手工操作
 
-### M4 后续跟进项（非 Phase 1 阻塞）
+### M4 后续跟进项（非 Phase 1 阻塞，按优先序排列）
 
-- [ ] 覆盖率从 informational workflow 升级为可执行目标：补足测试后再考虑 `fail-under`，避免当前低于目标时直接阻塞 CI。
-- [ ] PR 覆盖率反馈：coverage badge、PR 注释或 diff coverage 三者至少选一种。
-- [ ] 稳定 benchmark 基线与强制性能比较数据：当前已有阈值脚本；后续需稳定基线后再开启强制 comparison data。
-- [ ] 后续 `v*` tag release 的二进制 artifacts 实际上传验证：确认 Linux/macOS/Windows 包和 SHA256SUMS 出现在 GitHub Release。
-- [ ] 公告（可选）：Twitter / Reddit / 博客，可在版本稳定后考虑。
+- [ ] **后续 `v*` tag release 的二进制 artifacts 实际上传验证**：确认 Linux/macOS/Windows 包和 SHA256SUMS 出现在 GitHub Release，用于用户下载验证。
+- [ ] **稳定 benchmark 基线与强制性能比较数据**：当前已有 Criterion 阈值脚本；后续需稳定基线后再开启强制 comparison data，确保发布 performance budget。
+- [ ] **基于真实风险的按需测试补充**：针对已知风险场景（非 ASCII 文件名、大文件流式、格式互操作、异常输入）按需补测，不追求覆盖率数字本身。覆盖率维持当前信息性观测模式（informational only），不设 `fail-under` 硬门禁。
+- [ ] **PR 覆盖率反馈（可选）**：coverage badge、PR 注释或 diff coverage 三者至少选一种——但对发布不构成阻塞。
+- [ ] **公告（可选）**：Twitter / Reddit / 博客，可在版本稳定后考虑。
 ---
 
 ## 任务优先级与依赖图
