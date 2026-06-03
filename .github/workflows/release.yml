@@ -106,6 +106,9 @@ jobs:
           fi
           echo "" >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Normalize checksum line endings
+        run: find release-assets -name '*.sha256' -print0 | xargs -0 sed -i 's/\r$//'
+
       - name: Generate combined SHA256SUMS
         run: |
           cat release-assets/*.sha256 | sort -k2 > SHA256SUMS
@@ -196,6 +199,9 @@ jobs:
           pattern: geezipx-*
           merge-multiple: true
           path: release-assets
+
+      - name: Normalize checksum line endings
+        run: find release-assets -name '*.sha256' -print0 | xargs -0 sed -i 's/\r$//'
 
       - name: Generate combined SHA256SUMS
         run: |
