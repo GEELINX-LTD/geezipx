@@ -9,6 +9,12 @@ on:
     tags:
       - "v*"
   workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Manual artifact dry-run; GitHub Release creation requires v* tag push"
+        type: boolean
+        default: true
+        required: true
 
 permissions:
   contents: read
@@ -78,9 +84,109 @@ jobs:
           if-no-files-found: error
           retention-days: 3
 
+  consolidate:
+    name: Consolidate and Verify Artifacts
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: geezipx-*
+          merge-multiple: true
+          path: release-assets
+
+      - name: Build context
+        run: |
+          echo "## Build Context" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Trigger**: ${{ github.event_name }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Ref**: ${{ github.ref }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Ref type**: ${{ github.ref_type }}" >> "$GITHUB_STEP_SUMMARY"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "- **Dry run**: ${{ inputs.dry_run }}" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Generate combined SHA256SUMS
+        run: |
+          cat release-assets/*.sha256 | sort -k2 > SHA256SUMS
+          echo "### SHA256SUMS" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          cat SHA256SUMS >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Verify artifact integrity
+        shell: bash
+        run: |
+          set -euo pipefail
+          errors=0
+          cd release-assets
+
+          expected_archives=(
+            "geezipx-linux-x86_64.tar.gz"
+            "geezipx-macos-x86_64.tar.gz"
+            "geezipx-windows-x86_64.zip"
+          )
+
+          echo "### Artifact Check" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+
+          for archive in "${expected_archives[@]}"; do
+            if [ ! -f "$archive" ]; then
+              echo "::error::Missing archive: $archive"
+              echo "- ❌ **$archive** — MISSING" >> "$GITHUB_STEP_SUMMARY"
+              errors=$((errors + 1))
+            else
+              size=$(stat --format=%s "$archive")
+              # Sanity warning only: release binaries are expected to be well above 100 KiB.
+              if [ "$size" -lt 102400 ]; then
+                echo "::warning::Archive $archive is only ${size} bytes (may be too small)"
+                echo "- ⚠️ **$archive** — ${size} bytes (below 100 KB threshold)" >> "$GITHUB_STEP_SUMMARY"
+              else
+                echo "- ✅ **$archive** — ${size} bytes" >> "$GITHUB_STEP_SUMMARY"
+              fi
+
+              sha256_file="${archive}.sha256"
+              if [ -f "$sha256_file" ]; then
+                checksum_log="../${archive}.sha256.check.log"
+                if shasum -c "$sha256_file" > "$checksum_log" 2>&1; then
+                  echo "  - Checksum: ✅ verified" >> "$GITHUB_STEP_SUMMARY"
+                else
+                  echo "  - Checksum: ❌ MISMATCH" >> "$GITHUB_STEP_SUMMARY"
+                  echo "  - Checksum output:" >> "$GITHUB_STEP_SUMMARY"
+                  echo '    ```text' >> "$GITHUB_STEP_SUMMARY"
+                  sed 's/^/    /' "$checksum_log" >> "$GITHUB_STEP_SUMMARY"
+                  echo '    ```' >> "$GITHUB_STEP_SUMMARY"
+                  cat "$checksum_log"
+                  errors=$((errors + 1))
+                fi
+              else
+                echo "  - Checksum: ❌ missing .sha256 file" >> "$GITHUB_STEP_SUMMARY"
+                errors=$((errors + 1))
+              fi
+            fi
+          done
+
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$errors" -gt 0 ]; then
+            echo "### Result: ❌ $errors issue(s) found" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          else
+            echo "### Result: ✅ All checks passed" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload SHA256SUMS
+        uses: actions/upload-artifact@v7
+        with:
+          name: SHA256SUMS
+          path: SHA256SUMS
+          if-no-files-found: error
+          retention-days: 90
+
   release:
     name: Create Release
-    needs: build
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: consolidate
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -93,7 +199,7 @@ jobs:
 
       - name: Generate combined SHA256SUMS
         run: |
-          cat release-assets/*.sha256 | sort > SHA256SUMS
+          cat release-assets/*.sha256 | sort -k2 > SHA256SUMS
 
       - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v2

@@ -359,6 +359,16 @@ cargo test --workspace --all-features && \
 cargo build --release --workspace
 ```
 
+### Release Artifact Dry-Run
+
+Before tagging a release, you can trigger the [Release workflow](.github/workflows/release.yml)
+manually via **workflow_dispatch** with `dry_run: true` (default). This builds, packages,
+and verifies artifacts across all three platforms without creating a GitHub Release,
+allowing you to catch build issues before pushing a `v*` tag.
+
+The workflow job summary includes artifact integrity checks (presence, size, SHA256)
+and the combined `SHA256SUMS` file.
+
 ---
 
 ## Roadmap

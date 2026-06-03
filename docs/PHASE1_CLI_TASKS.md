@@ -362,15 +362,17 @@ geezipx list <archive>
 ### M4-7：GitHub Release 二进制 artifacts workflow ✅
 
 - **实际文件**：`.github/workflows/release.yml`
-- **触发条件**：`v*` 标签 push 或手动 workflow_dispatch
+- **触发条件**：`v*` 标签 push 创建 Release；`workflow_dispatch`（带 `dry_run` input，默认 true）仅验证
 - **构建矩阵**：
   - `ubuntu-latest` → `geezipx-linux-x86_64.tar.gz` + `.sha256`
   - `macos-latest` → `geezipx-macos-x86_64.tar.gz` + `.sha256`
   - `windows-latest` → `geezipx-windows-x86_64.zip` + `.sha256`
-- **发布 job**：下载所有构建产物，合并生成 `SHA256SUMS`，通过 `softprops/action-gh-release@v2` 上传至 GitHub Release
+- **consolidate job**（始终运行）：下载 artifacts → 生成 `SHA256SUMS` → 验证完整性（archive 存在、大小、SHA256）→ 上传 `SHA256SUMS` 为 workflow artifact
+- **release job**（仅 `v*` tag push 时运行）：下载 artifacts → 重新生成 `SHA256SUMS` → 通过 `softprops/action-gh-release@v2` 上传至 GitHub Release
+  - `fail_on_unmatched_files: true`，任何 artifact 缺失将导致 job 失败
 - **权限**：全局 `contents: read`，release job 单独 `contents: write`
 - **不包含**：`cargo publish`（发布 crates.io 仍手工执行）
-- **注意**：工作流已加入仓库，将在后续 `v*` tag push 时自动触发。当前已发布版本无二进制 artifacts。
+- **注意**：workflow_dispatch 默认 dry-run，不会创建 GitHub Release；开发者可通过 Actions 页面触发以提前验证 artifact 完整性。consolidate job 的 SHA256SUMS 作为 workflow artifact 上传（保留 90 天），便于审计。
 
 ### M4 里程碑检查清单
 

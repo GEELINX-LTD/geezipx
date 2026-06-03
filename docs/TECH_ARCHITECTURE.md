@@ -322,19 +322,29 @@ Jobs (串行依赖):
 
 独立工作流 `.github/workflows/release.yml`，专注于发布构建产物：
 
-- **触发**：`v*` 标签 push 或手动 `workflow_dispatch`
+- **触发**：`v*` 标签 push（创建 Release）或手动 `workflow_dispatch`（默认 dry-run，仅验证）
+- **手动触发**（`workflow_dispatch`）：
+  - 默认 `dry_run: true`：构建三平台 artifacts、验证完整性、生成 `SHA256SUMS`，**不创建 GitHub Release**
+  - 可设置 `dry_run: false`：构建和验证行为相同，仍不会创建 Release（仅 tag push 创建 Release）
 - **权限**：全局 `contents: read`，release job 单独 `contents: write`
 - **三平台构建**：
   - `ubuntu-latest` → `geezipx-linux-x86_64.tar.gz` + `.sha256`
   - `macos-latest` → `geezipx-macos-x86_64.tar.gz` + `.sha256`
   - `windows-latest` → `geezipx-windows-x86_64.zip` + `.sha256`
-- **校验**：每个 artifact 附带 `shasum -a 256`（Unix）或 `Get-FileHash`（Windows）生成的 `.sha256` 文件
-- **汇总**：release job 合并所有平台 `.sha256` 为单个 `SHA256SUMS`
-- **上传**：使用 `softprops/action-gh-release@v2` 将包、独立校验文件和汇总校验文件全部上传至 GitHub Release
-- **draft/prerelease**：均设为 `false`（正式 release）
+- **consolidate job**（始终运行）：
+  - 下载所有平台 artifacts
+  - 合并 `.sha256` 为 `SHA256SUMS`，输出至 `$GITHUB_STEP_SUMMARY`
+  - 验证三平台 archive 存在、大小 > 100 KB、SHA256 校验通过
+  - 上传 `SHA256SUMS` 作为 workflow artifact（保留 90 天）
+- **release job**（仅 `v*` tag push 时运行）：
+  - 使用 `softprops/action-gh-release@v2` 将 `.tar.gz`、`.zip`、`.sha256` 和 `SHA256SUMS` 上传至 GitHub Release
+  - `draft` / `prerelease`：均设为 `false`（正式 release）
+  - `fail_on_unmatched_files: true`：任何 artifact 缺失将导致 job 失败
 - **不包含**：`cargo publish`（crates.io 发布仍手工操作）
 
-> 工作流文件已加入仓库，将在后续 `v*` 标签 push 时自动触发。当前已发布版本（v0.x）无二进制 artifacts。
+> `workflow_dispatch` / `dry-run` 可用于在实际发布前验证 artifacts 完整性，
+> 避免 tag push 后才发现构建失败。artifact 完整性检查分两层执行：
+> consolidate job 手动校验存在性、大小和 checksum；release job 使用 `fail_on_unmatched_files: true` 防止遗漏上传。
 
 ## 8. Tauri 后续接入方式（Phase 3 占位）
 
