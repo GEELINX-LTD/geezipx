@@ -113,4 +113,41 @@ mod tests {
         };
         assert!(opts.effective_jobs() >= 1, "jobs=0 should yield >=1");
     }
+
+    #[test]
+    fn level_returns_option_level_field() {
+        // Should return None when no level is set
+        let opts = CompressOptions {
+            level: None,
+            jobs: None,
+        };
+        assert_eq!(opts.level(), None);
+
+        // Should return Some when level is set
+        let opts = CompressOptions {
+            level: Some(6),
+            jobs: None,
+        };
+        assert_eq!(opts.level(), Some(6));
+    }
+
+    #[test]
+    fn with_level_builder_sets_and_returns_self() {
+        let opts = CompressOptions::default()
+            .with_level(Some(9))
+            .with_jobs(Some(4));
+
+        assert_eq!(opts.level, Some(9));
+        // jobs should not be affected by with_level
+        assert_eq!(opts.jobs, Some(4));
+    }
+
+    #[test]
+    fn with_jobs_builder_sets_and_returns_self() {
+        let opts = CompressOptions::default().with_jobs(Some(4));
+
+        assert_eq!(opts.effective_jobs(), 4);
+        // level should not be affected by with_jobs
+        assert_eq!(opts.level, None);
+    }
 }

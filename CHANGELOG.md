@@ -27,6 +27,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Corrupted XZ/LZMA files fail gracefully on decompress without panic
   - CLI integration coverage now includes 135 tests, adding XZ/LZMA edge cases and corrupted-input checks for remaining formats.
 
+- **Core compression options and zstd configuration coverage**:
+  - `CompressOptions::level()` returns `Some` / `None` correctly
+  - `with_level()` / `with_jobs()` builder methods correctly set their own field
+    without affecting the other field
+  - `zstd_compress_with_options` round-trip with explicit level 9
+  - `zstd_compress_with_options` multi-threaded (2 workers) round-trip
+
 ## [0.2.1] - 2026-06-02
 
 ### Added

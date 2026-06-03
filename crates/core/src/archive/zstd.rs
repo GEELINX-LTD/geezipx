@@ -285,4 +285,72 @@ mod tests {
             "expected zstd/io error for truncated zstd stream, got: {err}"
         );
     }
+
+    #[test]
+    fn zstd_compress_with_options_roundtrip() {
+        let original = b"GeeZipX zstd compress_with_options test.";
+        let mut source = Cursor::new(original.as_slice());
+
+        let options = crate::config::CompressOptions {
+            level: Some(9),
+            jobs: None,
+        };
+
+        let compressed = {
+            let mut buf = Vec::new();
+            zstd_compress_with_options(&mut source, &mut buf, options).unwrap();
+            buf
+        };
+
+        assert!(
+            !compressed.is_empty(),
+            "compressed output should not be empty"
+        );
+        assert_eq!(
+            compressed[..4],
+            [0x28, 0xB5, 0x2F, 0xFD],
+            "zstd magic expected"
+        );
+
+        let mut decompressed = Vec::new();
+        let mut compressed_reader = Cursor::new(compressed.as_slice());
+        let bytes = zstd_decompress(&mut compressed_reader, &mut decompressed).unwrap();
+
+        assert_eq!(bytes, original.len() as u64);
+        assert_eq!(decompressed, original);
+    }
+
+    #[test]
+    fn zstd_compress_with_options_multi_threaded() {
+        let original = b"GeeZipX multi-threaded zstd compression test.";
+        let mut source = Cursor::new(original.as_slice());
+
+        let options = crate::config::CompressOptions {
+            level: None,
+            jobs: Some(2),
+        };
+
+        let compressed = {
+            let mut buf = Vec::new();
+            zstd_compress_with_options(&mut source, &mut buf, options).unwrap();
+            buf
+        };
+
+        assert!(
+            !compressed.is_empty(),
+            "compressed output should not be empty"
+        );
+        assert_eq!(
+            compressed[..4],
+            [0x28, 0xB5, 0x2F, 0xFD],
+            "zstd magic expected"
+        );
+
+        let mut decompressed = Vec::new();
+        let mut compressed_reader = Cursor::new(compressed.as_slice());
+        let bytes = zstd_decompress(&mut compressed_reader, &mut decompressed).unwrap();
+
+        assert_eq!(bytes, original.len() as u64);
+        assert_eq!(decompressed, original);
+    }
 }
