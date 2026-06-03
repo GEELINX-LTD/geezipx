@@ -126,7 +126,7 @@ pub struct ProgressEvent {
 
 ```rust
 pub enum ArchiveFormat {
-    Zip, Tar, Gzip, TarGz, TarZst, Xz, Lzma, Zstd, Unknown,
+    Zip, Tar, Gzip, TarGz, TarZst, TarXz, Xz, Lzma, Zstd, Unknown,
 }
 
 pub fn detect_format(reader: &mut dyn Read) -> Result<ArchiveFormat>;

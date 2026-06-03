@@ -42,11 +42,11 @@ GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开�
 | 特性 | 说明 | 状态 |
 |------|------|------|
 | 格式支持 | `.tar.gz`, `.tgz`, `.zip`, `.tar`, `.gz`, `.tar.zst`, `.tzst`, `.zst`, `.zstd`, `.tar.xz`, `.txz`, `.xz`, `.lzma`（读/写） | **已完成** (9 格式) |
-| 流式处理 | 文件流读写，内存占用与文件大小解耦 | **未完成** (M3) |
-| 进度显示 | 进度条，支持 `--progress` / `--no-progress` | **未完成** (M3) |
+| 流式处理 | 文件流读写，内存占用与文件大小解耦 | **已完成** |
+| 进度显示 | 进度条，支持 `--progress` / `--no-progress` | **已完成** |
 | 格式自动检测 | 根据文件魔数（magic bytes）自动检测归档格式 | **已完成** |
 | 压缩级别 | `--level 0-9`（gzip/tar.gz/xz/lzma/tar.xz）；`--level 0-22`（zstd/tar.zst） | **已完成** |
-7f0|| 多线程压缩 | zstd/tar.zst 支持 `-j`/`--jobs` 多线程并行（zstd native NbWorkers）；其他格式接受参数但暂不生效 | **已完成**（post-Phase-1 增强） |
+| 多线程压缩 | zstd/tar.zst 支持 `-j`/`--jobs` 多线程并行（zstd native NbWorkers）；其他格式接受参数但暂不生效 | **已完成**（post-Phase-1 增强） |
 | 标准管道 | `--stdout` 支持 gzip/zstd/xz/lzma 单流解压到标准输出；tar.gz/tar.zst/tar.xz 等多文件归档使用 `--stdout` 时报错 | **已完成** |
 | 递归操作 | `-r` 递归添加目录，保持目录结构 | **已完成** |
 | 覆盖保护 | `--no-clobber` / `--force` 覆盖策略 | **已完成** |

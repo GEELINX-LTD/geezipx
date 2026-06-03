@@ -510,8 +510,8 @@ pub(crate) fn check_entry_path_safety(
 /// Counting writer wrapper that tracks total bytes written through a
 /// writer chain.
 ///
-/// Used internally by [`TarWriter`](super::tar::TarWriter) and
-/// [`TarGzWriter`](super::targz::TarGzWriter).
+/// Used internally by [`TarWriter`](crate::archive::tar::TarWriter) and
+/// [`TarGzWriter`](crate::archive::targz::TarGzWriter).
 pub(crate) struct CountWriter<W> {
     pub(crate) inner: W,
     pub(crate) count: u64,

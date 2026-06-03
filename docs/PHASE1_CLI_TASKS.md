@@ -74,7 +74,7 @@
 - [x] `cargo build` 全线通过
 - [x] `cargo test -p geezipx-core` 全部通过
 - [x] `cargo clippy --all-targets` 零 warning
-- [ ] `cargo doc --no-deps` 能生成文档（未验证）
+- [x] `cargo doc --no-deps` 能生成文档（已验证通过）
 - [x] 项目 README 骨架已更新
 
 ---
@@ -308,6 +308,7 @@ geezipx list <archive>
   - **Build**：三平台矩阵，`cargo build --release` + artifact 上传（`actions/upload-artifact@v7`，保留 7 天）
   - **Interop**：`ubuntu-latest` 运行 `scripts/check-interop.sh`，依赖 clippy+test+build 通过
   - **Streaming Smoke**：`ubuntu-latest` 运行 `cargo test -p geezipx --test streaming_smoke -- --test-threads=1 --ignored`，依赖 clippy+test 通过；覆盖 16 MiB gzip + 32 MiB tar.gz 流式 round-trip
+  - **Doc**：`ubuntu-latest` 运行 `cargo doc --no-deps --document-private-items`，`RUSTDOCFLAGS=-D warnings`，依赖 fmt 通过
   - **Audit**：独立 `deny.yml` 工作流，使用 `EmbarkStudios/cargo-deny-action@v2`，`v*` 标签 push + 手动触发
   - **缓存**：所有 step 均启用 `cache: true`（`actions-rust-lang/setup-rust-toolchain@v1` 内置）
   - **Rust 版本**：`channel = "stable"`（跟踪最新 stable，当前 1.96），无固定 MSRV 矩阵
