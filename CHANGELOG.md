@@ -15,7 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - XZ/LZMA `compress --no-progress` suppresses ANSI escape codes on stderr
   - XZ/LZMA `compress -v` prints input filename on stderr
   - Corrupted XZ/LZMA files fail gracefully on decompress without panic
-  - CLI integration tests grew from 119 to 129
+  - CLI integration coverage now includes 135 tests, adding XZ/LZMA edge cases and corrupted-input checks for remaining formats.
 
 ## [0.2.1] - 2026-06-02
 

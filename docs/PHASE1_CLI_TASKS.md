@@ -146,7 +146,7 @@ geezipx list <archive>
 - **与原计划差异**：已新增压缩率和修改时间列（commit d82600d）。gzip 条目未知原始大小/修改时间时，表格显示 `-`，JSON 输出 `null`
 
 ### M2-5：CLI 集成测试 ✅
-- **实际文件**：`crates/cli/tests/cli_integration.rs`（129 个集成测试）
+- **实际文件**：`crates/cli/tests/cli_integration.rs`（135 个集成测试）
 - **工具**：`assert_cmd` + `predicates` + `tempfile`
 - **场景覆盖**：
   - 各子命令 `--help` 可用性
@@ -168,14 +168,16 @@ geezipx list <archive>
 |  - XZ / LZMA `--force` 覆盖已有输出
 |  - XZ / LZMA `compress --no-progress` stderr 不含 ANSI escape
 |  - XZ / LZMA `compress -v` stderr 含输入文件名
-- **验收标准**：`cargo test --workspace --all-features` 全部通过（384 tests passed；CLI lib 11 + CLI integration 129 + core 244）
+  - 损坏 GZIP / ZSTD 单流输入优雅报错（无 panic）
+  - 损坏 TAR / TAR.GZ / TAR.ZST / TAR.XZ 容器输入优雅报错（无 panic）
+- **验收标准**：`cargo test --workspace --all-features` 全部通过。总计 394 个测试列示（390 passed, 4 ignored）。子项分布：CLI lib 11、CLI integration 135、core lib 244、core doc-test 2（ignored）、streaming smoke 2（ignored）
 - **与原计划差异**：尚未包含与系统 `tar`/`unzip` 的互操作测试（已在 M3-5 中补充）、尚未包含大文件冒烟测试（100 MB+）；轻量流式冒烟测试已新增为 CI `streaming-smoke` job（16 MiB 单流 gzip round-trip + 32 MiB tar.gz 递归 round-trip），标记 `#[ignore]` 不拖慢默认测试。
 
 ### M2 里程碑检查清单
 - [x] `geezipx compress` / `decompress` / `list` 三个子命令可用
 - [x] ZIP 和 tar.gz 双向 round-trip 通过
 - [x] 自动格式检测工作
-- [x] 集成测试覆盖主要场景（129 个测试）
+- [x] 集成测试覆盖主要场景（135 个测试）
 - [x] `cargo build --release` 生成稳定二进制
 
 ---

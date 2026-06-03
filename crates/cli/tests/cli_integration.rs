@@ -4344,3 +4344,421 @@ fn recursive_directory_tarzst_roundtrip_preserves_empty_dirs() {
         "nested content"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Corrupted input tests for remaining formats
+// ---------------------------------------------------------------------------
+
+#[test]
+fn corrupted_gzip_graceful_error() {
+    let tmp = TestDir::new();
+    tmp.write("good.txt", "Original data for valid gzip.");
+    let archive = tmp.join("good.txt.gz");
+
+    // Create a valid gzip archive first.
+    geezipx()
+        .args([
+            "compress",
+            tmp.join("good.txt").to_str().unwrap(),
+            "-f",
+            "gz",
+            "-o",
+            archive.to_str().unwrap(),
+            "--no-progress",
+        ])
+        .assert()
+        .success();
+
+    assert!(archive.exists(), "gzip archive should exist");
+
+    // Corrupt the archive: overwrite with garbage bytes.
+    std::fs::write(&archive, b"CORRUPTEDGARBAGE").unwrap();
+
+    // list on corrupted data succeeds for single-stream formats because
+    // the entry list is synthetic (file metadata derived); decoding does not run.
+    // We still verify list doesn't panic.
+    let list_output = geezipx()
+        .args(["list", archive.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(
+        !String::from_utf8_lossy(&list_output.stderr).contains("panicked"),
+        "list should not panic on corrupted gzip"
+    );
+
+    // decompress should fail gracefully (not panic).
+    let output_dir = tmp.join("extracted");
+    std::fs::create_dir_all(&output_dir).unwrap();
+    let decompress_output = geezipx()
+        .args([
+            "decompress",
+            archive.to_str().unwrap(),
+            "-o",
+            output_dir.to_str().unwrap(),
+            "--no-progress",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        !decompress_output.status.success(),
+        "decompress should fail on corrupted gzip"
+    );
+    let stderr2 = String::from_utf8_lossy(&decompress_output.stderr);
+    assert!(
+        !stderr2.contains("panicked"),
+        "decompress should not panic on corrupted gzip: {stderr2}"
+    );
+    assert!(
+        !stderr2.is_empty(),
+        "decompress should report error on stderr for corrupted gzip"
+    );
+}
+
+#[test]
+fn corrupted_zstd_graceful_error() {
+    let tmp = TestDir::new();
+    tmp.write("good.txt", "Original data for valid zstd.");
+    let archive = tmp.join("good.txt.zst");
+
+    // Create a valid zstd archive first (auto-detect from .zst extension).
+    geezipx()
+        .args([
+            "compress",
+            tmp.join("good.txt").to_str().unwrap(),
+            "-o",
+            archive.to_str().unwrap(),
+            "--no-progress",
+        ])
+        .assert()
+        .success();
+
+    assert!(archive.exists(), "zstd archive should exist");
+
+    // Corrupt the archive: overwrite with garbage bytes.
+    std::fs::write(&archive, b"CORRUPTEDGARBAGE").unwrap();
+
+    // list on corrupted data succeeds for single-stream formats because
+    // the entry list is synthetic (file metadata derived); decoding does not run.
+    // We still verify list doesn't panic.
+    let list_output = geezipx()
+        .args(["list", archive.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(
+        !String::from_utf8_lossy(&list_output.stderr).contains("panicked"),
+        "list should not panic on corrupted zstd"
+    );
+
+    // decompress should fail gracefully (not panic).
+    let output_dir = tmp.join("extracted");
+    std::fs::create_dir_all(&output_dir).unwrap();
+    let decompress_output = geezipx()
+        .args([
+            "decompress",
+            archive.to_str().unwrap(),
+            "-o",
+            output_dir.to_str().unwrap(),
+            "--no-progress",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        !decompress_output.status.success(),
+        "decompress should fail on corrupted zstd"
+    );
+    let stderr2 = String::from_utf8_lossy(&decompress_output.stderr);
+    assert!(
+        !stderr2.contains("panicked"),
+        "decompress should not panic on corrupted zstd: {stderr2}"
+    );
+    assert!(
+        !stderr2.is_empty(),
+        "decompress should report error on stderr for corrupted zstd"
+    );
+}
+
+#[test]
+fn corrupted_tar_graceful_error() {
+    let tmp = TestDir::new();
+    tmp.write("good.txt", "Original data for valid tar.");
+    let archive = tmp.join("good.tar");
+
+    // Create a valid tar archive first.
+    geezipx()
+        .args([
+            "compress",
+            tmp.join("good.txt").to_str().unwrap(),
+            "-f",
+            "tar",
+            "-o",
+            archive.to_str().unwrap(),
+            "--no-progress",
+        ])
+        .assert()
+        .success();
+
+    assert!(archive.exists(), "tar archive should exist");
+
+    // Corrupt the archive: overwrite with garbage bytes.
+    std::fs::write(&archive, b"CORRUPTEDGARBAGE").unwrap();
+
+    // list should fail gracefully (not panic).
+    let list_output = geezipx()
+        .args(["list", archive.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(
+        !list_output.status.success(),
+        "list should fail on corrupted tar"
+    );
+    let stderr = String::from_utf8_lossy(&list_output.stderr);
+    assert!(
+        !stderr.contains("panicked"),
+        "list should not panic on corrupted tar: {stderr}"
+    );
+    assert!(
+        !stderr.is_empty(),
+        "list should report error on stderr for corrupted tar"
+    );
+
+    // decompress should also fail gracefully (not panic).
+    let output_dir = tmp.join("extracted");
+    std::fs::create_dir_all(&output_dir).unwrap();
+    let decompress_output = geezipx()
+        .args([
+            "decompress",
+            archive.to_str().unwrap(),
+            "-o",
+            output_dir.to_str().unwrap(),
+            "--no-progress",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        !decompress_output.status.success(),
+        "decompress should fail on corrupted tar"
+    );
+    let stderr2 = String::from_utf8_lossy(&decompress_output.stderr);
+    assert!(
+        !stderr2.contains("panicked"),
+        "decompress should not panic on corrupted tar: {stderr2}"
+    );
+    assert!(
+        !stderr2.is_empty(),
+        "decompress should report error on stderr for corrupted tar"
+    );
+}
+
+#[test]
+fn corrupted_targz_graceful_error() {
+    let tmp = TestDir::new();
+    tmp.write("good.txt", "Original data for valid tar.gz.");
+    let archive = tmp.join("good.tar.gz");
+
+    // Create a valid tar.gz archive first.
+    geezipx()
+        .args([
+            "compress",
+            tmp.join("good.txt").to_str().unwrap(),
+            "-f",
+            "tar.gz",
+            "-o",
+            archive.to_str().unwrap(),
+            "--no-progress",
+        ])
+        .assert()
+        .success();
+
+    assert!(archive.exists(), "tar.gz archive should exist");
+
+    // Corrupt the archive: overwrite with garbage bytes.
+    std::fs::write(&archive, b"CORRUPTEDGARBAGE").unwrap();
+
+    // list should fail gracefully (not panic).
+    let list_output = geezipx()
+        .args(["list", archive.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(
+        !list_output.status.success(),
+        "list should fail on corrupted tar.gz"
+    );
+    let stderr = String::from_utf8_lossy(&list_output.stderr);
+    assert!(
+        !stderr.contains("panicked"),
+        "list should not panic on corrupted tar.gz: {stderr}"
+    );
+    assert!(
+        !stderr.is_empty(),
+        "list should report error on stderr for corrupted tar.gz"
+    );
+
+    // decompress should also fail gracefully (not panic).
+    let output_dir = tmp.join("extracted");
+    std::fs::create_dir_all(&output_dir).unwrap();
+    let decompress_output = geezipx()
+        .args([
+            "decompress",
+            archive.to_str().unwrap(),
+            "-o",
+            output_dir.to_str().unwrap(),
+            "--no-progress",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        !decompress_output.status.success(),
+        "decompress should fail on corrupted tar.gz"
+    );
+    let stderr2 = String::from_utf8_lossy(&decompress_output.stderr);
+    assert!(
+        !stderr2.contains("panicked"),
+        "decompress should not panic on corrupted tar.gz: {stderr2}"
+    );
+    assert!(
+        !stderr2.is_empty(),
+        "decompress should report error on stderr for corrupted tar.gz"
+    );
+}
+
+#[test]
+fn corrupted_tarzst_graceful_error() {
+    let tmp = TestDir::new();
+    tmp.write("good.txt", "Original data for valid tar.zst.");
+    let archive = tmp.join("good.tar.zst");
+
+    // Create a valid tar.zst archive first.
+    geezipx()
+        .args([
+            "compress",
+            tmp.join("good.txt").to_str().unwrap(),
+            "-f",
+            "tar.zst",
+            "-o",
+            archive.to_str().unwrap(),
+            "--no-progress",
+        ])
+        .assert()
+        .success();
+
+    assert!(archive.exists(), "tar.zst archive should exist");
+
+    // Corrupt the archive: overwrite with garbage bytes.
+    std::fs::write(&archive, b"CORRUPTEDGARBAGE").unwrap();
+
+    // list should fail gracefully (not panic).
+    let list_output = geezipx()
+        .args(["list", archive.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(
+        !list_output.status.success(),
+        "list should fail on corrupted tar.zst"
+    );
+    let stderr = String::from_utf8_lossy(&list_output.stderr);
+    assert!(
+        !stderr.contains("panicked"),
+        "list should not panic on corrupted tar.zst: {stderr}"
+    );
+    assert!(
+        !stderr.is_empty(),
+        "list should report error on stderr for corrupted tar.zst"
+    );
+
+    // decompress should also fail gracefully (not panic).
+    let output_dir = tmp.join("extracted");
+    std::fs::create_dir_all(&output_dir).unwrap();
+    let decompress_output = geezipx()
+        .args([
+            "decompress",
+            archive.to_str().unwrap(),
+            "-o",
+            output_dir.to_str().unwrap(),
+            "--no-progress",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        !decompress_output.status.success(),
+        "decompress should fail on corrupted tar.zst"
+    );
+    let stderr2 = String::from_utf8_lossy(&decompress_output.stderr);
+    assert!(
+        !stderr2.contains("panicked"),
+        "decompress should not panic on corrupted tar.zst: {stderr2}"
+    );
+    assert!(
+        !stderr2.is_empty(),
+        "decompress should report error on stderr for corrupted tar.zst"
+    );
+}
+
+#[test]
+fn corrupted_tarxz_graceful_error() {
+    let tmp = TestDir::new();
+    tmp.write("good.txt", "Original data for valid tar.xz.");
+    let archive = tmp.join("good.tar.xz");
+
+    // Create a valid tar.xz archive first.
+    geezipx()
+        .args([
+            "compress",
+            tmp.join("good.txt").to_str().unwrap(),
+            "-o",
+            archive.to_str().unwrap(),
+            "--no-progress",
+        ])
+        .assert()
+        .success();
+
+    assert!(archive.exists(), "tar.xz archive should exist");
+
+    // Corrupt the archive: overwrite with garbage bytes.
+    std::fs::write(&archive, b"CORRUPTEDGARBAGE").unwrap();
+
+    // list should fail gracefully (not panic).
+    let list_output = geezipx()
+        .args(["list", archive.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(
+        !list_output.status.success(),
+        "list should fail on corrupted tar.xz"
+    );
+    let stderr = String::from_utf8_lossy(&list_output.stderr);
+    assert!(
+        !stderr.contains("panicked"),
+        "list should not panic on corrupted tar.xz: {stderr}"
+    );
+    assert!(
+        !stderr.is_empty(),
+        "list should report error on stderr for corrupted tar.xz"
+    );
+
+    // decompress should also fail gracefully (not panic).
+    let output_dir = tmp.join("extracted");
+    std::fs::create_dir_all(&output_dir).unwrap();
+    let decompress_output = geezipx()
+        .args([
+            "decompress",
+            archive.to_str().unwrap(),
+            "-o",
+            output_dir.to_str().unwrap(),
+            "--no-progress",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        !decompress_output.status.success(),
+        "decompress should fail on corrupted tar.xz"
+    );
+    let stderr2 = String::from_utf8_lossy(&decompress_output.stderr);
+    assert!(
+        !stderr2.contains("panicked"),
+        "decompress should not panic on corrupted tar.xz: {stderr2}"
+    );
+    assert!(
+        !stderr2.is_empty(),
+        "decompress should report error on stderr for corrupted tar.xz"
+    );
+}
