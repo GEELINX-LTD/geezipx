@@ -133,6 +133,9 @@ jobs:
 
   bench-regression:
     needs: test
+    # Advisory: GitHub-hosted runners have noisy benchmark variance.
+    # Failures here do not block PRs.
+    continue-on-error: true
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
