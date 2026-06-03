@@ -280,12 +280,13 @@ Reader(File) → ProgressReader → Decompress → ProgressWriter → File
 |------|---------|
 | 路径分隔符 | 内部统一使用 `/`，写入时转换为平台分隔符 `Path::join` |
 | 文件权限 | 仅 Linux/macOS 保存执行位；Windows 忽略，GUI 阶段加 ACL 映射 |
-| 符号链接 | 默认跳过，`--follow-symlinks` 跟踪；Windows 需启用 SeCreateSymbolicLinkPrivilege |
-| 长路径 (Windows) | 默认开启 `\\?\` 前缀；可选 `--win-longpaths` |
-| 文件名非法字符 | Windows 替换 `\ / : * ? " < > |` 为 `_`，其他平台保留 |
+| 符号链接 | 当前默认按普通路径处理/跳过高风险场景；显式 `--follow-symlinks` 仍属后续增强 |
+| 长路径 (Windows) | 必须持续验证；显式 `--win-longpaths` CLI 开关仍属后续增强 |
+| 文件名非法字符 | Windows 下应替换 `\\ / : * ? " < > |` 为 `_`，其他平台保留；实现需通过测试覆盖确认 |
 | 时间戳 & 时区 | 统一使用 UTC 存储，恢复时使用平台系统时间 |
 | 字符编码 | 归档内文件名 UTF-8；CP437 ZIP 兼容转换 |
 
+> 当前 CLI 尚未暴露 `--follow-symlinks` 或 `--win-longpaths` 等高级文件系统开关。上述策略是跨平台设计目标；未暴露的开关应作为 Phase 2+ 增强或在文档中保持明确限制。
 ## 6. 测试策略
 
 | 层级 | 工具 | 内容 |

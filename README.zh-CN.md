@@ -32,14 +32,25 @@
 
 ## 项目状态
 
-第一阶段（CLI MVP）**已完成**。`compress`、`decompress`、`list`、`completions` 四个子命令对九种支持格式均正常工作。
+第一阶段（CLI MVP）的**核心 CLI 功能已完成**。`compress`、`decompress`、`list`、`completions` 四个子命令对当前支持格式均正常工作。
 
 | 里程碑 | 主题 | 状态 |
 |--------|------|------|
 | M1 | 项目骨架 + 核心引擎库 | 已完成 |
 | M2 | CLI 基本命令 | 已完成 |
 | M3 | 流式处理 / 进度 / 打磨 | 已完成 |
-| M4 | CI / 测试 / 发布 | 大部分完成（发布就绪） |
+| M4 | CI / 测试 / 发布 | 大部分完成（发布自动化和质量工作流已建立） |
+
+### 后续待办
+
+这些不是 CLI MVP 的阻塞项，但仍是文档中明确提到的后续工作：
+
+- 覆盖率已追踪但尚未作为硬门禁；当前覆盖率低于 PRD 目标（整体 >80%、core >85%）。
+- Criterion 基准已建立，但尚未配置自动性能回归阈值。
+- PR 覆盖率注释、coverage badge 或 diff coverage 反馈尚未实现。
+- Release workflow 已能为后续 `v*` tag 自动构建二进制；历史 release 可能仍只有源码包，需要逐个 release 页面确认。
+- 真正的 stdin 管道输入仍需设计；当前 `--stdout` 仅支持 gzip/zstd/xz/lzma 单流格式，不支持 tar.gz/tar.zst/tar.xz 等多文件归档。
+- 显式符号链接跟踪、Windows 长路径开关等高级文件系统选项仍属于后续增强。
 
 详细任务拆解参见 [`docs/PHASE1_CLI_TASKS.md`](docs/PHASE1_CLI_TASKS.md)。
 
@@ -66,7 +77,7 @@ cargo install geezipx
 
 ### 预构建二进制
 
-每个 [GitHub Release](https://github.com/GEELINX-LTD/geezipx/releases) 均提供预编译二进制：
+包含预构建产物的 release 会使用以下文件名：
 
 | 平台 | 文件 |
 |------|------|
@@ -85,7 +96,7 @@ tar -xzf geezipx-linux-x86_64.tar.gz
 sudo mv geezipx /usr/local/bin/
 ```
 
-> **注意：** 从后续 release 开始，二进制文件将自动上传至 Releases 页面。v0.2.0 仅提供 crates.io 和 GitHub 源码。
+> **注意：** Release workflow 已配置为在后续 `v*` tag release 自动上传预构建二进制。历史 release 可能仍只有源码包；请以具体 GitHub Release 页面为准。
 
 ### 前置条件
 
@@ -244,7 +255,7 @@ geezipx/
 │           └── signal.rs   # Ctrl+C 取消处理
 ├── docs/                   # 产品与架构文档
 ├── scripts/                # 构建、CI 和互操作测试脚本
-├── tests/                  # 集成测试
+├── crates/cli/tests/       # CLI 集成测试和流式 smoke 测试
 ├── .github/workflows/      # CI、审计和基准测试工作流
 ├── deny.toml               # cargo-deny 安全审计配置
 └── .rust-toolchain.toml    # Rust 工具链固定
@@ -372,6 +383,9 @@ cargo build --release --workspace
 - 分卷压缩
 - 7z 只读支持
 - RAR 只读支持
+- tar.gz、zip、xz 等更多格式的多线程压缩
+- 面向脚本场景的真正 stdin 管道输入
+- 自动性能回归阈值门禁
 
 ### 第三阶段（桌面 GUI）— 未来
 

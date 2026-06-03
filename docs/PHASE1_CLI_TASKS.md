@@ -2,7 +2,7 @@
 
 > 总周期估计：**10-12 周**（单人全职开发）。  
 > 里程碑结构：4 个里程碑，每个里程碑对应可发布的增量。  
-> **当前状态：** M1、M2、M3 已完成。M4 本地与远程发布验证全部通过（详见附录检查表）。`geezipx-core` 和 `geezipx` 均已发布至 crates.io，GitHub Release v0.1.0 已创建。远端 CI 三平台全线绿色，crates.io 页面渲染确认正常，Phase 1 发布验证已完成。
+> **当前状态：** M1、M2、M3 已完成。M4 的 CI、测试、发布验证、crates.io 发布、GitHub Release 和 release workflow 均已建立；Phase 1 核心 CLI 交付完成。仍需作为后续跟进的事项包括：覆盖率硬门禁/PR 覆盖率反馈、自动性能回归阈值、后续 tag release 的二进制 artifacts 实际验证，以及可选公告。
 > **后期增加：** `compress` 命令新增 `-j`/`--jobs` 多线程参数（`feat(cli): add jobs option for zstd compression`）。默认 1（单线程，向后兼容），`0`（auto），或指定线程数。当前 `zstd`/`tar.zst` 实际启用多线程（zstdmt），其他格式接受参数但暂不生效。
 
 ---
@@ -14,7 +14,7 @@
 | M1 | 项目骨架 + 核心引擎库 | 第 1-4 周 | `geezipx-core` lib crate，zip/tar/gz 基础读写 | **已完成** |
 | M2 | CLI 基本命令 | 第 5-7 周 | `geezipx` binary，三个子命令可用 | **已完成** |
 || M3 | 流式/进度/兼容性打磨 | 第 8-10 周 | 进度条、管道、格式检测、跨平台测试 | **已完成** |
-| M4 | CI/测试/发布 | 第 11-12 周 | CI 全线通过、crates.io 发布、覆盖率追踪、文档站 | 大部分完成 |
+| M4 | CI/测试/发布 | 第 11-12 周 | CI 全线通过、crates.io 发布、覆盖率追踪、GitHub Release workflow | 大部分完成（核心交付完成，剩余为后续门禁/验证项） |
 
 ---
 
@@ -290,7 +290,7 @@ geezipx list <archive>
 
 ## M4：CI/测试/发布（第 11-12 周）
 
-> **状态：本地与远程发布验证全部通过**。所有 A 组验证项 PASS（fmt/clippy/test/build/bench/interop/CLI 冒烟/cargo install）。crates.io 已发布 `geezipx-core` 和 `geezipx` v0.1.0；GitHub Release 已创建。GitHub Release 二进制 artifacts workflow 已加入（`.github/workflows/release.yml`），tag push 自动构建三平台二进制并上传至 Releases。CI 远端状态与 crates.io 页面渲染均已确认。
+> **状态：核心交付完成，后续门禁与发布体验仍可增强**。本地与远程发布验证已通过，crates.io 已发布，GitHub Release 已创建，release workflow 已加入仓库。剩余工作主要不是功能阻塞项，而是质量/体验跟进：覆盖率硬门禁、PR 覆盖率反馈、自动性能回归阈值、后续 tag release 的二进制 artifacts 实际上传验证，以及可选公告。
 
 ### 目标
 建立三平台 CI、代码质量门禁、性能基准、首次 crates.io 发布、GitHub Release 二进制 artifacts 自动化。
@@ -376,6 +376,13 @@ geezipx list <archive>
 - [x] 覆盖率 workflow — `.github/workflows/coverage.yml` 已上线，cargo-tarpaulin HTML+JSON 报告，30 天保留，informational only
 - [x] 不含 cargo publish — crates.io 发布仍手工操作
 
+### M4 后续跟进项（非 Phase 1 阻塞）
+
+- [ ] 覆盖率从 informational workflow 升级为可执行目标：补足测试后再考虑 `fail-under`，避免当前低于目标时直接阻塞 CI。
+- [ ] PR 覆盖率反馈：coverage badge、PR 注释或 diff coverage 三者至少选一种。
+- [ ] 自动性能回归阈值：在 Criterion 基线稳定后，为关键压缩/解压路径设置阈值。
+- [ ] 后续 `v*` tag release 的二进制 artifacts 实际上传验证：确认 Linux/macOS/Windows 包和 SHA256SUMS 出现在 GitHub Release。
+- [ ] 公告（可选）：Twitter / Reddit / 博客，可在版本稳定后考虑。
 ---
 
 ## 任务优先级与依赖图

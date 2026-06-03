@@ -94,8 +94,9 @@ GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开�
 - 显示：文件名、原始大小、压缩后大小、压缩率、修改时间
 
 ### FR-6: 流式管道
-- 支持 stdin/stdout 作为输入输出
-- `geezipx decompress --stdout < archive.tar.gz | tar xf -`
+- 当前已支持：`--stdout` 将 gzip/zstd/xz/lzma 等**单流格式**解压到标准输出，便于脚本串联。
+- 当前限制：tar.gz、tar.zst、tar.xz、zip、tar 等**多文件归档**使用 `--stdout` 会报错；CLI 仍要求显式传入归档路径，真正 stdin 输入管道仍需设计。
+- 后续方向：在不破坏多文件归档语义的前提下，设计 stdin 输入、tar stream 输出或显式 pipe 子命令。
 
 ## 8. 非功能需求（Non-Functional Requirements）
 
@@ -109,6 +110,8 @@ GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开�
 | 错误信息质量 | 用户无需查手册即可理解错误 | 人工审查 |
 | 代码覆盖率 | 核心引擎 > 85%，整体 > 80%（当前基线：overall ~74%，core archive ~64%）。当前 workflow 为信息性观测（informational only），优先补真实高风险/回归路径而非追求覆盖数字 | cargo-tarpaulin / grcov |
 
+> 注：覆盖率和性能目前更偏“观测性”而非硬门禁。后续应优先补真实高风险路径与回归路径，再决定是否引入 fail-under 或性能阈值。
+
 ## 9. 路线图
 
 ```
@@ -116,13 +119,17 @@ Phase 1 (MVP — CLI)        ← 当前阶段
 ├── M1 项目骨架 + 核心引擎库    ── ✅ 已完成
 ├── M2 CLI 基本命令            ── ✅ 已完成
 ├── M3 流式/进度/兼容性打磨     ── ✅ 已完成
-└── M4 CI/测试/发布            ── 🔶 大部分完成（覆盖率追踪已启用）
+└── M4 CI/测试/发布            ── 🔶 大部分完成（发布自动化与观测性 workflow 已建立）
+    ├── 待补：覆盖率硬门禁 / PR 覆盖率反馈
+    ├── 待补：自动性能回归阈值
+    └── 待验证：后续 tag release 的二进制 artifacts 实际上传
 
 Phase 2 (CLI 增强)
 ├── 读取 7z（只读）、RAR（只读）
-├── 多线程压缩（zstd 原生已支持 `-j`/`--jobs`；tar.gz/zip/xz 等多线程待加入）
 ├── 分卷压缩
 ├── 密码加密 ZIP (AES-256)
+├── tar.gz/zip/xz 等更多格式的多线程压缩
+├── 真正 stdin 管道输入 / 更完整的脚本集成
 └── 性能吞吐优化
 
 Phase 3 (Tauri GUI)

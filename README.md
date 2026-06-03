@@ -32,14 +32,25 @@
 
 ## Status
 
-Phase 1 (CLI MVP) is **complete**. All core subcommands (`compress`, `decompress`, `list`, `completions`) work for the nine supported formats.
+Phase 1 (CLI MVP) is **complete for core CLI functionality**. All core subcommands (`compress`, `decompress`, `list`, `completions`) work for the supported formats.
 
 | Milestone | Theme | Status |
 |-----------|-------|--------|
 | M1 | Project skeleton + core engine library | Done |
 | M2 | CLI basic commands | Done |
 | M3 | Streaming / progress / polish | Done |
-| M4 | CI / testing / release | Mostly done (release-ready) |
+| M4 | CI / testing / release | Mostly done (release automation and quality workflows are in place) |
+
+### Remaining follow-ups
+
+These are not blockers for the CLI MVP, but remain open according to the project documents:
+
+- Coverage targets are tracked but not enforced yet; current coverage is below the PRD targets of overall >80% and core >85%.
+- Performance benchmarks exist, but there is no automatic regression threshold/gate yet.
+- PR coverage annotations or coverage badges are not implemented yet.
+- Release binaries are built by the release workflow for future `v*` tag releases; older releases may still be source-only.
+- True stdin-driven pipeline support needs design; `--stdout` currently supports only single-stream formats (`gzip`, `zstd`, `xz`, `lzma`), not multi-file archive formats.
+- Advanced filesystem options such as explicit symlink-following and Windows long-path flags remain future enhancements.
 
 See [`docs/PHASE1_CLI_TASKS.md`](docs/PHASE1_CLI_TASKS.md) for the full task breakdown.
 
@@ -67,7 +78,7 @@ cargo install geezipx
 
 ### Pre-built binaries
 
-Pre-compiled binaries are available for each [GitHub Release](https://github.com/GEELINX-LTD/geezipx/releases):
+For releases that include pre-built artifacts, binaries use the following names:
 
 | Platform | Artifact |
 |----------|----------|
@@ -86,7 +97,7 @@ tar -xzf geezipx-linux-x86_64.tar.gz
 sudo mv geezipx /usr/local/bin/
 ```
 
-> **Note:** Starting from a future release, binaries will be uploaded to the Releases page. The v0.2.0 release only provides source via crates.io and GitHub.
+> **Note:** The release workflow is configured to upload pre-built binaries for future `v*` tag releases. Existing releases may be source-only; check the specific GitHub Release page for available artifacts.
 
 ### Prerequisites
 
@@ -247,7 +258,7 @@ geezipx/
 │           └── signal.rs   # Ctrl+C cancellation
 ├── docs/                   # Product & architecture documentation
 ├── scripts/                # Build, CI, and interoperability test scripts
-├── tests/                  # Integration tests
+├── crates/cli/tests/       # CLI integration and streaming smoke tests
 ├── .github/workflows/      # CI, audit, and benchmark workflows
 ├── deny.toml               # cargo-deny configuration
 └── .rust-toolchain.toml    # Rust toolchain pin
@@ -358,7 +369,7 @@ cargo build --release --workspace
 
 All core features are implemented and verified:
 
-- [x] ZIP / TAR / TAR.GZ / TAR.ZST / GZIP / ZST read/write
+- [x] ZIP / TAR / TAR.GZ / TAR.ZST / TAR.XZ / GZIP / ZSTD / XZ / LZMA read/write
 - [x] Streaming I/O with bounded memory usage
 - [x] Progress bars with indicatif
 - [x] Ctrl+C graceful cancellation
@@ -367,7 +378,7 @@ All core features are implemented and verified:
 - [x] Zip Slip path traversal protection
 - [x] Shell completions (5 shells)
 - [x] `list --json` machine-readable output
-- [x] 200+ tests (unit + integration + interop)
+- [x] 300+ tests (unit + integration + interop + streaming smoke)
 - [x] 3-platform CI (Linux/macOS/Windows)
 - [x] cargo-deny security audit
 - [x] Criterion benchmarks
@@ -375,14 +386,18 @@ All core features are implemented and verified:
 
 > **Note**: Zstandard (zst/zstd) and TarZst (tar.zst/tzst) read/write were added after Phase 1 milestones as early Phase 2 format extensions folded back into the MVP.
 
-### Phase 2 (CLI Enhancements) — Planned
+### Phase 2 (CLI Enhancements) — Planned / Partially Done
 
-- Multi-threaded zstd/tar.zst compression via `-j`/`--jobs` (zstd native NbWorkers) — **done** (see `compress --help`)
-- xz / LZMA read/write
+- Multi-threaded zstd/tar.zst compression via `-j`/`--jobs` (zstd native NbWorkers) — **done**
+- XZ / LZMA read/write — **done**
+- TAR.ZST / TAR.XZ archive read/write — **done**
 - Encrypted ZIP (AES-256)
 - Volume-split archives
 - 7z read-only support
 - RAR read-only support
+- Multi-threading for additional formats such as tar.gz, zip, and xz where practical
+- True stdin pipeline support for script-heavy workflows
+- Automatic performance regression thresholds
 
 ### Phase 3 (Desktop GUI) — Future
 
