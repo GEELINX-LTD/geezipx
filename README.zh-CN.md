@@ -14,24 +14,25 @@
 
 ## 特性
 
-- **多格式支持** -- ZIP、TAR、TAR.GZ/TGZ、GZIP/GZ（读写）
+- **多格式支持** -- ZIP、TAR、TAR.GZ/TGZ、TAR.ZST/TZST、TAR.XZ/TXZ、GZIP/GZ、Zstandard/ZST、XZ、LZMA（读写）
 - **流式 I/O** -- 大文件处理内存可控
 - **实时进度条** -- 显示速度、预计完成时间、逐文件状态
 - **取消安全** -- Ctrl+C 优雅退出，自动清理未完成文件；双击强制退出
 - **格式自动检测** -- 魔数字节识别 + 扩展名回退
-- **压缩级别** -- `--level 0-9`，gzip/tar.gz 生效
+- **压缩级别** -- gzip/tar.gz/xz/lzma/tar.xz 支持 `--level 0-9`；zstd/tar.zst 支持 `--level 0-22`
 - **覆盖控制** -- `--no-clobber` 跳过已有文件，`--force` 强制覆盖
 - **Zip Slip 防护** -- 所有归档格式防护路径穿越攻击
 - **JSON 输出** -- `list --json` 机器可读格式
 - **Shell 补全** -- bash、zsh、fish、PowerShell、elvish
 - **跨平台** -- Linux、macOS、Windows（三平台 CI）
 - **单一二进制** -- 无运行时依赖，`cargo install` 即装即用
+- **多线程压缩** -- zstd 和 tar.zst 支持 `-j`/`--jobs` 并行压缩
 
 ---
 
 ## 项目状态
 
-第一阶段（CLI MVP）**已完成**。`compress`、`decompress`、`list`、`completions` 四个子命令对四种格式均正常工作。
+第一阶段（CLI MVP）**已完成**。`compress`、`decompress`、`list`、`completions` 四个子命令对九种支持格式均正常工作。
 
 | 里程碑 | 主题 | 状态 |
 |--------|------|------|
@@ -110,6 +111,24 @@ geezipx decompress hello.zip
 # gzip 解压到 stdout
 geezipx decompress hello.txt.gz --stdout > output.txt
 
+# 使用 zstandard 压缩
+geezipx compress hello.txt -f zst -o hello.txt.zst
+
+# 多线程 zstd 压缩（4 个 worker）
+geezipx compress hello.txt -f zst -o hello.txt.zst -j 4
+
+# 内建 glob 展开（压缩 src/ 下所有 .rs 文件）
+geezipx compress src/**/*.rs -f tar.gz -o src-rs.tar.gz
+
+# 递归压缩目录为 tar.zst
+geezipx compress mydir -r -f tar.zst -o mydir.tar.zst
+
+# 解压 tar.zst 归档
+geezipx decompress mydir.tar.zst
+
+# 查看 tar.zst 归档内容
+geezipx list mydir.tar.zst
+
 # 解压到指定目录
 geezipx decompress archive.tar.gz -o /tmp/out
 
@@ -146,9 +165,10 @@ geezipx compress <输入文件...> -o <输出文件> [选项]
 | 选项 | 说明 |
 |------|------|
 | `-o`, `--output` | 输出文件路径 **（必填）** |
-| `-f`, `--format` | 格式：`zip`、`tar`、`tar.gz`、`tgz`、`gz`、`gzip`（省略时从扩展名推断，默认 zip） |
+| `-f`, `--format` | 格式：`zip`、`tar`、`tar.gz`、`tgz`、`gz`、`gzip`、`tar.zst`、`tzst`、`zst`、`zstd`、`tar.xz`、`txz`、`xz`、`lzma`（省略时从扩展名推断，默认 zip） |
 | `-r`, `--recursive` | 递归添加目录 |
-| `-L`, `--level` | 压缩级别 0-9（仅 gzip/tar.gz，默认 6） |
+| `-L`, `--level` | 压缩级别 0-9（gzip/tar.gz/xz/tar.xz，默认 6）；0-22（zstd/zst/tar.zst/tzst，默认使用 zstd 默认级别） |
+| `-j`, `--jobs` | Worker 线程数：1（默认，单线程）、0（自动使用全部 CPU）或 N（显式指定）。当前仅对 zstd/tar.zst 生效；其他格式接受但暂不使用，便于向前兼容 |
 
 ### `decompress` — 解压归档
 
@@ -161,7 +181,7 @@ geezipx decompress <归档文件> [选项]
 | 选项 | 说明 |
 |------|------|
 | `-o`, `--output-dir` | 输出目录（默认：当前目录） |
-| `--stdout` | 解压到 stdout（仅 gzip；多文件归档会报错） |
+| `--stdout` | 解压到 stdout（仅 gzip/zstd/xz/lzma 单流格式；tar.gz、tar.zst、tar.xz 等多文件归档会报错） |
 | `--no-clobber` | 跳过已存在的文件 |
 | `--force` | 覆盖已存在的文件（默认行为；与 `--no-clobber` 互斥） |
 
@@ -212,7 +232,8 @@ geezipx/
 ├── crates/
 │   ├── core/               # 压缩/解压缩核心引擎库
 │   │   └── src/
-│   │       ├── archive/    # ZIP、TAR、TAR.GZ、GZIP 格式实现
+│   │       ├── archive/    # ZIP、TAR、TAR.GZ、TAR.ZST、TAR.XZ、GZIP、ZSTD、XZ、LZMA 等格式实现
+│   │       ├── config.rs   # 压缩选项（CompressOptions、--jobs/--level）
 │   │       ├── detect.rs   # 格式检测（魔数字节 + 扩展名）
 │   │       ├── error.rs    # 统一错误类型（GeeZipError）
 │   │       └── io.rs       # 流式 I/O 封装（ProgressReader 等）
@@ -275,8 +296,8 @@ cargo fmt --all --check
 # 运行 clippy（严格模式）
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 
-# 生成文档
-cargo doc --no-deps
+# 生成文档并将 rustdoc warning 视为错误
+RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --document-private-items
 ```
 
 ### 运行基准测试
@@ -301,6 +322,11 @@ bash scripts/check-interop.sh
 GEEZIPX_INTEROP_STRESS=1 bash scripts/check-interop.sh
 ```
 
+```sh
+# CI 专用流式 smoke（默认 cargo test 不运行，需显式 --ignored）
+cargo test -p geezipx --test streaming_smoke -- --test-threads=1 --ignored
+```
+
 ### Release 构建验证
 
 ```sh
@@ -308,6 +334,7 @@ GEEZIPX_INTEROP_STRESS=1 bash scripts/check-interop.sh
 cargo fmt --all --check && \
 cargo clippy --workspace --all-targets --all-features -- -D warnings && \
 cargo test --workspace --all-features && \
+RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --document-private-items && \
 cargo build --release --workspace
 ```
 
@@ -319,7 +346,7 @@ cargo build --release --workspace
 
 核心功能已全部实现并验证：
 
-- [x] ZIP / TAR / TAR.GZ / GZIP 读写
+- [x] ZIP / TAR / TAR.GZ / TAR.ZST / TAR.XZ / GZIP / ZSTD / XZ / LZMA 读写
 - [x] 流式 I/O，内存占用可控
 - [x] indicatif 进度条
 - [x] Ctrl+C 优雅取消
@@ -328,17 +355,19 @@ cargo build --release --workspace
 - [x] Zip Slip 路径穿越防护
 - [x] Shell 补全（5 种 shell）
 - [x] `list --json` 机器可读输出
-- [x] 200+ 测试（单元 + 集成 + 互操作）
+- [x] 300+ 测试（单元 + 集成 + 互操作 + 流式 smoke）
 - [x] 三平台 CI（Linux/macOS/Windows）
 - [x] cargo-deny 安全审计
+- [x] Streaming smoke 与 rustdoc warning CI 守卫
 - [x] Criterion 基准测试
 - [x] **crates.io 发布**
 
-### 第二阶段（CLI 增强）— 规划中
+### 第二阶段（CLI 增强）— 部分已完成 / 规划中
 
 - zstd/tar.zst 多线程压缩（`-j`/`--jobs`，zstd 原生 NbWorkers）— **已完成**
-- xz / LZMA 读写
-- Zstandard 读写
+- xz / LZMA 读写 — **已完成**
+- Zstandard 读写 — **已完成**
+- tar.zst / tar.xz 归档格式读写 — **已完成**
 - 加密 ZIP（AES-256）
 - 分卷压缩
 - 7z 只读支持
@@ -373,7 +402,8 @@ GeeZipX 遵循 [XDG 基础目录规范](https://specifications.freedesktop.org/b
 1. 全部测试通过：`cargo test --workspace --all-features`
 2. Clippy 零警告：`cargo clippy --workspace --all-targets --all-features -- -D warnings`
 3. 代码格式正确：`cargo fmt --all --check`
-4. 如果变更影响公共 API 或 CLI 行为，同步更新文档
+4. 文档检查通过：`RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --document-private-items`
+5. 如果变更影响公共 API 或 CLI 行为，同步更新文档
 
 ---
 

@@ -16,7 +16,7 @@ geezipx/
 │   │       ├── detect.rs      # 格式自动检测（魔数 + 扩展名）
 │   │       ├── error.rs       # 统一错误类型
 │   │       └── io.rs          # 流式读/写/计数/进度封装
-32d|│   │       ├── config.rs     # 压缩配置（CompressOptions, level + jobs 统一传递）
+│   │       ├── config.rs     # 压缩配置（CompressOptions, level + jobs 统一传递）
 │   └── cli/                   # CLI 二进制 — clap + 进度渲染
 │       ├── Cargo.toml
 │       └── src/

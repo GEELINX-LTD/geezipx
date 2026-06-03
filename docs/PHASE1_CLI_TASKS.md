@@ -102,9 +102,8 @@ geezipx compress <inputs...>
 geezipx decompress <archive>
   -o, --output-dir <PATH>        # 输出目录 (default: .)
   --stdout                       # 解压到 stdout（仅 gzip/zstd/xz/lzma 单流；tar.gz/tar.zst/tar.xz 等多文件归档时报错）
-d05|
-f8e:  --no-clobber                   # 跳过已存在的输出文件
-f8e:  --force                        # 覆盖已存在的输出文件（默认行为）
+  --no-clobber                   # 跳过已存在的输出文件
+  --force                        # 覆盖已存在的输出文件（默认行为）
 
 geezipx list <archive>
   -j, --json                     # JSON 格式输出

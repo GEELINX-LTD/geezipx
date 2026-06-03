@@ -26,7 +26,7 @@
 - **Shell completions** -- bash, zsh, fish, PowerShell, elvish
 - **Cross-platform** -- Linux, macOS, Windows (3-platform CI)
 - **Single binary** -- no runtime dependencies, `cargo install` ready
-b5d|- **Multi-threaded compression** -- `-j`/`--jobs` for parallel zstd and tar.zst compression
+- **Multi-threaded compression** -- `-j`/`--jobs` for parallel zstd and tar.zst compression
 
 ---
 
@@ -169,10 +169,10 @@ geezipx compress <inputs...> -o <output> [options]
 | Option | Description |
 |--------|-------------|
 | `-o`, `--output` | Output file path **(required)** |
-- `-f`, `--format` | Format: `zip`, `tar`, `tar.gz`, `tgz`, `gz`, `gzip`, `tar.zst`, `tzst`, `zst`, `zstd`, `tar.xz`, `txz` (inferred from extension if omitted, defaults to zip) |
+| `-f`, `--format` | Format: `zip`, `tar`, `tar.gz`, `tgz`, `gz`, `gzip`, `tar.zst`, `tzst`, `zst`, `zstd`, `tar.xz`, `txz`, `xz`, `lzma` (inferred from extension if omitted, defaults to zip) |
 | `-r`, `--recursive` | Recursively add directories |
 - `-L`, `--level` | Compression level 0-9 (gzip/tar.gz/xz/tar.xz, default: 6); 0-22 (zstd/zst/tar.zst/tzst, default: zstd default) |
-bd0|| `-j`, `--jobs` | Worker threads: 1 (default, single-threaded), 0 (auto, use all CPUs), or N (explicit). Currently effective for zstd/tar.zst only; other formats accept but ignore for forward compat |
+| `-j`, `--jobs` | Worker threads: 1 (default, single-threaded), 0 (auto, use all CPUs), or N (explicit). Currently effective for zstd/tar.zst only; other formats accept but ignore for forward compat |
 
 ### `decompress` — Extract archives
 
@@ -235,8 +235,8 @@ geezipx/
 ├── crates/
 │   ├── core/               # Compression/decompression engine library
 │   │   └── src/
-│   │       ├── archive/    # ZIP, TAR, TAR.GZ, GZIP format implementations
-b3a|│   │       ├── config.rs   # Compression options (CompressOptions, --jobs/--level)
+│   │       ├── archive/    # ZIP, TAR, TAR.GZ, TAR.ZST, TAR.XZ, GZIP, ZSTD, XZ, LZMA implementations
+│   │       ├── config.rs   # Compression options (CompressOptions, --jobs/--level)
 │   │       ├── detect.rs   # Format detection (magic bytes + extension)
 │   │       ├── error.rs    # Unified error types (GeeZipError)
 │   │       └── io.rs       # Streaming I/O wrappers (ProgressReader, etc.)
