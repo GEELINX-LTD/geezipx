@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Benchmark regression detection pipeline**:
+  - New `scripts/setup-bench-baseline.sh` downloads the Criterion baseline artifact
+    from the last successful `bench.yml` run on `main` via the GitHub CLI.
+  - `bench.yml` now runs automatically on push to `main` to refresh the baseline
+    artifact (in addition to the existing manual trigger).
+  - New `bench-regression` job in `ci.yml` downloads the baseline, runs benchmarks,
+    and checks regression thresholds using `scripts/check-bench-regression.sh`.
+  - Missing baseline is handled gracefully: when no prior run exists or `gh` is
+    unavailable, the download step is skipped and the regression check passes
+    without failure.
 - **CLI integration test coverage — XZ/LZMA single-stream formats**:
   - XZ/LZMA `--no-clobber` decompress skips existing output
   - XZ/LZMA `--force` decompress overwrites existing output

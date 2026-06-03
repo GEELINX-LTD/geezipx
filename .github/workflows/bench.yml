@@ -1,6 +1,9 @@
 name: Benchmark
 
 on:
+  push:
+    branches:
+      - main
   workflow_dispatch:
     inputs:
       bench_filter:
@@ -39,6 +42,7 @@ jobs:
             cargo bench -p geezipx-core
           fi
       - name: Check benchmark regression threshold
+        if: github.event_name == 'workflow_dispatch'
         env:
           GEEZIPX_BENCH_MAX_REGRESSION_PERCENT: ${{ inputs.max_regression_percent }}
           GEEZIPX_BENCH_REQUIRE_COMPARISON: ${{ inputs.require_comparison }}
