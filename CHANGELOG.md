@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`list` dangerous path warning**:
+  - `geezipx list` now detects archive entries with potentially unsafe paths
+    (absolute paths, `../` traversal, Windows UNC/device prefixes) and prints a
+    warning to stderr while still displaying the listing on stdout.
+  - The warning is informational only; listing succeeds regardless.
+  - JSON output (`--json`) is not affected on stdout — the warning goes to
+    stderr, keeping stdout valid JSON.
+
 ## [0.2.2] - 2026-06-03
 
 ### Added
