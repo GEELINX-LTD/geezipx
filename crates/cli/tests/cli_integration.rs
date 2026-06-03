@@ -3297,6 +3297,233 @@ fn xz_multiple_inputs_fails() {
 }
 
 // ---------------------------------------------------------------------------
+// XZ — no-clobber / force / progress / verbose / corrupted
+// ---------------------------------------------------------------------------
+
+#[test]
+fn xz_decompress_no_clobber_skips_existing() {
+    let tmp = TestDir::new();
+    tmp.write("hello.txt", "XZ no-clobber test.");
+    let archive = tmp.join("hello.txt.xz");
+
+    // Compress.
+    geezipx()
+        .args([
+            "compress",
+            tmp.join("hello.txt").to_str().unwrap(),
+            "-f",
+            "xz",
+            "-o",
+            archive.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    assert!(archive.exists(), "xz archive should exist");
+
+    let output_dir = tmp.join("out");
+    std::fs::create_dir_all(&output_dir).unwrap();
+
+    // First decompress (creates hello.txt).
+    geezipx()
+        .args([
+            "decompress",
+            archive.to_str().unwrap(),
+            "-o",
+            output_dir.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    // Modify the decompressed file.
+    std::fs::write(output_dir.join("hello.txt"), "MODIFIED").unwrap();
+
+    // Second decompress with --no-clobber should NOT overwrite.
+    geezipx()
+        .args([
+            "decompress",
+            archive.to_str().unwrap(),
+            "-o",
+            output_dir.to_str().unwrap(),
+            "--no-clobber",
+        ])
+        .assert()
+        .success();
+
+    assert_eq!(
+        std::fs::read_to_string(output_dir.join("hello.txt")).unwrap(),
+        "MODIFIED",
+        "--no-clobber should not overwrite existing xz output"
+    );
+}
+
+#[test]
+fn xz_decompress_force_overwrites_existing() {
+    let tmp = TestDir::new();
+    tmp.write("hello.txt", "XZ force test.");
+    let archive = tmp.join("hello.txt.xz");
+
+    geezipx()
+        .args([
+            "compress",
+            tmp.join("hello.txt").to_str().unwrap(),
+            "-f",
+            "xz",
+            "-o",
+            archive.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    assert!(archive.exists(), "xz archive should exist");
+
+    let output_dir = tmp.join("out");
+    std::fs::create_dir_all(&output_dir).unwrap();
+
+    // First decompress.
+    geezipx()
+        .args([
+            "decompress",
+            archive.to_str().unwrap(),
+            "-o",
+            output_dir.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    // Modify the decompressed file.
+    std::fs::write(output_dir.join("hello.txt"), "MODIFIED").unwrap();
+
+    // Decompress with --force: should overwrite.
+    geezipx()
+        .args([
+            "decompress",
+            archive.to_str().unwrap(),
+            "-o",
+            output_dir.to_str().unwrap(),
+            "--force",
+        ])
+        .assert()
+        .success();
+
+    // File content should be restored to original (overwritten).
+    assert_eq!(
+        std::fs::read_to_string(output_dir.join("hello.txt")).unwrap(),
+        "XZ force test.",
+        "--force should overwrite existing xz output"
+    );
+}
+
+#[test]
+fn xz_compress_no_progress_no_ansi() {
+    let tmp = TestDir::new();
+    tmp.write("input.txt", "XZ no-progress test.");
+    let archive = tmp.join("output.xz");
+
+    let output = geezipx()
+        .args([
+            "compress",
+            tmp.join("input.txt").to_str().unwrap(),
+            "-f",
+            "xz",
+            "-o",
+            archive.to_str().unwrap(),
+            "--no-progress",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    assert_no_ansi_escape(&output.stderr);
+}
+
+#[test]
+fn xz_compress_verbose_prints_filename() {
+    let tmp = TestDir::new();
+    tmp.write("input.txt", "XZ verbose test.");
+    let archive = tmp.join("output.xz");
+
+    geezipx()
+        .args([
+            "compress",
+            tmp.join("input.txt").to_str().unwrap(),
+            "-f",
+            "xz",
+            "-o",
+            archive.to_str().unwrap(),
+            "-v",
+        ])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("input.txt"));
+}
+
+#[test]
+fn corrupted_xz_graceful_error() {
+    let tmp = TestDir::new();
+    tmp.write("good.txt", "Original data for valid xz.");
+    let archive = tmp.join("good.txt.xz");
+
+    // Create a valid xz archive first.
+    geezipx()
+        .args([
+            "compress",
+            tmp.join("good.txt").to_str().unwrap(),
+            "-f",
+            "xz",
+            "-o",
+            archive.to_str().unwrap(),
+            "--no-progress",
+        ])
+        .assert()
+        .success();
+
+    assert!(archive.exists(), "xz archive should exist");
+
+    // Corrupt the archive: overwrite with garbage bytes.
+    std::fs::write(&archive, b"CORRUPTEDGARBAGE").unwrap();
+
+    // list on corrupted data succeeds for single-stream formats because
+    // the entry list is synthetic (file metadata derived); decoding does not run.
+    // We still verify list doesn't panic.
+    let list_output = geezipx()
+        .args(["list", archive.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(
+        !String::from_utf8_lossy(&list_output.stderr).contains("panicked"),
+        "list should not panic on corrupted xz"
+    );
+
+    // decompress should fail gracefully (not panic).
+    let output_dir = tmp.join("extracted");
+    std::fs::create_dir_all(&output_dir).unwrap();
+    let decompress_output = geezipx()
+        .args([
+            "decompress",
+            archive.to_str().unwrap(),
+            "-o",
+            output_dir.to_str().unwrap(),
+            "--no-progress",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        !decompress_output.status.success(),
+        "decompress should fail on corrupted xz"
+    );
+    let stderr2 = String::from_utf8_lossy(&decompress_output.stderr);
+    assert!(
+        !stderr2.contains("panicked"),
+        "decompress should not panic on corrupted xz: {stderr2}"
+    );
+    assert!(
+        !stderr2.is_empty(),
+        "decompress should report error on stderr for corrupted xz"
+    );
+}
+
+// ---------------------------------------------------------------------------
 // LZMA single-stream tests
 // ---------------------------------------------------------------------------
 
@@ -3430,6 +3657,233 @@ fn lzma_level_10_rejected() {
         .assert()
         .failure()
         .stderr(predicate::str::contains("0..=9"));
+}
+
+// ---------------------------------------------------------------------------
+// LZMA — no-clobber / force / progress / verbose / corrupted
+// ---------------------------------------------------------------------------
+
+#[test]
+fn lzma_decompress_no_clobber_skips_existing() {
+    let tmp = TestDir::new();
+    tmp.write("hello.txt", "LZMA no-clobber test.");
+    let archive = tmp.join("hello.txt.lzma");
+
+    // Compress.
+    geezipx()
+        .args([
+            "compress",
+            tmp.join("hello.txt").to_str().unwrap(),
+            "-f",
+            "lzma",
+            "-o",
+            archive.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    assert!(archive.exists(), "lzma archive should exist");
+
+    let output_dir = tmp.join("out");
+    std::fs::create_dir_all(&output_dir).unwrap();
+
+    // First decompress (creates hello.txt).
+    geezipx()
+        .args([
+            "decompress",
+            archive.to_str().unwrap(),
+            "-o",
+            output_dir.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    // Modify the decompressed file.
+    std::fs::write(output_dir.join("hello.txt"), "MODIFIED").unwrap();
+
+    // Second decompress with --no-clobber should NOT overwrite.
+    geezipx()
+        .args([
+            "decompress",
+            archive.to_str().unwrap(),
+            "-o",
+            output_dir.to_str().unwrap(),
+            "--no-clobber",
+        ])
+        .assert()
+        .success();
+
+    assert_eq!(
+        std::fs::read_to_string(output_dir.join("hello.txt")).unwrap(),
+        "MODIFIED",
+        "--no-clobber should not overwrite existing lzma output"
+    );
+}
+
+#[test]
+fn lzma_decompress_force_overwrites_existing() {
+    let tmp = TestDir::new();
+    tmp.write("hello.txt", "LZMA force test.");
+    let archive = tmp.join("hello.txt.lzma");
+
+    geezipx()
+        .args([
+            "compress",
+            tmp.join("hello.txt").to_str().unwrap(),
+            "-f",
+            "lzma",
+            "-o",
+            archive.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    assert!(archive.exists(), "lzma archive should exist");
+
+    let output_dir = tmp.join("out");
+    std::fs::create_dir_all(&output_dir).unwrap();
+
+    // First decompress.
+    geezipx()
+        .args([
+            "decompress",
+            archive.to_str().unwrap(),
+            "-o",
+            output_dir.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    // Modify the decompressed file.
+    std::fs::write(output_dir.join("hello.txt"), "MODIFIED").unwrap();
+
+    // Decompress with --force: should overwrite.
+    geezipx()
+        .args([
+            "decompress",
+            archive.to_str().unwrap(),
+            "-o",
+            output_dir.to_str().unwrap(),
+            "--force",
+        ])
+        .assert()
+        .success();
+
+    // File content should be restored to original (overwritten).
+    assert_eq!(
+        std::fs::read_to_string(output_dir.join("hello.txt")).unwrap(),
+        "LZMA force test.",
+        "--force should overwrite existing lzma output"
+    );
+}
+
+#[test]
+fn lzma_compress_no_progress_no_ansi() {
+    let tmp = TestDir::new();
+    tmp.write("input.txt", "LZMA no-progress test.");
+    let archive = tmp.join("output.lzma");
+
+    let output = geezipx()
+        .args([
+            "compress",
+            tmp.join("input.txt").to_str().unwrap(),
+            "-f",
+            "lzma",
+            "-o",
+            archive.to_str().unwrap(),
+            "--no-progress",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    assert_no_ansi_escape(&output.stderr);
+}
+
+#[test]
+fn lzma_compress_verbose_prints_filename() {
+    let tmp = TestDir::new();
+    tmp.write("input.txt", "LZMA verbose test.");
+    let archive = tmp.join("output.lzma");
+
+    geezipx()
+        .args([
+            "compress",
+            tmp.join("input.txt").to_str().unwrap(),
+            "-f",
+            "lzma",
+            "-o",
+            archive.to_str().unwrap(),
+            "-v",
+        ])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("input.txt"));
+}
+
+#[test]
+fn corrupted_lzma_graceful_error() {
+    let tmp = TestDir::new();
+    tmp.write("good.txt", "Original data for valid lzma.");
+    let archive = tmp.join("good.txt.lzma");
+
+    // Create a valid lzma archive first.
+    geezipx()
+        .args([
+            "compress",
+            tmp.join("good.txt").to_str().unwrap(),
+            "-f",
+            "lzma",
+            "-o",
+            archive.to_str().unwrap(),
+            "--no-progress",
+        ])
+        .assert()
+        .success();
+
+    assert!(archive.exists(), "lzma archive should exist");
+
+    // Corrupt the archive: overwrite with garbage bytes.
+    std::fs::write(&archive, b"CORRUPTEDGARBAGE").unwrap();
+
+    // list on corrupted data succeeds for single-stream formats because
+    // the entry list is synthetic (file metadata derived); decoding does not run.
+    // We still verify list doesn't panic.
+    let list_output = geezipx()
+        .args(["list", archive.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(
+        !String::from_utf8_lossy(&list_output.stderr).contains("panicked"),
+        "list should not panic on corrupted lzma"
+    );
+
+    // decompress should fail gracefully (not panic).
+    let output_dir = tmp.join("extracted");
+    std::fs::create_dir_all(&output_dir).unwrap();
+    let decompress_output = geezipx()
+        .args([
+            "decompress",
+            archive.to_str().unwrap(),
+            "-o",
+            output_dir.to_str().unwrap(),
+            "--no-progress",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        !decompress_output.status.success(),
+        "decompress should fail on corrupted lzma"
+    );
+    let stderr2 = String::from_utf8_lossy(&decompress_output.stderr);
+    assert!(
+        !stderr2.contains("panicked"),
+        "decompress should not panic on corrupted lzma: {stderr2}"
+    );
+    assert!(
+        !stderr2.is_empty(),
+        "decompress should report error on stderr for corrupted lzma"
+    );
 }
 
 // ---------------------------------------------------------------------------

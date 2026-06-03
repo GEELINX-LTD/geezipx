@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **CLI integration test coverage — XZ/LZMA single-stream formats**:
+  - XZ/LZMA `--no-clobber` decompress skips existing output
+  - XZ/LZMA `--force` decompress overwrites existing output
+  - XZ/LZMA `compress --no-progress` suppresses ANSI escape codes on stderr
+  - XZ/LZMA `compress -v` prints input filename on stderr
+  - Corrupted XZ/LZMA files fail gracefully on decompress without panic
+  - CLI integration tests grew from 119 to 129
+
 ## [0.2.1] - 2026-06-02
 
 ### Added
