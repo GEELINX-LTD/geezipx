@@ -22,7 +22,7 @@
 - **Compression levels** -- `--level 0-9` for gzip/tar.gz/xz/lzma/tar.xz; `--level 0-22` for zstd/tar.zst
 - **Clobber controls** -- `--no-clobber` to skip existing files, `--force` to overwrite
 - **Zip Slip protection** -- blocks path-traversal attacks in all archive formats
-- **JSON output** -- `list --json` for machine-readable inspection
+- **JSON output** -- `list --json` for machine-readable inspection; `test --json` for programmatic integrity results
 - **Shell completions** -- bash, zsh, fish, PowerShell, elvish
 - **Cross-platform** -- Linux, macOS, Windows (3-platform CI)
 - **Single binary** -- no runtime dependencies, `cargo install` ready
@@ -32,7 +32,7 @@
 
 ## Status
 
-Phase 1 (CLI MVP) is **complete for core CLI functionality**. All core subcommands (`compress`, `decompress`, `list`, `completions`) work for the supported formats.
+Phase 1 (CLI MVP) is **complete for core CLI functionality**. All core subcommands (`compress`, `decompress`, `list`, `test`, `completions`) work for the supported formats.
 
 | Milestone | Theme | Status |
 |-----------|-------|--------|
@@ -157,6 +157,11 @@ geezipx list archive.zip
 
 # List archive contents as JSON
 geezipx list archive.tar.gz --json
+# Test archive integrity (without extracting to disk)
+geezipx test archive.zip
+
+# Test with JSON output
+geezipx test archive.tar.gz --json
 ```
 
 ---
@@ -401,10 +406,15 @@ All core features are implemented and verified:
 - [x] Shell completions (5 shells)
 - [x] `list --json` machine-readable output
 - [x] 300+ tests (unit + integration + interop + streaming smoke)
+40a:- [x] `list` dangerous path warning (stderr, doesn't pollute JSON stdout)
+40b:- [x] `test` archive integrity verification (CRC-32 for ZIP, structural for TAR, JSON output)
+40c:- [x] Single-stream format support for `test`: GZIP, ZSTD, XZ, LZMA
 - [x] 3-platform CI (Linux/macOS/Windows)
 - [x] cargo-deny security audit
 - [x] Criterion benchmarks
 - [x] **crates.io release**
+
+417:> **Note**: The bench-regression job runs automatically on every PR and outputs results, but it is advisory only — GitHub-hosted runner performance variance makes hard thresholds unreliable. Logs are visible for manual review.
 
 > **Note**: Zstandard (zst/zstd) and TarZst (tar.zst/tzst) read/write were added after Phase 1 milestones as early Phase 2 format extensions folded back into the MVP.
 

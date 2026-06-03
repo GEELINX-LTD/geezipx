@@ -34,7 +34,7 @@ GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开�
 
 ## 5. MVP 范围（Phase 1 — CLI MVP）
 
-> **当前状态**：基础 `compress`、`decompress`、`list` 子命令已实现（提交 `329c773`），
+> **当前状态**：基础 `compress`、`decompress`、`list`、`test`、`completions` 子命令已实现，
 > 支持 zip/tar/tar.gz/gzip 格式。以下表格标记了各特性的完成状态。
 
 严格限定为 **命令行高性能压缩/解压缩**：
@@ -51,6 +51,8 @@ GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开�
 | 递归操作 | `-r` 递归添加目录，保持目录结构 | **已完成** |
 | 覆盖保护 | `--no-clobber` / `--force` 覆盖策略 | **已完成** |
 | 列表功能 | 表格 + JSON 输出，支持所有当前格式 | **已完成** |
+
+535:|| 归档完整性验证 | `test` 子命令，不解压到磁盘验证归档完整性，支持 `--json` 输出。ZIP 逐 entry CRC-32 校验，TAR 验证结构/截断/压缩层，TAR.GZ/TAR.ZST/TAR.XZ 组合校验。单流格式包括 GZIP/ZSTD/XZ/LZMA。退出码 0/1 | **已完成** |
 | 测试覆盖 | 356 个测试（core 239 + CLI lib 11 + CLI integration 106），覆盖率追踪已启用，当前基线 overall ~74%、core archive ~64% | **已完成**（覆盖率 workflow 为观测性/信息性，优先补真实高风险/回归路径） |
 | 三平台 CI | GitHub Actions：三平台矩阵（ubuntu/macos/windows），push/PR/tag/manual 触发 | **大部分完成** (M4) |
 
@@ -94,6 +96,16 @@ GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开�
 - 显示：文件名、原始大小、压缩后大小、压缩率、修改时间
 
 ### FR-6: 流式管道
+
+### FR-7: 归档完整性验证
+- `geezipx test <archive>`：不解压到磁盘，逐 entry 读取验证归档。
+- 退出码 `0` 表示全部通过，`1` 表示存在损坏。
+- `--json`：输出 JSON 格式的详细验证结果。
+- 支持的格式：ZIP、TAR、TAR.GZ、TAR.ZST、TAR.XZ、GZIP、ZSTD、XZ、LZMA。
+- 各格式校验方式：
+  - ZIP：逐 entry 触发 CRC-32 校验。
+  - TAR：验证头结构、截断和压缩层，无 per-file CRC。
+  - 加密 ZIP/password 保护归档暂不支持。
 - 当前已支持：`--stdout` 将 gzip/zstd/xz/lzma 等**单流格式**解压到标准输出，便于脚本串联。
 - 当前限制：tar.gz、tar.zst、tar.xz、zip、tar 等**多文件归档**使用 `--stdout` 会报错；CLI 仍要求显式传入归档路径，真正 stdin 输入管道仍需设计。
 - 后续方向：在不破坏多文件归档语义的前提下，设计 stdin 输入、tar stream 输出或显式 pipe 子命令。
@@ -115,11 +127,11 @@ GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开�
 ```
 Phase 1 (MVP — CLI)        ← 当前阶段
 ├── M1 项目骨架 + 核心引擎库    ── ✅ 已完成
-├── M2 CLI 基本命令            ── ✅ 已完成
+├── M2 CLI 基本命令            ── ✅ 已完成（含 `list` 危险路径警告、`test` 完整性验证命令）
 ├── M3 流式/进度/兼容性打磨     ── ✅ 已完成
 └── M4 CI/测试/发布            ── 🔶 大部分完成（发布自动化与观测性 workflow 已建立）
     ├── 信息性覆盖率观测（informational only，不设硬门禁；仅针对真实风险场景按需补测）
-    ├── 部分完成：手动性能回归阈值检查已接入；待补稳定基线 / 强制 comparison data
+    ├── 性能回归阈值检查已设为 advisory（GitHub-hosted runner 性能波动大，不作为 PR hard gate，日志仍可见）
     └── 待验证：后续 tag release 的二进制 artifacts 实际上传
 
 Phase 2 (CLI 增强)

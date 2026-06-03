@@ -192,13 +192,14 @@ GUI 实现：通过 Tauri `emit` 事件推送进度到前端。
 
 ### 2.6 cli/commands — 命令分发
 
-使用 `clap` v4 derive API，四个子命令：
+使用 `clap` v4 derive API，五个子命令：
 
 | 子命令 | 主要参数 | 核心流程 |
 |--------|---------|---------|
 || `compress` | `<inputs...>` `--format` `-o` `-L` `--level` `-j` `--jobs` `-r` | 收集文件 → 创建 ArchiveWriter → 写入 |
 | `decompress` | `<archive>` `-o` `--stdout` `--no-clobber` `--force` | 检测格式 → 创建 ArchiveReader → 解包 |
 | `list` | `<archive>` `--json` | 检测格式 → 读取 entries → 表格/JSON 输出 |
+| `test` | `<archive>` `--json` | 检测格式 → 读取所有 entry 验证完整性 → 通过/失败报告 |
 | `completions` | `<shell>` | 生成指定 Shell 的自动补全脚本 |
 
 全局参数：`--no-progress`（禁用进度条）、`--verbose`（逐文件日志）。
@@ -314,7 +315,10 @@ Jobs (串行依赖):
   6. bench-compile — cargo bench --no-run -p geezipx-core (依赖 fmt)
 ```
 
-独立的 `Benchmark` workflow 通过手动触发运行 Criterion benchmarks，并在 comparison JSON 存在时执行 `scripts/check-bench-regression.sh` 阈值检查。
+主 CI `bench-regression` job（依赖 test 通过）在每次 PR 的 ubuntu-latest 上自动运行完整 Criterion benchmarks，通过 `scripts/check-bench-regression.sh` 检查回归阈值（默认 +10%）。
+该 job 为 **advisory**：使用 `continue-on-error: true`，运行结果仍输出到日志但不会阻塞 PR 合并。这是因为 GitHub-hosted runner 的性能波动较大，硬性阈值可能导致不必要的误报。
+
+此外，独立的 `Benchmark` workflow 支持手动触发运行 Criterion benchmarks 并执行相同的回归检查，适用于开发者按需深入分析。
 
 > 注意：CI 不含 `cargo publish` 步骤。`cargo-deny` 安全审计由独立 `deny.yml` 工作流覆盖（`v*` 标签 push + 手动触发）。crates.io 发布目前为手工操作（`cargo publish -p geezipx-core && cargo publish -p geezipx`），不纳入 CI/CD。
 

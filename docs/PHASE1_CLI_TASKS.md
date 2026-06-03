@@ -84,7 +84,7 @@
 > **状态：已完成**（提交 `329c773`）。
 
 ### 目标
-基于 `clap` 实现三个子命令 `compress` / `decompress` / `list`，用户可以从命令行完成最基本的压缩/解压操作。
+基于 `clap` 实现五个子命令 `compress` / `decompress` / `list` / `test` / `completions`，用户可以从命令行完成最基本的压缩/解压/列表/验证操作。
 
 ### M2-1：CLI 参数定义 ✅
 - **实际文件**：
@@ -144,6 +144,7 @@ geezipx list <archive>
   - `--json`：`serde_json` JSON 数组（path, size, compressed_size, compression_ratio, modified 字段）
 - **gzip 特殊处理**：gzip 产生一个合成 entry，文件名从 `.gz`/`.gzip` 后缀推断，压缩大小来自文件元数据，原始大小未知
 - **与原计划差异**：已新增压缩率和修改时间列（commit d82600d）。gzip 条目未知原始大小/修改时间时，表格显示 `-`，JSON 输出 `null`
+8b7|- **危险路径警告**：`list` 检测到含绝对路径、`../` 穿越、Windows UNC/设备前缀的 entry 时，在 stderr 输出警告；不影响 JSON stdout（`--json`）。
 
 ### M2-5：CLI 集成测试 ✅
 - **实际文件**：`crates/cli/tests/cli_integration.rs`（135 个集成测试）
@@ -173,11 +174,29 @@ geezipx list <archive>
 - **验收标准**：`cargo test --workspace --all-features` 全部通过。总计 408 个测试列示（404 passed, 4 ignored）。子项分布：CLI lib 11、CLI integration 135、core lib 258、core doc-test 2（ignored）、streaming smoke 2（ignored）
 - **与原计划差异**：尚未包含与系统 `tar`/`unzip` 的互操作测试（已在 M3-5 中补充）、尚未包含大文件冒烟测试（100 MB+）；轻量流式冒烟测试已新增为 CI `streaming-smoke` job（16 MiB 单流 gzip round-trip + 32 MiB tar.gz 递归 round-trip），标记 `#[ignore]` 不拖慢默认测试。
 
+### M2-6：`test` 归档完整性验证命令
+- **目标**：新增 `geezipx test <archive> [--json]` 子命令，不解压到磁盘即验证归档完整性。
+- **设计原则**：
+- 对所有支持格式：ZIP、TAR、TAR.GZ、TAR.ZST、TAR.XZ、GZIP、ZSTD、XZ、LZMA 统一执行完整读取验证。
+- ZIP：逐 entry 读取触发 `zip` crate 内置 CRC-32 校验。
+- TAR：验证头结构、截断、压缩层完整性；无 per-file CRC。
+- TAR.GZ / TAR.ZST / TAR.XZ：压缩层 + TAR 结构双重验证。
+- 单流格式（GZIP / ZSTD / XZ / LZMA）：解压到 EOF 验证流完整性。
+- 加密 ZIP / password 保护归档暂不支持。
+- **输出**：
+- 人类友好摘要（成功/失败 + 总 entry 数）。
+- `--json` 输出机器可读 JSON 格式。
+- 退出码 `0` = 通过，`1` = 失败。
+- **副作用**：无文件写入行为，纯只读操作。
+- **CLI 集成**：通过 `crates/cli/src/commands/test.rs` 实现，复用 core `TaskRunner` + detection 管道。
+- **验收标准**：`cargo test --workspace --all-features` 全部通过。
+
 ### M2 里程碑检查清单
-- [x] `geezipx compress` / `decompress` / `list` 三个子命令可用
+- [x] `geezipx compress` / `decompress` / `list` / `test` / `completions` 五个子命令可用
 - [x] ZIP 和 tar.gz 双向 round-trip 通过
 - [x] 自动格式检测工作
 - [x] 集成测试覆盖主要场景（135 个测试）
+- [x] `list` 危险路径警告（stderr，不污染 JSON stdout）
 - [x] `cargo build --release` 生成稳定二进制
 
 ---
@@ -326,7 +345,9 @@ geezipx list <archive>
 - **尚未实现**：专用 lint workflow（clippy 已在 ci.yml 中覆盖）、PR 自动标记覆盖率
 
 ### M4-3：性能基准测试 ✅（阈值检查已初步接入）
-- **状态**：已完成基准框架，并加入手动 benchmark workflow 的回归阈值检查。开发者可通过手动触发 workflow 运行完整基准；当 Criterion comparison JSON 存在时，`scripts/check-bench-regression.sh` 会按阈值检查平均性能回退。
+- **状态**：已完成基准框架，加入手动 benchmark workflow 的回归阈值检查，并为 `ci.yml` 添加了自动 bench-regression job。
+- **主 CI 集成**：`bench-regression` job（依赖 test 通过）在每次 PR 的 ubuntu-latest 上自动运行完整 Criterion benchmarks。使用 `continue-on-error: true` 标记为 advisory——日志结果仍可见，但不会阻塞 PR 合并。这是因为 GitHub-hosted runner 性能波动较大，硬性阈值可能导致不必要的误报。
+- **Manual workflow**：开发者可通过手动触发 benchmark workflow 运行完整基准并检查回归阈值；当 Criterion comparison JSON 存在时，`scripts/check-bench-regression.sh` 会按默认 +10% 阈值检查平均性能回退。
 - **实际文件**：
   - `crates/core/benches/gzip_throughput.rs`
   - `crates/core/benches/archive_throughput.rs`

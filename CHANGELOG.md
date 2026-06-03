@@ -25,6 +25,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `--json` output provides machine-readable results.
   - Exit code 0 on success, 1 on failure.
 
+### Changed
+
+- **Benchmark regression check made advisory**:
+  - The `bench-regression` job still runs and outputs results on every PR.
+  - Due to inherent performance variance on GitHub-hosted runners, the check uses
+    `continue-on-error: true` — logs remain visible but failures do not block PRs.
+
 ## [0.2.2] - 2026-06-03
 
 ### Added
