@@ -170,7 +170,7 @@ geezipx list <archive>
 |  - XZ / LZMA `compress -v` stderr 含输入文件名
   - 损坏 GZIP / ZSTD 单流输入优雅报错（无 panic）
   - 损坏 TAR / TAR.GZ / TAR.ZST / TAR.XZ 容器输入优雅报错（无 panic）
-- **验收标准**：`cargo test --workspace --all-features` 全部通过。总计 394 个测试列示（390 passed, 4 ignored）。子项分布：CLI lib 11、CLI integration 135、core lib 244、core doc-test 2（ignored）、streaming smoke 2（ignored）
+- **验收标准**：`cargo test --workspace --all-features` 全部通过。总计 408 个测试列示（404 passed, 4 ignored）。子项分布：CLI lib 11、CLI integration 135、core lib 258、core doc-test 2（ignored）、streaming smoke 2（ignored）
 - **与原计划差异**：尚未包含与系统 `tar`/`unzip` 的互操作测试（已在 M3-5 中补充）、尚未包含大文件冒烟测试（100 MB+）；轻量流式冒烟测试已新增为 CI `streaming-smoke` job（16 MiB 单流 gzip round-trip + 32 MiB tar.gz 递归 round-trip），标记 `#[ignore]` 不拖慢默认测试。
 
 ### M2 里程碑检查清单

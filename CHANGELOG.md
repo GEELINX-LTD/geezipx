@@ -33,6 +33,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     without affecting the other field
   - `zstd_compress_with_options` round-trip with explicit level 9
   - `zstd_compress_with_options` multi-threaded (2 workers) round-trip
+- **Compressed TAR archive cancellation coverage**:
+  - `targz::extract_all_with_cancel`: basic, before-start, between-entries
+  - `tarxz::extract_all_with_cancel`: basic, before-start, between-entries
+  - `tarzst::extract_all_with_cancel`: basic, before-start, between-entries
+  - Core lib tests grow from 249 to 258
 
 ## [0.2.1] - 2026-06-02
 

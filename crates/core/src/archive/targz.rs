@@ -494,6 +494,79 @@ mod tests {
     }
 
     // -------------------------------------------------------------------
+    // extract_all_with_cancel
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn targz_extract_all_with_cancel_basic() {
+        let data = create_test_targz(&[("a.txt", b"aaa"), ("b.txt", b"bbb")]);
+        let mut reader = TarGzReader::from_buf(data);
+        let dest = tempfile::tempdir().unwrap();
+
+        let report = reader
+            .extract_all_with_cancel(dest.path(), true, &|| false)
+            .unwrap();
+        assert_eq!(report.files_extracted, 2);
+        assert_eq!(report.bytes_extracted, 6);
+        assert!(report.errors.is_empty());
+
+        // Verify file contents.
+        assert_eq!(
+            std::fs::read_to_string(dest.path().join("a.txt")).unwrap(),
+            "aaa"
+        );
+        assert_eq!(
+            std::fs::read_to_string(dest.path().join("b.txt")).unwrap(),
+            "bbb"
+        );
+    }
+
+    #[test]
+    fn targz_extract_all_with_cancel_before_start() {
+        let data = create_test_targz(&[("only.txt", b"data")]);
+        let mut reader = TarGzReader::from_buf(data);
+        let dest = tempfile::tempdir().unwrap();
+
+        let err = reader
+            .extract_all_with_cancel(dest.path(), true, &|| true)
+            .unwrap_err();
+        assert!(matches!(err, GeeZipError::Cancelled));
+
+        // Ensure no file was extracted.
+        assert!(!dest.path().join("only.txt").exists());
+    }
+
+    #[test]
+    fn targz_extract_all_with_cancel_between_entries() {
+        use std::cell::Cell;
+
+        let data = create_test_targz(&[("first.txt", b"AAA"), ("second.txt", b"BBB")]);
+        let mut reader = TarGzReader::from_buf(data);
+        let dest = tempfile::tempdir().unwrap();
+
+        let call_count = Cell::new(0u32);
+        let is_cancelled = || {
+            call_count.set(call_count.get() + 1);
+            // Pre-entry check for entry 1 -> proceed (count 1)
+            // Write check for entry 1 (CancellableWriter) -> proceed (count 2)
+            // Pre-entry check for entry 2 -> cancel (count 3)
+            call_count.get() > 2
+        };
+
+        let result = reader.extract_all_with_cancel(dest.path(), true, &is_cancelled);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), GeeZipError::Cancelled));
+
+        // First file should exist and have correct content.
+        assert_eq!(
+            std::fs::read_to_string(dest.path().join("first.txt")).unwrap(),
+            "AAA"
+        );
+        // Second file should NOT exist.
+        assert!(!dest.path().join("second.txt").exists());
+    }
+
+    // -------------------------------------------------------------------
     // Path traversal protection
     // -------------------------------------------------------------------
 
