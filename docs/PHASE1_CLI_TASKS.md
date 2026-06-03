@@ -125,7 +125,7 @@ geezipx list <archive>
   - 目录需 `--recursive`（否则报错提示）
   - 输入路径不存在时报错
 - **格式推断**：`--format` 优先；否则从 `.zip`（或其他扩展名，包括 `.zst`/`.zstd`）推断；均不匹配时默认 ZIP
-- **与原计划差异**：不支持 glob 通配符（由 shell 展开）、不支持 `--level` 压缩级别
+- **与原计划差异**：`--level` 压缩级别当时未实现，已在 M3-2 中补充；glob 通配符已在 post-Phase-1 增强中通过 glob crate 内建展开，不再依赖 shell 通配符展开
   - `--jobs` 多线程参数（`-j`）为 post-Phase-1 增强，在 `feat(cli): add jobs option for zstd compression`（`3dc668d`）中添加
 - **验收标准**：全部通过
 

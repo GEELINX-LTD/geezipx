@@ -121,6 +121,9 @@ geezipx decompress hello.txt.zst --stdout > output.txt
 # Multi-threaded zstd compression (4 workers)
 geezipx compress hello.txt -f zst -o hello.txt.zst -j 4
 
+# Glob pattern expansion (all .rs files in src/)
+geezipx compress src/**/*.rs -f tar.gz -o src-rs.tar.gz
+
 # Compress directory into tar.zst archive
 geezipx compress mydir -r -f tar.zst -o mydir.tar.zst
 

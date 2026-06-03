@@ -632,6 +632,224 @@ fn compress_nonexistent_input_fails() {
         .stderr(predicate::str::contains("does not exist"));
 }
 
+// ---------------------------------------------------------------------------
+// Glob expansion tests for compress
+// ---------------------------------------------------------------------------
+
+#[test]
+fn compress_glob_basic() {
+    let tmp = TestDir::new();
+    tmp.write("a.txt", "content a");
+    tmp.write("b.txt", "content b");
+    tmp.write("c.rs", "fn main() {}");
+    let archive = tmp.join("out.zip");
+
+    geezipx()
+        .current_dir(tmp.path())
+        .args(["compress", "*.txt", "-o", archive.to_str().unwrap()])
+        .assert()
+        .success();
+
+    // List should contain a.txt and b.txt, but NOT c.rs
+    geezipx()
+        .args(["list", archive.to_str().unwrap()])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("a.txt"))
+        .stdout(predicate::str::contains("b.txt"))
+        .stdout(predicate::str::contains("c.rs").not());
+}
+
+#[test]
+fn compress_glob_mixed() {
+    let tmp = TestDir::new();
+    tmp.write("a.txt", "txt content");
+    tmp.write("b.rs", "rs content");
+    tmp.write("c.rs", "rs content 2");
+    let archive = tmp.join("out.zip");
+
+    geezipx()
+        .current_dir(tmp.path())
+        .args(["compress", "a.txt", "*.rs", "-o", archive.to_str().unwrap()])
+        .assert()
+        .success();
+
+    // List should contain a.txt and both .rs files
+    geezipx()
+        .args(["list", archive.to_str().unwrap()])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("a.txt"))
+        .stdout(predicate::str::contains("b.rs"))
+        .stdout(predicate::str::contains("c.rs"));
+}
+
+#[test]
+fn compress_glob_no_match() {
+    let tmp = TestDir::new();
+    tmp.write("a.txt", "content");
+    let archive = tmp.join("out.zip");
+
+    geezipx()
+        .current_dir(tmp.path())
+        .args(["compress", "*.nonexistent", "-o", archive.to_str().unwrap()])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("no files matched"));
+}
+
+#[test]
+fn compress_glob_dedup() {
+    let tmp = TestDir::new();
+    tmp.write("a.txt", "dedup test");
+    let archive = tmp.join("out.zip");
+
+    geezipx()
+        .current_dir(tmp.path())
+        .args([
+            "compress",
+            "*.txt",
+            "*.txt",
+            "-o",
+            archive.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    // Decompress and verify only one file was stored
+    let out = tmp.join("extracted");
+    std::fs::create_dir_all(&out).unwrap();
+    geezipx()
+        .args([
+            "decompress",
+            archive.to_str().unwrap(),
+            "-o",
+            out.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    assert!(out.join("a.txt").exists());
+    assert_eq!(
+        std::fs::read_to_string(out.join("a.txt")).unwrap(),
+        "dedup test"
+    );
+}
+
+#[test]
+fn compress_glob_output_match() {
+    let tmp = TestDir::new();
+    tmp.write("a.txt", "content");
+    // Pre-create the output file so glob `*` matches it
+    std::fs::write(tmp.join("out.zip"), "").unwrap();
+
+    geezipx()
+        .current_dir(tmp.path())
+        .args(["compress", "*", "-o", "out.zip"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("cannot also be an input"));
+}
+
+#[test]
+fn compress_glob_single_stream_single_match() {
+    let tmp = TestDir::new();
+    tmp.write("data.txt", "single-stream glob test");
+    let archive = tmp.join("data.gz");
+
+    geezipx()
+        .current_dir(tmp.path())
+        .args([
+            "compress",
+            "*.txt",
+            "-f",
+            "gz",
+            "-o",
+            archive.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    // Decompress and verify
+    let out = tmp.join("out");
+    std::fs::create_dir_all(&out).unwrap();
+    geezipx()
+        .args([
+            "decompress",
+            archive.to_str().unwrap(),
+            "-o",
+            out.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    assert_eq!(
+        std::fs::read_to_string(out.join("data")).unwrap(),
+        "single-stream glob test"
+    );
+}
+
+#[test]
+fn compress_glob_single_stream_multi_match() {
+    let tmp = TestDir::new();
+    tmp.write("a.txt", "first");
+    tmp.write("b.txt", "second");
+
+    geezipx()
+        .current_dir(tmp.path())
+        .args([
+            "compress",
+            "*.txt",
+            "-f",
+            "gz",
+            "-o",
+            tmp.join("out.gz").to_str().unwrap(),
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("single input"));
+}
+
+#[test]
+fn compress_glob_question_mark() {
+    let tmp = TestDir::new();
+    tmp.write("f1.txt", "content 1");
+    tmp.write("f2.txt", "content 2");
+    tmp.write("f10.txt", "content 10");
+    tmp.write("other.rs", "fn main() {}");
+    let archive = tmp.join("out.zip");
+
+    // `f?.txt` matches f<single_char>.txt — f1.txt and f2.txt match, f10.txt does not
+    geezipx()
+        .current_dir(tmp.path())
+        .args(["compress", "f?.txt", "-o", archive.to_str().unwrap()])
+        .assert()
+        .success();
+
+    geezipx()
+        .args(["list", archive.to_str().unwrap()])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("f1.txt"))
+        .stdout(predicate::str::contains("f2.txt"))
+        .stdout(predicate::str::contains("f10.txt").not())
+        .stdout(predicate::str::contains("other.rs").not());
+}
+
+#[test]
+fn compress_glob_invalid_pattern() {
+    let tmp = TestDir::new();
+    tmp.write("a.txt", "content");
+    let archive = tmp.join("out.zip");
+
+    geezipx()
+        .current_dir(tmp.path())
+        .args(["compress", "file[", "-o", archive.to_str().unwrap()])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("invalid glob pattern"));
+}
+
 #[test]
 fn decompress_nonexistent_archive_fails() {
     geezipx()

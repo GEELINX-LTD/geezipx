@@ -5,6 +5,9 @@
 //! This binary is a thin shell over `geezipx-core`. All archive and
 //! compression logic lives in the core crate.
 
+use anyhow::Context;
+use std::collections::HashSet;
+use std::path::Path;
 use std::path::PathBuf;
 
 use clap::{CommandFactory, Parser, Subcommand};
@@ -125,16 +128,19 @@ fn run() -> anyhow::Result<()> {
             recursive,
             level,
             jobs,
-        } => commands::compress::execute(
-            &inputs,
-            &output,
-            format.as_deref(),
-            recursive,
-            level,
-            jobs,
-            cli.no_progress,
-            cli.verbose,
-        )?,
+        } => {
+            let inputs = expand_compress_inputs(&inputs, &output)?;
+            commands::compress::execute(
+                &inputs,
+                &output,
+                format.as_deref(),
+                recursive,
+                level,
+                jobs,
+                cli.no_progress,
+                cli.verbose,
+            )?
+        }
         Commands::Decompress {
             archive,
             output_dir,
@@ -158,4 +164,61 @@ fn run() -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+/// Expand glob patterns in compress inputs.
+///
+/// * Paths without glob metacharacters (`*`, `?`, `[`) are kept as-is.
+/// * Paths containing glob metacharacters are expanded via `glob::glob()`.
+/// * Duplicates across all inputs are removed (first-occurrence order preserved).
+/// * If any glob pattern produces no matches, an error is returned.
+/// * If any expanded path equals the output file, an error is returned.
+fn expand_compress_inputs(inputs: &[PathBuf], output: &Path) -> anyhow::Result<Vec<PathBuf>> {
+    let has_glob_meta = |s: &str| s.contains('*') || s.contains('?') || s.contains('[');
+
+    let mut result = Vec::new();
+    let mut seen = HashSet::new();
+
+    for input in inputs {
+        let input_str = input.to_string_lossy();
+        if has_glob_meta(&input_str) {
+            let pattern = input_str.as_ref();
+            let entries = glob::glob(pattern)
+                .with_context(|| format!("invalid glob pattern '{}'", pattern))?;
+
+            let mut matched = false;
+            for entry in entries {
+                let path =
+                    entry.with_context(|| format!("error reading glob entry for '{}'", pattern))?;
+                matched = true;
+                if seen.insert(path.clone()) {
+                    if path == output {
+                        anyhow::bail!(
+                            "output file '{}' cannot also be an input (matched by pattern '{}')",
+                            output.display(),
+                            pattern
+                        );
+                    }
+                    result.push(path);
+                }
+            }
+
+            if !matched {
+                anyhow::bail!("no files matched pattern '{}'", pattern);
+            }
+        } else {
+            if seen.insert(input.clone()) {
+                if input == output {
+                    anyhow::bail!("output file '{}' cannot also be an input", output.display());
+                }
+                result.push(input.clone());
+            }
+        }
+    }
+
+    if result.is_empty() {
+        anyhow::bail!("at least one input file is required");
+    }
+
+    Ok(result)
 }
