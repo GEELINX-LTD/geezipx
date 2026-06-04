@@ -5883,3 +5883,361 @@ fn list_nonexistent_7z_fails() {
         .assert()
         .failure();
 }
+
+// ---------------------------------------------------------------------------
+// Encrypted 7z tests
+// ---------------------------------------------------------------------------
+
+/// Create an encrypted test 7z archive with password protection.
+fn create_encrypted_7z_archive(
+    files: &[(&str, &[u8])],
+    password: &str,
+) -> (tempfile::TempDir, std::path::PathBuf) {
+    use sevenz_rust2::compress_to_path_encrypted;
+    use sevenz_rust2::Password;
+
+    let src_dir = tempfile::TempDir::new().unwrap();
+    let src_path = src_dir.path();
+
+    for (name, data) in files {
+        let path = src_path.join(name);
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).unwrap();
+        }
+        std::fs::write(path, data).unwrap();
+    }
+
+    let out_dir = tempfile::TempDir::new().unwrap();
+    let archive_path = out_dir.path().join("encrypted.7z");
+    compress_to_path_encrypted(src_path, &archive_path, Password::from(password))
+        .expect("create encrypted 7z");
+
+    (out_dir, archive_path)
+}
+
+#[test]
+fn list_encrypted_7z_with_password() {
+    let (_dir, archive) =
+        create_encrypted_7z_archive(&[("secret.txt", b"hidden content")], "correctpw");
+
+    geezipx()
+        .args(["list", archive.to_str().unwrap(), "--password", "correctpw"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("secret.txt"));
+}
+
+#[test]
+fn list_encrypted_7z_without_password_fails() {
+    let (_dir, archive) =
+        create_encrypted_7z_archive(&[("secret.txt", b"hidden content")], "correctpw");
+
+    geezipx()
+        .args(["list", archive.to_str().unwrap()])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("Password").or(predicate::str::contains("password")));
+}
+
+#[test]
+fn list_encrypted_7z_with_wrong_password_fails() {
+    let (_dir, archive) =
+        create_encrypted_7z_archive(&[("secret.txt", b"hidden content")], "correctpw");
+
+    geezipx()
+        .args(["list", archive.to_str().unwrap(), "--password", "wrongpw"])
+        .assert()
+        .failure();
+}
+
+#[test]
+fn decompress_encrypted_7z_with_password() {
+    let td = TestDir::new();
+    let (_dir, archive) =
+        create_encrypted_7z_archive(&[("data.txt", b"7z encrypted content")], "correctpw");
+    let out_dir = td.path();
+
+    geezipx()
+        .args([
+            "decompress",
+            archive.to_str().unwrap(),
+            "-o",
+            out_dir.to_str().unwrap(),
+            "--password",
+            "correctpw",
+        ])
+        .assert()
+        .success();
+
+    assert!(td.exists("data.txt"), "data.txt should exist");
+    assert_eq!(td.read("data.txt"), "7z encrypted content");
+}
+
+#[test]
+fn list_encrypted_7z_with_password_file() {
+    let td = TestDir::new();
+    td.write("passwd.txt", "correctpw\n");
+    let (_dir, archive) =
+        create_encrypted_7z_archive(&[("secret.txt", b"hidden content")], "correctpw");
+
+    geezipx()
+        .args([
+            "list",
+            archive.to_str().unwrap(),
+            "--password-file",
+            td.path().join("passwd.txt").to_str().unwrap(),
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("secret.txt"));
+}
+
+// ---------------------------------------------------------------------------
+// list --password* tests for encrypted ZIP
+// ---------------------------------------------------------------------------
+
+#[test]
+fn list_encrypted_zip_with_password_file() {
+    let td = TestDir::new();
+    td.write("secret.txt", "classified content");
+    td.write("passwd.txt", "secret123\n");
+    let zip_path = td.join("encrypted.zip");
+
+    // Compress with password
+    geezipx()
+        .args([
+            "compress",
+            td.path().join("secret.txt").to_str().unwrap(),
+            "-f",
+            "zip",
+            "-o",
+            zip_path.to_str().unwrap(),
+            "--password",
+            "secret123",
+        ])
+        .assert()
+        .success();
+
+    // List with --password-file
+    geezipx()
+        .args([
+            "list",
+            zip_path.to_str().unwrap(),
+            "--password-file",
+            td.path().join("passwd.txt").to_str().unwrap(),
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("secret.txt"));
+}
+
+#[test]
+fn list_encrypted_zip_with_password_stdin() {
+    let td = TestDir::new();
+    td.write("secret.txt", "stdin test");
+    let zip_path = td.join("encrypted.zip");
+
+    // Compress with password
+    geezipx()
+        .args([
+            "compress",
+            td.path().join("secret.txt").to_str().unwrap(),
+            "-f",
+            "zip",
+            "-o",
+            zip_path.to_str().unwrap(),
+            "--password",
+            "stdinpw",
+        ])
+        .assert()
+        .success();
+
+    // List with --password-stdin
+    geezipx()
+        .args(["list", zip_path.to_str().unwrap(), "--password-stdin"])
+        .write_stdin("stdinpw\n")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("secret.txt"));
+}
+
+#[test]
+fn list_encrypted_zip_without_password_fails() {
+    let td = TestDir::new();
+    td.write("secret.txt", "test");
+    let zip_path = td.join("encrypted.zip");
+
+    // Compress with password
+    geezipx()
+        .args([
+            "compress",
+            td.path().join("secret.txt").to_str().unwrap(),
+            "-f",
+            "zip",
+            "-o",
+            zip_path.to_str().unwrap(),
+            "--password",
+            "secret123",
+        ])
+        .assert()
+        .success();
+
+    // List without password fails
+    geezipx()
+        .args(["list", zip_path.to_str().unwrap()])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("Password"));
+}
+
+#[test]
+fn list_encrypted_zip_with_password() {
+    // List encrypted zip with direct --password should succeed
+    let td = TestDir::new();
+    td.write("secret.txt", "direct password test");
+    let zip_path = td.join("encrypted.zip");
+
+    // Compress with password
+    geezipx()
+        .args([
+            "compress",
+            td.path().join("secret.txt").to_str().unwrap(),
+            "-f",
+            "zip",
+            "-o",
+            zip_path.to_str().unwrap(),
+            "--password",
+            "directpw",
+        ])
+        .assert()
+        .success();
+
+    // List with --password direct
+    geezipx()
+        .args(["list", zip_path.to_str().unwrap(), "--password", "directpw"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("secret.txt"));
+}
+
+#[test]
+fn list_plain_zip_with_password_fails() {
+    // Using --password on an unencrypted zip should succeed
+    // (password is just passed through and ignored for unencrypted entries)
+    let td = TestDir::new();
+    td.write("file.txt", "hello");
+    let zip_path = td.join("plain.zip");
+
+    // Compress without password
+    geezipx()
+        .args([
+            "compress",
+            td.path().join("file.txt").to_str().unwrap(),
+            "-f",
+            "zip",
+            "-o",
+            zip_path.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    // List with --password (password ignored for unencrypted entries)
+    geezipx()
+        .args([
+            "list",
+            zip_path.to_str().unwrap(),
+            "--password",
+            "irrelevant",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("file.txt"));
+}
+
+#[test]
+fn list_gzip_with_password_fails() {
+    let td = TestDir::new();
+    td.write("data.txt", "some data");
+    let gz_path = td.join("data.gz");
+
+    // Compress without password
+    geezipx()
+        .args([
+            "compress",
+            td.path().join("data.txt").to_str().unwrap(),
+            "-f",
+            "gz",
+            "-o",
+            gz_path.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    // List with --password should fail
+    geezipx()
+        .args(["list", gz_path.to_str().unwrap(), "--password", "foo"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("only supported for ZIP"));
+}
+
+#[test]
+fn list_zstd_with_password_file_fails() {
+    let td = TestDir::new();
+    td.write("data.txt", "some data");
+    td.write("passwd.txt", "secret\n");
+    let zst_path = td.join("data.zst");
+
+    // Compress without password
+    geezipx()
+        .args([
+            "compress",
+            td.path().join("data.txt").to_str().unwrap(),
+            "-f",
+            "zst",
+            "-o",
+            zst_path.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    // List with --password-file should fail
+    geezipx()
+        .args([
+            "list",
+            zst_path.to_str().unwrap(),
+            "--password-file",
+            td.path().join("passwd.txt").to_str().unwrap(),
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("only supported for ZIP"));
+}
+
+#[test]
+fn list_xz_with_password_stdin_fails() {
+    let td = TestDir::new();
+    td.write("data.txt", "some data");
+    let xz_path = td.join("data.xz");
+
+    // Compress without password
+    geezipx()
+        .args([
+            "compress",
+            td.path().join("data.txt").to_str().unwrap(),
+            "-f",
+            "xz",
+            "-o",
+            xz_path.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    // List with --password-stdin should fail
+    geezipx()
+        .args(["list", xz_path.to_str().unwrap(), "--password-stdin"])
+        .write_stdin("irrelevant\n")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("only supported for ZIP"));
+}

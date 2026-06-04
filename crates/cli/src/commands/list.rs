@@ -12,12 +12,25 @@ use geezipx_core::detect::ArchiveFormat;
 use super::common;
 
 /// Execute the `list` subcommand.
-pub fn execute(archive: &Path, json: bool) -> Result<()> {
+pub fn execute(archive: &Path, json: bool, password: Option<String>) -> Result<()> {
     if !archive.exists() {
         anyhow::bail!("archive '{}' does not exist", archive.display());
     }
 
     let format = common::detect_archive_format(archive)?;
+
+    // Validate password: single-stream formats do not support encryption.
+    if password.is_some()
+        && matches!(
+            format,
+            ArchiveFormat::Gzip | ArchiveFormat::Zstd | ArchiveFormat::Xz | ArchiveFormat::Lzma
+        )
+    {
+        anyhow::bail!(
+            "--password is only supported for ZIP and 7z formats; '{}' does not support encryption",
+            format
+        );
+    }
 
     let entries = match format {
         ArchiveFormat::Gzip => {
@@ -74,7 +87,7 @@ pub fn execute(archive: &Path, json: bool) -> Result<()> {
             }]
         }
         _ => {
-            let mut reader = common::open_reader(archive, format, None)?;
+            let mut reader = common::open_reader(archive, format, password.as_deref())?;
             reader.entries().context("reading archive entries")?
         }
     };

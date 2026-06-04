@@ -760,4 +760,121 @@ mod tests {
         let (mut reader, _dir) = buf_reader(data);
         use_reader(&mut reader);
     }
+
+    // -------------------------------------------------------------------
+    // Encrypted 7z tests
+    // -------------------------------------------------------------------
+
+    /// Create an encrypted test 7z archive with password protection.
+    fn create_encrypted_7z(files: &[(&str, &[u8])], password: &str) -> Vec<u8> {
+        use sevenz_rust2::compress_to_path_encrypted;
+        use sevenz_rust2::Password;
+
+        let src_dir = tempfile::tempdir().unwrap();
+        let src_path = src_dir.path();
+
+        for (name, data) in files {
+            let path = src_path.join(name);
+            if let Some(parent) = path.parent() {
+                std::fs::create_dir_all(parent).unwrap();
+            }
+            std::fs::write(path, data).unwrap();
+        }
+
+        let out_dir = tempfile::tempdir().unwrap();
+        let archive_path = out_dir.path().join("encrypted.7z");
+        compress_to_path_encrypted(src_path, &archive_path, Password::from(password))
+            .expect("failed to create encrypted 7z");
+
+        std::fs::read(archive_path).unwrap()
+    }
+
+    #[test]
+    fn encrypted_7z_list_entries_with_correct_password() {
+        let data = create_encrypted_7z(&[("secret.txt", b"hidden content")], "mypassword");
+        let (mut reader, _dir) = buf_reader(data);
+        reader.set_password("mypassword");
+        let entries = reader.entries().unwrap();
+        let names: Vec<&str> = entries.iter().map(|e| e.path.as_str()).collect();
+        assert!(names.contains(&"secret.txt"), "entries: {names:?}");
+    }
+
+    #[test]
+    fn encrypted_7z_list_entries_without_password_fails() {
+        let data = create_encrypted_7z(&[("secret.txt", b"hidden content")], "mypassword");
+        let (mut reader, _dir) = buf_reader(data);
+        let err = reader.entries().unwrap_err();
+        let msg = err.to_string().to_lowercase();
+        assert!(
+            msg.contains("password"),
+            "expected password error, got: {msg}"
+        );
+    }
+
+    #[test]
+    fn encrypted_7z_list_entries_with_wrong_password_fails() {
+        let data = create_encrypted_7z(&[("secret.txt", b"hidden content")], "correctpw");
+        let (mut reader, _dir) = buf_reader(data);
+        reader.set_password("wrongpw");
+        let err = reader.entries().unwrap_err();
+        let msg = err.to_string().to_lowercase();
+        assert!(
+            msg.contains("password") || msg.contains("invalid"),
+            "expected password/invalid error, got: {msg}"
+        );
+    }
+
+    #[test]
+    fn encrypted_7z_extract_entry_with_correct_password() {
+        let data = create_encrypted_7z(&[("secret.txt", b"hidden content")], "mypassword");
+        let (mut reader, _dir) = buf_reader(data);
+        reader.set_password("mypassword");
+
+        let entries = reader.entries().unwrap();
+        let file_entry = entries.iter().find(|e| !e.is_dir).expect("file entry");
+
+        let mut output = Vec::new();
+        let bytes = reader.extract(file_entry, &mut output).unwrap();
+        assert_eq!(bytes, 14);
+        assert_eq!(&output, b"hidden content");
+    }
+
+    #[test]
+    fn encrypted_7z_extract_all_with_correct_password() {
+        let data = create_encrypted_7z(&[("a.txt", b"AAA"), ("b.txt", b"BBB")], "mypassword");
+        let (mut reader, _dir) = buf_reader(data);
+        reader.set_password("mypassword");
+
+        let dest = tempfile::tempdir().unwrap();
+        let report = reader.extract_all(dest.path(), true).unwrap();
+        assert!(
+            report.files_extracted >= 2,
+            "should extract at least the files, got {}",
+            report.files_extracted
+        );
+        assert!(report.errors.is_empty(), "errors: {report:?}");
+
+        assert_eq!(
+            std::fs::read_to_string(dest.path().join("a.txt")).unwrap(),
+            "AAA"
+        );
+        assert_eq!(
+            std::fs::read_to_string(dest.path().join("b.txt")).unwrap(),
+            "BBB"
+        );
+    }
+
+    #[test]
+    fn encrypted_7z_extract_all_without_password_fails() {
+        let data = create_encrypted_7z(&[("secret.txt", b"hidden content")], "mypassword");
+        let (mut reader, _dir) = buf_reader(data);
+
+        let dest = tempfile::tempdir().unwrap();
+        let err = reader.extract_all(dest.path(), true).unwrap_err();
+        let msg = err.to_string().to_lowercase();
+        assert!(
+            msg.contains("password"),
+            "expected password error, got: {msg}"
+        );
+    }
 }

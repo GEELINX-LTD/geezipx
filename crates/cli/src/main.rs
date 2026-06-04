@@ -129,6 +129,20 @@ enum Commands {
         /// Output as JSON array
         #[arg(short = 'j', long = "json")]
         json: bool,
+
+        /// Password for decrypting encrypted archives (ZIP/7z).
+        #[arg(long = "password")]
+        password: Option<String>,
+
+        /// Read the decryption password from a file (ZIP/7z only).
+        /// Mutually exclusive with --password and --password-stdin.
+        #[arg(long = "password-file")]
+        password_file: Option<PathBuf>,
+
+        /// Read the decryption password from stdin (ZIP/7z only).
+        /// Mutually exclusive with --password and --password-file.
+        #[arg(long = "password-stdin")]
+        password_stdin: bool,
     },
 
     /// Verify the integrity of an archive or compressed file
@@ -222,7 +236,16 @@ fn run() -> anyhow::Result<()> {
                 password,
             )?
         }
-        Commands::List { archive, json } => commands::list::execute(&archive, json)?,
+        Commands::List {
+            archive,
+            json,
+            password,
+            password_file,
+            password_stdin,
+        } => {
+            let password = common::resolve_password(password, password_file, password_stdin)?;
+            commands::list::execute(&archive, json, password)?
+        }
         Commands::Test {
             archive,
             json,

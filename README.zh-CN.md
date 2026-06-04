@@ -221,6 +221,7 @@ geezipx list <归档文件> [选项]
 | 选项 | 说明 |
 |------|------|
 | `-j`, `--json` | 以 JSON 数组格式输出 |
+| `--password` | 解密加密归档（ZIP/7z）的密码。使用 `--password-file` 从文件读取密码，或使用 `--password-stdin` 从标准输入读取。三者互斥 |
 
 > **危险路径警告**：归档中的危险路径（绝对路径、路径穿越条目、Windows 设备路径）会输出警告到 stderr；stdout/JSON 输出保持干净不受影响。
 

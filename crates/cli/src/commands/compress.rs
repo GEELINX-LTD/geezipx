@@ -260,6 +260,13 @@ fn validate_compress_inputs(
         anyhow::bail!("at least one input file is required");
     }
 
+    // 7z writing is not supported; only list, test, and decompress for read-only.
+    if format == ArchiveFormat::SevenZip {
+        anyhow::bail!(
+            "7z writing is not supported; use list, test, or decompress for read-only 7z support"
+        );
+    }
+
     // Single-stream formats (gzip, zstd, xz, lzma) only accept one input.
     if (format == ArchiveFormat::Gzip
         || format == ArchiveFormat::Zstd
@@ -307,7 +314,8 @@ fn validate_compress_inputs(
         }
     }
 
-    // Password is only supported for ZIP and 7z formats.
+    // Password is only supported for ZIP format in compress; single-stream
+    // formats have no encryption capability.
     if options.password.is_some()
         && matches!(
             format,
@@ -315,7 +323,7 @@ fn validate_compress_inputs(
         )
     {
         anyhow::bail!(
-            "--password is only supported for ZIP and 7z formats; '{}' does not support encryption",
+            "--password is only supported for ZIP format; '{}' does not support encryption",
             format
         );
     }

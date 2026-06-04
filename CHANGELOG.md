@@ -28,7 +28,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `geezipx test archive.7z` — verify 7z archive structural integrity
   - Encrypted 7z archives are supported with `--password` / `--password-file` / `--password-stdin`
   - Read-only: 7z creation is not yet implemented
-  - Note: encrypted 7z fixture testing is planned as follow-up
+- **`list` password support**:
+  - `list --password <PASSWORD>` lists encrypted ZIP and 7z archive contents
+  - `list --password-file <PATH>` reads the password from a file (trailing newline stripped)
+  - `list --password-stdin` reads the password from standard input
+  - Using `--password`, `--password-file`, or `--password-stdin` on single-stream formats
+    (gzip, zstd, xz, lzma) while listing fails with a clear error message
+- **Encrypted 7z fixture tests**:
+  - Core unit tests: list, extract, extract_all with correct/incorrect/no password
+  - CLI integration tests: list/decompress encrypted 7z with `--password`/`--password-file`;
+    list encrypted ZIP with `--password-file`/`--password-stdin`;
+    rejection of password sources on gzip/zstd/xz/lzma when listing
 
 ## [0.3.0] - 2026-06-04
 

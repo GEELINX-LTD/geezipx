@@ -281,6 +281,13 @@ pub fn create_writer(
     format: ArchiveFormat,
     options: CompressOptions,
 ) -> Result<Box<dyn ArchiveWriter>> {
+    // Validate password: only ZIP format supports password for writing.
+    if options.password.is_some() && format != ArchiveFormat::Zip {
+        anyhow::bail!(
+            "--password is only supported for ZIP format; '{}' does not support encryption",
+            format
+        );
+    }
     // Validate password: only ZIP format supports it.
     if options.password.is_some()
         && format != ArchiveFormat::Zip

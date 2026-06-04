@@ -207,6 +207,7 @@ Displays a table of entries with path, size, compressed size, ratio, and modific
 | Option | Description |
 |--------|-------------|
 | `-j`, `--json` | Output as a JSON array |
+| `--password` | Password for decrypting encrypted archives (ZIP/7z). Use `--password-file` to read from a file, or `--password-stdin` to read from stdin. These three options are mutually exclusive |
 
 > **Note**: Dangerous paths (absolute paths, path-traversal entries, Windows device paths) in archives emit a warning on stderr. The stdout/JSON output remains clean and unaffected.
 
