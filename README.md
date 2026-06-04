@@ -154,6 +154,14 @@ geezipx test archive.zip
 geezipx test archive.tar.gz --json
 ```
 
+# Pipe data through stdin/stdout (gzip/zstd/xz/lzma only)
+echo "Hello" | geezipx compress --stdin -f gz -o hello.gz
+echo "Hello" | geezipx compress --stdin -f gz --stdout > hello.gz
+cat hello.txt | geezipx compress --stdin -f zst -o hello.txt.zst
+cat hello.txt.gz | geezipx decompress --stdin -f gz --stdout > hello.txt
+cat hello.txt.gz | geezipx decompress --stdin -f gz -o outdir     # writes outdir/output
+geezipx compress hello.txt -f gz --stdout > hello.gz              # file to stdout
+
 ---
 
 ## Usage
@@ -173,12 +181,14 @@ geezipx compress <inputs...> -o <output> [options]
 
 | Option | Description |
 |--------|-------------|
-| `-o`, `--output` | Output file path **(required)** |
+|| `-o`, `--output` | Output file path (required unless `--stdout` is used) |
 | `-f`, `--format` | Format: `zip`, `tar`, `tar.gz`, `tgz`, `gz`, `gzip`, `tar.zst`, `tzst`, `zst`, `zstd`, `tar.xz`, `txz`, `xz`, `lzma` (inferred from extension if omitted, defaults to zip) |
 | `-r`, `--recursive` | Recursively add directories |
 - `-L`, `--level` | Compression level 0-9 (gzip/tar.gz/xz/tar.xz, default: 6); 0-22 (zstd/zst/tar.zst/tzst, default: zstd default) |
 | `-j`, `--jobs` | Worker threads: 1 (default, single-threaded), 0 (auto, use all CPUs), or N (explicit). Currently effective for zstd/tar.zst only; other formats accept but ignore for forward compat |
 || `--password` | Encrypt ZIP with AES-256 (ZIP format only). Use `--password-file` to read the password from a file, or `--password-stdin` to read from stdin. These three options are mutually exclusive. For scripting, prefer `--password-file` or `--password-stdin` to avoid exposing the password in the process list |
+|| `--stdin` | Read uncompressed data from stdin (gzip/zstd/xz/lzma only; requires `--format`; mutually exclusive with input files) |
+|| `--stdout` | Write compressed data to stdout (gzip/zstd/xz/lzma only; requires `--format`; mutually exclusive with `--output`) |
 
 ### `decompress` — Extract archives
 
@@ -192,6 +202,8 @@ Auto-detects the format via magic bytes (with extension fallback).
 |--------|-------------|
 | `-o`, `--output-dir` | Output directory (default: current directory) |
 | `--stdout` | Decompress to stdout (gzip/zstd/xz/lzma only; errors on multi-file archives like tar.gz, tar.zst, tar.xz) |
+|| `--stdin` | Read compressed data from stdin (gzip/zstd/xz/lzma only; requires `--format`; mutually exclusive with archive file) |
+|| `-f`, `--format` | Archive/stream format (required with `--stdin`) |
 | `--no-clobber` | Skip files that already exist |
 | `--force` | Overwrite existing files (default; mutually exclusive with `--no-clobber`) |
 || `--password` | Password for decrypting encrypted ZIP archives (AES-256). Use `--password-file` to read from a file, or `--password-stdin` to read from stdin. These three options are mutually exclusive |

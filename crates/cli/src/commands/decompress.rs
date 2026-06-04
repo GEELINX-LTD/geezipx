@@ -10,25 +10,36 @@ use anyhow::{Context, Result};
 
 use super::common;
 use crate::render::progress::{ProgressBarWrapper, SharedCallback};
+use geezipx_core::archive::gzip;
 use geezipx_core::archive::xz;
+use geezipx_core::archive::zstd;
 use geezipx_core::ProgressReader;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
 /// Execute the `decompress` subcommand.
+#[allow(clippy::too_many_arguments)]
 pub fn execute(
-    archive: &Path,
+    archive: Option<&Path>,
     output_dir: &Path,
     stdout: bool,
     overwrite: bool,
     no_progress: bool,
     verbose: bool,
     password: Option<String>,
+    use_stdin: bool,
+    format: Option<&str>,
 ) -> Result<()> {
+    // ---- stdin mode: read from stdin, no archive file ----
+    if use_stdin {
+        return decompress_stdin_mode(format, output_dir, stdout, overwrite, verbose);
+    }
+
+    // ---- file-based mode ----
+    let archive = archive.unwrap();
     if !archive.exists() {
         anyhow::bail!("archive '{}' does not exist", archive.display());
     }
-
     let format = common::detect_archive_format(archive)?;
 
     // Validate password: single-stream formats (gzip, zstd, xz, lzma) do not support encryption.
@@ -243,6 +254,70 @@ pub fn execute(
                 }
             }
         }
+    }
+
+    Ok(())
+}
+
+/// Decompress single-stream format from stdin, writing to stdout or a file.
+fn decompress_stdin_mode(
+    format: Option<&str>,
+    output_dir: &Path,
+    to_stdout: bool,
+    overwrite: bool,
+    verbose: bool,
+) -> Result<()> {
+    let fmt = common::parse_format(format.context("--format is required when using --stdin")?)?;
+
+    // Validate: only single-stream formats work with stdin
+    match fmt {
+        ArchiveFormat::Gzip | ArchiveFormat::Zstd | ArchiveFormat::Xz | ArchiveFormat::Lzma => {}
+        _ => anyhow::bail!(
+            "--stdin is only supported for single-stream formats \
+             (gzip, zstd, xz, lzma); got '{fmt}'"
+        ),
+    }
+
+    let mut reader = std::io::stdin().lock();
+
+    if to_stdout {
+        let mut writer = std::io::stdout().lock();
+        let bytes = match fmt {
+            ArchiveFormat::Gzip => gzip::gzip_decompress(&mut reader, &mut writer)?,
+            ArchiveFormat::Zstd => zstd::zstd_decompress(&mut reader, &mut writer)?,
+            ArchiveFormat::Xz => xz::xz_decompress(&mut reader, &mut writer)?,
+            ArchiveFormat::Lzma => xz::lzma_decompress(&mut reader, &mut writer)?,
+            _ => unreachable!(),
+        };
+        if verbose {
+            eprintln!("Decompressed stdin to stdout ({bytes} bytes)");
+        }
+        writer
+            .flush()
+            .context("flushing stdout after decompression")?;
+    } else {
+        let output_path = output_dir.join("output");
+        if !overwrite && output_path.exists() {
+            eprintln!(
+                "Warning: '{}' already exists, skipping (use --force to overwrite)",
+                output_path.display()
+            );
+            return Ok(());
+        }
+        let mut writer = fs::File::create(&output_path)
+            .with_context(|| format!("creating output '{}'", output_path.display()))?;
+        let bytes = match fmt {
+            ArchiveFormat::Gzip => gzip::gzip_decompress(&mut reader, &mut writer)?,
+            ArchiveFormat::Zstd => zstd::zstd_decompress(&mut reader, &mut writer)?,
+            ArchiveFormat::Xz => xz::xz_decompress(&mut reader, &mut writer)?,
+            ArchiveFormat::Lzma => xz::lzma_decompress(&mut reader, &mut writer)?,
+            _ => unreachable!(),
+        };
+        eprintln!(
+            "Decompressed stdin -> {} ({} bytes)",
+            output_path.display(),
+            bytes
+        );
     }
 
     Ok(())

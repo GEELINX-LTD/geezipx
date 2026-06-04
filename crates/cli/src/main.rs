@@ -41,13 +41,13 @@ enum Commands {
     /// Create an archive or compressed file from one or more inputs
     #[command(visible_alias = "c")]
     Compress {
-        /// Input files or directories
-        #[arg(required = true)]
+        /// Input files or directories (not needed with --stdin)
+        #[arg(required = false)]
         inputs: Vec<PathBuf>,
 
-        /// Output file path
-        #[arg(short = 'o', long = "output", required = true)]
-        output: PathBuf,
+        /// Output file path (not needed with --stdout)
+        #[arg(short = 'o', long = "output")]
+        output: Option<PathBuf>,
 
         /// Archive format: zip, tar, tar.gz, tgz, gz, gzip, zst, zstd, tar.zst, tzst, tar.xz, txz, xz, lzma (default: derived from output extension or zip)
         #[arg(short = 'f', long = "format")]
@@ -81,13 +81,22 @@ enum Commands {
         /// Mutually exclusive with --password and --password-file.
         #[arg(long = "password-stdin")]
         password_stdin: bool,
+
+        /// Read uncompressed data from stdin (single-stream formats only: gzip, zstd, xz, lzma)
+        #[arg(long = "stdin")]
+        stdin: bool,
+
+        /// Write compressed data to stdout (single-stream formats only: gzip, zstd, xz, lzma)
+        #[arg(long = "stdout")]
+        stdout: bool,
     },
 
     /// Decompress an archive or compressed file
     #[command(visible_alias = "d", visible_alias = "x")]
     Decompress {
-        /// Archive file to decompress
-        archive: PathBuf,
+        /// Archive file to decompress (not needed with --stdin)
+        #[arg(required = false)]
+        archive: Option<PathBuf>,
 
         /// Output directory (default: current directory)
         #[arg(short = 'o', long = "output-dir", default_value = ".")]
@@ -118,6 +127,14 @@ enum Commands {
         /// Mutually exclusive with --password and --password-file.
         #[arg(long = "password-stdin")]
         password_stdin: bool,
+
+        /// Read compressed data from stdin (single-stream formats only: gzip, zstd, xz, lzma)
+        #[arg(long = "stdin")]
+        stdin: bool,
+
+        /// Format hint (required when using --stdin, otherwise auto-detected from file)
+        #[arg(short = 'f', long = "format")]
+        format: Option<String>,
     },
 
     /// List the contents of an archive
@@ -200,12 +217,37 @@ fn run() -> anyhow::Result<()> {
             password,
             password_file,
             password_stdin,
+            stdin,
+            stdout,
         } => {
-            let inputs = expand_compress_inputs(&inputs, &output)?;
             let password = common::resolve_password(password, password_file, password_stdin)?;
+
+            // Runtime validation
+            if stdin && !inputs.is_empty() {
+                anyhow::bail!("--stdin and input files are mutually exclusive");
+            }
+            if stdout && output.is_some() {
+                anyhow::bail!("--stdout and --output are mutually exclusive");
+            }
+            if !stdin && inputs.is_empty() {
+                anyhow::bail!("at least one input file is required (or use --stdin)");
+            }
+            if !stdout && output.is_none() {
+                anyhow::bail!("--output (-o) is required (or use --stdout)");
+            }
+
+            let expanded_inputs = if stdin {
+                vec![]
+            } else {
+                let out_ref = output
+                    .as_deref()
+                    .unwrap_or_else(|| std::path::Path::new(""));
+                expand_compress_inputs(&inputs, out_ref)?
+            };
+
             commands::compress::execute(
-                &inputs,
-                &output,
+                &expanded_inputs,
+                output.as_deref(),
                 format.as_deref(),
                 recursive,
                 level,
@@ -213,6 +255,8 @@ fn run() -> anyhow::Result<()> {
                 cli.no_progress,
                 cli.verbose,
                 password,
+                stdin,
+                stdout,
             )?
         }
         Commands::Decompress {
@@ -224,16 +268,32 @@ fn run() -> anyhow::Result<()> {
             password,
             password_file,
             password_stdin,
+            stdin,
+            format,
         } => {
             let password = common::resolve_password(password, password_file, password_stdin)?;
+
+            // Runtime validation
+            if stdin && archive.is_some() {
+                anyhow::bail!("--stdin and archive file are mutually exclusive");
+            }
+            if !stdin && archive.is_none() {
+                anyhow::bail!("archive file is required (or use --stdin)");
+            }
+            if stdin && format.is_none() {
+                anyhow::bail!("--format is required when using --stdin");
+            }
+
             commands::decompress::execute(
-                &archive,
+                archive.as_deref(),
                 &output_dir,
                 stdout,
                 !no_clobber,
                 cli.no_progress,
                 cli.verbose,
                 password,
+                stdin,
+                format.as_deref(),
             )?
         }
         Commands::List {
@@ -314,10 +374,6 @@ fn expand_compress_inputs(inputs: &[PathBuf], output: &Path) -> anyhow::Result<V
                 result.push(input.clone());
             }
         }
-    }
-
-    if result.is_empty() {
-        anyhow::bail!("at least one input file is required");
     }
 
     Ok(result)

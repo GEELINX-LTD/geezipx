@@ -6241,3 +6241,469 @@ fn list_xz_with_password_stdin_fails() {
         .failure()
         .stderr(predicate::str::contains("only supported for ZIP"));
 }
+
+// ---------------------------------------------------------------------------
+// Stdin/stdout pipe mode tests (Phase 2.5)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn compress_stdin_gzip_to_file() {
+    let td = TestDir::new();
+    let out_path = td.join("out.gz");
+
+    geezipx()
+        .args([
+            "compress",
+            "--stdin",
+            "-f",
+            "gz",
+            "-o",
+            out_path.to_str().unwrap(),
+        ])
+        .write_stdin("Hello from stdin pipe\n")
+        .assert()
+        .success();
+
+    assert!(out_path.exists(), "gzip output should exist");
+
+    // Roundtrip: decompress and verify
+    geezipx()
+        .args(["decompress", out_path.to_str().unwrap(), "--stdout"])
+        .assert()
+        .success()
+        .stdout("Hello from stdin pipe\n");
+}
+
+#[test]
+fn compress_stdin_zstd_to_file() {
+    let td = TestDir::new();
+    let out_path = td.join("out.zst");
+
+    geezipx()
+        .args([
+            "compress",
+            "--stdin",
+            "-f",
+            "zst",
+            "-o",
+            out_path.to_str().unwrap(),
+        ])
+        .write_stdin("Zstd stdin test data\n")
+        .assert()
+        .success();
+
+    assert!(out_path.exists(), "zstd output should exist");
+
+    // Roundtrip
+    geezipx()
+        .args(["decompress", out_path.to_str().unwrap(), "--stdout"])
+        .assert()
+        .success()
+        .stdout("Zstd stdin test data\n");
+}
+
+#[test]
+fn compress_stdin_xz_to_file() {
+    let td = TestDir::new();
+    let out_path = td.join("out.xz");
+
+    geezipx()
+        .args([
+            "compress",
+            "--stdin",
+            "-f",
+            "xz",
+            "-o",
+            out_path.to_str().unwrap(),
+        ])
+        .write_stdin("Xz stdin pipe content\n")
+        .assert()
+        .success();
+
+    assert!(out_path.exists(), "xz output should exist");
+
+    geezipx()
+        .args(["decompress", out_path.to_str().unwrap(), "--stdout"])
+        .assert()
+        .success()
+        .stdout("Xz stdin pipe content\n");
+}
+
+#[test]
+fn compress_stdin_lzma_to_file() {
+    let td = TestDir::new();
+    let out_path = td.join("out.lzma");
+
+    geezipx()
+        .args([
+            "compress",
+            "--stdin",
+            "-f",
+            "lzma",
+            "-o",
+            out_path.to_str().unwrap(),
+        ])
+        .write_stdin("Lzma stdin data\n")
+        .assert()
+        .success();
+
+    assert!(out_path.exists(), "lzma output should exist");
+
+    geezipx()
+        .args(["decompress", out_path.to_str().unwrap(), "--stdout"])
+        .assert()
+        .success()
+        .stdout("Lzma stdin data\n");
+}
+
+#[test]
+fn compress_stdin_stdout_roundtrip() {
+    // stdin -> gzip -> stdout -> decompress stdin -> stdout
+    let input_data = "Full pipe roundtrip test\n";
+
+    // pipe: echo "..." | compress --stdin -f gz --stdout | decompress --stdin -f gz --stdout
+    // We can't easily chain commands in assert_cmd, so test each direction separately.
+
+    // Direction 1: stdin -> stdout compress
+    geezipx()
+        .args(["compress", "--stdin", "-f", "gz", "--stdout"])
+        .write_stdin(input_data)
+        .assert()
+        .success()
+        .stdout(predicate::function(|output: &[u8]| !output.is_empty()));
+}
+
+#[test]
+fn compress_file_to_stdout() {
+    let td = TestDir::new();
+    td.write("hello.txt", "Hello stdout compression\n");
+
+    geezipx()
+        .args([
+            "compress",
+            td.path().join("hello.txt").to_str().unwrap(),
+            "-f",
+            "gz",
+            "--stdout",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::function(|output: &[u8]| !output.is_empty()));
+}
+
+#[test]
+fn decompress_stdin_to_stdout() {
+    let td = TestDir::new();
+    td.write("data.txt", "decompress stdin to stdout\n");
+    let gz_path = td.join("data.txt.gz");
+
+    // First create a gzip file
+    geezipx()
+        .args([
+            "compress",
+            td.path().join("data.txt").to_str().unwrap(),
+            "-f",
+            "gz",
+            "-o",
+            gz_path.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    // Now read the gzip bytes and pipe through decompress --stdin --stdout
+    let compressed_bytes = std::fs::read(&gz_path).unwrap();
+
+    geezipx()
+        .args(["decompress", "--stdin", "-f", "gz", "--stdout"])
+        .write_stdin(compressed_bytes.clone())
+        .assert()
+        .success()
+        .stdout("decompress stdin to stdout\n");
+}
+
+#[test]
+fn decompress_stdin_to_dir() {
+    let td = TestDir::new();
+    td.write("data.txt", "decompress stdin to dir\n");
+    let gz_path = td.join("data.txt.gz");
+
+    // Create gzip file
+    geezipx()
+        .args([
+            "compress",
+            td.path().join("data.txt").to_str().unwrap(),
+            "-f",
+            "gz",
+            "-o",
+            gz_path.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    // Stdin decompress to directory: should create {output_dir}/output
+    let out_dir = td.join("extracted");
+    std::fs::create_dir_all(&out_dir).unwrap();
+    let compressed_bytes = std::fs::read(&gz_path).unwrap();
+
+    geezipx()
+        .args([
+            "decompress",
+            "--stdin",
+            "-f",
+            "gz",
+            "-o",
+            out_dir.to_str().unwrap(),
+        ])
+        .write_stdin(compressed_bytes)
+        .assert()
+        .success();
+
+    let output_file = out_dir.join("output");
+    assert!(output_file.exists(), "output file should exist");
+    assert_eq!(
+        std::fs::read_to_string(&output_file).unwrap(),
+        "decompress stdin to dir\n"
+    );
+}
+
+#[test]
+fn decompress_stdin_to_dir_no_clobber() {
+    let td = TestDir::new();
+    td.write("data.txt", "decompress stdin no-clobber\n");
+    let gz_path = td.join("data.txt.gz");
+
+    // Create gzip file
+    geezipx()
+        .args([
+            "compress",
+            td.path().join("data.txt").to_str().unwrap(),
+            "-f",
+            "gz",
+            "-o",
+            gz_path.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    // Create the output file ahead of time
+    let out_dir = td.join("extracted");
+    std::fs::create_dir_all(&out_dir).unwrap();
+    let output_file = out_dir.join("output");
+    std::fs::write(&output_file, "dummy content\n").unwrap();
+
+    let compressed_bytes = std::fs::read(&gz_path).unwrap();
+
+    // Stdin decompress to directory with no-clobber (default) should skip
+    geezipx()
+        .args([
+            "decompress",
+            "--stdin",
+            "-f",
+            "gz",
+            "-o",
+            out_dir.to_str().unwrap(),
+            "--no-clobber",
+        ])
+        .write_stdin(compressed_bytes.clone())
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("skipping"));
+
+    // Output file should still contain original dummy content
+    assert_eq!(
+        std::fs::read_to_string(&output_file).unwrap(),
+        "dummy content\n"
+    );
+
+    // Now with --force it should overwrite
+    geezipx()
+        .args([
+            "decompress",
+            "--stdin",
+            "-f",
+            "gz",
+            "-o",
+            out_dir.to_str().unwrap(),
+            "--force",
+        ])
+        .write_stdin(compressed_bytes)
+        .assert()
+        .success();
+
+    // Output file should now contain decompressed data
+    assert_eq!(
+        std::fs::read_to_string(&output_file).unwrap(),
+        "decompress stdin no-clobber\n"
+    );
+}
+
+#[test]
+fn compress_stdin_requires_format() {
+    geezipx()
+        .args(["compress", "--stdin", "-o", "out.gz"])
+        .write_stdin("data")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("--format").or(predicate::str::contains("format")));
+}
+
+#[test]
+fn compress_stdin_with_zip_fails() {
+    geezipx()
+        .args(["compress", "--stdin", "-f", "zip", "-o", "out.zip"])
+        .write_stdin("data")
+        .assert()
+        .failure()
+        .stderr(
+            predicate::str::contains("only supported for single-stream")
+                .or(predicate::str::contains("single-stream")),
+        );
+}
+
+#[test]
+fn compress_stdin_with_tar_fails() {
+    geezipx()
+        .args(["compress", "--stdin", "-f", "tar", "-o", "out.tar"])
+        .write_stdin("data")
+        .assert()
+        .failure()
+        .stderr(
+            predicate::str::contains("only supported for single-stream")
+                .or(predicate::str::contains("single-stream")),
+        );
+}
+
+#[test]
+fn compress_stdin_with_7z_fails() {
+    geezipx()
+        .args(["compress", "--stdin", "-f", "7z", "-o", "out.7z"])
+        .write_stdin("data")
+        .assert()
+        .failure()
+        .stderr(
+            predicate::str::contains("only supported for single-stream")
+                .or(predicate::str::contains("single-stream")),
+        );
+}
+
+#[test]
+fn decompress_stdin_requires_format() {
+    geezipx()
+        .args(["decompress", "--stdin", "-o", "."])
+        .write_stdin("data")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("--format").or(predicate::str::contains("format")));
+}
+
+#[test]
+fn decompress_stdin_with_zip_fails() {
+    geezipx()
+        .args(["decompress", "--stdin", "-f", "zip", "-o", "."])
+        .write_stdin("data")
+        .assert()
+        .failure()
+        .stderr(
+            predicate::str::contains("only supported for single-stream")
+                .or(predicate::str::contains("single-stream")),
+        );
+}
+
+#[test]
+fn decompress_stdin_with_tar_fails() {
+    geezipx()
+        .args(["decompress", "--stdin", "-f", "tar", "-o", "."])
+        .write_stdin("data")
+        .assert()
+        .failure()
+        .stderr(
+            predicate::str::contains("only supported for single-stream")
+                .or(predicate::str::contains("single-stream")),
+        );
+}
+
+#[test]
+fn decompress_stdin_with_7z_fails() {
+    geezipx()
+        .args(["decompress", "--stdin", "-f", "7z", "-o", "."])
+        .write_stdin("data")
+        .assert()
+        .failure()
+        .stderr(
+            predicate::str::contains("only supported for single-stream")
+                .or(predicate::str::contains("single-stream")),
+        );
+}
+
+#[test]
+fn compress_stdout_with_zip_fails() {
+    let td = TestDir::new();
+    td.write("test.txt", "data");
+    geezipx()
+        .args([
+            "compress",
+            td.path().join("test.txt").to_str().unwrap(),
+            "--stdout",
+            "-f",
+            "zip",
+        ])
+        .assert()
+        .failure()
+        .stderr(
+            predicate::str::contains("only supported for single-stream")
+                .or(predicate::str::contains("single-stream")),
+        );
+}
+
+#[test]
+fn compress_stdin_and_file_conflict() {
+    let td = TestDir::new();
+    td.write("input.txt", "data");
+    geezipx()
+        .args([
+            "compress",
+            td.path().join("input.txt").to_str().unwrap(),
+            "--stdin",
+            "-f",
+            "gz",
+            "-o",
+            "out.gz",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("mutually exclusive"));
+}
+
+#[test]
+fn decompress_stdin_and_archive_conflict() {
+    let td = TestDir::new();
+    td.write("test.gz", "dummy");
+    geezipx()
+        .args([
+            "decompress",
+            td.path().join("test.gz").to_str().unwrap(),
+            "--stdin",
+            "-f",
+            "gz",
+            "-o",
+            ".",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("mutually exclusive"));
+}
+
+#[test]
+fn compress_stdout_requires_format() {
+    let td = TestDir::new();
+    td.write("in.txt", "data");
+    geezipx()
+        .args([
+            "compress",
+            td.path().join("in.txt").to_str().unwrap(),
+            "--stdout",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("--format").or(predicate::str::contains("format")));
+}

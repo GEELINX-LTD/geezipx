@@ -30,6 +30,7 @@
 - **单一二进制** -- 无运行时依赖，`cargo install` 即装即用
 - **多线程压缩** -- zstd 和 tar.zst 支持 `-j`/`--jobs` 并行压缩
 - **ZIP AES-256 加密** -- 支持 `--password`、`--password-file`、`--password-stdin`（仅限 ZIP 格式）
+- **stdin/stdout 管道支持** -- `compress --stdin`/`--stdout` 和 `decompress --stdin`，支持 gzip/zstd/xz/lzma 单流格式
 
 ---
 
@@ -52,7 +53,7 @@
 - Criterion 基准已建立，并已加入手动性能回归阈值检查；稳定基线和强制比较数据仍待完善。
 - PR 覆盖率注释、coverage badge 或 diff coverage 反馈尚未实现。
 - Release workflow 已能为后续 `v*` tag 自动构建二进制；历史 release 可能仍只有源码包，需要逐个 release 页面确认。
-- 真正的 stdin 管道输入仍需设计；当前 `--stdout` 仅支持 gzip/zstd/xz/lzma 单流格式，不支持 tar.gz/tar.zst/tar.xz 等多文件归档。
+- stdin/stdout 管道支持已完成（gzip/zstd/xz/lzma 单流格式）
 - 显式符号链接跟踪、Windows 长路径开关等高级文件系统选项仍属于后续增强。
 
 详细任务拆解参见 [`docs/PHASE1_CLI_TASKS.md`](docs/PHASE1_CLI_TASKS.md)。
@@ -123,6 +124,27 @@ geezipx compress mydir/ -r -f tar.gz -o mydir.tar.gz
 geezipx decompress hello.zip
 
 # gzip 解压到 stdout
+
+# 管道模式（stdin/stdout）
+管道模式将数据通过 stdin 读取或写入 stdout，适合脚本链式调用。
+
+```bash
+# stdin -> 文件
+echo "Hello" | geezipx compress --stdin -f gz -o hello.gz
+
+# stdin -> stdout（完整管道）
+echo "Hello" | geezipx compress --stdin -f gz --stdout > hello.gz
+cat hello.txt.gz | geezipx decompress --stdin -f gz --stdout > restored.txt
+
+# stdin -> 目录（输出文件固定名为 output）
+cat hello.txt.gz | geezipx decompress --stdin -f gz -o outdir
+
+# 文件 -> stdout
+geezipx compress hello.txt -f gz --stdout > hello.gz
+```
+
+注意：管道模式仅支持 gzip/zstd/xz/lzma 单流格式，不支持 zip/tar/7z。
+
 geezipx decompress hello.txt.gz --stdout > output.txt
 
 # 使用 zstandard 压缩
@@ -195,6 +217,8 @@ geezipx compress <输入文件...> -o <输出文件> [选项]
 || `--password` | 使用 AES-256 加密 ZIP 归档（仅限 ZIP 格式）。使用 `--password-file` 从文件读取密码，或使用 `--password-stdin` 从标准输入读取。三者互斥。脚本中建议使用 `--password-file` 或 `--password-stdin` 以避免密码暴露在进程列表中 |
 
 ### `decompress` — 解压归档
+|| `--stdin` | 从 stdin 读取未压缩数据（仅 gzip/zstd/xz/lzma；需配合 `--format`；与输入文件互斥） |
+|| `--stdout` | 将压缩结果写入 stdout（仅 gzip/zstd/xz/lzma；需配合 `--format`；与 `--output` 互斥） |
 
 ```sh
 geezipx decompress <归档文件> [选项]
@@ -206,6 +230,8 @@ geezipx decompress <归档文件> [选项]
 |------|------|
 | `-o`, `--output-dir` | 输出目录（默认：当前目录） |
 | `--stdout` | 解压到 stdout（仅 gzip/zstd/xz/lzma 单流格式；tar.gz、tar.zst、tar.xz 等多文件归档会报错） |
+|| `--stdin` | 从 stdin 读取压缩数据（仅 gzip/zstd/xz/lzma；需配合 `--format`；与归档文件互斥） |
+|| `-f`, `--format` | 归档/流格式（使用 `--stdin` 时必填） |
 | `--no-clobber` | 跳过已存在的文件 |
 | `--force` | 覆盖已存在的文件（默认行为；与 `--no-clobber` 互斥） |
 || `--password` | 解密加密 ZIP 归档的密码（AES-256）。使用 `--password-file` 从文件读取，或使用 `--password-stdin` 从标准输入读取。三者互斥 |

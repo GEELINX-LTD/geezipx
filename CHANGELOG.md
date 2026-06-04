@@ -38,6 +38,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Core unit tests: list, extract, extract_all with correct/incorrect/no password
   - CLI integration tests: list/decompress encrypted 7z with `--password`/`--password-file`;
     list encrypted ZIP with `--password-file`/`--password-stdin`;
+- **stdin/stdout pipe mode (Phase 2.5)**:
+  - `compress --stdin` reads uncompressed data from stdin (gzip/zstd/xz/lzma only)
+  - `compress --stdout` writes compressed data to stdout (gzip/zstd/xz/lzma only)
+  - `compress file --stdout -f gz` compresses a file to stdout
+  - `decompress --stdin` reads compressed data from stdin (gzip/zstd/xz/lzma only)
+  - `decompress --stdin --stdout` full pipe mode: stdin to stdout
+  - `decompress --stdin -o outdir` writes decompressed output as `{outdir}/output`
+  - `--stdin` and `--stdout` require explicit `--format`
+  - Archive formats (zip, tar, 7z) are rejected with a clear error
+  - `--stdin` is mutually exclusive with input file/archive arguments
+  - `--stdout` is mutually exclusive with `--output`
     rejection of password sources on gzip/zstd/xz/lzma when listing
 
 ## [0.3.0] - 2026-06-04
