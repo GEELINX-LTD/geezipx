@@ -64,6 +64,10 @@ if [ -z "$remote_url" ] || ! echo "$remote_url" | grep -qiE 'github\.com'; then
     exit 0
 fi
 
+# Extract owner/repo from remote URL for explicit --repo flag
+# Handles both HTTPS (https://github.com/OWNER/REPO.git) and SSH (git@github.com:OWNER/REPO.git)
+owner_repo="$(echo "$remote_url" | sed -nE 's#.*github\.com[/:]([^/]+/[^/.]+)(\.git)?$#\1#p')"
+
 # --------------------------------------------------------------------------
 # Find the latest successful workflow run
 # --------------------------------------------------------------------------
@@ -73,6 +77,7 @@ run_id="$(
     gh run list \
         --workflow "$workflow" \
         --branch "$branch" \
+        --repo "$owner_repo" \
         --event push \
         --status success \
         --limit 1 \
@@ -97,7 +102,7 @@ echo "setup-bench-baseline: found run #$run_id"
 # --------------------------------------------------------------------------
 echo "setup-bench-baseline: downloading artifact '$artifact' from run #$run_id ..."
 
-if ! gh run download "$run_id" --name "$artifact" --dir "$criterion_dir" 2>/dev/null; then
+if ! gh run download "$run_id" --name "$artifact" --dir "$criterion_dir" --repo "$owner_repo" 2>/dev/null; then
     if [ "$require" = "1" ]; then
         echo "error: failed to download artifact '$artifact' from run #$run_id" >&2
         exit 1
