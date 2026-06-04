@@ -5,6 +5,7 @@
 
 use std::fs;
 use std::io;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
@@ -228,18 +229,37 @@ fn collect_dir_contents(
 // Reader / writer factories
 // ---------------------------------------------------------------------------
 
-/// Create an archive reader from a file path and detected format.
-pub fn open_reader(path: &Path, format: ArchiveFormat) -> Result<Box<dyn ArchiveReader>> {
+pub fn open_reader(
+    path: &Path,
+    format: ArchiveFormat,
+    password: Option<&str>,
+) -> Result<Box<dyn ArchiveReader>> {
     let file = fs::File::open(path).with_context(|| format!("opening '{}'", path.display()))?;
+
+    // Validate password: only ZIP format supports it.
+    if password.is_some() && format != ArchiveFormat::Zip {
+        anyhow::bail!(
+            "--password is only supported for ZIP format; '{}' does not support encryption",
+            format
+        );
+    }
+
     Ok(match format {
-        ArchiveFormat::Zip => Box::new(ZipReader::new(file)?),
+        ArchiveFormat::Zip => {
+            let mut reader = Box::new(ZipReader::new(file)?);
+            if let Some(pwd) = password {
+                reader.set_password(pwd);
+            }
+            reader
+        }
         ArchiveFormat::Tar => Box::new(TarReader::new(file)),
         ArchiveFormat::TarGz => Box::new(TarGzReader::new(file)),
         ArchiveFormat::TarZst => Box::new(TarZstReader::new(file)),
         ArchiveFormat::TarXz => Box::new(TarXzReader::new(file)),
         ArchiveFormat::Gzip | ArchiveFormat::Zstd | ArchiveFormat::Xz | ArchiveFormat::Lzma => {
             anyhow::bail!(
-                "'{format}' is a single-stream compression format; use 'decompress' directly, not an archive reader"
+                "'{}' is a single-stream compression format; use 'decompress' directly, not an archive reader",
+                format
             )
         }
         _ => anyhow::bail!("unsupported format for reading: {format}"),
@@ -252,8 +272,27 @@ pub fn create_writer(
     format: ArchiveFormat,
     options: CompressOptions,
 ) -> Result<Box<dyn ArchiveWriter>> {
+    // Validate password: only ZIP format supports it.
+    if options.password.is_some() && format != ArchiveFormat::Zip {
+        anyhow::bail!(
+            "--password is only supported for ZIP format; '{}' does not support encryption",
+            format
+        );
+    }
+    // Validate: non-empty password required.
+    if let Some(ref pwd) = options.password {
+        if pwd.is_empty() {
+            anyhow::bail!("--password cannot be empty");
+        }
+    }
     match format {
-        ArchiveFormat::Zip => Ok(Box::new(ZipWriter::new(file))),
+        ArchiveFormat::Zip => {
+            let mut writer = ZipWriter::new(file);
+            if let Some(pwd) = &options.password {
+                writer.set_password(pwd);
+            }
+            Ok(Box::new(writer))
+        }
         ArchiveFormat::Tar => Ok(Box::new(TarWriter::new(file))),
         ArchiveFormat::TarGz => Ok(Box::new(TarGzWriter::new_with_options(file, options))),
         ArchiveFormat::TarZst => Ok(Box::new(TarZstWriter::new_with_options(file, options))),
@@ -313,4 +352,61 @@ pub fn lzma_output_filename(archive: &Path) -> PathBuf {
         .unwrap_or_else(|| "output".to_string());
     let stripped = name.strip_suffix(".lzma").unwrap_or(&name);
     PathBuf::from(stripped)
+}
+
+// ---------------------------------------------------------------------------
+// Password resolution
+// ---------------------------------------------------------------------------
+
+/// Resolve a password from one of three mutually exclusive sources:
+/// `--password`, `--password-file`, `--password-stdin`.
+///
+/// Returns `None` if no source was provided.  For `--password-file` and
+/// `--password-stdin` the trailing newline (LF or CRLF) is stripped.
+/// Returns an error if more than one source is specified, if the file
+/// cannot be read, or if the resolved password is empty.
+pub fn resolve_password(
+    password: Option<String>,
+    password_file: Option<PathBuf>,
+    password_stdin: bool,
+) -> Result<Option<String>> {
+    let sources = password.is_some() as u8 + password_file.is_some() as u8 + password_stdin as u8;
+    if sources > 1 {
+        anyhow::bail!("--password, --password-file, and --password-stdin are mutually exclusive");
+    }
+
+    if let Some(path) = password_file {
+        let mut buf = String::new();
+        fs::File::open(&path)
+            .with_context(|| format!("opening password file '{}'", path.display()))?
+            .read_to_string(&mut buf)
+            .with_context(|| format!("reading password file '{}'", path.display()))?;
+        let pwd = buf
+            .strip_suffix("\r\n")
+            .or_else(|| buf.strip_suffix('\n'))
+            .unwrap_or(&buf)
+            .to_string();
+        if pwd.is_empty() {
+            anyhow::bail!("password file '{}' is empty", path.display());
+        }
+        return Ok(Some(pwd));
+    }
+
+    if password_stdin {
+        let mut buf = String::new();
+        std::io::stdin()
+            .read_to_string(&mut buf)
+            .context("reading password from stdin")?;
+        let pwd = buf
+            .strip_suffix("\r\n")
+            .or_else(|| buf.strip_suffix('\n'))
+            .unwrap_or(&buf)
+            .to_string();
+        if pwd.is_empty() {
+            anyhow::bail!("password from stdin is empty");
+        }
+        return Ok(Some(pwd));
+    }
+
+    Ok(password)
 }

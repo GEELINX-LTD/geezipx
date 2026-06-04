@@ -22,10 +22,15 @@
 ///   Only formats whose underlying crates expose a native multi-thread
 ///   encoder currently act on `jobs` (zstd).  Other formats accept the
 ///   parameter for forward compatibility but ignore it.
-#[derive(Debug, Clone, Copy, Default)]
+///
+/// * `password` — optional password for ZIP AES-256 encryption.
+///   Only ZIP format supports this option; using `--password` with
+///   other formats will produce an error.
+#[derive(Debug, Clone, Default)]
 pub struct CompressOptions {
     pub level: Option<u32>,
     pub jobs: Option<u32>,
+    pub password: Option<String>,
 }
 
 impl CompressOptions {
@@ -74,6 +79,7 @@ mod tests {
         let opts = CompressOptions {
             level: None,
             jobs: None,
+            password: None,
         };
         assert_eq!(opts.effective_jobs(), 1);
     }
@@ -83,6 +89,7 @@ mod tests {
         let opts = CompressOptions {
             level: None,
             jobs: Some(1),
+            password: None,
         };
         assert_eq!(opts.effective_jobs(), 1);
     }
@@ -92,6 +99,7 @@ mod tests {
         let opts = CompressOptions {
             level: None,
             jobs: Some(2),
+            password: None,
         };
         assert_eq!(opts.effective_jobs(), 2);
     }
@@ -101,6 +109,7 @@ mod tests {
         let opts = CompressOptions {
             level: None,
             jobs: Some(4),
+            password: None,
         };
         assert_eq!(opts.effective_jobs(), 4);
     }
@@ -110,6 +119,7 @@ mod tests {
         let opts = CompressOptions {
             level: None,
             jobs: Some(0),
+            password: None,
         };
         assert!(opts.effective_jobs() >= 1, "jobs=0 should yield >=1");
     }
@@ -120,6 +130,7 @@ mod tests {
         let opts = CompressOptions {
             level: None,
             jobs: None,
+            password: None,
         };
         assert_eq!(opts.level(), None);
 
@@ -127,6 +138,7 @@ mod tests {
         let opts = CompressOptions {
             level: Some(6),
             jobs: None,
+            password: None,
         };
         assert_eq!(opts.level(), Some(6));
     }

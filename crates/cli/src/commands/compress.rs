@@ -27,10 +27,12 @@ pub fn execute(
     jobs: u32,
     no_progress: bool,
     verbose: bool,
+    password: Option<String>,
 ) -> Result<()> {
     let compress_options = CompressOptions {
         level,
         jobs: if jobs == 1 { None } else { Some(jobs) },
+        password,
     };
     let format = common::resolve_format(format, output)?;
     // Create a cancellation token for Ctrl+C (SIGINT) handling.
@@ -303,6 +305,19 @@ fn validate_compress_inputs(
                 input.display()
             );
         }
+    }
+
+    // Password is only supported for ZIP format.
+    if options.password.is_some()
+        && matches!(
+            format,
+            ArchiveFormat::Gzip | ArchiveFormat::Zstd | ArchiveFormat::Xz | ArchiveFormat::Lzma
+        )
+    {
+        anyhow::bail!(
+            "--password is only supported for ZIP format; '{}' does not support encryption",
+            format
+        );
     }
 
     Ok(())

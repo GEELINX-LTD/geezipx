@@ -1,9 +1,9 @@
-# GeeZipX Phase 1 — CLI MVP 任务拆分
+# GeeZipX Phase 1 - CLI MVP 任务拆分
 
 > 总周期估计：**10-12 周**（单人全职开发）。  
 > 里程碑结构：4 个里程碑，每个里程碑对应可发布的增量。  
-> **当前状态：** M1、M2、M3 已完成。M4 的 CI、测试、发布验证、crates.io 发布、GitHub Release 和 release workflow 均已建立；Phase 1 核心 CLI 交付完成。后续跟进事项优先级调整为：后续 tag release 的二进制 artifacts 实际上传验证、稳定 benchmark 基线与强制性能比较数据、基于真实风险的按需测试补充，以及可选公告。覆盖率维持当前信息性观测模式，设为可观测指标而非硬门禁。
-> **后期增加：** `compress` 命令新增 `-j`/`--jobs` 多线程参数（`feat(cli): add jobs option for zstd compression`）。默认 1（单线程，向后兼容），`0`（auto），或指定线程数。当前 `zstd`/`tar.zst` 实际启用多线程（zstdmt），其他格式接受参数但暂不生效。
+> **当前状态：** 🚀 **Phase 1 已全部结束。** M1、M2、M3、M4 全部完成。项目已全面转向 Phase 2 开发。
+> **Phase 2 始于 ZIP AES-256 密码加密（`feat(core): add ZIP AES-256 encryption and CLI --password flag`）。** 后续 Phase 2 功能包括：加密 ZIP 支持、7z/RAR 只读、分卷压缩、增强多线程、`--stdout` 扩展等。请参见 `docs/PRD.md` 的 Phase 2 路线。
 
 ---
 

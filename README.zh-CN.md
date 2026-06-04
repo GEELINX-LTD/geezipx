@@ -29,6 +29,7 @@
 - **跨平台** -- Linux、macOS、Windows（三平台 CI）
 - **单一二进制** -- 无运行时依赖，`cargo install` 即装即用
 - **多线程压缩** -- zstd 和 tar.zst 支持 `-j`/`--jobs` 并行压缩
+- **ZIP AES-256 加密** -- 支持 `--password`、`--password-file`、`--password-stdin`（仅限 ZIP 格式）
 
 ---
 
@@ -38,10 +39,10 @@
 
 | 里程碑 | 主题 | 状态 |
 |--------|------|------|
-| M1 | 项目骨架 + 核心引擎库 | 已完成 |
-| M2 | CLI 基本命令 | 已完成 |
-| M3 | 流式处理 / 进度 / 打磨 | 已完成 |
-| M4 | CI / 测试 / 发布 | 大部分完成（发布自动化和质量工作流已建立） |
+| M1 | 项目骨架 + 核心引擎库 | ✅ 已完成 |
+| M2 | CLI 基本命令 | ✅ 已完成 |
+| M3 | 流式处理 / 进度 / 打磨 | ✅ 已完成 |
+| M4 | CI / 测试 / 发布 | ✅ 已完成 |
 
 ### 后续待办
 
@@ -191,6 +192,7 @@ geezipx compress <输入文件...> -o <输出文件> [选项]
 | `-r`, `--recursive` | 递归添加目录 |
 | `-L`, `--level` | 压缩级别 0-9（gzip/tar.gz/xz/tar.xz，默认 6）；0-22（zstd/zst/tar.zst/tzst，默认使用 zstd 默认级别） |
 | `-j`, `--jobs` | Worker 线程数：1（默认，单线程）、0（自动使用全部 CPU）或 N（显式指定）。当前仅对 zstd/tar.zst 生效；其他格式接受但暂不使用，便于向前兼容 |
+|| `--password` | 使用 AES-256 加密 ZIP 归档（仅限 ZIP 格式）。使用 `--password-file` 从文件读取密码，或使用 `--password-stdin` 从标准输入读取。三者互斥。脚本中建议使用 `--password-file` 或 `--password-stdin` 以避免密码暴露在进程列表中 |
 
 ### `decompress` — 解压归档
 
@@ -206,6 +208,7 @@ geezipx decompress <归档文件> [选项]
 | `--stdout` | 解压到 stdout（仅 gzip/zstd/xz/lzma 单流格式；tar.gz、tar.zst、tar.xz 等多文件归档会报错） |
 | `--no-clobber` | 跳过已存在的文件 |
 | `--force` | 覆盖已存在的文件（默认行为；与 `--no-clobber` 互斥） |
+|| `--password` | 解密加密 ZIP 归档的密码（AES-256）。使用 `--password-file` 从文件读取，或使用 `--password-stdin` 从标准输入读取。三者互斥 |
 
 ### `list` — 查看归档内容
 
@@ -234,6 +237,7 @@ ZIP 格式额外支持 CRC-32 校验。
 | 选项 | 说明 |
 |------|------|
 | `-j`, `--json` | 以 JSON 格式输出，包含 `ok` 布尔字段 |
+|| `--password` | 验证加密 ZIP 归档的密码。使用 `--password-file` 从文件读取，或使用 `--password-stdin` 从标准输入读取。三者互斥 |
 
 ### `completions` — 生成 Shell 补全脚本
 
@@ -410,7 +414,7 @@ cargo build --release --workspace
 - xz / LZMA 读写 — **已完成**
 - Zstandard 读写 — **已完成**
 - tar.zst / tar.xz 归档格式读写 — **已完成**
-- 加密 ZIP（AES-256）
+- ZIP AES-256 加密 -- 支持 `--password`、`--password-file`、`--password-stdin`
 - 分卷压缩
 - 7z 只读支持
 - RAR 只读支持

@@ -294,8 +294,8 @@ mod tests {
         let options = crate::config::CompressOptions {
             level: Some(9),
             jobs: None,
+            password: None,
         };
-
         let compressed = {
             let mut buf = Vec::new();
             zstd_compress_with_options(&mut source, &mut buf, options).unwrap();
@@ -328,8 +328,8 @@ mod tests {
         let options = crate::config::CompressOptions {
             level: None,
             jobs: Some(2),
+            password: None,
         };
-
         let compressed = {
             let mut buf = Vec::new();
             zstd_compress_with_options(&mut source, &mut buf, options).unwrap();

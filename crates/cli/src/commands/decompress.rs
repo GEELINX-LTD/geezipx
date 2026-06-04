@@ -23,12 +23,26 @@ pub fn execute(
     overwrite: bool,
     no_progress: bool,
     verbose: bool,
+    password: Option<String>,
 ) -> Result<()> {
     if !archive.exists() {
         anyhow::bail!("archive '{}' does not exist", archive.display());
     }
 
     let format = common::detect_archive_format(archive)?;
+
+    // Validate password: single-stream formats (gzip, zstd, xz, lzma) do not support encryption.
+    if password.is_some()
+        && matches!(
+            format,
+            ArchiveFormat::Gzip | ArchiveFormat::Zstd | ArchiveFormat::Xz | ArchiveFormat::Lzma
+        )
+    {
+        anyhow::bail!(
+            "--password is only supported for ZIP format; '{}' does not support encryption",
+            format
+        );
+    }
 
     let cancel_token = crate::signal::CancellationToken::new();
 
@@ -206,6 +220,7 @@ pub fn execute(
                 verbose,
                 show_progress,
                 cancel_flag,
+                password,
             );
             match result {
                 Ok(()) => {
@@ -367,6 +382,7 @@ fn decompress_zstd_to_file(
 ///
 /// If `cancel_flag` is set, extraction stops as early as possible and
 /// returns [`geezipx_core::GeeZipError::Cancelled`].
+#[allow(clippy::too_many_arguments)]
 fn decompress_archive(
     archive: &Path,
     output_dir: &Path,
@@ -375,9 +391,9 @@ fn decompress_archive(
     verbose: bool,
     show_progress: bool,
     cancel_flag: Arc<AtomicBool>,
+    password: Option<String>,
 ) -> Result<()> {
-    let mut reader = common::open_reader(archive, format)?;
-    let report = reader
+    let report = common::open_reader(archive, format, password.as_deref())?
         .extract_all_with_cancel(output_dir, overwrite, &|| {
             cancel_flag.load(std::sync::atomic::Ordering::SeqCst)
         })

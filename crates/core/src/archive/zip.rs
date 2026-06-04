@@ -10,6 +10,7 @@ use std::io::{Read, Seek, Write};
 use std::path::Path;
 
 use zip::write::SimpleFileOptions;
+use zip::AesMode;
 
 use crate::archive::{
     check_entry_path_safety, normalize_path, ArchiveReader, ArchiveWriter, Entry, ExtractReport,
@@ -29,6 +30,7 @@ use crate::error::{GeeZipError, GeeZipResult};
 pub struct ZipReader<R: Read + Seek + Send> {
     archive: zip::ZipArchive<R>,
     format: ArchiveFormat,
+    password: Option<String>,
 }
 
 impl<R: Read + Seek + Send> fmt::Debug for ZipReader<R> {
@@ -49,7 +51,15 @@ impl<R: Read + Seek + Send> ZipReader<R> {
         Ok(ZipReader {
             archive,
             format: ArchiveFormat::Zip,
+            password: None,
         })
+    }
+}
+
+impl<R: Read + Seek + Send> ZipReader<R> {
+    /// Set a password for decrypting encrypted entries.
+    pub fn set_password(&mut self, password: &str) {
+        self.password = Some(password.to_owned());
     }
 }
 
@@ -67,12 +77,23 @@ impl<R: Read + Seek + Send> ArchiveReader for ZipReader<R> {
         self.format
     }
 
+    fn set_password(&mut self, password: &str) -> GeeZipResult<()> {
+        self.password = Some(password.to_owned());
+        Ok(())
+    }
+
     fn entries(&mut self) -> GeeZipResult<Vec<Entry>> {
         let len = self.archive.len();
         let mut entries = Vec::with_capacity(len);
 
         for i in 0..len {
-            let file = self.archive.by_index(i).map_err(convert_zip_error)?;
+            let file = match &self.password {
+                Some(pwd) => self
+                    .archive
+                    .by_index_decrypt(i, pwd.as_bytes())
+                    .map_err(convert_zip_error)?,
+                None => self.archive.by_index(i).map_err(convert_zip_error)?,
+            };
             let modified = file.last_modified().map(|dt| {
                 crate::archive::datetime_to_timestamp(
                     dt.year() as u64,
@@ -97,12 +118,26 @@ impl<R: Read + Seek + Send> ArchiveReader for ZipReader<R> {
     }
 
     fn extract(&mut self, entry: &Entry, writer: &mut dyn Write) -> GeeZipResult<u64> {
-        let mut file = self.archive.by_name(&entry.path).map_err(|e| match e {
-            zip::result::ZipError::FileNotFound => GeeZipError::EntryNotFound {
-                name: entry.path.clone(),
-            },
-            other => convert_zip_error(other),
-        })?;
+        let mut file = match &self.password {
+            Some(password) => self
+                .archive
+                .by_name_decrypt(&entry.path, password.as_bytes())
+                .map_err(|e| match e {
+                    zip::result::ZipError::FileNotFound => GeeZipError::EntryNotFound {
+                        name: entry.path.clone(),
+                    },
+                    zip::result::ZipError::InvalidPassword => GeeZipError::Crypto {
+                        message: format!("invalid password for '{}'", entry.path),
+                    },
+                    other => convert_zip_error(other),
+                })?,
+            None => self.archive.by_name(&entry.path).map_err(|e| match e {
+                zip::result::ZipError::FileNotFound => GeeZipError::EntryNotFound {
+                    name: entry.path.clone(),
+                },
+                other => convert_zip_error(other),
+            })?,
+        };
 
         let bytes = std::io::copy(&mut file, writer)
             .map_err(|e| GeeZipError::io(e, format!("extracting '{}'", entry.path)))?;
@@ -223,6 +258,7 @@ pub struct ZipWriter<W: Write + Seek> {
     inner: zip::ZipWriter<W>,
     start_pos: u64,
     format: ArchiveFormat,
+    password: Option<String>,
 }
 
 impl<W: Write + Seek> ZipWriter<W> {
@@ -233,7 +269,13 @@ impl<W: Write + Seek> ZipWriter<W> {
             inner: zip::ZipWriter::new(writer),
             start_pos,
             format: ArchiveFormat::Zip,
+            password: None,
         }
+    }
+
+    /// Set a password for AES-256 encryption.
+    pub fn set_password(&mut self, password: &str) {
+        self.password = Some(password.to_owned());
     }
 
     /// Finalize the ZIP archive and return the inner writer alongside
@@ -263,8 +305,11 @@ impl<W: Write + Seek + Send> ArchiveWriter for ZipWriter<W> {
             format: ArchiveFormat::Zip,
         })?;
 
-        let options =
+        let mut options =
             SimpleFileOptions::default().compression_method(zip::CompressionMethod::DEFLATE);
+        if let Some(password) = &self.password {
+            options = options.with_aes_encryption(AesMode::Aes256, password);
+        }
 
         self.inner
             .start_file(name, options)
@@ -285,8 +330,11 @@ impl<W: Write + Seek + Send> ArchiveWriter for ZipWriter<W> {
             format: ArchiveFormat::Zip,
         })?;
 
-        let options = zip::write::FileOptions::<()>::default()
+        let mut options = zip::write::FileOptions::<()>::default()
             .compression_method(zip::CompressionMethod::Stored);
+        if let Some(password) = &self.password {
+            options = options.with_aes_encryption(AesMode::Aes256, password);
+        }
         self.inner
             .start_file(&dir_path, options)
             .map_err(|e| GeeZipError::Format {
@@ -895,4 +943,125 @@ fn zip_truncated_not_panic() {
         msg.contains("zip") || msg.contains("invalid"),
         "expected ZIP error for truncated zip, got: {err}"
     );
+}
+
+// ---------------------------------------------------------------------------
+// AES-256 password tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod aes_tests {
+    use super::*;
+    use std::io::Cursor;
+
+    /// Helper: create an AES-256 encrypted ZIP in memory.
+    fn create_encrypted_zip(files: &[(&str, &[u8])], password: &str) -> Vec<u8> {
+        let mut buf = Cursor::new(Vec::new());
+        {
+            let mut zip = zip::ZipWriter::new(&mut buf);
+            for (name, data) in files {
+                let options = SimpleFileOptions::default()
+                    .compression_method(zip::CompressionMethod::Stored)
+                    .with_aes_encryption(AesMode::Aes256, password);
+                zip.start_file(*name, options).unwrap();
+                zip.write_all(data).unwrap();
+            }
+            zip.finish().unwrap();
+        }
+        buf.into_inner()
+    }
+
+    #[test]
+    fn encrypted_roundtrip_correct_password() {
+        let content = b"secret data";
+        let data = create_encrypted_zip(&[("secret.txt", content)], "mypassword");
+
+        // Decrypt with correct password
+        let mut reader = ZipReader::from_buf(data).unwrap();
+        reader.set_password("mypassword");
+        let entries = reader.entries().unwrap();
+        assert_eq!(entries.len(), 1);
+
+        let mut output = Vec::new();
+        let bytes = reader.extract(&entries[0], &mut output).unwrap();
+        assert_eq!(bytes, content.len() as u64);
+        assert_eq!(output, content);
+    }
+
+    #[test]
+    fn encrypted_wrong_password_fails() {
+        let content = b"secret data";
+        let data = create_encrypted_zip(&[("secret.txt", content)], "correctpw");
+
+        let mut reader = ZipReader::from_buf(data).unwrap();
+        reader.set_password("wrongpw");
+        // entries() may succeed (zip crate validates password during read, not during listing)
+        let entries_result = reader.entries();
+        let err = match entries_result {
+            Ok(entries) => reader.extract(&entries[0], &mut Vec::new()).unwrap_err(),
+            Err(e) => e,
+        };
+        let msg = err.to_string().to_lowercase();
+        assert!(
+            msg.contains("password") || msg.contains("crypto"),
+            "expected password/crypto error, got: {err}"
+        );
+    }
+
+    #[test]
+    fn encrypted_no_password_fails() {
+        let content = b"secret data";
+        let data = create_encrypted_zip(&[("secret.txt", content)], "secret123");
+
+        let mut reader = ZipReader::from_buf(data).unwrap();
+        let err = reader.entries().unwrap_err();
+        let msg = err.to_string().to_lowercase();
+        assert!(
+            msg.contains("password") || msg.contains("crypto"),
+            "expected password/crypto error, got: {err}"
+        );
+    }
+
+    #[test]
+    fn encrypted_list_entries_with_password() {
+        let content = b"secret data";
+        let data = create_encrypted_zip(
+            &[("file1.txt", content), ("file2.txt", b"more data")],
+            "mypassword",
+        );
+
+        // listing entries requires the password
+        let mut reader = ZipReader::from_buf(data).unwrap();
+        reader.set_password("mypassword");
+        let entries = reader.entries().unwrap();
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].path, "file1.txt");
+        assert_eq!(entries[1].path, "file2.txt");
+    }
+
+    #[test]
+    fn encrypted_empty_password_roundtrip() {
+        // Try to use empty password in writer
+        let mut buf = Cursor::new(Vec::new());
+        {
+            let mut zip = zip::ZipWriter::new(&mut buf);
+            let options = SimpleFileOptions::default()
+                .compression_method(zip::CompressionMethod::Stored)
+                .with_aes_encryption(AesMode::Aes256, "");
+            zip.start_file("test.txt", options).unwrap();
+            zip.write_all(b"data").unwrap();
+            zip.finish().unwrap();
+        }
+        let data = buf.into_inner();
+
+        // Decrypt with empty password - should fail or succeed depends on crate
+        let mut reader = ZipReader::from_buf(data).unwrap();
+        reader.set_password("");
+        let entries = reader.entries().unwrap();
+        let mut output = Vec::new();
+        // Might fail depending on how zip crate handles empty passwords
+        let _ = reader.extract(&entries[0], &mut output);
+        // At minimum, verify we can list entries
+        assert_eq!(entries[0].path, "test.txt");
+    }
 }

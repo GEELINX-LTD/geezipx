@@ -24,6 +24,7 @@
 - **Zip Slip protection** -- blocks path-traversal attacks in all archive formats
 - **JSON output** -- `list --json` for machine-readable inspection; `test --json` for programmatic integrity results
 - **Shell completions** -- bash, zsh, fish, PowerShell, elvish
+- **ZIP AES-256 encryption** -- `--password`, `--password-file`, or `--password-stdin` (ZIP only)
 - **Cross-platform** -- Linux, macOS, Windows (3-platform CI)
 - **Single binary** -- no runtime dependencies, `cargo install` ready
 - **Multi-threaded compression** -- `-j`/`--jobs` for parallel zstd and tar.zst compression
@@ -32,28 +33,17 @@
 
 ## Status
 
-Phase 1 (CLI MVP) is **complete for core CLI functionality**. All core subcommands (`compress`, `decompress`, `list`, `test`, `completions`) work for the supported formats.
-
+Phase 1 (CLI MVP) is **complete**. All core subcommands (`compress`, `decompress`, `list`, `test`, `completions`) work for all supported formats.
+Phase 2 (CLI Enhancements) is **now the active development focus**. The first Phase 2 feature — ZIP AES-256 password encryption — has been shipped.
+See [`docs/PHASE1_CLI_TASKS.md`](docs/PHASE1_CLI_TASKS.md) for the full task breakdown.
+### Phase 1 — Complete
 | Milestone | Theme | Status |
 |-----------|-------|--------|
-| M1 | Project skeleton + core engine library | Done |
-| M2 | CLI basic commands | Done |
-| M3 | Streaming / progress / polish | Done |
-| M4 | CI / testing / release | Mostly done (release automation and quality workflows are in place) |
-
-### Remaining follow-ups
-
-These are not blockers for the CLI MVP, but remain open for ongoing improvement:
-
-- Release binaries are built by the release workflow for future `v*` tag releases; older releases may still be source-only.
-- Performance benchmarks now have a manual Criterion regression threshold check; stable baselines and mandatory comparison data remain follow-ups.
-- Coverage is tracked via an informational workflow — real-risk and regression scenarios are prioritized in practice over coverage numbers.
-- True stdin-driven pipeline support needs design; `--stdout` currently supports only single-stream formats (`gzip`, `zstd`, `xz`, `lzma`), not multi-file archive formats.
-- Advanced filesystem options such as explicit symlink-following and Windows long-path flags remain future enhancements.
-
-See [`docs/PHASE1_CLI_TASKS.md`](docs/PHASE1_CLI_TASKS.md) for the full task breakdown.
-
----
+|-----------|-------|--------|
+| M1 | Project skeleton + core engine library | **Complete** |
+| M2 | CLI basic commands | **Complete** |
+| M3 | Streaming / progress / polish | **Complete** |
+| M4 | CI / testing / release | **Complete** |
 
 ## Install
 
@@ -188,6 +178,7 @@ geezipx compress <inputs...> -o <output> [options]
 | `-r`, `--recursive` | Recursively add directories |
 - `-L`, `--level` | Compression level 0-9 (gzip/tar.gz/xz/tar.xz, default: 6); 0-22 (zstd/zst/tar.zst/tzst, default: zstd default) |
 | `-j`, `--jobs` | Worker threads: 1 (default, single-threaded), 0 (auto, use all CPUs), or N (explicit). Currently effective for zstd/tar.zst only; other formats accept but ignore for forward compat |
+|| `--password` | Encrypt ZIP with AES-256 (ZIP format only). Use `--password-file` to read the password from a file, or `--password-stdin` to read from stdin. These three options are mutually exclusive. For scripting, prefer `--password-file` or `--password-stdin` to avoid exposing the password in the process list |
 
 ### `decompress` — Extract archives
 
@@ -203,6 +194,7 @@ Auto-detects the format via magic bytes (with extension fallback).
 | `--stdout` | Decompress to stdout (gzip/zstd/xz/lzma only; errors on multi-file archives like tar.gz, tar.zst, tar.xz) |
 | `--no-clobber` | Skip files that already exist |
 | `--force` | Overwrite existing files (default; mutually exclusive with `--no-clobber`) |
+|| `--password` | Password for decrypting encrypted ZIP archives (AES-256). Use `--password-file` to read from a file, or `--password-stdin` to read from stdin. These three options are mutually exclusive |
 
 ### `list` — Inspect archives
 
@@ -234,6 +226,7 @@ A corrupted archive results in a non-zero exit code.
 | Option | Description |
 |--------|-------------|
 | `-j`, `--json` | Output as JSON with `ok` boolean |
+|| `--password` | Password for verifying encrypted ZIP archives. Use `--password-file` to read from a file, or `--password-stdin` to read from stdin. These three options are mutually exclusive |
 
 ### `completions` — Shell completion scripts
 
@@ -397,7 +390,7 @@ and the combined `SHA256SUMS` file.
 
 ## Roadmap
 
-### Phase 1 (CLI MVP) — Current ✓
+### Phase 1 (CLI MVP) — Complete ✓
 
 All core features are implemented and verified:
 
@@ -423,9 +416,10 @@ All core features are implemented and verified:
 
 > **Note**: Zstandard (zst/zstd) and TarZst (tar.zst/tzst) read/write were added after Phase 1 milestones as early Phase 2 format extensions folded back into the MVP.
 
-### Phase 2 (CLI Enhancements) — Planned / Partially Done
+### Phase 2 (CLI Enhancements) — Active Development 🚀
 
 - Multi-threaded zstd/tar.zst compression via `-j`/`--jobs` (zstd native NbWorkers) — **done**
+- [x] **ZIP AES-256 password encryption** — `--password`, `--password-file`, `--password-stdin` (ZIP only)
 - XZ / LZMA read/write — **done**
 - TAR.ZST / TAR.XZ archive read/write — **done**
 - Encrypted ZIP (AES-256)

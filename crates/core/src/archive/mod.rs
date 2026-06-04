@@ -356,6 +356,14 @@ pub trait ArchiveReader: Send {
 
         Ok(report)
     }
+
+    /// Set a password for decrypting encrypted entries (ZIP AES-256).
+    ///
+    /// The default implementation is a no-op. Only archive formats that
+    /// support encryption (currently ZIP) override this method.
+    fn set_password(&mut self, _password: &str) -> GeeZipResult<()> {
+        Ok(())
+    }
 }
 
 /// Archive writer trait — add files and finalise.

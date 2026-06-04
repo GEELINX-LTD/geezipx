@@ -16,6 +16,7 @@ use clap_complete::{generate, Shell};
 mod commands;
 mod render;
 mod signal;
+use commands::common;
 
 #[derive(Parser)]
 #[command(
@@ -65,6 +66,21 @@ enum Commands {
         /// accept this flag for forward compatibility but ignore it.
         #[arg(short = 'j', long = "jobs", default_value_t = 1, value_parser = clap::value_parser!(u32).range(0..=256))]
         jobs: u32,
+
+        /// Encrypt the archive with a password (ZIP AES-256 only).
+        /// Using --password with non-ZIP formats will cause an error.
+        #[arg(long = "password")]
+        password: Option<String>,
+
+        /// Read the encryption password from a file (ZIP AES-256 only).
+        /// Mutually exclusive with --password and --password-stdin.
+        #[arg(long = "password-file")]
+        password_file: Option<PathBuf>,
+
+        /// Read the encryption password from stdin (ZIP AES-256 only).
+        /// Mutually exclusive with --password and --password-file.
+        #[arg(long = "password-stdin")]
+        password_stdin: bool,
     },
 
     /// Decompress an archive or compressed file
@@ -88,6 +104,20 @@ enum Commands {
         /// Overwrite existing files (default; mutually exclusive with --no-clobber)
         #[arg(long = "force", conflicts_with = "no_clobber")]
         force: bool,
+
+        /// Password for decrypting encrypted archives (ZIP AES-256).
+        #[arg(long = "password")]
+        password: Option<String>,
+
+        /// Read the decryption password from a file (ZIP AES-256 only).
+        /// Mutually exclusive with --password and --password-stdin.
+        #[arg(long = "password-file")]
+        password_file: Option<PathBuf>,
+
+        /// Read the decryption password from stdin (ZIP AES-256 only).
+        /// Mutually exclusive with --password and --password-file.
+        #[arg(long = "password-stdin")]
+        password_stdin: bool,
     },
 
     /// List the contents of an archive
@@ -110,6 +140,20 @@ enum Commands {
         /// Output as JSON
         #[arg(short = 'j', long = "json")]
         json: bool,
+
+        /// Password for decrypting encrypted ZIP archives.
+        #[arg(long = "password")]
+        password: Option<String>,
+
+        /// Read the verification password from a file (ZIP AES-256 only).
+        /// Mutually exclusive with --password and --password-stdin.
+        #[arg(long = "password-file")]
+        password_file: Option<PathBuf>,
+
+        /// Read the verification password from stdin (ZIP AES-256 only).
+        /// Mutually exclusive with --password and --password-file.
+        #[arg(long = "password-stdin")]
+        password_stdin: bool,
     },
 
     /// Generate shell completion scripts
@@ -139,8 +183,12 @@ fn run() -> anyhow::Result<()> {
             recursive,
             level,
             jobs,
+            password,
+            password_file,
+            password_stdin,
         } => {
             let inputs = expand_compress_inputs(&inputs, &output)?;
+            let password = common::resolve_password(password, password_file, password_stdin)?;
             commands::compress::execute(
                 &inputs,
                 &output,
@@ -150,6 +198,7 @@ fn run() -> anyhow::Result<()> {
                 jobs,
                 cli.no_progress,
                 cli.verbose,
+                password,
             )?
         }
         Commands::Decompress {
@@ -158,16 +207,32 @@ fn run() -> anyhow::Result<()> {
             stdout,
             no_clobber,
             force: _, // force is explicit default; no-clobber controls behavior
-        } => commands::decompress::execute(
-            &archive,
-            &output_dir,
-            stdout,
-            !no_clobber,
-            cli.no_progress,
-            cli.verbose,
-        )?,
+            password,
+            password_file,
+            password_stdin,
+        } => {
+            let password = common::resolve_password(password, password_file, password_stdin)?;
+            commands::decompress::execute(
+                &archive,
+                &output_dir,
+                stdout,
+                !no_clobber,
+                cli.no_progress,
+                cli.verbose,
+                password,
+            )?
+        }
         Commands::List { archive, json } => commands::list::execute(&archive, json)?,
-        Commands::Test { archive, json } => commands::test::execute(&archive, json)?,
+        Commands::Test {
+            archive,
+            json,
+            password,
+            password_file,
+            password_stdin,
+        } => {
+            let password = common::resolve_password(password, password_file, password_stdin)?;
+            commands::test::execute(&archive, json, password)?
+        }
         Commands::Completions { shell } => {
             let mut cmd = Cli::command();
             let name = cmd.get_name().to_string();

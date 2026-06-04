@@ -13,8 +13,8 @@ use super::common;
 use geezipx_core::test::{verify_archive_reader, verify_single_stream, TestReport};
 
 /// Execute the `test` subcommand.
-pub fn execute(archive: &Path, json: bool) -> Result<()> {
-    let result = run_verify(archive, json);
+pub fn execute(archive: &Path, json: bool, password: Option<String>) -> Result<()> {
+    let result = run_verify(archive, json, password);
 
     match result {
         Ok(()) => Ok(()),
@@ -37,12 +37,25 @@ pub fn execute(archive: &Path, json: bool) -> Result<()> {
 
 /// The actual verification logic, separated so `execute` can handle JSON
 /// failure gracefully before propagating errors to main.
-fn run_verify(archive: &Path, json: bool) -> Result<()> {
+fn run_verify(archive: &Path, json: bool, password: Option<String>) -> Result<()> {
     if !archive.exists() {
         anyhow::bail!("archive '{}' does not exist", archive.display());
     }
 
     let format = common::detect_archive_format(archive)?;
+
+    // Validate password: single-stream formats do not support encryption.
+    if password.is_some()
+        && matches!(
+            format,
+            ArchiveFormat::Gzip | ArchiveFormat::Zstd | ArchiveFormat::Xz | ArchiveFormat::Lzma
+        )
+    {
+        anyhow::bail!(
+            "--password is only supported for ZIP format; '{}' does not support encryption",
+            format
+        );
+    }
 
     let fs_metadata_len = fs::metadata(archive).map(|m| m.len()).unwrap_or(0);
 
@@ -56,7 +69,7 @@ fn run_verify(archive: &Path, json: bool) -> Result<()> {
         | ArchiveFormat::TarGz
         | ArchiveFormat::TarZst
         | ArchiveFormat::TarXz => {
-            let mut reader = common::open_reader(archive, format)?;
+            let mut reader = common::open_reader(archive, format, password.as_deref())?;
             verify_archive_reader(&mut *reader)
                 .with_context(|| format!("verifying '{}'", archive.display()))?
         }

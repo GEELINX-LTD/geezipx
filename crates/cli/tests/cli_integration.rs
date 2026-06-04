@@ -5151,3 +5151,625 @@ fn test_nonexistent_fails() {
         .failure()
         .stderr(predicate::str::contains("does not exist"));
 }
+
+// ---------------------------------------------------------------------------
+// ZIP AES-256 password tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn zip_password_roundtrip() {
+    let td = TestDir::new();
+    td.write("secret.txt", "classified content");
+    let zip_path = td.join("encrypted.zip");
+
+    // Compress with password
+    geezipx()
+        .args([
+            "compress",
+            td.path().join("secret.txt").to_str().unwrap(),
+            "-f",
+            "zip",
+            "-o",
+            zip_path.to_str().unwrap(),
+            "--password",
+            "mypassword",
+        ])
+        .assert()
+        .success();
+
+    // Decompress with correct password
+    let out_dir = td.join("out");
+    geezipx()
+        .args([
+            "decompress",
+            zip_path.to_str().unwrap(),
+            "-o",
+            out_dir.to_str().unwrap(),
+            "--password",
+            "mypassword",
+        ])
+        .assert()
+        .success();
+
+    let out_file = out_dir.join("secret.txt");
+    assert!(out_file.exists(), "expected decompressed file");
+    let content = std::fs::read_to_string(&out_file).unwrap();
+    assert_eq!(content, "classified content");
+}
+
+#[test]
+fn zip_password_wrong_password_fails() {
+    let td = TestDir::new();
+    td.write("secret.txt", "classified content");
+    let zip_path = td.join("encrypted.zip");
+
+    // Compress with password
+    geezipx()
+        .args([
+            "compress",
+            td.path().join("secret.txt").to_str().unwrap(),
+            "-f",
+            "zip",
+            "-o",
+            zip_path.to_str().unwrap(),
+            "--password",
+            "correctpw",
+        ])
+        .assert()
+        .success();
+
+    // Decompress with wrong password
+    let out_dir = td.join("out");
+    geezipx()
+        .args([
+            "decompress",
+            zip_path.to_str().unwrap(),
+            "-o",
+            out_dir.to_str().unwrap(),
+            "--password",
+            "wrongpw",
+        ])
+        .assert()
+        .failure();
+}
+
+#[test]
+fn zip_password_no_password_fails_on_encrypted() {
+    let td = TestDir::new();
+    td.write("secret.txt", "classified content");
+    let zip_path = td.join("encrypted.zip");
+
+    // Compress with password
+    geezipx()
+        .args([
+            "compress",
+            td.path().join("secret.txt").to_str().unwrap(),
+            "-f",
+            "zip",
+            "-o",
+            zip_path.to_str().unwrap(),
+            "--password",
+            "secret123",
+        ])
+        .assert()
+        .success();
+
+    // Decompress WITHOUT password (should fail)
+    let out_dir = td.join("out");
+    geezipx()
+        .args([
+            "decompress",
+            zip_path.to_str().unwrap(),
+            "-o",
+            out_dir.to_str().unwrap(),
+        ])
+        .assert()
+        .failure();
+}
+
+#[test]
+fn zip_password_flag_on_non_zip_fails() {
+    let td = TestDir::new();
+    td.write("data.txt", "some data");
+    let out_path = td.join("output.tar.gz");
+
+    geezipx()
+        .args([
+            "compress",
+            td.path().join("data.txt").to_str().unwrap(),
+            "-f",
+            "tar.gz",
+            "-o",
+            out_path.to_str().unwrap(),
+            "--password",
+            "mypassword",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("only supported for ZIP"));
+}
+
+#[test]
+fn zip_password_empty_password_fails() {
+    let td = TestDir::new();
+    td.write("data.txt", "some data");
+    let out_path = td.join("out.zip");
+
+    geezipx()
+        .args([
+            "compress",
+            td.path().join("data.txt").to_str().unwrap(),
+            "-f",
+            "zip",
+            "-o",
+            out_path.to_str().unwrap(),
+            "--password",
+            "",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("empty"));
+}
+
+#[test]
+fn zip_password_list_on_encrypted_without_password_fails() {
+    let td = TestDir::new();
+    td.write("secret.txt", "classified content");
+    let zip_path = td.join("encrypted.zip");
+
+    // Compress with password
+    geezipx()
+        .args([
+            "compress",
+            td.path().join("secret.txt").to_str().unwrap(),
+            "-f",
+            "zip",
+            "-o",
+            zip_path.to_str().unwrap(),
+            "--password",
+            "secret123",
+        ])
+        .assert()
+        .success();
+
+    // List entries on encrypted zip should still work
+    geezipx()
+        .args(["list", zip_path.to_str().unwrap()])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("Password"));
+}
+
+#[test]
+fn zip_password_test_on_encrypted_with_password() {
+    let td = TestDir::new();
+    td.write("secret.txt", "classified content");
+    let zip_path = td.join("encrypted.zip");
+
+    // Compress with password
+    geezipx()
+        .args([
+            "compress",
+            td.path().join("secret.txt").to_str().unwrap(),
+            "-f",
+            "zip",
+            "-o",
+            zip_path.to_str().unwrap(),
+            "--password",
+            "secret123",
+        ])
+        .assert()
+        .success();
+
+    // Test integrity with correct password
+    geezipx()
+        .args([
+            "test",
+            zip_path.to_str().unwrap(),
+            "--password",
+            "secret123",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("ok"));
+}
+
+// ---------------------------------------------------------------------------
+// Password file / password stdin tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn zip_password_file_roundtrip() {
+    let td = TestDir::new();
+    td.write("secret.txt", "classified content");
+    td.write("passwd.txt", "filepassword\n");
+    let zip_path = td.join("encrypted.zip");
+
+    // Compress with --password-file
+    geezipx()
+        .args([
+            "compress",
+            td.path().join("secret.txt").to_str().unwrap(),
+            "-f",
+            "zip",
+            "-o",
+            zip_path.to_str().unwrap(),
+            "--password-file",
+            td.path().join("passwd.txt").to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    // Decompress with --password-file
+    let out_dir = td.join("out");
+    geezipx()
+        .args([
+            "decompress",
+            zip_path.to_str().unwrap(),
+            "-o",
+            out_dir.to_str().unwrap(),
+            "--password-file",
+            td.path().join("passwd.txt").to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    let out_file = out_dir.join("secret.txt");
+    assert!(out_file.exists(), "expected decompressed file");
+    assert_eq!(
+        std::fs::read_to_string(&out_file).unwrap(),
+        "classified content"
+    );
+}
+
+#[test]
+fn zip_password_stdin_roundtrip() {
+    let td = TestDir::new();
+    td.write("secret.txt", "stdin password test");
+    let zip_path = td.join("encrypted.zip");
+
+    // Compress with --password
+    geezipx()
+        .args([
+            "compress",
+            td.path().join("secret.txt").to_str().unwrap(),
+            "-f",
+            "zip",
+            "-o",
+            zip_path.to_str().unwrap(),
+            "--password",
+            "stdinpw",
+        ])
+        .assert()
+        .success();
+
+    // Decompress with --password-stdin
+    let out_dir = td.join("out");
+    geezipx()
+        .args([
+            "decompress",
+            zip_path.to_str().unwrap(),
+            "-o",
+            out_dir.to_str().unwrap(),
+            "--password-stdin",
+        ])
+        .write_stdin("stdinpw\n")
+        .assert()
+        .success();
+
+    let out_file = out_dir.join("secret.txt");
+    assert!(out_file.exists(), "expected decompressed file");
+    assert_eq!(
+        std::fs::read_to_string(&out_file).unwrap(),
+        "stdin password test"
+    );
+}
+
+#[test]
+fn zip_password_mutual_exclusion_password_and_password_file() {
+    let td = TestDir::new();
+    td.write("data.txt", "test");
+    td.write("passwd.txt", "secret");
+
+    geezipx()
+        .args([
+            "compress",
+            td.path().join("data.txt").to_str().unwrap(),
+            "-f",
+            "zip",
+            "-o",
+            td.path().join("out.zip").to_str().unwrap(),
+            "--password",
+            "mypassword",
+            "--password-file",
+            td.path().join("passwd.txt").to_str().unwrap(),
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("mutually exclusive"));
+}
+
+#[test]
+fn zip_password_mutual_exclusion_password_and_password_stdin() {
+    let td = TestDir::new();
+    td.write("data.txt", "test");
+
+    geezipx()
+        .args([
+            "compress",
+            td.path().join("data.txt").to_str().unwrap(),
+            "-f",
+            "zip",
+            "-o",
+            td.path().join("out.zip").to_str().unwrap(),
+            "--password",
+            "mypassword",
+            "--password-stdin",
+        ])
+        .write_stdin("secret\n")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("mutually exclusive"));
+}
+
+#[test]
+fn zip_password_file_empty_fails() {
+    let td = TestDir::new();
+    td.write("data.txt", "test");
+    td.write("empty.txt", "");
+
+    geezipx()
+        .args([
+            "compress",
+            td.path().join("data.txt").to_str().unwrap(),
+            "-f",
+            "zip",
+            "-o",
+            td.path().join("out.zip").to_str().unwrap(),
+            "--password-file",
+            td.path().join("empty.txt").to_str().unwrap(),
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("empty"));
+}
+
+#[test]
+fn zip_password_file_on_non_zip_fails() {
+    let td = TestDir::new();
+    td.write("data.txt", "some data");
+    td.write("passwd.txt", "secret");
+    let out_path = td.join("output.tar.gz");
+
+    geezipx()
+        .args([
+            "compress",
+            td.path().join("data.txt").to_str().unwrap(),
+            "-f",
+            "tar.gz",
+            "-o",
+            out_path.to_str().unwrap(),
+            "--password-file",
+            td.path().join("passwd.txt").to_str().unwrap(),
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("only supported for ZIP"));
+}
+
+#[test]
+fn zip_password_stdin_on_non_zip_fails() {
+    let td = TestDir::new();
+    td.write("data.txt", "some data");
+    let out_path = td.join("output.tar.gz");
+
+    geezipx()
+        .args([
+            "compress",
+            td.path().join("data.txt").to_str().unwrap(),
+            "-f",
+            "tar.gz",
+            "-o",
+            out_path.to_str().unwrap(),
+            "--password-stdin",
+        ])
+        .write_stdin("secret\n")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("only supported for ZIP"));
+}
+
+#[test]
+fn zip_password_file_on_decompress_non_zip_fails() {
+    // Password on decompress with non-ZIP format, via --password-file
+    let td = TestDir::new();
+    td.write("data.txt", "some data");
+    td.write("passwd.txt", "secret");
+    let gz_path = td.join("data.gz");
+
+    // Compress without password
+    geezipx()
+        .args([
+            "compress",
+            td.path().join("data.txt").to_str().unwrap(),
+            "-f",
+            "gz",
+            "-o",
+            gz_path.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    // Decompress with --password-file (only relevant for ZIP)
+    geezipx()
+        .args([
+            "decompress",
+            gz_path.to_str().unwrap(),
+            "-o",
+            td.path().to_str().unwrap(),
+            "--password-file",
+            td.path().join("passwd.txt").to_str().unwrap(),
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("only supported for ZIP"));
+}
+
+#[test]
+fn zip_password_stdin_empty_fails() {
+    let td = TestDir::new();
+    td.write("data.txt", "test");
+
+    geezipx()
+        .args([
+            "compress",
+            td.path().join("data.txt").to_str().unwrap(),
+            "-f",
+            "zip",
+            "-o",
+            td.path().join("out.zip").to_str().unwrap(),
+            "--password-stdin",
+        ])
+        .write_stdin("\n")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("empty"));
+}
+
+#[test]
+fn zip_password_file_test_encrypted() {
+    let td = TestDir::new();
+    td.write("secret.txt", "classified content");
+    td.write("passwd.txt", "secret123");
+    let zip_path = td.join("encrypted.zip");
+
+    // Compress with --password-file
+    geezipx()
+        .args([
+            "compress",
+            td.path().join("secret.txt").to_str().unwrap(),
+            "-f",
+            "zip",
+            "-o",
+            zip_path.to_str().unwrap(),
+            "--password-file",
+            td.path().join("passwd.txt").to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    // Test with --password-file
+    geezipx()
+        .args([
+            "test",
+            zip_path.to_str().unwrap(),
+            "--password-file",
+            td.path().join("passwd.txt").to_str().unwrap(),
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("ok"));
+}
+
+// ---------------------------------------------------------------------------
+// Single-stream format password rejection tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn compress_gzip_with_password_fails() {
+    let td = TestDir::new();
+    td.write("data.txt", "some data");
+    let out_path = td.join("output.gz");
+
+    geezipx()
+        .args([
+            "compress",
+            td.path().join("data.txt").to_str().unwrap(),
+            "-f",
+            "gz",
+            "-o",
+            out_path.to_str().unwrap(),
+            "--password",
+            "mypassword",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("only supported for ZIP"));
+}
+
+#[test]
+fn compress_gzip_with_password_file_fails() {
+    let td = TestDir::new();
+    td.write("data.txt", "some data");
+    td.write("passwd.txt", "secret");
+    let out_path = td.join("output.gz");
+
+    geezipx()
+        .args([
+            "compress",
+            td.path().join("data.txt").to_str().unwrap(),
+            "-f",
+            "gz",
+            "-o",
+            out_path.to_str().unwrap(),
+            "--password-file",
+            td.path().join("passwd.txt").to_str().unwrap(),
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("only supported for ZIP"));
+}
+
+#[test]
+fn compress_gzip_with_password_stdin_fails() {
+    let td = TestDir::new();
+    td.write("data.txt", "some data");
+    let out_path = td.join("output.gz");
+
+    geezipx()
+        .args([
+            "compress",
+            td.path().join("data.txt").to_str().unwrap(),
+            "-f",
+            "gz",
+            "-o",
+            out_path.to_str().unwrap(),
+            "--password-stdin",
+        ])
+        .write_stdin("secret\n")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("only supported for ZIP"));
+}
+
+#[test]
+fn test_gzip_with_password_fails() {
+    let td = TestDir::new();
+    td.write("data.txt", "some data");
+    let gz_path = td.join("data.gz");
+
+    // Compress WITHOUT password
+    geezipx()
+        .args([
+            "compress",
+            td.path().join("data.txt").to_str().unwrap(),
+            "-f",
+            "gz",
+            "-o",
+            gz_path.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    // Test with --password (should fail for non-ZIP)
+    geezipx()
+        .args([
+            "test",
+            gz_path.to_str().unwrap(),
+            "--password",
+            "mypassword",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("only supported for ZIP"));
+}

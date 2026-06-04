@@ -74,7 +74,7 @@ pub fn execute(archive: &Path, json: bool) -> Result<()> {
             }]
         }
         _ => {
-            let mut reader = common::open_reader(archive, format)?;
+            let mut reader = common::open_reader(archive, format, None)?;
             reader.entries().context("reading archive entries")?
         }
     };

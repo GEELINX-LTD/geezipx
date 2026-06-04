@@ -105,7 +105,7 @@ GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开�
 - 各格式校验方式：
   - ZIP：逐 entry 触发 CRC-32 校验。
   - TAR：验证头结构、截断和压缩层，无 per-file CRC。
-  - 加密 ZIP/password 保护归档暂不支持。
+  - 加密 ZIP AES-256 password 保护已支持：`compress --password / --password-file / --password-stdin`。其它格式暂不支持
 - 当前已支持：`--stdout` 将 gzip/zstd/xz/lzma 等**单流格式**解压到标准输出，便于脚本串联。
 - 当前限制：tar.gz、tar.zst、tar.xz、zip、tar 等**多文件归档**使用 `--stdout` 会报错；CLI 仍要求显式传入归档路径，真正 stdin 输入管道仍需设计。
 - 后续方向：在不破坏多文件归档语义的前提下，设计 stdin 输入、tar stream 输出或显式 pipe 子命令。
@@ -125,18 +125,17 @@ GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开�
 ## 9. 路线图
 
 ```
-Phase 1 (MVP — CLI)        ← 当前阶段
+Phase 1 (MVP — CLI)        ← ✅ 已完成
 ├── M1 项目骨架 + 核心引擎库    ── ✅ 已完成
-├── M2 CLI 基本命令            ── ✅ 已完成（含 `list` 危险路径警告、`test` 完整性验证命令）
+├── M2 CLI 基本命令            ── ✅ 已完成
 ├── M3 流式/进度/兼容性打磨     ── ✅ 已完成
-└── M4 CI/测试/发布            ── 🔶 大部分完成（发布自动化与观测性 workflow 已建立）
-    ├── 信息性覆盖率观测（informational only，不设硬门禁；仅针对真实风险场景按需补测）
-    ├── 性能回归阈值检查已设为 advisory（GitHub-hosted runner 性能波动大，不作为 PR hard gate，日志仍可见）
+└── M4 CI/测试/发布            ── ✅ 已完成
+    Phase 2 (CLI 增强)          ← 🚀 当前阶段
     └── 待验证：后续 tag release 的二进制 artifacts 实际上传
 
 Phase 2 (CLI 增强)
 ├── 读取 7z（只读）、RAR（只读）
-├── 分卷压缩
+├── 密码加密 ZIP (AES-256) — 支持 `--password`、`--password-file`、`--password-stdin`（已完成）
 ├── 密码加密 ZIP (AES-256)
 ├── tar.gz/zip/xz 等更多格式的多线程压缩
 ├── 真正 stdin 管道输入 / 更完整的脚本集成
