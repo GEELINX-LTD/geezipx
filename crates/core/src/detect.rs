@@ -33,6 +33,8 @@ pub enum ArchiveFormat {
     Lzma,
     /// Tar archive compressed with XZ (extension-based — `.tar.xz`, `.txz`).
     TarXz,
+    /// 7z archive (`37 7A BC AF 27 1C`).
+    SevenZip,
     /// Unknown or unrecognised format.
     Unknown,
 }
@@ -49,6 +51,7 @@ impl fmt::Display for ArchiveFormat {
             ArchiveFormat::TarZst => write!(f, "tar.zst"),
             ArchiveFormat::TarXz => write!(f, "tar.xz"),
             ArchiveFormat::Lzma => write!(f, "lzma"),
+            ArchiveFormat::SevenZip => write!(f, "7z"),
             ArchiveFormat::Unknown => write!(f, "unknown"),
         }
     }
@@ -68,6 +71,8 @@ const MAGIC_GZIP: &[u8] = &[0x1F, 0x8B];
 const MAGIC_ZSTD: &[u8] = &[0x28, 0xB5, 0x2F, 0xFD];
 /// XZ magic: `\xFD7zXZ\x00`.
 const MAGIC_XZ: &[u8] = &[0xFD, 0x37, 0x7A, 0x58, 0x5A, 0x00];
+/// 7z magic: `37 7A BC AF 27 1C`.
+pub const MAGIC_SEVENZIP: &[u8] = &[0x37, 0x7A, 0xBC, 0xAF, 0x27, 0x1C];
 
 /// Map of well-known single extensions to their archive format.
 const EXTENSION_MAP: &[(&str, ArchiveFormat)] = &[
@@ -80,6 +85,7 @@ const EXTENSION_MAP: &[(&str, ArchiveFormat)] = &[
     (".zstd", ArchiveFormat::Zstd),
     (".lzma", ArchiveFormat::Lzma),
     (".gzip", ArchiveFormat::Gzip),
+    (".7z", ArchiveFormat::SevenZip),
 ];
 
 // ---------------------------------------------------------------------------
@@ -104,6 +110,9 @@ pub fn detect_format(data: &[u8]) -> Option<ArchiveFormat> {
     }
     if data.starts_with(MAGIC_ZSTD) {
         return Some(ArchiveFormat::Zstd);
+    }
+    if data.starts_with(MAGIC_SEVENZIP) {
+        return Some(ArchiveFormat::SevenZip);
     }
     if data.starts_with(MAGIC_XZ) {
         return Some(ArchiveFormat::Xz);

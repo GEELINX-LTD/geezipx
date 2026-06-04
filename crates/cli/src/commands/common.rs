@@ -9,6 +9,7 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
+use geezipx_core::archive::seven_zip::SevenZipReader;
 use geezipx_core::archive::tar::TarReader;
 use geezipx_core::archive::tar::TarWriter;
 use geezipx_core::archive::targz::TarGzReader;
@@ -41,8 +42,9 @@ pub fn parse_format(s: &str) -> Result<ArchiveFormat> {
         "tar.xz" | "txz" => Ok(ArchiveFormat::TarXz),
         "xz" => Ok(ArchiveFormat::Xz),
         "lzma" => Ok(ArchiveFormat::Lzma),
+        "7z" => Ok(ArchiveFormat::SevenZip),
         other => Err(anyhow::anyhow!(
-            "unsupported format '{other}'; expected: zip, tar, tar.gz, tgz, gz, gzip, zst, zstd, tar.zst, tzst, tar.xz, txz, xz, lzma"
+            "unsupported format '{other}'; expected: zip, tar, tar.gz, tgz, gz, gzip, zst, zstd, tar.zst, tzst, tar.xz, txz, xz, lzma, 7z"
         )),
     }
 }
@@ -237,9 +239,9 @@ pub fn open_reader(
     let file = fs::File::open(path).with_context(|| format!("opening '{}'", path.display()))?;
 
     // Validate password: only ZIP format supports it.
-    if password.is_some() && format != ArchiveFormat::Zip {
+    if password.is_some() && format != ArchiveFormat::Zip && format != ArchiveFormat::SevenZip {
         anyhow::bail!(
-            "--password is only supported for ZIP format; '{}' does not support encryption",
+            "--password is only supported for ZIP and 7z formats; '{}' does not support encryption",
             format
         );
     }
@@ -247,6 +249,13 @@ pub fn open_reader(
     Ok(match format {
         ArchiveFormat::Zip => {
             let mut reader = Box::new(ZipReader::new(file)?);
+            if let Some(pwd) = password {
+                reader.set_password(pwd);
+            }
+            reader
+        }
+        ArchiveFormat::SevenZip => {
+            let mut reader = Box::new(SevenZipReader::new(path));
             if let Some(pwd) = password {
                 reader.set_password(pwd);
             }
@@ -273,9 +282,12 @@ pub fn create_writer(
     options: CompressOptions,
 ) -> Result<Box<dyn ArchiveWriter>> {
     // Validate password: only ZIP format supports it.
-    if options.password.is_some() && format != ArchiveFormat::Zip {
+    if options.password.is_some()
+        && format != ArchiveFormat::Zip
+        && format != ArchiveFormat::SevenZip
+    {
         anyhow::bail!(
-            "--password is only supported for ZIP format; '{}' does not support encryption",
+            "--password is only supported for ZIP and 7z formats; '{}' does not support encryption",
             format
         );
     }

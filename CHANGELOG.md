@@ -9,15 +9,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-(No new features yet)
-
-### Changed
-
-(No changes yet)
-
-### Fixed
-
-(No fixes yet)
+- **ZIP AES-256 password encryption**:
+  - `compress --password <PASSWORD>` creates AES-256-encrypted ZIP archives
+  - `decompress --password <PASSWORD>` decrypts encrypted ZIP archives
+  - `test --password <PASSWORD>` verifies encrypted ZIP archive integrity
+  - Using `--password`, `--password-file`, or `--password-stdin` on non-ZIP formats
+    (gzip, zstd, xz, lzma) now fails with a clear error message
+- **Secure password input sources**:
+  - `--password-file <PATH>` reads the password from a file (trailing newline stripped)
+  - `--password-stdin` reads the password from standard input (trailing newline stripped)
+  - All three password sources (`--password`, `--password-file`, `--password-stdin`) are
+    mutually exclusive
+  - Empty passwords are rejected with an error
+- **7z read-only support**:
+  - `.7z` format detection from magic bytes (`37 7A BC AF 27 1C`) and `.7z` extension
+  - `geezipx list archive.7z` — enumerate 7z archive entries
+  - `geezipx decompress archive.7z` — extract 7z archives preserving directory structure
+  - `geezipx test archive.7z` — verify 7z archive structural integrity
+  - Encrypted 7z archives are supported with `--password` / `--password-file` / `--password-stdin`
+  - Read-only: 7z creation is not yet implemented
+  - Note: encrypted 7z fixture testing is planned as follow-up
 
 ## [0.3.0] - 2026-06-04
 

@@ -13,6 +13,7 @@
 //! - **Object-safe** — both traits use `&mut self` / `self: Box<Self>`
 //!   receivers so they can be used through `Box<dyn ArchiveReader>` etc.
 pub mod gzip;
+pub mod seven_zip;
 pub mod tar;
 pub mod targz;
 pub mod tarxz;

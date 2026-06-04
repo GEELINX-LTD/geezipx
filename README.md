@@ -14,7 +14,7 @@
 
 ## Features
 
-- **Multi-format** -- ZIP, TAR, TAR.GZ/TGZ, TAR.ZST/TZST, TAR.XZ/TXZ, GZIP/GZ, Zstandard/ZST, XZ, and LZMA (read/write)
+- **Multi-format** -- ZIP, TAR, TAR.GZ/TGZ, TAR.ZST/TZST, TAR.XZ/TXZ, GZIP/GZ, Zstandard/ZST, XZ, LZMA (read/write), and 7Z (read-only)
 - **Streaming I/O** -- process large files with bounded memory usage
 - **Live progress bars** -- real-time speed, ETA, and per-file status on TTY
 - **Cancel-safe** -- graceful Ctrl+C with partial-file cleanup; double Ctrl+C force-kill
@@ -24,7 +24,7 @@
 - **Zip Slip protection** -- blocks path-traversal attacks in all archive formats
 - **JSON output** -- `list --json` for machine-readable inspection; `test --json` for programmatic integrity results
 - **Shell completions** -- bash, zsh, fish, PowerShell, elvish
-- **ZIP AES-256 encryption** -- `--password`, `--password-file`, or `--password-stdin` (ZIP only)
+- **ZIP AES-256 encryption** -- `--password`, `--password-file`, or `--password-stdin` (ZIP and 7z read-only)
 - **Cross-platform** -- Linux, macOS, Windows (3-platform CI)
 - **Single binary** -- no runtime dependencies, `cargo install` ready
 - **Multi-threaded compression** -- `-j`/`--jobs` for parallel zstd and tar.zst compression
@@ -34,7 +34,7 @@
 ## Status
 
 Phase 1 (CLI MVP) is **complete**. All core subcommands (`compress`, `decompress`, `list`, `test`, `completions`) work for all supported formats.
-Phase 2 (CLI Enhancements) is **now the active development focus**. The first Phase 2 feature — ZIP AES-256 password encryption — has been shipped.
+Phase 2 (CLI Enhancements) is **now the active development focus**. Shipped so far: ZIP AES-256 password encryption, `--password-file`/`--password-stdin`, and 7z read-only support (list/extract/test with password).
 See [`docs/PHASE1_CLI_TASKS.md`](docs/PHASE1_CLI_TASKS.md) for the full task breakdown.
 ### Phase 1 — Complete
 | Milestone | Theme | Status |

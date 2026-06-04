@@ -5773,3 +5773,113 @@ fn test_gzip_with_password_fails() {
         .failure()
         .stderr(predicate::str::contains("only supported for ZIP"));
 }
+
+// ---------------------------------------------------------------------------
+// 7z read-only tests
+// ---------------------------------------------------------------------------
+
+/// Create a test .7z archive with the given files.
+fn create_7z_archive(files: &[(&str, &[u8])]) -> (tempfile::TempDir, std::path::PathBuf) {
+    use sevenz_rust2::compress_to_path;
+
+    let src_dir = tempfile::TempDir::new().unwrap();
+    let src_path = src_dir.path();
+
+    for (name, data) in files {
+        let path = src_path.join(name);
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).unwrap();
+        }
+        std::fs::write(&path, data).unwrap();
+    }
+
+    let out_dir = tempfile::TempDir::new().unwrap();
+    let archive_path = out_dir.path().join("test.7z");
+    compress_to_path(src_path, &archive_path).expect("create 7z archive");
+
+    (out_dir, archive_path)
+}
+
+#[test]
+fn list_7z_table_output() {
+    let (_dir, archive) =
+        create_7z_archive(&[("hello.txt", b"hello world"), ("data.bin", b"\x00\x01\x02")]);
+
+    geezipx()
+        .args(["list", archive.to_str().unwrap()])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("hello.txt"))
+        .stdout(predicate::str::contains("data.bin"))
+        .stderr(predicate::str::contains("7z"));
+}
+
+#[test]
+fn list_7z_json_output() {
+    let (_dir, archive) = create_7z_archive(&[("file.txt", b"test content")]);
+
+    geezipx()
+        .args(["list", "--json", archive.to_str().unwrap()])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("file.txt"));
+}
+
+#[test]
+fn decompress_7z_roundtrip() {
+    let td = TestDir::new();
+    let (_dir, archive) = create_7z_archive(&[("data.txt", b"7z decompress test")]);
+
+    geezipx()
+        .args([
+            "decompress",
+            archive.to_str().unwrap(),
+            "-o",
+            td.path().to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    assert!(td.exists("data.txt"), "data.txt should exist");
+    assert_eq!(td.read("data.txt"), "7z decompress test");
+}
+
+#[test]
+fn test_7z_valid() {
+    let (_dir, archive) = create_7z_archive(&[("test.txt", b"hello")]);
+
+    geezipx()
+        .args(["test", archive.to_str().unwrap()])
+        .assert()
+        .success();
+}
+
+#[test]
+fn test_7z_valid_json() {
+    let (_dir, archive) = create_7z_archive(&[("test.txt", b"hello")]);
+
+    geezipx()
+        .args(["test", "--json", archive.to_str().unwrap()])
+        .assert()
+        .success();
+}
+
+#[test]
+fn test_7z_corrupted_fails() {
+    let td = TestDir::new();
+    let bad_7z = td.join("bad.7z");
+    std::fs::write(&bad_7z, b"not a real 7z file").unwrap();
+
+    geezipx()
+        .args(["test", bad_7z.to_str().unwrap()])
+        .assert()
+        .failure();
+}
+
+#[test]
+fn list_nonexistent_7z_fails() {
+    geezipx()
+        .args(["list", "/nonexistent/path.7z"])
+        .assert()
+        .failure();
+}

@@ -307,7 +307,7 @@ fn validate_compress_inputs(
         }
     }
 
-    // Password is only supported for ZIP format.
+    // Password is only supported for ZIP and 7z formats.
     if options.password.is_some()
         && matches!(
             format,
@@ -315,7 +315,7 @@ fn validate_compress_inputs(
         )
     {
         anyhow::bail!(
-            "--password is only supported for ZIP format; '{}' does not support encryption",
+            "--password is only supported for ZIP and 7z formats; '{}' does not support encryption",
             format
         );
     }

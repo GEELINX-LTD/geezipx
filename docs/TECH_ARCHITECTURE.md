@@ -12,7 +12,7 @@ geezipx/
 │   │   ├── Cargo.toml
 │   │   └── src/
 │   │       ├── lib.rs
-│   │       ├── archive/       # 各归档格式的读写实现 (zip/tar/tar.gz/tar.zst/tar.xz/gzip/zstd/xz)
+│   │       ├── archive/       # 各归档格式的读写实现 (zip/tar/tar.gz/tar.zst/tar.xz/gzip/zstd/xz/7z)
 │   │       ├── detect.rs      # 格式自动检测（魔数 + 扩展名）
 │   │       ├── error.rs       # 统一错误类型
 │   │       └── io.rs          # 流式读/写/计数/进度封装
