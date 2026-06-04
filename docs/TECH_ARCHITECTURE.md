@@ -21,7 +21,7 @@ geezipx/
 │       ├── Cargo.toml
 │       └── src/
 │           ├── main.rs
-│           ├── commands/      # compress / decompress / list / completions
+│           ├── commands/      # compress / decompress / list / test / completions
 │           └── render/        # 进度条
 ├── docs/
 ├── scripts/               # 构建/CI/互操作性测试脚本
@@ -398,14 +398,14 @@ resolver = "2"
 members = ["crates/core", "crates/cli"]
 
 [workspace.package]
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/GEELINX-LTD/geezipx"
 rust-version = "1.96"
 
 [workspace.dependencies]
-geezipx-core = { version = "0.2.0", path = "crates/core" }
+geezipx-core = { version = "0.3.0", path = "crates/core" }
 ```
 
 ```toml

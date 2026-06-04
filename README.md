@@ -216,6 +216,8 @@ Displays a table of entries with path, size, compressed size, ratio, and modific
 |--------|-------------|
 | `-j`, `--json` | Output as a JSON array |
 
+> **Note**: Dangerous paths (absolute paths, path-traversal entries, Windows device paths) in archives emit a warning on stderr. The stdout/JSON output remains clean and unaffected.
+
 ### `test` — Verify archive integrity
 
 ```sh
@@ -227,9 +229,12 @@ the archive is structurally sound.
 
 Supports CRC-32 verification for zip archives.
 
+A corrupted archive results in a non-zero exit code.
+
 | Option | Description |
 |--------|-------------|
 | `-j`, `--json` | Output as JSON with `ok` boolean |
+
 ### `completions` — Shell completion scripts
 
 ```sh
@@ -271,7 +276,7 @@ geezipx/
 │   │       └── io.rs       # Streaming I/O wrappers (ProgressReader, etc.)
 │   └── cli/                # CLI binary (clap-based, thin shell over core)
 │       └── src/
-│           ├── commands/   # compress / decompress / list
+│           ├── commands/   # compress / decompress / list / test
 │           ├── render/     # Progress bar rendering
 │           └── signal.rs   # Ctrl+C cancellation
 ├── docs/                   # Product & architecture documentation

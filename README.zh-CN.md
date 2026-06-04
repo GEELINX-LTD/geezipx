@@ -23,6 +23,8 @@
 - **覆盖控制** -- `--no-clobber` 跳过已有文件，`--force` 强制覆盖
 - **Zip Slip 防护** -- 所有归档格式防护路径穿越攻击
 - **JSON 输出** -- `list --json` 机器可读格式
+
+- **完整性验证** -- `test --json` 验证归档完整性，支持 CRC-32 校验
 - **Shell 补全** -- bash、zsh、fish、PowerShell、elvish
 - **跨平台** -- Linux、macOS、Windows（三平台 CI）
 - **单一二进制** -- 无运行时依赖，`cargo install` 即装即用
@@ -32,7 +34,7 @@
 
 ## 项目状态
 
-第一阶段（CLI MVP）的**核心 CLI 功能已完成**。`compress`、`decompress`、`list`、`completions` 四个子命令对当前支持格式均正常工作。
+第一阶段（CLI MVP）的**核心 CLI 功能已完成**。`compress`、`decompress`、`list`、`test`、`completions` 五个子命令对当前支持格式均正常工作。
 
 | 里程碑 | 主题 | 状态 |
 |--------|------|------|
@@ -125,6 +127,9 @@ geezipx decompress hello.txt.gz --stdout > output.txt
 # 使用 zstandard 压缩
 geezipx compress hello.txt -f zst -o hello.txt.zst
 
+# zstandard 解压到 stdout
+geezipx decompress hello.txt.zst --stdout > output.txt
+
 # 多线程 zstd 压缩（4 个 worker）
 geezipx compress hello.txt -f zst -o hello.txt.zst -j 4
 
@@ -154,6 +159,12 @@ geezipx list archive.zip
 
 # JSON 格式查看归档内容
 geezipx list archive.tar.gz --json
+
+# 验证归档完整性
+geezipx test archive.zip
+
+# JSON 格式验证
+geezipx test archive.tar.gz --json
 ```
 
 ---
@@ -208,6 +219,22 @@ geezipx list <归档文件> [选项]
 |------|------|
 | `-j`, `--json` | 以 JSON 数组格式输出 |
 
+> **危险路径警告**：归档中的危险路径（绝对路径、路径穿越条目、Windows 设备路径）会输出警告到 stderr；stdout/JSON 输出保持干净不受影响。
+
+### `test` — 验证归档完整性
+
+```sh
+geezipx test <归档文件> [选项]
+```
+
+逐条完整读取归档内所有条目，确认归档结构完好。
+ZIP 格式额外支持 CRC-32 校验。
+损坏的归档会导致退出码非零。
+
+| 选项 | 说明 |
+|------|------|
+| `-j`, `--json` | 以 JSON 格式输出，包含 `ok` 布尔字段 |
+
 ### `completions` — 生成 Shell 补全脚本
 
 ```sh
@@ -250,7 +277,7 @@ geezipx/
 │   │       └── io.rs       # 流式 I/O 封装（ProgressReader 等）
 │   └── cli/                # CLI 二进制（clap 驱动，core 的薄壳）
 │       └── src/
-│           ├── commands/   # compress / decompress / list
+│           ├── commands/   # compress / decompress / list / test
 │           ├── render/     # 进度条渲染
 │           └── signal.rs   # Ctrl+C 取消处理
 ├── docs/                   # 产品与架构文档
@@ -366,6 +393,10 @@ cargo build --release --workspace
 - [x] Zip Slip 路径穿越防护
 - [x] Shell 补全（5 种 shell）
 - [x] `list --json` 机器可读输出
+
+- [x] `list` 危险路径警告（stderr，不影响 stdout/JSON 输出）
+- [x] `test` 归档完整性验证（ZIP CRC-32、TAR 结构校验，支持 JSON 输出）
+- [x] 单流格式 `test` 支持：GZIP、ZSTD、XZ、LZMA
 - [x] 300+ 测试（单元 + 集成 + 互操作 + 流式 smoke）
 - [x] 三平台 CI（Linux/macOS/Windows）
 - [x] cargo-deny 安全审计
