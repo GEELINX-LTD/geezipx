@@ -14,7 +14,7 @@
 
 ## Features
 
-- **Multi-format** -- ZIP, TAR, TAR.GZ/TGZ, TAR.ZST/TZST, TAR.XZ/TXZ, GZIP/GZ, Zstandard/ZST, XZ, LZMA (read/write), and 7Z (read-only)
+- **Multi-format** -- ZIP, TAR, TAR.GZ/TGZ, TAR.ZST/TZST, TAR.XZ/TXZ, GZIP/GZ, Zstandard/ZST, XZ, LZMA (read/write), 7Z (read-only), and RAR (read-only, feature-gated)
 - **Streaming I/O** -- process large files with bounded memory usage
 - **Live progress bars** -- real-time speed, ETA, and per-file status on TTY
 - **Cancel-safe** -- graceful Ctrl+C with partial-file cleanup; double Ctrl+C force-kill
@@ -34,7 +34,7 @@
 ## Status
 
 Phase 1 (CLI MVP) is **complete**. All core subcommands (`compress`, `decompress`, `list`, `test`, `completions`) work for all supported formats.
-Phase 2 (CLI Enhancements) is **now the active development focus**. Shipped so far: ZIP AES-256 password encryption, `--password-file`/`--password-stdin`, and 7z read-only support (list/extract/test with password).
+Phase 2 (CLI Enhancements) is **now the active development focus**. Shipped so far: ZIP AES-256 password encryption, `--password-file`/`--password-stdin`, 7z read-only support (list/extract/test with password), and RAR read-only support (list/extract/test with password, feature-gated).
 See [`docs/PHASE1_CLI_TASKS.md`](docs/PHASE1_CLI_TASKS.md) for the full task breakdown.
 ### Phase 1 — Complete
 | Milestone | Theme | Status |
@@ -206,7 +206,7 @@ Auto-detects the format via magic bytes (with extension fallback).
 || `-f`, `--format` | Archive/stream format (required with `--stdin`) |
 | `--no-clobber` | Skip files that already exist |
 | `--force` | Overwrite existing files (default; mutually exclusive with `--no-clobber`) |
-|| `--password` | Password for decrypting encrypted ZIP archives (AES-256). Use `--password-file` to read from a file, or `--password-stdin` to read from stdin. These three options are mutually exclusive |
+|| `--password` | Password for decrypting encrypted archives (ZIP AES-256, 7z AES-256, RAR). Use `--password-file` to read from a file, or `--password-stdin` to read from stdin. These three options are mutually exclusive |
 
 ### `list` — Inspect archives
 
@@ -219,7 +219,7 @@ Displays a table of entries with path, size, compressed size, ratio, and modific
 | Option | Description |
 |--------|-------------|
 | `-j`, `--json` | Output as a JSON array |
-| `--password` | Password for decrypting encrypted archives (ZIP/7z). Use `--password-file` to read from a file, or `--password-stdin` to read from stdin. These three options are mutually exclusive |
+| `--password` | Password for decrypting encrypted archives (ZIP, 7z, and RAR). Use `--password-file` to read from a file, or `--password-stdin` to read from stdin. These three options are mutually exclusive |
 
 > **Note**: Dangerous paths (absolute paths, path-traversal entries, Windows device paths) in archives emit a warning on stderr. The stdout/JSON output remains clean and unaffected.
 
@@ -239,7 +239,7 @@ A corrupted archive results in a non-zero exit code.
 | Option | Description |
 |--------|-------------|
 | `-j`, `--json` | Output as JSON with `ok` boolean |
-|| `--password` | Password for verifying encrypted ZIP archives. Use `--password-file` to read from a file, or `--password-stdin` to read from stdin. These three options are mutually exclusive |
+|| `--password` | Password for verifying encrypted archives (ZIP AES-256, 7z AES-256, RAR). Use `--password-file` to read from a file, or `--password-stdin` to read from stdin. These three options are mutually exclusive |
 
 ### `completions` — Shell completion scripts
 
@@ -342,6 +342,29 @@ cargo clippy --workspace --all-targets --all-features -- -D warnings
 # Generate documentation
 cargo doc --no-deps
 ```
+
+### RAR support (optional feature)
+
+RAR archive support is **read-only** and **feature-gated** because the
+[`unrar`](https://crates.io/crates/unrar) crate links against the RARLAB freeware
+[UnRAR source](https://www.rarlab.com/rar_add.htm) (requires a C++ compiler).
+
+```sh
+# Build with RAR support
+cargo build --release --features rar
+
+# Run tests with RAR support
+cargo test --features rar
+```
+
+To make RAR support more convenient, use a shell alias:
+
+```sh
+alias build-geezipx-rar='cargo build --release --features rar'
+```
+
+> **Note**: `cargo publish` and `cargo install` builds do not include RAR support by default.
+> Users who need RAR must build from source with `--features rar`.
 
 ### Running Benchmarks
 

@@ -50,7 +50,7 @@ pub fn execute(
         )
     {
         anyhow::bail!(
-            "--password is only supported for ZIP and 7z formats; '{}' does not support encryption",
+            "--password is only supported for ZIP, 7z, and RAR formats; '{}' does not support encryption",
             format
         );
     }

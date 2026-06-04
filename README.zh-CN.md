@@ -14,7 +14,7 @@
 
 ## 特性
 
-- **多格式支持** -- ZIP、TAR、TAR.GZ/TGZ、TAR.ZST/TZST、TAR.XZ/TXZ、GZIP/GZ、Zstandard/ZST、XZ、LZMA（读写）
+|- **多格式支持** -- ZIP、TAR、TAR.GZ/TGZ、TAR.ZST/TZST、TAR.XZ/TXZ、GZIP/GZ、Zstandard/ZST、XZ、LZMA（读写），7Z（只读）、RAR（只读，可选特性）
 - **流式 I/O** -- 大文件处理内存可控
 - **实时进度条** -- 显示速度、预计完成时间、逐文件状态
 - **取消安全** -- Ctrl+C 优雅退出，自动清理未完成文件；双击强制退出
@@ -31,6 +31,8 @@
 - **多线程压缩** -- zstd 和 tar.zst 支持 `-j`/`--jobs` 并行压缩
 - **ZIP AES-256 加密** -- 支持 `--password`、`--password-file`、`--password-stdin`（仅限 ZIP 格式）
 - **stdin/stdout 管道支持** -- `compress --stdin`/`--stdout` 和 `decompress --stdin`，支持 gzip/zstd/xz/lzma 单流格式
+|- **7z 只读支持** -- `list`、`decompress`、`test` 支持 7z 格式，可处理 AES-256 加密的 7z
+|- **RAR 只读支持（可选特性）** -- 需通过 `--features rar` 构建；支持 `list`、`decompress`、`test`，可处理加密 RAR
 
 ---
 
@@ -234,7 +236,7 @@ geezipx decompress <归档文件> [选项]
 || `-f`, `--format` | 归档/流格式（使用 `--stdin` 时必填） |
 | `--no-clobber` | 跳过已存在的文件 |
 | `--force` | 覆盖已存在的文件（默认行为；与 `--no-clobber` 互斥） |
-|| `--password` | 解密加密 ZIP 归档的密码（AES-256）。使用 `--password-file` 从文件读取，或使用 `--password-stdin` 从标准输入读取。三者互斥 |
+|| `--password` | 解密加密归档的密码（ZIP AES-256、7z AES-256、RAR）。使用 `--password-file` 从文件读取，或使用 `--password-stdin` 从标准输入读取。三者互斥 |
 
 ### `list` — 查看归档内容
 
@@ -247,7 +249,7 @@ geezipx list <归档文件> [选项]
 | 选项 | 说明 |
 |------|------|
 | `-j`, `--json` | 以 JSON 数组格式输出 |
-| `--password` | 解密加密归档（ZIP/7z）的密码。使用 `--password-file` 从文件读取密码，或使用 `--password-stdin` 从标准输入读取。三者互斥 |
+|| `--password` | 解密加密归档（ZIP/7z/RAR）的密码。使用 `--password-file` 从文件读取密码，或使用 `--password-stdin` 从标准输入读取。三者互斥 |
 
 > **危险路径警告**：归档中的危险路径（绝对路径、路径穿越条目、Windows 设备路径）会输出警告到 stderr；stdout/JSON 输出保持干净不受影响。
 
@@ -264,7 +266,7 @@ ZIP 格式额外支持 CRC-32 校验。
 | 选项 | 说明 |
 |------|------|
 | `-j`, `--json` | 以 JSON 格式输出，包含 `ok` 布尔字段 |
-|| `--password` | 验证加密 ZIP 归档的密码。使用 `--password-file` 从文件读取，或使用 `--password-stdin` 从标准输入读取。三者互斥 |
+|| `--password` | 验证加密归档的密码（ZIP AES-256、7z AES-256、RAR）。使用 `--password-file` 从文件读取，或使用 `--password-stdin` 从标准输入读取。三者互斥 |
 
 ### `completions` — 生成 Shell 补全脚本
 
@@ -441,10 +443,10 @@ cargo build --release --workspace
 - xz / LZMA 读写 — **已完成**
 - Zstandard 读写 — **已完成**
 - tar.zst / tar.xz 归档格式读写 — **已完成**
-- ZIP AES-256 加密 -- 支持 `--password`、`--password-file`、`--password-stdin`
-- 分卷压缩
-- 7z 只读支持
-- RAR 只读支持
+- [x] ZIP AES-256 加密 -- 支持 `--password`、`--password-file`、`--password-stdin`
+- [ ] 分卷压缩
+- [x] **7z 只读支持**
+- [x] **RAR 只读支持（需 `--features rar`）**
 - tar.gz、zip、xz 等更多格式的多线程压缩
 - 面向脚本场景的真正 stdin 管道输入
 - 稳定 benchmark 基线与强制性能回归门禁

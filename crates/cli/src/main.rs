@@ -114,16 +114,16 @@ enum Commands {
         #[arg(long = "force", conflicts_with = "no_clobber")]
         force: bool,
 
-        /// Password for decrypting encrypted archives (ZIP AES-256).
+        /// Password for decrypting encrypted archives (ZIP, 7z, and RAR).
         #[arg(long = "password")]
         password: Option<String>,
 
-        /// Read the decryption password from a file (ZIP AES-256 only).
+        /// Read the decryption password from a file (ZIP, 7z, and RAR only).
         /// Mutually exclusive with --password and --password-stdin.
         #[arg(long = "password-file")]
         password_file: Option<PathBuf>,
 
-        /// Read the decryption password from stdin (ZIP AES-256 only).
+        /// Read the decryption password from stdin (ZIP, 7z, and RAR only).
         /// Mutually exclusive with --password and --password-file.
         #[arg(long = "password-stdin")]
         password_stdin: bool,
@@ -147,16 +147,16 @@ enum Commands {
         #[arg(short = 'j', long = "json")]
         json: bool,
 
-        /// Password for decrypting encrypted archives (ZIP/7z).
+        /// Password for decrypting encrypted archives (ZIP, 7z, and RAR).
         #[arg(long = "password")]
         password: Option<String>,
 
-        /// Read the decryption password from a file (ZIP/7z only).
+        /// Read the decryption password from a file (ZIP, 7z, and RAR only).
         /// Mutually exclusive with --password and --password-stdin.
         #[arg(long = "password-file")]
         password_file: Option<PathBuf>,
 
-        /// Read the decryption password from stdin (ZIP/7z only).
+        /// Read the decryption password from stdin (ZIP, 7z, and RAR only).
         /// Mutually exclusive with --password and --password-file.
         #[arg(long = "password-stdin")]
         password_stdin: bool,
@@ -172,16 +172,16 @@ enum Commands {
         #[arg(short = 'j', long = "json")]
         json: bool,
 
-        /// Password for decrypting encrypted ZIP archives.
+        /// Password for decrypting encrypted archives (ZIP, 7z, and RAR).
         #[arg(long = "password")]
         password: Option<String>,
 
-        /// Read the verification password from a file (ZIP AES-256 only).
+        /// Read the verification password from a file (ZIP, 7z, and RAR only).
         /// Mutually exclusive with --password and --password-stdin.
         #[arg(long = "password-file")]
         password_file: Option<PathBuf>,
 
-        /// Read the verification password from stdin (ZIP AES-256 only).
+        /// Read the verification password from stdin (ZIP, 7z, and RAR only).
         /// Mutually exclusive with --password and --password-file.
         #[arg(long = "password-stdin")]
         password_stdin: bool,

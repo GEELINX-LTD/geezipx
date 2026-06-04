@@ -24,6 +24,10 @@ indicatif = "0.17"
 ctrlc = "3"
 glob = "0.3"
 
+[features]
+rar = ["geezipx-core/rar"]
+default = []
+
 [[bin]]
 name = "geezipx"
 path = "src/main.rs"

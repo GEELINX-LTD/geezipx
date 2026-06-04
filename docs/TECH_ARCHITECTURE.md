@@ -12,7 +12,7 @@ geezipx/
 │   │   ├── Cargo.toml
 │   │   └── src/
 │   │       ├── lib.rs
-│   │       ├── archive/       # 各归档格式的读写实现 (zip/tar/tar.gz/tar.zst/tar.xz/gzip/zstd/xz/7z)
+|│   │       ├── archive/       # 各归档格式的读写实现 (zip/tar/tar.gz/tar.zst/tar.xz/gzip/zstd/xz/7z/rar)
 │   │       ├── detect.rs      # 格式自动检测（魔数 + 扩展名）
 │   │       ├── error.rs       # 统一错误类型
 │   │       └── io.rs          # 流式读/写/计数/进度封装
@@ -86,6 +86,8 @@ pub trait ArchiveWriter: Send {
 | `archive::zstd` | .zst/.zstd 单文件压缩/解压 | `zstd` |
 | `archive::xz` | .xz/.lzma 单文件压缩/解压 | `xz2` |
 | `archive::tarxz` | .tar.xz/.txz 归档压缩/解压/list | `tar` + `xz2` |
+|| `archive::seven_zip` | 7Z read-only (list/extract/test) | `sevenz-rust2` ||
+|| `archive::rar` | RAR read-only (list/extract/test, feature-gated) | `unrar` (optional) |
 ### 2.2 core/io — 流式接口
 
 关键抽象：`ProgressReader` 和 `ProgressWriter`，包裹任意 `Read + Write`，计数并调用进度回调。
@@ -126,7 +128,7 @@ pub struct ProgressEvent {
 
 ```rust
 pub enum ArchiveFormat {
-    Zip, Tar, Gzip, TarGz, TarZst, TarXz, Xz, Lzma, Zstd, Unknown,
+    Zip, Tar, Gzip, TarGz, TarZst, TarXz, Xz, Lzma, Zstd, SevenZip, Rar, Unknown,
 }
 
 pub fn detect_format(reader: &mut dyn Read) -> Result<ArchiveFormat>;
@@ -145,6 +147,8 @@ pub fn detect_format(reader: &mut dyn Read) -> Result<ArchiveFormat>;
 | xz | `FD 37 7A 58 5A 00` |
 | lzma | 无固定魔数 — 仅通过 `.lzma` 扩展名或显式 `--format lzma` 识别 |
 | tar | 无魔数，fallback 到 `.tar` 扩展名 |
+| 7z | `37 7A BC AF 27 1C` |
+| RAR | `52 61 72 21 1A 07` |
 
 ### 2.4 core/error — 统一错误模型
 
@@ -235,6 +239,7 @@ Phase 1 实际依赖（以 `crates/core/Cargo.toml` 和 `crates/cli/Cargo.toml` 
 #### cli 依赖
 
 | Crate | 用途 |
+| `unrar` | 0.5.8 (optional) | RAR read-only | 链接 RARLAB freeware UnRAR C++ 源码 |
 |-------|------|
 | `geezipx-core` | workspace 依赖 |
 | `clap` v4 | CLI 参数解析（derive API） |

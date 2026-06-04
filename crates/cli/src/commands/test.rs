@@ -52,7 +52,7 @@ fn run_verify(archive: &Path, json: bool, password: Option<String>) -> Result<()
         )
     {
         anyhow::bail!(
-            "--password is only supported for ZIP and 7z formats; '{}' does not support encryption",
+            "--password is only supported for ZIP, 7z, and RAR formats; '{}' does not support encryption",
             format
         );
     }
@@ -66,6 +66,7 @@ fn run_verify(archive: &Path, json: bool, password: Option<String>) -> Result<()
         }
         ArchiveFormat::Zip
         | ArchiveFormat::SevenZip
+        | ArchiveFormat::Rar
         | ArchiveFormat::Tar
         | ArchiveFormat::TarGz
         | ArchiveFormat::TarZst

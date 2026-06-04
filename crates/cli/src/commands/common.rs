@@ -9,6 +9,8 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
+#[cfg(feature = "rar")]
+use geezipx_core::archive::rar::RarReader;
 use geezipx_core::archive::seven_zip::SevenZipReader;
 use geezipx_core::archive::tar::TarReader;
 use geezipx_core::archive::tar::TarWriter;
@@ -43,8 +45,9 @@ pub fn parse_format(s: &str) -> Result<ArchiveFormat> {
         "xz" => Ok(ArchiveFormat::Xz),
         "lzma" => Ok(ArchiveFormat::Lzma),
         "7z" => Ok(ArchiveFormat::SevenZip),
+        "rar" => Ok(ArchiveFormat::Rar),
         other => Err(anyhow::anyhow!(
-            "unsupported format '{other}'; expected: zip, tar, tar.gz, tgz, gz, gzip, zst, zstd, tar.zst, tzst, tar.xz, txz, xz, lzma, 7z"
+            "unsupported format '{other}'; expected: zip, tar, tar.gz, tgz, gz, gzip, zst, zstd, tar.zst, tzst, tar.xz, txz, xz, lzma, 7z, rar"
         )),
     }
 }
@@ -238,10 +241,14 @@ pub fn open_reader(
 ) -> Result<Box<dyn ArchiveReader>> {
     let file = fs::File::open(path).with_context(|| format!("opening '{}'", path.display()))?;
 
-    // Validate password: only ZIP format supports it.
-    if password.is_some() && format != ArchiveFormat::Zip && format != ArchiveFormat::SevenZip {
+    // Validate password: only ZIP, 7z, and RAR support it.
+    if password.is_some()
+        && format != ArchiveFormat::Zip
+        && format != ArchiveFormat::SevenZip
+        && format != ArchiveFormat::Rar
+    {
         anyhow::bail!(
-            "--password is only supported for ZIP and 7z formats; '{}' does not support encryption",
+            "--password is only supported for ZIP, 7z, and RAR formats; '{}' does not support encryption",
             format
         );
     }
@@ -265,12 +272,21 @@ pub fn open_reader(
         ArchiveFormat::TarGz => Box::new(TarGzReader::new(file)),
         ArchiveFormat::TarZst => Box::new(TarZstReader::new(file)),
         ArchiveFormat::TarXz => Box::new(TarXzReader::new(file)),
-        ArchiveFormat::Gzip | ArchiveFormat::Zstd | ArchiveFormat::Xz | ArchiveFormat::Lzma => {
-            anyhow::bail!(
-                "'{}' is a single-stream compression format; use 'decompress' directly, not an archive reader",
-                format
-            )
+        #[cfg(feature = "rar")]
+        ArchiveFormat::Rar => {
+            let mut reader = Box::new(RarReader::new(path));
+            if let Some(pwd) = password {
+                let _ = reader.set_password(pwd);
+            }
+            reader
         }
+        ArchiveFormat::Gzip
+        | ArchiveFormat::Zstd
+        | ArchiveFormat::Xz
+        | ArchiveFormat::Lzma => anyhow::bail!(
+            "'{}' is a single-stream compression format; use 'decompress' directly, not an archive reader",
+            format
+        ),
         _ => anyhow::bail!("unsupported format for reading: {format}"),
     })
 }
@@ -285,16 +301,6 @@ pub fn create_writer(
     if options.password.is_some() && format != ArchiveFormat::Zip {
         anyhow::bail!(
             "--password is only supported for ZIP format; '{}' does not support encryption",
-            format
-        );
-    }
-    // Validate password: only ZIP format supports it.
-    if options.password.is_some()
-        && format != ArchiveFormat::Zip
-        && format != ArchiveFormat::SevenZip
-    {
-        anyhow::bail!(
-            "--password is only supported for ZIP and 7z formats; '{}' does not support encryption",
             format
         );
     }

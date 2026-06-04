@@ -35,6 +35,8 @@ pub enum ArchiveFormat {
     TarXz,
     /// 7z archive (`37 7A BC AF 27 1C`).
     SevenZip,
+    /// RAR archive (`52 61 72 21 1A 07`).
+    Rar,
     /// Unknown or unrecognised format.
     Unknown,
 }
@@ -52,6 +54,7 @@ impl fmt::Display for ArchiveFormat {
             ArchiveFormat::TarXz => write!(f, "tar.xz"),
             ArchiveFormat::Lzma => write!(f, "lzma"),
             ArchiveFormat::SevenZip => write!(f, "7z"),
+            ArchiveFormat::Rar => write!(f, "rar"),
             ArchiveFormat::Unknown => write!(f, "unknown"),
         }
     }
@@ -73,6 +76,8 @@ const MAGIC_ZSTD: &[u8] = &[0x28, 0xB5, 0x2F, 0xFD];
 const MAGIC_XZ: &[u8] = &[0xFD, 0x37, 0x7A, 0x58, 0x5A, 0x00];
 /// 7z magic: `37 7A BC AF 27 1C`.
 pub const MAGIC_SEVENZIP: &[u8] = &[0x37, 0x7A, 0xBC, 0xAF, 0x27, 0x1C];
+/// RAR magic: `52 61 72 21 1A 07` (RAR4 and RAR5 share this prefix).
+pub const MAGIC_RAR: &[u8] = b"Rar!\x1A\x07";
 
 /// Map of well-known single extensions to their archive format.
 const EXTENSION_MAP: &[(&str, ArchiveFormat)] = &[
@@ -86,6 +91,7 @@ const EXTENSION_MAP: &[(&str, ArchiveFormat)] = &[
     (".lzma", ArchiveFormat::Lzma),
     (".gzip", ArchiveFormat::Gzip),
     (".7z", ArchiveFormat::SevenZip),
+    (".rar", ArchiveFormat::Rar),
 ];
 
 // ---------------------------------------------------------------------------
@@ -113,6 +119,9 @@ pub fn detect_format(data: &[u8]) -> Option<ArchiveFormat> {
     }
     if data.starts_with(MAGIC_SEVENZIP) {
         return Some(ArchiveFormat::SevenZip);
+    }
+    if data.starts_with(MAGIC_RAR) {
+        return Some(ArchiveFormat::Rar);
     }
     if data.starts_with(MAGIC_XZ) {
         return Some(ArchiveFormat::Xz);
@@ -413,6 +422,28 @@ mod tests {
     #[test]
     fn display_unknown() {
         assert_eq!(ArchiveFormat::Unknown.to_string(), "unknown");
+    }
+
+    // ---------------------------------------------------------------
+    // RAR detection
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn detect_rar_magic() {
+        assert_eq!(detect_format(b"Rar!\x1A\x07..."), Some(ArchiveFormat::Rar));
+    }
+
+    #[test]
+    fn detect_rar_extension() {
+        assert_eq!(
+            detect_from_extension(Path::new("archive.rar")),
+            Some(ArchiveFormat::Rar)
+        );
+    }
+
+    #[test]
+    fn display_rar() {
+        assert_eq!(ArchiveFormat::Rar.to_string(), "rar");
     }
 
     #[test]

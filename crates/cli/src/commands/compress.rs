@@ -403,6 +403,13 @@ fn validate_compress_inputs(
         );
     }
 
+    // RAR writing is not supported; only list, test, and decompress for read-only.
+    if format == ArchiveFormat::Rar {
+        anyhow::bail!(
+            "rar writing is not supported; use list, test, or decompress for read-only rar support"
+        );
+    }
+
     // Single-stream formats (gzip, zstd, xz, lzma) only accept one input.
     if (format == ArchiveFormat::Gzip
         || format == ArchiveFormat::Zstd
