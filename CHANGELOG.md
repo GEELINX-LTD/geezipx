@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+(No new features yet)
+
+### Changed
+
+(No changes yet)
+
+### Fixed
+
+(No fixes yet)
+
+## [0.3.0] - 2026-06-04
+
+### Added
+
 - **`list` dangerous path warning**:
   - `geezipx list` now detects archive entries with potentially unsafe paths
     (absolute paths, `../` traversal, Windows UNC/device prefixes) and prints a
@@ -238,8 +252,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Benchmark compile check on every push/PR
   - Manual trigger benchmark workflow with optional filter parameter
 
-[0.1.0]: https://github.com/GEELINX-LTD/geezipx/releases/tag/v0.1.0
-[0.2.0]: https://github.com/GEELINX-LTD/geezipx/releases/tag/v0.2.0
-[0.2.1]: https://github.com/GEELINX-LTD/geezipx/releases/tag/v0.2.1
+[Unreleased]: https://github.com/GEELINX-LTD/geezipx/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/GEELINX-LTD/geezipx/releases/tag/v0.3.0
 [0.2.2]: https://github.com/GEELINX-LTD/geezipx/releases/tag/v0.2.2
+[0.2.1]: https://github.com/GEELINX-LTD/geezipx/releases/tag/v0.2.1
+[0.2.0]: https://github.com/GEELINX-LTD/geezipx/releases/tag/v0.2.0
+[0.1.0]: https://github.com/GEELINX-LTD/geezipx/releases/tag/v0.1.0
 
