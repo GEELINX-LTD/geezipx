@@ -14,23 +14,141 @@
       </header>
 
       <main>
-        <section id="content">
-          <h2>Supported Formats</h2>
-          <table>
-            <thead>
-              <tr>
-                <th>Format</th>
-                <th>Compress</th>
-                <th>Decompress</th>
-              </tr>
-            </thead>
-            <tbody id="format-list">
-            </tbody>
-          </table>
+        <!-- Mode Tabs -->
+        <nav id="mode-tabs">
+          <button class="mode-tab active" data-mode="compress">Compress</button>
+          <button class="mode-tab" data-mode="extract">Extract</button>
+          <button class="mode-tab" data-mode="list">List</button>
+          <button class="mode-tab" data-mode="test">Test</button>
+        </nav>
+
+        <!-- ===================== COMPRESS PANEL ===================== -->
+        <section id="panel-compress" class="panel active">
+          <div class="field">
+            <label>Source Files</label>
+            <div class="input-row">
+              <input type="text" id="compress-sources" readonly placeholder="Select files or folders..." />
+              <button id="compress-source-btn" class="btn-secondary">Browse</button>
+            </div>
+          </div>
+
+          <div class="field">
+            <label>Output Archive</label>
+            <div class="input-row">
+              <input type="text" id="compress-output" readonly placeholder="Select output path..." />
+              <button id="compress-output-btn" class="btn-secondary">Save As</button>
+            </div>
+          </div>
+
+          <div class="field">
+            <label>Format</label>
+            <select id="compress-format"></select>
+          </div>
+
+          <div class="field-row">
+            <div class="field">
+              <label>Compression Level</label>
+              <input type="number" id="compress-level" min="0" max="22" placeholder="Auto" />
+            </div>
+            <div class="field">
+              <label>Jobs (threads)</label>
+              <input type="number" id="compress-jobs" min="1" placeholder="Auto" />
+            </div>
+          </div>
+
+          <div class="field">
+            <label>Password (ZIP only)</label>
+            <input type="password" id="compress-password" placeholder="Optional" />
+          </div>
+
+          <div class="actions">
+            <button id="compress-run" class="btn-primary">Compress</button>
+            <button id="compress-cancel" class="btn-cancel" style="display:none">Cancel</button>
+          </div>
+
+          <div id="compress-result" class="result-panel"></div>
         </section>
 
-        <section id="status">
-          <p id="loading">Loading format information...</p>
+        <!-- ===================== EXTRACT PANEL ===================== -->
+        <section id="panel-extract" class="panel">
+          <div class="field">
+            <label>Archive File</label>
+            <div class="input-row">
+              <input type="text" id="extract-archive" readonly placeholder="Select archive file..." />
+              <button id="extract-archive-btn" class="btn-secondary">Browse</button>
+            </div>
+          </div>
+
+          <div class="field">
+            <label>Output Directory</label>
+            <div class="input-row">
+              <input type="text" id="extract-output" readonly placeholder="Select output directory..." />
+              <button id="extract-output-btn" class="btn-secondary">Browse</button>
+            </div>
+          </div>
+
+          <div class="field">
+            <label class="checkbox-label">
+              <input type="checkbox" id="extract-overwrite" checked />
+              Overwrite existing files
+            </label>
+          </div>
+
+          <div class="field">
+            <label>Password (for encrypted archives)</label>
+            <input type="password" id="extract-password" placeholder="Optional" />
+          </div>
+
+          <div class="actions">
+            <button id="extract-run" class="btn-primary">Extract</button>
+            <button id="extract-cancel" class="btn-cancel" style="display:none">Cancel</button>
+          </div>
+
+          <div id="extract-result" class="result-panel"></div>
+        </section>
+
+        <!-- ===================== LIST PANEL ===================== -->
+        <section id="panel-list" class="panel">
+          <div class="field">
+            <label>Archive File</label>
+            <div class="input-row">
+              <input type="text" id="list-archive" readonly placeholder="Select archive file..." />
+              <button id="list-archive-btn" class="btn-secondary">Browse</button>
+            </div>
+          </div>
+
+          <div class="field">
+            <label>Password (for encrypted archives)</label>
+            <input type="password" id="list-password" placeholder="Optional" />
+          </div>
+
+          <div class="actions">
+            <button id="list-run" class="btn-primary">List Contents</button>
+          </div>
+
+          <div id="list-result" class="result-panel"></div>
+        </section>
+
+        <!-- ===================== TEST PANEL ===================== -->
+        <section id="panel-test" class="panel">
+          <div class="field">
+            <label>Archive File</label>
+            <div class="input-row">
+              <input type="text" id="test-archive" readonly placeholder="Select archive file..." />
+              <button id="test-archive-btn" class="btn-secondary">Browse</button>
+            </div>
+          </div>
+
+          <div class="field">
+            <label>Password (for encrypted archives)</label>
+            <input type="password" id="test-password" placeholder="Optional" />
+          </div>
+
+          <div class="actions">
+            <button id="test-run" class="btn-primary">Test Integrity</button>
+          </div>
+
+          <div id="test-result" class="result-panel"></div>
         </section>
       </main>
 
