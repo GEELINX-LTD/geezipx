@@ -787,6 +787,55 @@ select {
 }
 
 /* --------------- Preview Panel --------------- */
+/* --------------- Drag Status --------------- */
+
+.drag-status {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  transition: color 0.2s, opacity 0.2s;
+  white-space: nowrap;
+}
+
+.drag-status.drag-preparing {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.drag-status.drag-ready {
+  color: var(--green);
+}
+
+.drag-status.drag-active {
+  color: var(--green);
+  font-weight: 600;
+}
+
+.drag-status.drag-error {
+  color: var(--red);
+  cursor: help;
+}
+
+.browser-row.drag-preparing {
+  opacity: 0.7;
+  cursor: grabbing;
+}
+
+.browser-row:active {
+  cursor: grabbing;
+  background: var(--surface-alt);
+}
+
+.browser-row[draggable="true"] {
+  cursor: grab;
+}
+
+.browser-row[draggable="true"]:active {
+  cursor: grabbing;
+}
+
+.browser-row[draggable="true"] .name-cell {
+  user-select: none;
+}
 
 .browser-preview {
   margin-top: 0.5rem;
@@ -851,6 +900,32 @@ select {
 .preview-content::-webkit-scrollbar-thumb {
   background: var(--surface-alt);
   border-radius: 3px;
+}
+
+/* --------------- Drag-out Status --------------- */
+
+#browser-drag-status.drag-status {
+  padding: 0.4rem 0.75rem;
+  margin: 0.25rem 0;
+  background: var(--surface-alt);
+  border: 1px solid var(--input-border);
+  border-radius: var(--radius);
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  text-align: center;
+  animation: drag-pulse 1.5s ease-in-out infinite;
+}
+
+#browser-drag-status.drag-status.drag-error {
+  background: rgba(231, 76, 60, 0.12);
+  border-color: var(--red);
+  color: var(--red);
+  animation: none;
+}
+
+@keyframes drag-pulse {
+  0%, 100% { opacity: 0.7; }
+  50% { opacity: 1; }
 }
 
 /* --------------- TableScroll inside list panel --------------- */

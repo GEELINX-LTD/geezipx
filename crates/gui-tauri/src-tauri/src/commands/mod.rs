@@ -6,6 +6,7 @@
 pub mod app;
 pub mod cancel;
 pub mod compress;
+pub mod drag;
 pub mod extract;
 pub mod extract_entries;
 pub mod formats;

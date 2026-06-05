@@ -4,6 +4,8 @@
 /// for the four modes: Compress, Extract, List, Test.
 
 import {
+  prepareDragEntries,
+  cleanupDragTempDir,
   getFormats,
   listArchive,
   testArchive,
@@ -38,6 +40,9 @@ let browserArchivePath = "";
 let browserPassword = "";
 let browserCurrentDir = "";
 let browserSelected = new Set<string>();
+let currentDragTempId = "";
+let currentDragTimeout: ReturnType<typeof setTimeout> | null = null;
+const DRAG_CLEANUP_TIMEOUT_MS = 60_000;
 
 const ARCHIVE_EXTS = /\.(zip|tar|tar\.gz|tar\.zst|tar\.xz|tgz|tzst|txz|7z|rar)$/i;
 
@@ -421,7 +426,7 @@ function renderArchiveBrowser() {
     const dirClass = isDir ? "dir" : "";
 
     rows += `
-      <tr class="browser-row ${dirClass}" data-path="${escapeHtml(fullPath)}" data-is-dir="${isDir}" data-index="${i}">
+      <tr class="browser-row ${dirClass}" draggable="true" data-path="${escapeHtml(fullPath)}" data-is-dir="${isDir}" data-index="${i}">
         <td class="cb-cell"><input type="checkbox" class="browser-cb" ${checked} /></td>
         <td class="icon-cell">${entryIcon(isDir)}</td>
         <td class="name-cell">${escapeHtml(name)}${isDir ? "/" : ""}</td>
@@ -502,6 +507,122 @@ function wireBrowserEvents() {
       } else {
         showPreview(path);
       }
+    });
+
+    // Drag-start: extract entries to temp, then invoke Tauri plugin drag.
+    row.addEventListener("dragstart", async (e) => {
+      // Prevent default browser native drag — we want the Tauri plugin
+      // to manage the drag gesture on the operating system level.
+      e.preventDefault();
+
+      const path = row.dataset.path ?? "";
+      if (!path || !browserArchivePath) return;
+
+      // Collect the selected entries, or just this row if nothing selected.
+      const paths =
+        browserSelected.size > 0
+          ? [...browserSelected]
+          : [path];
+
+      // Show drag status.
+      const dragStatus = el("browser-drag-status");
+      dragStatus.textContent = "Preparing files for drag...";
+      dragStatus.classList.remove("drag-error");
+      dragStatus.style.display = "";
+
+      let tempId = "";
+      try {
+        // Extract entries to a temp directory.
+        const tempDir = await prepareDragEntries(
+          browserArchivePath,
+          paths,
+          browserPassword || undefined,
+        );
+
+        // Extract a short temp id from the returned path.
+        tempId = tempDir.split("/").pop() ?? "";
+        currentDragTempId = tempId;
+
+        dragStatus.textContent =
+          paths.length > 1 ? `Dragging ${paths.length} items...` : "Dragging...";
+
+        // Dynamically import the Tauri drag plugin — no static import
+        // so that preview/browser mode doesn't hard-fail.
+        const { startDrag } = await import(
+          "@crabnebula/tauri-plugin-drag"
+        ).catch(() => {
+          throw new Error(
+            "Drag plugin not available in this environment. Use Extract Selected instead.",
+          );
+        });
+
+        // Clear any previous fallback timeout.
+        if (currentDragTimeout !== null) {
+          clearTimeout(currentDragTimeout);
+          currentDragTimeout = null;
+        }
+
+        // Start the OS drag operation.  Clean up temp dir in the onEvent
+        // callback rather than in dragend (the Promise may resolve before
+        // the user has finished dragging).
+        await startDrag(
+          {
+            item: [tempDir],
+            // Icon path — in production, set to app icon path for a
+            // preview thumbnail during drag.
+            icon: "",
+          },
+          (payload) => {
+            // Clean up temp dir on completion.
+            if (
+              payload.result === "Dropped" ||
+              payload.result === "Cancelled"
+            ) {
+              cleanupDragTempDir(tempId).catch(() => {});
+              // Clear fallback timeout so it doesn't fire after successful cleanup.
+              if (currentDragTimeout !== null) {
+                clearTimeout(currentDragTimeout);
+                currentDragTimeout = null;
+              }
+              currentDragTempId = "";
+            }
+          },
+        );
+
+        // Fallback: if the onEvent callback never fires (plugin bug or
+        // irregular platform behaviour), clean up after a timeout.
+        currentDragTimeout = setTimeout(() => {
+          if (currentDragTempId) {
+            cleanupDragTempDir(currentDragTempId).catch(() => {});
+            currentDragTempId = "";
+          }
+          currentDragTimeout = null;
+        }, DRAG_CLEANUP_TIMEOUT_MS);
+      } catch (err) {
+        // Plugin or extraction failed — tell the user to use the
+        // fallback Extract Selected path.
+        dragStatus.textContent =
+          "Drag not available: " +
+          (err instanceof Error ? err.message : String(err)) +
+          ". Use Extract Selected instead.";
+        dragStatus.classList.add("drag-error");
+        // Auto-hide fallback message after 5 seconds.
+        setTimeout(() => {
+          dragStatus.style.display = "none";
+        }, 5000);
+      }
+    });
+
+    // Drag-end: only reset UI state; temp dir cleanup is handled by the
+    // startDrag onEvent callback (or fallback timeout above).
+    row.addEventListener("dragend", () => {
+      const dragStatus = el("browser-drag-status");
+      dragStatus.style.display = "none";
+      dragStatus.classList.remove("drag-error");
+
+      // Don't clean up temp here — the startDrag onEvent callback or
+      // fallback timeout handles that, ensuring files remain available
+      // for the duration of the OS drag gesture.
     });
   });
 }

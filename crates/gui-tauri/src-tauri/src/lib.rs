@@ -23,6 +23,7 @@ pub fn run() {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_drag::init())
         // Single-instance: second instance passes file paths to existing window.
         .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
             let paths: Vec<String> = argv
@@ -50,6 +51,9 @@ pub fn run() {
             commands::app::get_opened_archives,
             commands::extract_entries::extract_entries,
             commands::preview_entry::preview_entry,
+            commands::drag::prepare_drag_entries,
+            commands::drag::cleanup_drag_temp_dir,
+            commands::drag::cleanup_stale_drag_temp_dirs,
         ])
         .setup(move |app| {
             // Store cold-start file paths (if any) into state.
@@ -60,6 +64,10 @@ pub fn run() {
                     }
                 }
             }
+            // Clean up stale drag-out temp directories on startup
+            tauri::async_runtime::spawn(async {
+                let _ = commands::drag::cleanup_stale_drag_temp_dirs().await;
+            });
             Ok(())
         })
         .build(tauri::generate_context!())

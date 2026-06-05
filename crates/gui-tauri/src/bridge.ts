@@ -153,6 +153,34 @@ export async function previewEntry(
 
 // Re-export listen for frontend use
 export { listen };
+
+// ---------------------------------------------------------------------------
+// Drag-out types and wrappers
+// ---------------------------------------------------------------------------
+
+/** Prepare selected archive entries for drag-out by extracting to a temp directory.
+ * Returns the absolute path to the temp directory containing the extracted files. */
+export async function prepareDragEntries(
+  archivePath: string,
+  entryPaths: string[],
+  password?: string,
+): Promise<string> {
+  return invoke<string>("prepare_drag_entries", {
+    archivePath,
+    entryPaths,
+    password: password ?? null,
+  });
+}
+
+/** Clean up a specific drag-out temp directory after drag completes/cancels. */
+export async function cleanupDragTempDir(tempId: string): Promise<void> {
+  return invoke<void>("cleanup_drag_temp_dir", { tempId });
+}
+
+/** Clean up all stale drag-out temp directories (older than 24h). */
+export async function cleanupStaleDragTempDirs(): Promise<number> {
+  return invoke<number>("cleanup_stale_drag_temp_dirs");
+}
 export type { UnlistenFn };
 
 // ---------------------------------------------------------------------------
