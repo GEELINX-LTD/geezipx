@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-06-05
+
 ### Added
 
 - **ZIP AES-256 password encryption**:
@@ -305,7 +307,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Benchmark compile check on every push/PR
   - Manual trigger benchmark workflow with optional filter parameter
 
-[Unreleased]: https://github.com/GEELINX-LTD/geezipx/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/GEELINX-LTD/geezipx/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/GEELINX-LTD/geezipx/releases/tag/v0.4.0
 [0.3.0]: https://github.com/GEELINX-LTD/geezipx/releases/tag/v0.3.0
 [0.2.2]: https://github.com/GEELINX-LTD/geezipx/releases/tag/v0.2.2
 [0.2.1]: https://github.com/GEELINX-LTD/geezipx/releases/tag/v0.2.1
