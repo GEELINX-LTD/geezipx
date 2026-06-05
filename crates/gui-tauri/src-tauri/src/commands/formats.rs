@@ -37,12 +37,12 @@ pub fn get_formats() -> Vec<FormatInfo> {
         },
         FormatInfo {
             name: "gzip".into(),
-            can_compress: true,
+            can_compress: false,
             can_decompress: true,
         },
         FormatInfo {
             name: "zstd".into(),
-            can_compress: true,
+            can_compress: false,
             can_decompress: true,
         },
         FormatInfo {
@@ -52,7 +52,7 @@ pub fn get_formats() -> Vec<FormatInfo> {
         },
         FormatInfo {
             name: "xz".into(),
-            can_compress: true,
+            can_compress: false,
             can_decompress: true,
         },
         FormatInfo {
@@ -62,7 +62,7 @@ pub fn get_formats() -> Vec<FormatInfo> {
         },
         FormatInfo {
             name: "lzma".into(),
-            can_compress: true,
+            can_compress: false,
             can_decompress: true,
         },
         FormatInfo {

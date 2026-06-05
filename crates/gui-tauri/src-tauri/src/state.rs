@@ -1,17 +1,32 @@
 //! Application state shared across Tauri commands.
 
+use std::collections::HashMap;
+use std::sync::atomic::AtomicBool;
+use std::sync::{Arc, Mutex};
+
+/// Unique identifier for an in-flight task.
+pub type TaskId = String;
+
 /// Shared application state.
-///
-/// Future fields will include cancellation tokens for in-flight tasks
-/// and a connection to the core progress channel.
-#[derive(Default)]
 pub struct AppState {
-    // Placeholder for future task-cancellation support.
+    /// Cancellation tokens for in-flight tasks.
+    /// Each task stores an `Arc<AtomicBool>`; when `cancel_task` sets it to
+    /// `true`, the running `spawn_blocking` closure checks this flag and
+    /// returns early (G2B will wire up full cancellation).
+    pub cancel_tokens: Mutex<HashMap<TaskId, Arc<AtomicBool>>>,
+}
+
+impl Default for AppState {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl AppState {
     /// Create a new empty application state.
     pub fn new() -> Self {
-        Self {}
+        Self {
+            cancel_tokens: Mutex::new(HashMap::new()),
+        }
     }
 }

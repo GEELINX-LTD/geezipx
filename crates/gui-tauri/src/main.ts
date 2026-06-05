@@ -1,14 +1,10 @@
-import { invoke } from "@tauri-apps/api/core";
+import { getFormats, listArchive, testArchive, cancelTask, type FormatInfo } from "./bridge";
 
-interface FormatInfo {
-  name: string;
-  can_compress: boolean;
-  can_decompress: boolean;
-}
+// --------------- Format list display ---------------
 
 window.addEventListener("DOMContentLoaded", async () => {
   try {
-    const formats = await invoke<FormatInfo[]>("get_formats");
+    const formats = await getFormats();
 
     const list = document.getElementById("format-list")!;
     const loading = document.getElementById("loading")!;
@@ -39,3 +35,34 @@ window.addEventListener("DOMContentLoaded", async () => {
       `Failed to load formats: ${e}`;
   }
 });
+
+// --------------- Dev preview: bridge test ---------------
+
+/** Run a quick test from the browser DevTools console.
+ *
+ * Usage:
+ *   bridgeTest("/path/to/archive.zip")
+ *   bridgeTest("/path/to/file.gz")
+ */
+(window as unknown as Record<string, unknown>).bridgeTest = async (
+  path: string,
+) => {
+  console.log("=== GeeZipX Bridge Test ===");
+  console.log("Archive:", path);
+
+  try {
+    const entries = await listArchive(path);
+    console.log(`Entries (${entries.length}):`, entries);
+  } catch (e) {
+    console.warn("list_archive failed:", e);
+  }
+
+  try {
+    const result = await testArchive(path);
+    console.log("Test result:", result);
+  } catch (e) {
+    console.warn("test_archive failed:", e);
+  }
+
+  console.log("=== Bridge Test Complete ===");
+};
