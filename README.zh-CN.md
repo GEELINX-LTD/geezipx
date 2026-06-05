@@ -14,7 +14,7 @@
 
 ## 特性
 
-|- **多格式支持** -- ZIP、TAR、TAR.GZ/TGZ、TAR.ZST/TZST、TAR.XZ/TXZ、GZIP/GZ、Zstandard/ZST、XZ、LZMA（读写），7Z（只读）、RAR（只读，可选特性）
+- **多格式支持** -- ZIP、TAR、TAR.GZ/TGZ、TAR.ZST/TZST、TAR.XZ/TXZ、GZIP/GZ、Zstandard/ZST、XZ、LZMA（读写），7Z（只读）、RAR（只读）
 - **流式 I/O** -- 大文件处理内存可控
 - **实时进度条** -- 显示速度、预计完成时间、逐文件状态
 - **取消安全** -- Ctrl+C 优雅退出，自动清理未完成文件；双击强制退出
@@ -32,7 +32,7 @@
 - **ZIP AES-256 加密** -- 支持 `--password`、`--password-file`、`--password-stdin`（仅限 ZIP 格式）
 - **stdin/stdout 管道支持** -- `compress --stdin`/`--stdout` 和 `decompress --stdin`，支持 gzip/zstd/xz/lzma 单流格式
 |- **7z 只读支持** -- `list`、`decompress`、`test` 支持 7z 格式，可处理 AES-256 加密的 7z
-|- **RAR 只读支持（可选特性）** -- 需通过 `--features rar` 构建；支持 `list`、`decompress`、`test`，可处理加密 RAR
+- **RAR 只读支持** -- 默认启用；支持 `list`、`decompress`、`test`，可处理加密 RAR（首次构建需要 C++ 编译器）
 
 ---
 
@@ -107,6 +107,7 @@ sudo mv geezipx /usr/local/bin/
 ### 前置条件
 
 - [Rust](https://rustup.rs/) stable 工具链（参见 `.rust-toolchain.toml`）
+- C++ 编译器工具链（默认 RAR 支持需要；可通过 `--no-default-features` 跳过 RAR）
 
 ---
 
@@ -348,6 +349,30 @@ GeeZipX 采用分层 workspace 架构：
 ### 前置条件
 
 - Rust stable（通过 [rustup](https://rustup.rs/) 安装）
+- C++ 编译器工具链（默认 RAR 支持需要；可通过 `--no-default-features` 跳过 RAR）
+
+### RAR 支持
+
+RAR 归档支持为**只读**且**默认启用**。[`unrar`](https://crates.io/crates/unrar) crate 链接了 RARLAB freeware
+[UnRAR 源码](https://www.rarlab.com/rar_add.htm)（需要 C++ 编译器）。
+
+```sh
+# 默认构建（RAR 已包含）
+cargo build --release
+
+# 运行所有测试（RAR 已包含）
+cargo test --all-features
+```
+
+如果需要在没有 C++ 编译器的环境中构建（不包含 RAR 支持）：
+
+```sh
+cargo build --release --no-default-features
+cargo test --no-default-features
+```
+
+> **注意**：`cargo publish` 和 `cargo install` 默认包含 RAR 支持。
+> 如果无法满足 C++ 编译器要求，可使用 `--no-default-features` 构建。
 
 ### 构建与测试
 
@@ -446,7 +471,7 @@ cargo build --release --workspace
 - [x] ZIP AES-256 加密 -- 支持 `--password`、`--password-file`、`--password-stdin`
 - [ ] 分卷压缩
 - [x] **7z 只读支持**
-- [x] **RAR 只读支持（需 `--features rar`）**
+- [x] **RAR 只读支持**
 - tar.gz、zip、xz 等更多格式的多线程压缩
 - 面向脚本场景的真正 stdin 管道输入
 - 稳定 benchmark 基线与强制性能回归门禁

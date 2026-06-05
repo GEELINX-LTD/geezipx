@@ -14,7 +14,7 @@ categories = ["compression"]
 
 [features]
 rar = ["dep:unrar"]
-default = []
+default = ["rar"]
 
 [dependencies]
 thiserror = "2"

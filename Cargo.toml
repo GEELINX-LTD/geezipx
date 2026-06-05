@@ -15,4 +15,4 @@ homepage = "https://github.com/GEELINX-LTD/geezipx"
 rust-version = "1.96"
 
 [workspace.dependencies]
-geezipx-core = { version = "0.3.0", path = "crates/core" }
+geezipx-core = { version = "0.3.0", path = "crates/core", default-features = false }

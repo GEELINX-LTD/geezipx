@@ -51,13 +51,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `--stdout` is mutually exclusive with `--output`
     rejection of password sources on gzip/zstd/xz/lzma when listing
 
-- **RAR read-only support (Phase 2.6, feature-gated)**:
+- **RAR read-only support (Phase 2.6)**:
   - `.rar` format detection from magic bytes (`52 61 72 21 1A 07`) and `.rar` extension
   - `geezipx list archive.rar` — enumerate RAR archive entries (includes encrypted)
   - `geezipx decompress extract.rar` — extract RAR archives preserving directory structure
   - `geezipx test archive.rar` — verify RAR archive integrity
   - Encrypted RAR archives supported with `--password` / `--password-file` / `--password-stdin`
-  - Feature-gated behind `rar` feature: `cargo build --release --features rar`
+  - Enabled by default; can be disabled with `--no-default-features`
   - Requires a C++ compiler and the RARLAB freeware UnRAR source (linked via the
     [`unrar`](https://crates.io/crates/unrar) crate)
   - Read-only: RAR creation is not supported

@@ -87,7 +87,7 @@ pub trait ArchiveWriter: Send {
 | `archive::xz` | .xz/.lzma 单文件压缩/解压 | `xz2` |
 | `archive::tarxz` | .tar.xz/.txz 归档压缩/解压/list | `tar` + `xz2` |
 || `archive::seven_zip` | 7Z read-only (list/extract/test) | `sevenz-rust2` ||
-|| `archive::rar` | RAR read-only (list/extract/test, feature-gated) | `unrar` (optional) |
+||| `archive::rar` | RAR read-only (list/extract/test) | `unrar` (default-enabled) |
 ### 2.2 core/io — 流式接口
 
 关键抽象：`ProgressReader` 和 `ProgressWriter`，包裹任意 `Read + Write`，计数并调用进度回调。
@@ -214,8 +214,8 @@ GUI 实现：通过 Tauri `emit` 事件推送进度到前端。
 - 进度条：`indicatif` 的 `ProgressBar` + `ProgressStyle` 自定义模板。
 - 列表输出：`comfy-table` 格式化表格。
 
-## 3. 关键依赖（Phase 1）
-Phase 1 实际依赖（以 `crates/core/Cargo.toml` 和 `crates/cli/Cargo.toml` 为准）：
+## 3. 关键依赖
+当前实际依赖（以 `crates/core/Cargo.toml` 和 `crates/cli/Cargo.toml` 为准）：
 
 #### core 依赖
 
@@ -228,6 +228,8 @@ Phase 1 实际依赖（以 `crates/core/Cargo.toml` 和 `crates/cli/Cargo.toml` 
 | `log` 0.4 | 日志门面 |
 | `xz2` 0.1 | xz (.xz) / LZMA (.lzma) 单流压缩/解压（features = ["static"] — 静态链接 liblzma；当前无稳定多线程 API，`--jobs` 向前兼容占位） |
 | `zstd` 0.13 | Zstandard（zstd/zst）单流压缩/解压；启用 `zstdmt` feature 支持多线程（`NbWorkers`） |
+| `sevenz-rust2` 0.21 | 7Z read-only (list/extract/test)；AES-256 加密 7z 支持 |
+| `unrar` 0.5.8 | RAR read-only (list/extract/test)；optional, default-enabled；链接 RARLAB freeware UnRAR C++ 源码 |
 
 ##### dev-dependencies
 
@@ -239,9 +241,7 @@ Phase 1 实际依赖（以 `crates/core/Cargo.toml` 和 `crates/cli/Cargo.toml` 
 #### cli 依赖
 
 | Crate | 用途 |
-| `unrar` | 0.5.8 (optional) | RAR read-only | 链接 RARLAB freeware UnRAR C++ 源码 |
-|-------|------|
-| `geezipx-core` | workspace 依赖 |
+| `geezipx-core` | workspace 依赖 (`default-features = false`) |
 | `clap` v4 | CLI 参数解析（derive API） |
 | `clap_complete` 4 | Shell 自动补全生成 |
 | `anyhow` 1 | 二进制层错误传播 |
@@ -258,7 +258,7 @@ Phase 1 实际依赖（以 `crates/core/Cargo.toml` 和 `crates/cli/Cargo.toml` 
 | `predicates` 3 | CLI 输出断言 |
 | `tempfile` 3 | 测试临时目录 |
 
-> **与早期草案的变化**：Phase 1 初始不包含 `xz2`/`zstd`/`crossterm`/`owo-colors`/`env_logger`/`snapbox`。zstd 后已用 `zstd` crate 添加单流读写支持（`archive::zstd` 模块 + CLI `-f zst`/`-f zstd` 参数 + 扩展名自动推断）；TarZst（tar.zst/tzst）也基于 `zstd` crate 和 `tar` crate 实现完整归档压缩/解压/list（`archive::tarzst` 模块）。xz 和 lzma 已通过 `xz2` crate 实现单流压缩/解压（`archive::xz` 模块 + CLI `-f xz`/`-f lzma` 参数）；TarXz（tar.xz/txz）基于 `xz2` crate 和 `tar` crate 实现完整归档压缩/解压/list（`archive::tarxz` 模块）。后续新增了 `config.rs`（`CompressOptions`）统一传递压缩参数（level + jobs），`zstd` 启用 `zstdmt` feature 支持多线程（`-j`/`--jobs`）。当前 core 不使用 feature flags 进行条件编译——zip、flate2、zstd（含 zstdmt）、xz2 均为必选依赖。
+> **与早期草案的变化**：Phase 1 初始不包含 `xz2`/`zstd`/`crossterm`/`owo-colors`/`env_logger`/`snapbox`。zstd 后已用 `zstd` crate 添加单流读写支持（`archive::zstd` 模块 + CLI `-f zst`/`-f zstd` 参数 + 扩展名自动推断）；TarZst（tar.zst/tzst）也基于 `zstd` crate 和 `tar` crate 实现完整归档压缩/解压/list（`archive::tarzst` 模块）。xz 和 lzma 已通过 `xz2` crate 实现单流压缩/解压（`archive::xz` 模块 + CLI `-f xz`/`-f lzma` 参数）；TarXz（tar.xz/txz）基于 `xz2` crate 和 `tar` crate 实现完整归档压缩/解压/list（`archive::tarxz` 模块）。后续新增了 `config.rs`（`CompressOptions`）统一传递压缩参数（level + jobs），`zstd` 启用 `zstdmt` feature 支持多线程（`-j`/`--jobs`）。当前 core 使用 `[features]` 实现可选 RAR 支持：`rar = ["dep:unrar"]`，默认通过 `default = ["rar"]` 启用。核心的 zip、flate2、zstd（含 zstdmt）、xz2 均为必选依赖。
 
 ## 4. 进度与取消机制
 
@@ -410,7 +410,7 @@ repository = "https://github.com/GEELINX-LTD/geezipx"
 rust-version = "1.96"
 
 [workspace.dependencies]
-geezipx-core = { version = "0.3.0", path = "crates/core" }
+geezipx-core = { version = "0.3.0", path = "crates/core", default-features = false }
 ```
 
 ```toml
@@ -430,13 +430,23 @@ categories = ["compression"]
 [dependencies]
 thiserror = "2"
 log = "0.4"
-zip = { version = "2", default-features = false, features = ["deflate"] }
+zip = { version = "2", default-features = false, features = ["deflate", "aes-crypto"] }
 tar = "0.4"
 flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
+xz2 = { version = "0.1", features = ["static"] }
+zstd = { version = "0.13", features = ["zstdmt"] }
+sevenz-rust2 = { version = "0.21", default-features = false, features = ["aes256", "bzip2", "ppmd", "deflate"] }
+# Optional: RAR read-only (feature-gated, requires C++ compiler)
+unrar = { version = "0.5.8", optional = true }
+
+[features]
+rar = ["dep:unrar"]
+default = ["rar"]
 
 [dev-dependencies]
 tempfile = "3"
 criterion = { version = "0.5", features = ["html_reports"] }
+sevenz-rust2 = { version = "0.21", default-features = false, features = ["compress", "util", "aes256", "bzip2", "ppmd", "deflate"] }
 
 [lib]
 name = "geezipx_core"
@@ -475,11 +485,17 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 indicatif = "0.17"
 ctrlc = "3"
+glob = "0.3"
+
+[features]
+rar = ["geezipx-core/rar"]
+default = ["rar"]
 
 [dev-dependencies]
 assert_cmd = "2"
 predicates = "3"
 tempfile = "3"
+sevenz-rust2 = { version = "0.21", default-features = false, features = ["compress", "util", "aes256", "bzip2", "ppmd", "deflate"] }
 
 [[bin]]
 name = "geezipx"

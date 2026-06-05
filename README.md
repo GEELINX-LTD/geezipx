@@ -14,7 +14,7 @@
 
 ## Features
 
-- **Multi-format** -- ZIP, TAR, TAR.GZ/TGZ, TAR.ZST/TZST, TAR.XZ/TXZ, GZIP/GZ, Zstandard/ZST, XZ, LZMA (read/write), 7Z (read-only), and RAR (read-only, feature-gated)
+- **Multi-format** -- ZIP, TAR, TAR.GZ/TGZ, TAR.ZST/TZST, TAR.XZ/TXZ, GZIP/GZ, Zstandard/ZST, XZ, LZMA (read/write), 7Z (read-only), and RAR (read-only)
 - **Streaming I/O** -- process large files with bounded memory usage
 - **Live progress bars** -- real-time speed, ETA, and per-file status on TTY
 - **Cancel-safe** -- graceful Ctrl+C with partial-file cleanup; double Ctrl+C force-kill
@@ -34,7 +34,7 @@
 ## Status
 
 Phase 1 (CLI MVP) is **complete**. All core subcommands (`compress`, `decompress`, `list`, `test`, `completions`) work for all supported formats.
-Phase 2 (CLI Enhancements) is **now the active development focus**. Shipped so far: ZIP AES-256 password encryption, `--password-file`/`--password-stdin`, 7z read-only support (list/extract/test with password), and RAR read-only support (list/extract/test with password, feature-gated).
+Phase 2 (CLI Enhancements) is **now the active development focus**. Shipped so far: ZIP AES-256 password encryption, `--password-file`/`--password-stdin`, 7z read-only support (list/extract/test with password), and RAR read-only support (list/extract/test with password).
 See [`docs/PHASE1_CLI_TASKS.md`](docs/PHASE1_CLI_TASKS.md) for the full task breakdown.
 ### Phase 1 — Complete
 | Milestone | Theme | Status |
@@ -320,6 +320,7 @@ The core library handles all format logic through unified `ArchiveReader` / `Arc
 ### Prerequisites
 
 - Rust stable (install via [rustup](https://rustup.rs/))
+- C++ compiler toolchain (required for default RAR support; skip RAR with `--no-default-features`)
 
 ### Build & Test
 
@@ -343,28 +344,30 @@ cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo doc --no-deps
 ```
 
-### RAR support (optional feature)
+### RAR support
 
-RAR archive support is **read-only** and **feature-gated** because the
+RAR archive support is **read-only** and **enabled by default**. The
 [`unrar`](https://crates.io/crates/unrar) crate links against the RARLAB freeware
 [UnRAR source](https://www.rarlab.com/rar_add.htm) (requires a C++ compiler).
 
 ```sh
-# Build with RAR support
-cargo build --release --features rar
+# Default build (RAR included)
+cargo build --release
 
-# Run tests with RAR support
-cargo test --features rar
+# Run tests with all features (RAR included)
+cargo test --all-features
 ```
 
-To make RAR support more convenient, use a shell alias:
+If you want to build without RAR support (e.g., in an environment without a C++
+compiler):
 
 ```sh
-alias build-geezipx-rar='cargo build --release --features rar'
+cargo build --release --no-default-features
+cargo test --no-default-features
 ```
 
-> **Note**: `cargo publish` and `cargo install` builds do not include RAR support by default.
-> Users who need RAR must build from source with `--features rar`.
+> **Note**: `cargo publish` and `cargo install` include RAR support by default.
+> If you cannot use the C++ compiler requirement, build with `--no-default-features`.
 
 ### Running Benchmarks
 

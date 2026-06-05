@@ -19,8 +19,9 @@ GeeZipX includes **read-only** support for RAR archives via the
   The `unrar` crate bundles the original UnRAR C++ source as a vendored
   dependency and compiles it as-is during build.
 
-- **Optional feature**: RAR support is **disabled by default** and must be
-  enabled with `--features rar` at build time.
+- **Default-enabled**: RAR support is **enabled by default**. To build without it,
+  use `--no-default-features`. Disabling RAR support removes the C++ compile
+  dependency from the build.
 
 - **No RAR creation**: GeeZipX does **not** support creating RAR archives.
   The UnRAR license explicitly prohibits using its code to build a
