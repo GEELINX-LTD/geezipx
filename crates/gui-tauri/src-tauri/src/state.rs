@@ -12,8 +12,11 @@ pub struct AppState {
     /// Cancellation tokens for in-flight tasks.
     /// Each task stores an `Arc<AtomicBool>`; when `cancel_task` sets it to
     /// `true`, the running `spawn_blocking` closure checks this flag and
-    /// returns early (G2B will wire up full cancellation).
+    /// returns early.
     pub cancel_tokens: Mutex<HashMap<TaskId, Arc<AtomicBool>>>,
+    /// Archive file paths received via file association / open-with.
+    /// The frontend pulls these on startup via `get_opened_archives`.
+    pub pending_archives: Mutex<Vec<String>>,
 }
 
 impl Default for AppState {
@@ -27,6 +30,7 @@ impl AppState {
     pub fn new() -> Self {
         Self {
             cancel_tokens: Mutex::new(HashMap::new()),
+            pending_archives: Mutex::new(Vec::new()),
         }
     }
 }

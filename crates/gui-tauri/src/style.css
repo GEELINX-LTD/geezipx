@@ -639,3 +639,221 @@ select {
   outline-offset: 2px;
   border-radius: var(--radius);
 }
+
+/* --------------- Archive Browser --------------- */
+
+.browser-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.5rem 0;
+}
+
+.browser-breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 0.2rem;
+  padding: 0.25rem 0;
+  font-size: 0.85rem;
+  flex-wrap: wrap;
+}
+
+.bc-root,
+.bc-link {
+  color: var(--accent);
+  cursor: pointer;
+  text-decoration: none;
+  padding: 0.1rem 0.2rem;
+  border-radius: 3px;
+  transition: background 0.15s;
+}
+
+.bc-root:hover,
+.bc-link:hover {
+  background: var(--surface-alt);
+}
+
+.bc-active {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.bc-sep {
+  color: var(--text-muted);
+  font-size: 0.75rem;
+}
+
+.browser-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.25rem 0;
+}
+
+.browser-selection-count {
+  margin-left: auto;
+  white-space: nowrap;
+  font-size: 0.8rem;
+}
+
+.browser-overwrite-label {
+  margin-left: auto;
+  white-space: nowrap;
+  font-size: 0.8rem;
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.browser-info {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin-bottom: 0.5rem;
+  padding-bottom: 0.25rem;
+  border-bottom: 1px solid var(--surface-alt);
+}
+
+/* Browser table */
+.browser-table th.cb-th,
+.browser-table td.cb-cell {
+  width: 32px;
+  text-align: center;
+  padding: 0.3rem 0.2rem;
+}
+
+.browser-table th.icon-th,
+.browser-table td.icon-cell {
+  width: 32px;
+  text-align: center;
+  padding: 0.3rem 0.2rem;
+  font-size: 1rem;
+}
+
+.browser-table td.name-cell {
+  font-weight: 500;
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.browser-table td.size-cell,
+.browser-table td.compressed-cell {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.browser-table td.modified-cell {
+  white-space: nowrap;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+.browser-table td.crc-cell {
+  font-family: monospace;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+/* Browser rows */
+.browser-row {
+  cursor: pointer;
+  transition: background 0.12s;
+}
+
+.browser-row:hover {
+  background: var(--surface-alt);
+}
+
+.browser-row.dir td.name-cell {
+  color: var(--orange);
+  font-weight: 600;
+}
+
+.browser-row .cb-cell input[type="checkbox"] {
+  width: 0.9rem;
+  height: 0.9rem;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.info-message {
+  padding: 0.75rem;
+  background: var(--surface);
+  border: 1px solid var(--surface-alt);
+  border-radius: var(--radius);
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+/* --------------- Preview Panel --------------- */
+
+.browser-preview {
+  margin-top: 0.5rem;
+  background: var(--surface);
+  border: 1px solid var(--surface-alt);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.preview-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  background: var(--surface-alt);
+  border-bottom: 1px solid var(--border);
+}
+
+.preview-title {
+  flex: 1;
+  font-size: 0.82rem;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.preview-size {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.preview-close-btn {
+  padding: 0.2rem 0.5rem;
+  font-size: 1rem;
+  line-height: 1;
+  min-width: 28px;
+}
+
+.preview-content {
+  padding: 0.75rem;
+  font-size: 0.8rem;
+  font-family: ui-monospace, "SF Mono", Monaco, "Cascadia Code", "Fira Code", monospace;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 350px;
+  overflow-y: auto;
+  line-height: 1.45;
+  color: var(--text);
+  margin: 0;
+}
+
+.preview-content::-webkit-scrollbar {
+  width: 6px;
+}
+
+.preview-content::-webkit-scrollbar-track {
+  background: var(--surface);
+}
+
+.preview-content::-webkit-scrollbar-thumb {
+  background: var(--surface-alt);
+  border-radius: 3px;
+}
+
+/* --------------- TableScroll inside list panel --------------- */
+#list-result .table-scroll {
+  max-height: 400px;
+}

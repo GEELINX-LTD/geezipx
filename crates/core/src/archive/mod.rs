@@ -470,7 +470,7 @@ pub(crate) fn normalize_path(path: &Path) -> std::path::PathBuf {
 ///
 /// Returns `Ok(normalised_target)` if safe, or `Err((name, err))` suitable
 /// for pushing into [`ExtractReport::errors`].
-pub(crate) fn check_entry_path_safety(
+pub fn check_entry_path_safety(
     entry_path: &Path,
     entry_name: &str,
     dest: &Path,

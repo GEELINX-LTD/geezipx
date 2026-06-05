@@ -5,7 +5,7 @@
 /// Rust backend.
 
 import { invoke } from "@tauri-apps/api/core";
-
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { revealItemInDir, openPath } from "@tauri-apps/plugin-opener";
 
 // ---------------------------------------------------------------------------
@@ -35,6 +35,16 @@ export interface TestArchiveResult {
   entry_count: number;
   bytes_read: number;
   crc32_verified: boolean;
+}
+
+/** Result of previewing a single entry inside an archive. */
+export interface PreviewResult {
+  entry_path: string;
+  kind: string;
+  size_hint: string;
+  content: string;
+  total_size: number;
+  truncated: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -103,6 +113,47 @@ export async function extractArchive(
 export async function cancelTask(taskId: string): Promise<void> {
   return invoke<void>("cancel_task", { taskId });
 }
+
+/** Retrieve pending archive paths received via file association / open-with. */
+export async function getOpenedArchives(): Promise<string[]> {
+  return invoke<string[]>("get_opened_archives");
+}
+
+/** Selectively extract specific entries from an archive. */
+export async function extractEntries(
+  archivePath: string,
+  entryPaths: string[],
+  outputDir: string,
+  overwrite: boolean,
+  password?: string,
+  taskId?: string,
+): Promise<ExtractArchiveResult> {
+  return invoke<ExtractArchiveResult>("extract_entries", {
+    archivePath,
+    entryPaths,
+    outputDir,
+    overwrite,
+    password: password ?? null,
+    taskId: taskId ?? null,
+  });
+}
+
+/** Preview a single entry inside an archive (text/binary/dir). */
+export async function previewEntry(
+  archivePath: string,
+  entryPath: string,
+  password?: string,
+): Promise<PreviewResult> {
+  return invoke<PreviewResult>("preview_entry", {
+    archivePath,
+    entryPath,
+    password: password ?? null,
+  });
+}
+
+// Re-export listen for frontend use
+export { listen };
+export type { UnlistenFn };
 
 // ---------------------------------------------------------------------------
 // Compress types and wrapper

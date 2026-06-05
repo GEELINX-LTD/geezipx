@@ -12,6 +12,10 @@ import {
   cancelTask,
   revealFile,
   openFolder,
+  previewEntry,
+  getOpenedArchives,
+  extractEntries,
+  listen,
   type FormatInfo,
   type EntryInfo,
   type TestArchiveResult,
@@ -26,6 +30,14 @@ import { open, save } from "@tauri-apps/plugin-dialog";
 
 let currentTaskId: string | null = null;
 let compressFormats: FormatInfo[] = [];
+let unlistenOpenedArchives: (() => void) | null = null;
+
+// Archive browser state
+let browserEntries: EntryInfo[] = [];
+let browserArchivePath = "";
+let browserPassword = "";
+let browserCurrentDir = "";
+let browserSelected = new Set<string>();
 
 const ARCHIVE_EXTS = /\.(zip|tar|tar\.gz|tar\.zst|tar\.xz|tgz|tzst|txz|7z|rar)$/i;
 
@@ -66,6 +78,11 @@ function setRunning(mode: string, running: boolean) {
     cancelBtn.style.visibility = "hidden";
     cancelBtn.setAttribute("aria-hidden", "true");
   }
+}
+
+function btnDisabled(id: string, disabled: boolean) {
+  const btn = el<HTMLButtonElement>(id);
+  btn.disabled = disabled;
 }
 
 function showError(panelId: string, msg: string) {
@@ -245,12 +262,14 @@ function renderRecentChips() {
       const path = (chip as HTMLElement).dataset.path ?? "";
       const isArchive = (chip as HTMLElement).dataset.archive === "true";
       if (isArchive) {
-        // Switch to Extract, fill archive path, auto-infer output dir
-        switchMode("extract");
-        el<HTMLInputElement>("extract-archive").value = path;
-        el<HTMLInputElement>("extract-output").value = inferOutputDir(path);
-        el("extract-result").innerHTML =
-          `<div class="result-empty">Ready to extract. Click Extract to start.</div>`;
+        // Switch to List, fill archive path, auto-run list
+        switchMode("list");
+        el<HTMLInputElement>("list-archive").value = path;
+        el<HTMLInputElement>("list-password").value = "";
+        el("list-result").innerHTML =
+          `<div class="result-empty">Opening archive...</div>`;
+        // Auto-run list
+        setTimeout(() => runListWithPath(path), 50);
       } else {
         // Switch to Compress, fill source
         switchMode("compress");
@@ -267,48 +286,335 @@ function renderRecentChips() {
 }
 
 // ---------------------------------------------------------------------------
-// Result display functions
+// Archive Browser — helper functions
 // ---------------------------------------------------------------------------
 
-function renderListResult(entries: EntryInfo[]) {
-  const panel = el("list-result");
-  if (entries.length === 0) {
-    panel.innerHTML = `<div class="success-message">Archive is empty (0 entries).</div>`;
+/** Entry icon */
+function entryIcon(isDir: boolean): string {
+  return isDir ? "\u{1F4C1}" : "\u{1F4C4}";
+}
+
+/** Format a unix timestamp to a human-readable date. */
+function formatTimestamp(ts: number | null): string {
+  if (!ts || ts === 0) return "\u2014";
+  const d = new Date(ts * 1000);
+  try {
+    return d.toLocaleDateString(undefined, {
+      month: "short", day: "numeric", year: "numeric",
+      hour: "2-digit", minute: "2-digit",
+    });
+  } catch {
+    return String(ts);
+  }
+}
+
+/** Format CRC32 as hex string. */
+function formatCrc32(crc: number | null): string {
+  if (crc === null || crc === 0) return "\u2014";
+  return crc.toString(16).padStart(8, "0").toUpperCase();
+}
+
+/** Get immediate children (files and directories) under the current browser directory. */
+function getCurrentDirChildren(): { name: string; isDir: boolean; entry: EntryInfo | null }[] {
+  const prefix = browserCurrentDir; // "" for root, "subdir/" otherwise
+  const items = new Map<string, { isDir: boolean; entry: EntryInfo | null }>();
+
+  for (const entry of browserEntries) {
+    if (!entry.path.startsWith(prefix)) continue;
+    let relative = entry.path.substring(prefix.length);
+    if (!relative || relative === "/") continue;
+    if (relative.startsWith("/")) relative = relative.substring(1);
+
+    const slashIdx = relative.indexOf("/");
+    if (slashIdx >= 0) {
+      // Nested entry — show the parent directory name
+      const dirName = relative.substring(0, slashIdx);
+      if (!items.has(dirName)) {
+        items.set(dirName, { isDir: true, entry: null });
+      }
+    } else {
+      // Direct child
+      if (!items.has(relative)) {
+        items.set(relative, { isDir: entry.is_dir, entry });
+      }
+    }
+  }
+
+  const result = Array.from(items.entries()).map(([name, info]) => ({
+    name, isDir: info.isDir, entry: info.entry,
+  }));
+
+  // Sort: directories first, then alphabetically
+  result.sort((a, b) => {
+    if (a.isDir !== b.isDir) return a.isDir ? -1 : 1;
+    return a.name.localeCompare(b.name);
+  });
+
+  return result;
+}
+
+// ---------------------------------------------------------------------------
+// Archive Browser — render functions
+// ---------------------------------------------------------------------------
+
+/** Render the breadcrumb navigation. */
+function renderBreadcrumb() {
+  const container = el("browser-breadcrumb");
+  if (!browserCurrentDir) {
+    container.innerHTML = `<span class="bc-root bc-active">/</span>`;
     return;
   }
 
-  let rows = entries
-    .map(
-      (e) =>
-        `<tr class="${e.is_dir ? "dir" : ""}">
-          <td>${escapeHtml(e.path)}${e.is_dir ? "/" : ""}</td>
-          <td>${e.is_dir ? "\u2014" : formatBytes(e.size)}</td>
-          <td>${e.compressed_size > 0 ? formatBytes(e.compressed_size) : "\u2014"}</td>
-          <td>${e.is_dir ? "\u2014" : "\u2014"}</td>
-        </tr>`,
-    )
-    .join("");
+  const parts = browserCurrentDir.replace(/\/$/, "").split("/");
+  let html = `<a href="#" class="bc-root" data-dir="">/</a>`;
+  let accumulated = "";
+  for (let i = 0; i < parts.length; i++) {
+    accumulated += (i > 0 ? "/" : "") + parts[i];
+    const isLast = i === parts.length - 1;
+    const dirPath = accumulated + "/";
+    html += `<span class="bc-sep">/</span>`;
+    if (isLast) {
+      html += `<span class="bc-active">${escapeHtml(parts[i])}</span>`;
+    } else {
+      html += `<a href="#" class="bc-link" data-dir="${escapeHtml(dirPath)}">${escapeHtml(parts[i])}</a>`;
+    }
+  }
+
+  container.innerHTML = html;
+
+  // Wire click handlers
+  container.querySelectorAll("[data-dir]").forEach((a) => {
+    a.addEventListener("click", (e) => {
+      e.preventDefault();
+      browserCurrentDir = (a as HTMLElement).dataset.dir ?? "";
+      browserSelected.clear();
+      renderArchiveBrowser();
+    });
+  });
+}
+
+/** Render the archive browser table with current directory contents. */
+function renderArchiveBrowser() {
+  const panel = el("list-result");
+  const children = getCurrentDirChildren();
+
+  if (children.length === 0) {
+    panel.innerHTML = `<div class="result-empty">This directory is empty.</div>`;
+    el("browser-bar").style.display = "none";
+    el("browser-preview").style.display = "none";
+    return;
+  }
+
+  // Show browser bar
+  el("browser-bar").style.display = "flex";
+
+  // Render breadcrumb
+  renderBreadcrumb();
+
+  // Build table rows
+  const entryCount = browserEntries.length;
+  let rows = "";
+  for (let i = 0; i < children.length; i++) {
+    const { name, isDir, entry } = children[i];
+    const fullPath = browserCurrentDir + name;
+    const checked = browserSelected.has(fullPath) ? "checked" : "";
+    const dirClass = isDir ? "dir" : "";
+
+    rows += `
+      <tr class="browser-row ${dirClass}" data-path="${escapeHtml(fullPath)}" data-is-dir="${isDir}" data-index="${i}">
+        <td class="cb-cell"><input type="checkbox" class="browser-cb" ${checked} /></td>
+        <td class="icon-cell">${entryIcon(isDir)}</td>
+        <td class="name-cell">${escapeHtml(name)}${isDir ? "/" : ""}</td>
+        <td class="size-cell">${isDir ? "\u2014" : (entry ? formatBytes(entry.size) : "\u2014")}</td>
+        <td class="compressed-cell">${(!isDir && entry && entry.compressed_size > 0) ? formatBytes(entry.compressed_size) : "\u2014"}</td>
+        <td class="modified-cell">${entry ? formatTimestamp(entry.modified) : "\u2014"}</td>
+        <td class="crc-cell">${(!isDir && entry) ? formatCrc32(entry.crc32) : "\u2014"}</td>
+      </tr>`;
+  }
 
   panel.innerHTML = `
-    <h3>Archive Contents (${entries.length} entries)</h3>
+    <div class="browser-info">Archive: ${entryCount} entr${entryCount === 1 ? "y" : "ies"} &middot; showing ${children.length} item${children.length === 1 ? "" : "s"}</div>
     <div class="table-scroll">
-      <table class="result-table">
+      <table class="result-table browser-table">
         <thead>
           <tr>
-            <th>Path</th>
+            <th class="cb-th"></th>
+            <th class="icon-th"></th>
+            <th>Name</th>
             <th>Size</th>
             <th>Compressed</th>
-            <th>Type</th>
+            <th>Modified</th>
+            <th>CRC32</th>
           </tr>
         </thead>
         <tbody>${rows}</tbody>
       </table>
-    </div>
-    <p style="margin-top:0.5rem;color:var(--text-muted);font-size:0.78rem;">
-      Directories shown in <span style="color:var(--orange)">orange</span>.
-    </p>
-  `;
+    </div>`;
+
+  wireBrowserEvents();
+  updateSelectionUI();
 }
+
+// ---------------------------------------------------------------------------
+// Archive Browser — event wiring
+// ---------------------------------------------------------------------------
+
+function wireBrowserEvents() {
+  const tbody = document.querySelector("#list-result tbody");
+  if (!tbody) return;
+
+  // Checkbox change events
+  tbody.querySelectorAll(".browser-cb").forEach((cb) => {
+    cb.addEventListener("change", (e) => {
+      const target = e.target as HTMLInputElement;
+      const row = target.closest("tr") as HTMLElement;
+      const path = row.dataset.path ?? "";
+      if (target.checked) {
+        browserSelected.add(path);
+      } else {
+        browserSelected.delete(path);
+      }
+      updateSelectionUI();
+    });
+  });
+
+  // Row click events
+  tbody.querySelectorAll(".browser-row").forEach((row) => {
+    row.addEventListener("click", (e) => {
+      // Don't toggle if clicking directly on checkbox
+      if ((e.target as HTMLElement).classList.contains("browser-cb")) return;
+
+      // Toggle checkbox
+      const cb = row.querySelector(".browser-cb") as HTMLInputElement;
+      cb.checked = !cb.checked;
+      cb.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+
+    // Double-click: navigate into dir or preview file
+    row.addEventListener("dblclick", () => {
+      const isDir = row.dataset.isDir === "true";
+      const path = row.dataset.path ?? "";
+
+      if (isDir) {
+        browserCurrentDir = path.endsWith("/") ? path : path + "/";
+        browserSelected.clear();
+        renderArchiveBrowser();
+      } else {
+        showPreview(path);
+      }
+    });
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Archive Browser — preview
+// ---------------------------------------------------------------------------
+
+async function showPreview(path: string) {
+  const previewPanel = el("browser-preview");
+  const title = el("preview-title");
+  const size = el("preview-size");
+  const content = el("preview-content");
+
+  title.textContent = path;
+  size.textContent = "Loading...";
+  content.textContent = "";
+  previewPanel.style.display = "block";
+
+  try {
+    const result = await previewEntry(
+      browserArchivePath,
+      path,
+      browserPassword || undefined,
+    );
+    title.textContent = result.entry_path;
+    size.textContent = result.size_hint + (result.truncated ? " (truncated)" : "");
+
+    if (result.kind === "dir") {
+      content.textContent = result.content + "\n\n(Double-click to browse into directory)";
+    } else if (result.kind === "text") {
+      content.textContent = result.content;
+    } else if (result.kind === "binary") {
+      content.textContent = result.content;
+    } else if (result.kind === "error") {
+      content.textContent = "Error: " + result.content;
+    } else {
+      content.textContent = result.content;
+    }
+  } catch (e) {
+    title.textContent = path;
+    size.textContent = "Error";
+    content.textContent = String(e);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Archive Browser — selection & extraction
+// ---------------------------------------------------------------------------
+
+function updateSelectionUI() {
+  const count = el("browser-selection-count");
+  const btn = el<HTMLButtonElement>("browser-extract-selected");
+
+  const selectedCount = browserSelected.size;
+  count.textContent = selectedCount > 0 ? `${selectedCount} selected` : "";
+  btn.disabled = selectedCount === 0;
+}
+
+async function extractSelected() {
+  if (browserSelected.size === 0) return;
+
+  const outputDir = await pickDirectory();
+  if (!outputDir) return;
+
+  const entryPaths = Array.from(browserSelected);
+  const taskId = `task-extract-entries-${Date.now()}`;
+
+  btnDisabled("browser-extract-selected", true);
+  el("browser-extract-selected").textContent = "Extracting...";
+
+  try {
+    const result = await extractEntries(
+      browserArchivePath,
+      entryPaths,
+      outputDir,
+      el<HTMLInputElement>("browser-overwrite").checked,
+      browserPassword || undefined,
+      taskId,
+    );
+
+    // Add output dir to recent files
+    addRecent(outputDir);
+
+    // Show success message
+    const panel = el("list-result");
+    const successDiv = document.createElement("div");
+    successDiv.innerHTML = `
+      <div class="success-message" style="margin-top:0.75rem">
+        Extracted ${result.files_extracted} entr${result.files_extracted === 1 ? "y" : "ies"} successfully
+        ${result.errors.length > 0 ? `<span style="color:var(--red)"> (${result.errors.length} error${result.errors.length === 1 ? "" : "s"})</span>` : ""}
+      </div>
+      <div class="result-footer">
+        <button class="btn-reveal" data-path="${escapeHtml(outputDir)}" data-action="reveal">\u{1F4C2} Reveal in Folder</button>
+        <button class="btn-reveal" data-path="${escapeHtml(outputDir)}" data-action="open">\u{1F4C1} Open Folder</button>
+      </div>`;
+    panel.appendChild(successDiv);
+
+    wireRevealButtons(successDiv);
+  } catch (e) {
+    const panel = el("list-result");
+    const errDiv = document.createElement("div");
+    errDiv.innerHTML = `<div class="error-message" style="margin-top:0.75rem">${escapeHtml(String(e))}</div>`;
+    panel.appendChild(errDiv);
+  } finally {
+    btnDisabled("browser-extract-selected", false);
+    el("browser-extract-selected").textContent = "Extract Selected";
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Result display functions (for other modes)
+// ---------------------------------------------------------------------------
 
 function renderTestResult(result: TestArchiveResult) {
   el("test-result").innerHTML = `
@@ -427,8 +733,8 @@ function renderExtractResult(result: ExtractArchiveResult) {
   wireRevealButtons("extract-result");
 }
 
-function wireRevealButtons(containerId: string) {
-  const container = el(containerId);
+function wireRevealButtons(containerIdOrEl: string | HTMLElement) {
+  const container = typeof containerIdOrEl === "string" ? el(containerIdOrEl) : containerIdOrEl;
   container.querySelectorAll(".btn-reveal").forEach((btn) => {
     btn.addEventListener("click", async () => {
       const path = (btn as HTMLElement).dataset.path ?? "";
@@ -468,6 +774,11 @@ function switchMode(mode: string) {
   if (tab) {
     tab.classList.add("active");
     tab.setAttribute("aria-selected", "true");
+  }
+
+  // Hide preview when switching away
+  if (mode !== "list") {
+    el("browser-preview").style.display = "none";
   }
 }
 
@@ -575,20 +886,21 @@ async function handleDrop(dt: DataTransfer | null) {
   const nonArchives = paths.filter((p) => !isArchiveExt(p));
 
   if (archives.length > 0 && nonArchives.length === 0) {
-    // All archives — switch to Extract
+    // All archives — switch to List and auto-open
     if (archives.length === 1) {
-      switchMode("extract");
-      el<HTMLInputElement>("extract-archive").value = archives[0];
-      el<HTMLInputElement>("extract-output").value = inferOutputDir(archives[0]);
-      el("extract-result").innerHTML =
-        `<div class="result-empty">Ready to extract. Click Extract to start.</div>`;
+      switchMode("list");
+      el<HTMLInputElement>("list-archive").value = archives[0];
+      el<HTMLInputElement>("list-password").value = "";
+      el("list-result").innerHTML =
+        `<div class="running-text"><span class="running-spinner"></span> Opening archive...</div>`;
+      setTimeout(() => runListWithPath(archives[0]), 50);
     } else {
-      // Multiple archives — extract first one, mention the rest
-      switchMode("extract");
-      el<HTMLInputElement>("extract-archive").value = archives[0];
-      el<HTMLInputElement>("extract-output").value = inferOutputDir(archives[0]);
-      el("extract-result").innerHTML =
-        `<div class="info-message">${archives.length} archives dropped. Using first: ${escapeHtml(getBasename(archives[0]))}. Drop individually for others.</div>`;
+      switchMode("list");
+      el<HTMLInputElement>("list-archive").value = archives[0];
+      el<HTMLInputElement>("list-password").value = "";
+      el("list-result").innerHTML =
+        `<div class="info-message">${archives.length} archives dropped. Opening first: ${escapeHtml(getBasename(archives[0]))}. Drop individually for others.</div>`;
+      setTimeout(() => runListWithPath(archives[0]), 50);
     }
   } else if (nonArchives.length > 0) {
     // Switch to Compress
@@ -680,20 +992,41 @@ async function runExtract() {
   }
 }
 
+/** Run list with the path already in the input field (normal interaction). */
 async function runList() {
   const archivePath = el<HTMLInputElement>("list-archive").value.trim();
   if (!archivePath) {
     showError("list-result", "Please select an archive file.");
     return;
   }
+  await runListWithPath(archivePath);
+}
+
+/** Run list with an explicit archive path (from drop, recent chip, opened-archives, etc.) */
+async function runListWithPath(archivePath: string) {
   const password = el<HTMLInputElement>("list-password").value.trim() || undefined;
 
   const runButton = el<HTMLButtonElement>("list-run");
   runButton.disabled = true;
-  el("list-result").innerHTML = `<div class="running-text"><span class="running-spinner"></span> Listing contents...</div>`;
+  el("list-result").innerHTML =
+    `<div class="running-text"><span class="running-spinner"></span> Listing contents...</div>`;
+  // Hide preview
+  el("browser-preview").style.display = "none";
+
   try {
     const entries = await listArchive(archivePath, password);
-    renderListResult(entries);
+    // Store browser state
+    browserEntries = entries;
+    browserArchivePath = archivePath;
+    browserPassword = password ?? "";
+    browserCurrentDir = "";
+    browserSelected.clear();
+
+    // Add archive to recent files
+    addRecent(archivePath);
+
+    // Render the interactive browser
+    renderArchiveBrowser();
   } catch (e) {
     showError("list-result", String(e));
   } finally {
@@ -851,7 +1184,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   });
 
   // -----------------------------------------------------------------------
-  // List
+  // List — archive browser
   // -----------------------------------------------------------------------
 
   el("list-archive-btn").addEventListener("click", async () => {
@@ -861,6 +1194,14 @@ window.addEventListener("DOMContentLoaded", async () => {
   });
 
   el("list-run").addEventListener("click", runList);
+
+  // Browser: Extract Selected button
+  el("browser-extract-selected").addEventListener("click", extractSelected);
+
+  // Browser: Preview close button
+  el("preview-close").addEventListener("click", () => {
+    el("browser-preview").style.display = "none";
+  });
 
   // -----------------------------------------------------------------------
   // Test
@@ -873,4 +1214,53 @@ window.addEventListener("DOMContentLoaded", async () => {
   });
 
   el("test-run").addEventListener("click", runTest);
+
+  // -----------------------------------------------------------------------
+  // Opened archives (cold start + hot start via file association)
+  // -----------------------------------------------------------------------
+
+  // Cold start: check for pending archives from command-line args
+  try {
+    const pending = await getOpenedArchives();
+    if (pending.length > 0) {
+      const firstPath = pending[0];
+      switchMode("list");
+      el<HTMLInputElement>("list-archive").value = firstPath;
+      el<HTMLInputElement>("list-password").value = "";
+      el("list-result").innerHTML =
+        `<div class="running-text"><span class="running-spinner"></span> Opening archive from file association...</div>`;
+      setTimeout(() => runListWithPath(firstPath), 100);
+    }
+  } catch (e) {
+    // Not available in browser preview — this is expected
+    console.debug("getOpenedArchives skipped (browser preview):", e);
+  }
+
+  // Hot start: listen for opened-archives event from single-instance / macOS Opened
+  try {
+    const unlisten = await listen<string[]>("opened-archives", (event) => {
+      const paths = event.payload;
+      if (paths.length > 0) {
+        const firstPath = paths[0];
+        switchMode("list");
+        el<HTMLInputElement>("list-archive").value = firstPath;
+        el<HTMLInputElement>("list-password").value = "";
+        el("list-result").innerHTML =
+          `<div class="running-text"><span class="running-spinner"></span> Opening archive...</div>`;
+        runListWithPath(firstPath);
+      }
+    });
+    unlistenOpenedArchives = unlisten;
+  } catch (e) {
+    // Not available in browser preview — expected
+    console.debug("listen for opened-archives skipped (browser preview):", e);
+  }
+
+  // Clean up opened-archives listener on page unload
+  window.addEventListener("beforeunload", () => {
+    if (unlistenOpenedArchives) {
+      unlistenOpenedArchives();
+      unlistenOpenedArchives = null;
+    }
+  });
 });

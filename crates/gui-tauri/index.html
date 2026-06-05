@@ -143,11 +143,34 @@
           </div>
 
           <div class="actions">
-            <button id="list-run" class="btn-primary">List Contents</button>
+            <button id="list-run" class="btn-primary">Open Archive</button>
+          </div>
+
+          <!-- Archive browser bar (breadcrumb + actions) -->
+          <div id="browser-bar" class="browser-bar" style="display:none">
+            <div id="browser-breadcrumb" class="browser-breadcrumb"></div>
+            <div class="browser-actions">
+              <button id="browser-extract-selected" class="btn-secondary" disabled>Extract Selected</button>
+              <span id="browser-selection-count" class="browser-selection-count"></span>
+              <label class="checkbox-label browser-overwrite-label">
+                <input type="checkbox" id="browser-overwrite" />
+                Overwrite existing files
+              </label>
+            </div>
           </div>
 
           <div id="list-result" class="result-panel">
-            <div class="result-empty">Select an archive and click List Contents</div>
+            <div class="result-empty">Select an archive and click Open Archive</div>
+          </div>
+
+          <!-- Preview panel -->
+          <div id="browser-preview" class="browser-preview" style="display:none">
+            <div class="preview-header">
+              <span id="preview-title" class="preview-title"></span>
+              <span id="preview-size" class="preview-size"></span>
+              <button id="preview-close" class="btn-secondary preview-close-btn">&times;</button>
+            </div>
+            <pre id="preview-content" class="preview-content"></pre>
           </div>
         </section>
 

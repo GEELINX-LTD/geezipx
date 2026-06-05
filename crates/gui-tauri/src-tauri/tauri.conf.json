@@ -31,6 +31,73 @@
       "icons/128x128.png",
       "icons/128x128@2x.png",
       "icons/icon.ico"
+    ],
+    "fileAssociations": [
+      {
+        "ext": [".zip"],
+        "description": "ZIP Archive",
+        "mimeType": "application/zip"
+      },
+      {
+        "ext": [".tar"],
+        "description": "TAR Archive",
+        "mimeType": "application/x-tar"
+      },
+      {
+        "ext": [".gz"],
+        "description": "GZip Compressed File",
+        "mimeType": "application/gzip"
+      },
+      {
+        "ext": [".tgz"],
+        "description": "GZip-Compressed TAR Archive",
+        "mimeType": "application/gzip"
+      },
+      {
+        "ext": [".tar.gz"],
+        "description": "GZip-Compressed TAR Archive",
+        "mimeType": "application/gzip"
+      },
+      {
+        "ext": [".zst"],
+        "description": "Zstandard Compressed File",
+        "mimeType": "application/zstd"
+      },
+      {
+        "ext": [".tzst"],
+        "description": "Zstandard-Compressed TAR Archive",
+        "mimeType": "application/zstd"
+      },
+      {
+        "ext": [".tar.zst"],
+        "description": "Zstandard-Compressed TAR Archive",
+        "mimeType": "application/zstd"
+      },
+      {
+        "ext": [".xz"],
+        "description": "XZ Compressed File",
+        "mimeType": "application/x-xz"
+      },
+      {
+        "ext": [".txz"],
+        "description": "XZ-Compressed TAR Archive",
+        "mimeType": "application/x-xz"
+      },
+      {
+        "ext": [".tar.xz"],
+        "description": "XZ-Compressed TAR Archive",
+        "mimeType": "application/x-xz"
+      },
+      {
+        "ext": [".7z"],
+        "description": "7-Zip Archive",
+        "mimeType": "application/x-7z-compressed"
+      },
+      {
+        "ext": [".rar"],
+        "description": "RAR Archive",
+        "mimeType": "application/vnd.rar"
+      }
     ]
   }
 }
