@@ -7,6 +7,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-06-05
+
+### Added
+
+- **Desktop GUI (Tauri) — workflow usability improvements**:
+  - Drag-and-drop files/archives into the app window for instant compression or extraction
+  - Auto-generated default output paths after selecting source files or archives
+  - Selected filenames shown as chips with `+N more` overflow indication
+  - Format dropdown gracefully falls back to common formats when Tauri IPC is unavailable
+  - Cancel button occupies space even when hidden, preventing layout shift during operation
+  - Reveal/Open Folder buttons available after successful compression or extraction
+  - Recent file/path sidebar with `localStorage` persistence (up to 10 entries)
+  - Password field hints, ARIA tab semantics, and refined feedback/error styling
+
+- **Archive Browser with file associations and selective extraction**:
+  - Full archive content browser: breadcrumb navigation, double-click to enter directories,
+    double-click to preview file contents (text or hex dump)
+  - Checkbox multi-select with selection count display; directory-first sorting
+  - Detailed entry columns: name, size, compressed size, modified time, CRC32
+  - Preview panel for text files and binary hex dump; directory metadata display
+  - Extract Selected: choose target directory, extract only checked entries, then Reveal
+  - Overwrite existing files checkbox (default: off) for safe selective extraction
+  - Drag-and-drop an archive onto the app auto-loads it in the Archive Browser
+  - Recent archive chip click re-opens the archive in Browse mode
+  - File extension associations: `.zip`, `.tar`, `.tar.gz`/`.tgz`, `.tar.zst`/`.tzst`,
+    `.tar.xz`/`.txz`, `.gz`, `.zst`, `.xz`, `.7z`, `.rar`
+  - Single-instance support: double-clicking an associated file in the OS opens it in the
+    already-running app via `tauri-plugin-single-instance`
+  - `get_opened_archives`, `extract_entries`, `preview_entry` backend commands
+  - 8 new path normalization unit tests
+
+- **Drag-out support for archive entries**:
+  - Archive browser rows are draggable; drag single files, folders, or multiple selected entries
+  - On drag start, selected entries are safely extracted to a GeeZipX temp directory
+  - `tauri-plugin-drag` (`@crabnebula/tauri-plugin-drag`) initiates system drag with real file paths
+  - Temp directory cleaned up after drag completes or is cancelled (with 60s fallback)
+  - `prepare_drag_entries`, `cleanup_drag_temp_dir`, `cleanup_stale_drag_temp_dirs` backend commands
+  - Stale temp directories are cleaned on app startup
+  - Graceful fallback to "use Extract Selected" when plugin is unavailable (e.g., browser preview)
+
+### Notes
+
+- **OS-level file association**: double-clicking `.zip`/`.7z`/etc. to open GeeZipX requires a
+  `tauri build` packaged app; cannot be verified in Vite dev/preview mode.
+- **Drag-out**: requires a real Tauri desktop environment to verify that files correctly appear
+  in Finder/Explorer/Nautilus after drag-drop. Browser preview falls back to a non-blocking hint.
+- **Reveal/Open Folder**: also requires Tauri desktop context; safe fallback in preview.
+
 ## [0.4.0] - 2026-06-05
 
 ### Added
@@ -307,7 +355,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Benchmark compile check on every push/PR
   - Manual trigger benchmark workflow with optional filter parameter
 
-[Unreleased]: https://github.com/GEELINX-LTD/geezipx/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/GEELINX-LTD/geezipx/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/GEELINX-LTD/geezipx/releases/tag/v0.5.0
 [0.4.0]: https://github.com/GEELINX-LTD/geezipx/releases/tag/v0.4.0
 [0.3.0]: https://github.com/GEELINX-LTD/geezipx/releases/tag/v0.3.0
 [0.2.2]: https://github.com/GEELINX-LTD/geezipx/releases/tag/v0.2.2
