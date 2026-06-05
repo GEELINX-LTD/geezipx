@@ -341,6 +341,7 @@ async function runList() {
   } finally {
     runButton.disabled = false;
 }
+}
 
 async function runTest() {
   const archivePath = el<HTMLInputElement>("test-archive").value.trim();
@@ -360,6 +361,7 @@ async function runTest() {
     showError("test-result", String(e));
   } finally {
     runButton.disabled = false;
+}
 }
 
 async function handleCancel(mode: string) {
