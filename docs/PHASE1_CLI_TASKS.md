@@ -1,9 +1,9 @@
 # GeeZipX Phase 1 - CLI MVP 任务拆分
 
-> 总周期估计：**10-12 周**（单人全职开发）。  
+> 历史周期估计：**10-12 周**（单人全职开发，已完成阶段记录）。  
 > 里程碑结构：4 个里程碑，每个里程碑对应可发布的增量。  
-> **当前状态：** 🚀 **Phase 1 已全部结束。** M1、M2、M3、M4 全部完成。项目已全面转向 Phase 2 开发。
-> **Phase 2 始于 ZIP AES-256 密码加密（`feat(core): add ZIP AES-256 encryption and CLI --password flag`）。** 后续 Phase 2 功能包括：加密 ZIP 支持、7z/RAR 只读、分卷压缩、增强多线程、`--stdout` 扩展等。请参见 `docs/PRD.md` 的 Phase 2 路线。
+> **当前状态：** 🚀 **Phase 1 已全部结束。** M1、M2、M3、M4 全部完成。项目已全面转向 Phase 2（桌面 GUI via Tauri）开发。
+> **Phase 2（桌面 GUI via Tauri）是当前开发重心。** 详见 `docs/GUI_MVP_PLAN.md` 了解当前规划和任务拆解。Phase 1 CLI 增强特性（加密 ZIP、7z/RAR 只读、多线程压缩、stdin/stdout 管道）均已实现归档，不再作为独立任务列表。
 
 ---
 
@@ -410,13 +410,15 @@ geezipx list <archive>
 - [x] 覆盖率 workflow — `.github/workflows/coverage.yml` 已上线，cargo-tarpaulin HTML+JSON 报告，30 天保留，informational only
 - [x] 不含 cargo publish — crates.io 发布仍手工操作
 
-### M4 后续跟进项（非 Phase 1 阻塞，按优先序排列）
+### M4 后续跟进项（归档 — 不主动推进）
 
-- [ ] **后续 `v*` tag release 的二进制 artifacts 实际上传验证**：确认 Linux/macOS/Windows 包和 SHA256SUMS 出现在 GitHub Release，用于用户下载验证。
-- [ ] **稳定 benchmark 基线与强制性能比较数据**：当前已有 Criterion 阈值脚本；后续需稳定基线后再开启强制 comparison data，确保发布 performance budget。
-- [ ] **基于真实风险的按需测试补充**：针对已知风险场景（非 ASCII 文件名、大文件流式、格式互操作、异常输入）按需补测，不追求覆盖率数字本身。覆盖率维持当前信息性观测模式（informational only），不设 `fail-under` 硬门禁。
-- [ ] **PR 覆盖率反馈（可选）**：coverage badge、PR 注释或 diff coverage 三者至少选一种——但对发布不构成阻塞。
-- [ ] **公告（可选）**：Twitter / Reddit / 博客，可在版本稳定后考虑。
+以下为 Phase 1 完成后识别的后续可选项。**当前阶段不再主动推进这些项目**，除非出现实际阻塞或回归风险：
+
+- [ ] **后续 `v*` tag release 的二进制 artifacts 实际上传验证**：不阻塞。下次发版时验证即可。
+- [ ] **稳定 benchmark 基线与强制性能比较数据**：**已冻结**。Criterion 框架就绪，但 runner 波动使硬阈值不可靠。不做进一步投入。
+- [ ] **基于真实风险的按需测试补充**：按需进行（仅在出现回归或已知风险场景时补最小用例），不追求覆盖率数字本身。覆盖率维持当前信息性观测模式。
+- [ ] **PR 覆盖率反馈（可选）**：已冻结。不实现 coverage badge/PR 注释。
+- [ ] **公告（可选）**：已冻结。
 ---
 
 ## 任务优先级与依赖图

@@ -38,7 +38,10 @@
 
 ## 项目状态
 
-第一阶段（CLI MVP）的**核心 CLI 功能已完成**。`compress`、`decompress`、`list`、`test`、`completions` 五个子命令对当前支持格式均正常工作。
+第一阶段（CLI MVP）的**核心 CLI 功能已全部完成并进入成熟阶段**。`compress`、`decompress`、`list`、`test`、`completions` 五个子命令对当前支持格式均正常工作。
+
+第二阶段（桌面 GUI 通过 Tauri）**是当前开发重心**。
+详见 [`docs/GUI_MVP_PLAN.md`](docs/GUI_MVP_PLAN.md) 了解当前规划和任务拆解。
 
 | 里程碑 | 主题 | 状态 |
 |--------|------|------|
@@ -46,19 +49,6 @@
 | M2 | CLI 基本命令 | ✅ 已完成 |
 | M3 | 流式处理 / 进度 / 打磨 | ✅ 已完成 |
 | M4 | CI / 测试 / 发布 | ✅ 已完成 |
-
-### 后续待办
-
-这些不是 CLI MVP 的阻塞项，但仍是文档中明确提到的后续工作：
-
-- 覆盖率已追踪但尚未作为硬门禁；当前覆盖率低于 PRD 目标（整体 >80%、core >85%）。
-- Criterion 基准已建立，并已加入手动性能回归阈值检查；稳定基线和强制比较数据仍待完善。
-- PR 覆盖率注释、coverage badge 或 diff coverage 反馈尚未实现。
-- Release workflow 已能为后续 `v*` tag 自动构建二进制；历史 release 可能仍只有源码包，需要逐个 release 页面确认。
-- stdin/stdout 管道支持已完成（单流格式 + tar-based 裸 tar 流；zip/tar/7z/rar 等多文件格式仍不支持）
-- 显式符号链接跟踪、Windows 长路径开关等高级文件系统选项仍属于后续增强。
-
-详细任务拆解参见 [`docs/PHASE1_CLI_TASKS.md`](docs/PHASE1_CLI_TASKS.md)。
 
 ---
 
@@ -411,7 +401,9 @@ cargo clippy --workspace --all-targets --all-features -- -D warnings
 RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --document-private-items
 ```
 
-### 运行基准测试
+### 基准测试
+
+Criterion 基准测试框架已配置并可用于手动运行：
 
 ```sh
 # 验证基准测试可编译
@@ -421,9 +413,7 @@ cargo bench --no-run -p geezipx-core
 cargo bench -p geezipx-core
 ```
 
-基准覆盖 gzip 吞吐量（4 种级别 × 2 种大小）和归档吞吐量（tar.gz、ZIP round-trip）。
-
-### 互操作测试
+> **注意**：基准测试仅作为参考信息（advisory）。GitHub-hosted runner 性能波动大，硬性阈值不可靠。不进一步推进 benchmark 基线或 CI 性能门禁。
 
 ```sh
 # 使用系统 tar、unzip、gzip 进行标准检查
@@ -453,9 +443,9 @@ cargo build --release --workspace
 
 ## 路线图
 
-### 第一阶段（CLI MVP）— 当前 ✓
+### 第一阶段（CLI MVP）— 已完成并成熟 ✓
 
-核心功能已全部实现并验证：
+所有核心功能和增强特性均已实现并验证：
 
 - [x] ZIP / TAR / TAR.GZ / TAR.ZST / TAR.XZ / GZIP / ZSTD / XZ / LZMA 读写
 - [x] 流式 I/O，内存占用可控
@@ -466,44 +456,39 @@ cargo build --release --workspace
 - [x] Zip Slip 路径穿越防护
 - [x] Shell 补全（5 种 shell）
 - [x] `list --json` 机器可读输出
-
-- [x] `list` 危险路径警告（stderr，不影响 stdout/JSON 输出）
-- [x] `test` 归档完整性验证（ZIP CRC-32、TAR 结构校验，支持 JSON 输出）
-- [x] 单流格式 `test` 支持：GZIP、ZSTD、XZ、LZMA
-- [x] 300+ 测试（单元 + 集成 + 互操作 + 流式 smoke）
+- [x] `test` 归档完整性验证（支持 JSON 输出）
+- [x] 400+ 测试（单元 + 集成 + 互操作 + 流式 smoke）
 - [x] 三平台 CI（Linux/macOS/Windows）
 - [x] cargo-deny 安全审计
-- [x] Streaming smoke 与 rustdoc warning CI 守卫
-- [x] Criterion 基准测试
+- [x] Criterion 基准测试（advisory，无硬门禁）
 - [x] **crates.io 发布**
+- [x] 多线程压缩（`-j`/`--jobs` for tar.gz, zstd/tar.zst）
+- [x] ZIP AES-256 密码加密
+- [x] 7z 只读支持
+- [x] RAR 只读支持
+- [x] stdin/stdout 管道（单流 + tar-based 格式）
 
-### 第二阶段（CLI 增强）— 部分已完成 / 规划中
+### 第二阶段（桌面 GUI via Tauri）— 当前开发重心 🚀
 
-- tar.gz（gzp/pigz 风格）/ zstd/tar.zst（zstd 原生 NbWorkers）多线程压缩 — **已完成**
-- xz / LZMA 读写 — **已完成**
-- Zstandard 读写 — **已完成**
-- tar.zst / tar.xz 归档格式读写 — **已完成**
-- [x] ZIP AES-256 加密 -- 支持 `--password`、`--password-file`、`--password-stdin`
-- [ ] 分卷压缩
-- [x] **7z 只读支持**
-- [x] **RAR 只读支持**
-- zip/xz/tar.xz 多线程压缩（xz2 暂未暴露多线程 API）
-- stdin/stdout 管道增强（单流 + tar-based 已支持；zip/tar/7z/rar 等多文件格式仍不支持）
-- 稳定 benchmark 基线与强制性能回归门禁
+- [ ] Tauri + 前端框架项目骨架
+- [ ] 通过 Tauri command bridge 绑定 core 引擎
+- [ ] 文件浏览器 / 拖拽界面
+- [ ] 压缩/解压任务管理
+- [ ] 实时进度显示（通过 Tauri event emit）
+- [ ] 取消安全的任务执行
+- [ ] 加密归档密码输入
+- [ ] 平台原生打包（AppImage, .dmg, .msi）
 
-### 第三阶段（桌面 GUI）— 未来
+详见 [`docs/GUI_MVP_PLAN.md`](docs/GUI_MVP_PLAN.md) 了解详细规划和任务拆解。
 
-- 基于 Tauri 的桌面应用
-- 拖拽压缩
-- 批量操作任务队列
-- 右键菜单集成
-- 平台原生安装包（Homebrew、winget、APT）
+### 第三阶段（未来）
 
-### 第一阶段不做的事项
+- [ ] 平台原生安装包（Homebrew, winget, APT）
+- [ ] 按需扩展格式支持
 
-GUI、7z 写入、RAR 创建、云同步、插件系统、自动更新——将在后续阶段评估。
+### 明确不做（当前阶段）
 
----
+右键菜单集成、自动更新、云同步、插件系统、分卷压缩、7z 写入、RAR 创建。
 
 ## 配置
 

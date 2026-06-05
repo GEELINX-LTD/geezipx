@@ -32,7 +32,7 @@ geezipx/
 └── .rust-toolchain.toml
 ```
 
-> 注：`gui-tauri/` 目录将在 Phase 3 桌面 GUI 阶段创建。
+> 注：`gui-tauri/` 目录是 Phase 2 桌面 GUI 阶段（当前阶段）的工作目录，将在 GUI MVP 实施时创建。
 
 ### 分层原则
 
@@ -318,11 +318,11 @@ Jobs (串行依赖):
   4. build         — cargo build --release --workspace (全线，依赖 fmt+clippy+test)
                      → 产物上传至 workflow artifact (`geezipx-{os}-x86_64`)
   5. interop       — bash scripts/check-interop.sh (依赖 clippy+test+build)
-  6. bench-compile — cargo bench --no-run -p geezipx-core (依赖 fmt)
+  6. bench-compile — cargo bench --no-run -p geezipx-core (依赖 fmt; advisory, 不阻塞 PR 合并)
 ```
 
-主 CI `bench-regression` job（依赖 test 通过）在每次 PR 的 ubuntu-latest 上自动运行完整 Criterion benchmarks，通过 `scripts/check-bench-regression.sh` 检查回归阈值（默认 +10%）。
-该 job 为 **advisory**：使用 `continue-on-error: true`，运行结果仍输出到日志但不会阻塞 PR 合并。这是因为 GitHub-hosted runner 的性能波动较大，硬性阈值可能导致不必要的误报。
+主 CI `bench-regression` job（依赖 test 通过）在每次 PR 的 ubuntu-latest 上自动运行完整 Criterion benchmarks。
+该 job 为 **advisory**：使用 `continue-on-error: true`，不阻塞 PR 合并。不进一步投资于 benchmark 基线或 CI 性能门禁。
 
 此外，独立的 `Benchmark` workflow 支持手动触发运行 Criterion benchmarks 并执行相同的回归检查，适用于开发者按需深入分析。
 
@@ -356,9 +356,9 @@ Jobs (串行依赖):
 > 避免 tag push 后才发现构建失败。artifact 完整性检查分两层执行：
 > consolidate job 手动校验存在性、大小和 checksum；release job 使用 `fail_on_unmatched_files: true` 防止遗漏上传。
 
-## 8. Tauri 后续接入方式（Phase 3 占位）
+## 8. Tauri GUI 接入方式（Phase 2 当前阶段）
 
-当进入桌面 GUI 阶段时：
+桌面 GUI 阶段已进入当前开发阶段。详见 `docs/GUI_MVP_PLAN.md`。
 
 ```
 gui-tauri/
@@ -385,8 +385,6 @@ gui-tauri/
 - 取消通过 Tauri 事件反向传递到 core 的 `is_cancelled()`。
 - 右键菜单、文件关联、自动启动等平台集成在 Tauri 配置中声明。
 
-## 9. 关键技术风险
-
 | 风险 | 影响 | 缓解 |
 |------|------|------|
 | `zip` crate 对 Deflate64 支持不完整 | 部分 ZIP 无法解压 | Phase 2 回退到系统 `unzip`；社区 PR |
@@ -401,7 +399,7 @@ gui-tauri/
 # /geezipx/Cargo.toml
 [workspace]
 resolver = "2"
-members = ["crates/core", "crates/cli"]
+members = ["crates/core", "crates/cli", "crates/gui-tauri/src-tauri"]
 
 [workspace.package]
 version = "0.3.0"

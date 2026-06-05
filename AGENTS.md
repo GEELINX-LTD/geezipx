@@ -8,11 +8,11 @@ GeeZipX 是一个使用 Rust 开发的跨平台压缩/解压缩工具。
 
 产品路线：
 
-1. **第一阶段：高性能 CLI 优先**
+1. **第一阶段：高性能 CLI（已完成）**
    - 先开发稳定、高性能、脚本友好的命令行工具。
    - 重点支持 macOS、Linux 终端、Windows 终端。
    - 核心目标是性能、可靠性、流式处理和跨平台一致性。
-2. **第二阶段：CLI 成熟后再做桌面 GUI**
+2. **第二阶段：桌面 GUI（当前阶段）**
    - GUI 使用 Tauri 实现。
    - GUI 应复用已有 Rust core 引擎，不应重复实现压缩逻辑。
    - 桌面目标平台为 macOS、Linux 桌面、Windows。
@@ -22,6 +22,7 @@ GeeZipX 是一个使用 Rust 开发的跨平台压缩/解压缩工具。
 - `docs/PRD.md`：产品需求文档。
 - `docs/TECH_ARCHITECTURE.md`：技术架构文档。
 - `docs/PHASE1_CLI_TASKS.md`：第一阶段 CLI MVP 任务拆分。
+- `docs/GUI_MVP_PLAN.md`：第二阶段桌面 GUI MVP 规划和任务拆分。
 
 在实现功能前，应优先阅读以上文档。
 
@@ -416,14 +417,13 @@ PR 描述应包含：
 
 如果运行测试失败，应明确说明失败命令、错误摘要和可能原因。
 
-## Tauri GUI 后续接入原则
+## Tauri GUI 接入原则（当前阶段）
 
-Tauri 阶段开始前，应确保：
+Tauri GUI 阶段的核心原则：
 
-- CLI 已稳定；
-- core API 足够清晰；
-- 进度事件可以被 GUI 消费；
-- 任务可以取消；
+- CLI 已稳定，core API 足够清晰。
+- 进度事件应可以被 GUI 消费。
+- 任务应可以取消。
 - 错误类型可以序列化为用户友好的消息。
 
 Tauri 只应作为桌面壳层：
@@ -440,11 +440,10 @@ archive/compress pipeline
 
 不要让 Tauri frontend 直接处理压缩格式细节。
 
-## 非目标提醒
+## 非目标提醒（GUI 阶段明确不做）
 
-第一阶段不要优先做以下事项：
+以下能力在当前 GUI 阶段不做优先考虑：
 
-- 完整 GUI；
 - 右键菜单集成；
 - 自动更新；
 - 完整 7z 写入；
@@ -453,17 +452,22 @@ archive/compress pipeline
 - 云同步；
 - 插件系统。
 
-这些能力可以在 CLI 稳定后作为后续路线规划。
-
 ## 当前优先级
 
 当前最高优先级：
 
-1. 建立 Rust workspace；
-2. 实现 core 基础压缩/解压缩能力；
-3. 实现 CLI MVP；
-4. 建立 round-trip 测试；
-5. 建立三平台 CI；
-6. 打磨性能和大文件流式处理。
+1. **GUI MVP（Tauri）** — 尽快投入桌面 GUI 开发，复用 core 引擎。详见 `docs/GUI_MVP_PLAN.md`。
+2. **GUI 相关测试** — 仅针对 GUI 实现添加必要的测试；不主动推进 core/CLI 基准测试基线或覆盖率补测。
+3. **文档同步** — GUI 实现过程中的文档跟随更新。
 
-任何偏离该路线的工作都应先确认其必要性。
+### 近期不主动推进
+
+- **Benchmark 基线**：Criterion 基准框架已就绪，但 GitHub-hosted runner 性能波动大，不稳定。benchmark 回归为 advisory 模式，不设硬性门禁，不进一步投入。
+- **覆盖率补测**：已有测试足够（400+），覆盖率工作流为 informational-only 观测性模式。新增测试仅在明确风险或回归场景按需补最小用例。
+
+### 任何时候修改代码仍需遵守
+
+- `cargo fmt --all --check`
+- `cargo clippy --workspace --all-targets --all-features -- -D warnings`
+- `cargo test --workspace --all-features`
+- Core/CLI 解耦原则（core 不依赖 GUI，GUI 不实现压缩逻辑）

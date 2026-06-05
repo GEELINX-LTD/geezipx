@@ -2,7 +2,9 @@
 
 ## 1. 产品定位
 
-GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开发。采用 **CLI-first** 策略：先打磨出命令行工具核心体验，等 CLI 成熟后，再基于 Tauri 提供 macOS/Linux/Windows 桌面 GUI。
+GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开发。
+
+第一阶段 CLI 已开发完成并进入成熟阶段。当前阶段基于 Tauri 提供 macOS/Linux/Windows 桌面 GUI，复用已有 Rust core 引擎。
 
 > **核心理念**：压缩操作通常位于自动化脚本、服务器运维、CI/CD 流水线中，CLI 是先发价值；GUI 提供附加便捷，不牺牲底层性能。
 
@@ -60,12 +62,15 @@ GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开�
 
 ## 6. 非目标（Phase 1 明确不做）
 
-- 桌面 GUI / Tauri — 留到 Phase 2+
-- 7z 格式 — 格式复杂，三期考虑
-- 分卷压缩 — 二期考虑
-- 图形化文件浏览 — GUI 阶段
-- 右键菜单集成 — GUI 阶段
-- 可视化对比 / 压缩率图表 — GUI 阶段
+以下能力在 CLI 阶段明确不做，部分可能作为 GUI 阶段后续考虑：
+
+- 7z 格式写入 — 格式复杂，后续评估
+- 分卷压缩 — 后续评估
+- 右键菜单集成 — GUI 阶段后续考虑
+- 自动更新 — GUI 阶段后续考虑
+- 云同步 — 非目标
+- 插件系统 — 非目标
+- 可视化对比 / 压缩率图表 — GUI 阶段后续考虑
 
 ## 7. 功能需求（Feature Requirements）
 
@@ -119,45 +124,41 @@ GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开�
 
 | 需求 | 目标 | 度量方式 |
 |------|------|---------|
-| 性能 | 压缩/解压速度不低于同格式原生工具(pigz/unzip) 90% | 基准测试（hyperfine） |
+| 性能 | 压缩/解压速度不低于同格式原生工具(pigz/unzip) 90%（参考指标） | 基准测试（hyperfine）|
 | 内存 | 流式模式下内存占用 < 256 MB | 大文件（10 GB）测试 |
 | 二进制体积 | 静态链接 < 15 MB, MUSL < 20 MB | `du -sh` |
 | 启动时间 | < 50 ms（首次命令到输出） | hyperfine |
 | 跨平台一致性 | 同版本在三大平台产生相同输出 | CI hash 对比 |
 | 错误信息质量 | 用户无需查手册即可理解错误 | 人工审查 |
-|| 代码覆盖率 | 信息性观测指标（不设硬门禁）。当前基线参考：overall ~74%，core archive ~64%——数字仅作历史参照，非必须达成目标。仅针对真实风险/回归场景按需补测，不追求覆盖数字本身 | cargo-tarpaulin / grcov |
+| 代码覆盖率 | 信息性观测指标（不设硬门禁）。仅针对真实风险/回归场景按需补测，不追求覆盖数字本身 | cargo-tarpaulin / grcov |
 
 ## 9. 路线图
 
 ```
-Phase 1 (MVP — CLI)        ← ✅ 已完成
-├── M1 项目骨架 + 核心引擎库    ── ✅ 已完成
-├── M2 CLI 基本命令            ── ✅ 已完成
-├── M3 流式/进度/兼容性打磨     ── ✅ 已完成
-└── M4 CI/测试/发布            ── ✅ 已完成
-    Phase 2 (CLI 增强)          ← 🚀 当前阶段
-    └── 待验证：后续 tag release 的二进制 artifacts 实际上传
+Phase 1 (MVP — CLI)              ← ✅ 已完成并成熟
+├── M1 项目骨架 + 核心引擎库     ── ✅ 已完成
+├── M2 CLI 基本命令               ── ✅ 已完成
+├── M3 流式/进度/兼容性打磨      ── ✅ 已完成
+├── M4 CI/测试/发布              ── ✅ 已完成
+└── CLI 增强特性                 ── ✅ 已完成
+    ├── 多线程压缩 (-j/--jobs)
+    ├── 加密 ZIP (AES-256)
+    ├── 7z 只读 / RAR 只读
+    └── stdin/stdout 管道
 
-Phase 2 (CLI 增强)
-├── 读取 7z（只读）、RAR（只读）
-├── 密码加密 ZIP (AES-256) — 支持 `--password`、`--password-file`、`--password-stdin`（已完成）
-├── 密码加密 ZIP (AES-256)
-├── zip/xz/tar.xz 多线程压缩（xz2 暂未暴露多线程 API）
-├── stdin/stdout 管道增强（单流 + tar-based 已支持；zip/tar/7z/rar 等多文件格式仍不支持）
-└── 稳定 benchmark 基线与性能吞吐优化
-
-Phase 3 (Tauri GUI)
-├── Tauri + Vue/Svelte 外壳
+Phase 2 (Desktop GUI via Tauri)  ← 🚀 当前阶段
+├── Tauri + Vue/Svelte 项目骨架
+├── Core 引擎命令桥接 (command bridge)
 ├── 文件浏览器 + 拖拽支持
-├── 压缩/解压任务队列
-├── 右键菜单集成
-└── 平台安装包分发
+├── 压缩/解压任务管理
+├── 实时进度显示 (Tauri event emit)
+├── 取消安全的任务执行
+├── 加密归档密码输入
+└── 平台原生打包 (AppImage/.dmg/.msi)
 
-Phase 4 (生态)
+Phase 3 (生态)
 ├── Homebrew / winget / APT 仓库
-├── Shell 补全
-├── Nushell / fish / zsh 插件
-└── 性能排行榜
+└── 按需扩展格式支持
 ```
 
 ## 10. 成功指标

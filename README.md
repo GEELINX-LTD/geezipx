@@ -33,12 +33,10 @@
 
 ## Status
 
-Phase 1 (CLI MVP) is **complete**. All core subcommands (`compress`, `decompress`, `list`, `test`, `completions`) work for all supported formats.
-Phase 2 (CLI Enhancements) is **now the active development focus**. Shipped so far: ZIP AES-256 password encryption, `--password-file`/`--password-stdin`, 7z read-only support (list/extract/test with password), and RAR read-only support (list/extract/test with password).
-See [`docs/PHASE1_CLI_TASKS.md`](docs/PHASE1_CLI_TASKS.md) for the full task breakdown.
-### Phase 1 — Complete
+Phase 1 (CLI MVP) is **complete and mature**. All core subcommands (`compress`, `decompress`, `list`, `test`, `completions`) work for all supported formats.
+Phase 2 (Desktop GUI via Tauri) is **now the active development focus**.
+See [`docs/GUI_MVP_PLAN.md`](docs/GUI_MVP_PLAN.md) for current planning and task breakdown.
 | Milestone | Theme | Status |
-|-----------|-------|--------|
 |-----------|-------|--------|
 | M1 | Project skeleton + core engine library | **Complete** |
 | M2 | CLI basic commands | **Complete** |
@@ -374,7 +372,9 @@ cargo test --no-default-features
 > **Note**: `cargo publish` and `cargo install` include RAR support by default.
 > If you cannot use the C++ compiler requirement, build with `--no-default-features`.
 
-### Running Benchmarks
+### Benchmarks
+
+Criterion benchmarks are configured and available for manual runs:
 
 ```sh
 # Verify benchmarks compile
@@ -384,17 +384,13 @@ cargo bench --no-run -p geezipx-core
 cargo bench -p geezipx-core
 ```
 
-Benchmarks cover gzip throughput (4 levels × 2 sizes) and archive throughput (tar.gz, TarZst, ZIP round-trip).
+Benchmarks cover gzip throughput (4 levels x 2 sizes) and archive throughput (tar.gz, TarZst, ZIP round-trip).
 
+> **Note**: Benchmarks are advisory only. GitHub-hosted runner variance makes hard thresholds unreliable. No further investment in benchmark baselines or CI performance gates is planned.
 ### Interoperability Tests
 
-### Code Coverage
 
-Code coverage is tracked via [cargo-tarpaulin](https://github.com/xd009642/tarpaulin).
-A scheduled CI workflow (`Coverage`) generates HTML and JSON reports on every push to `main`,
-every pull request, and weekly, then uploads them as build artifacts.
-
-No hard fail-under threshold is enforced — coverage serves as an observability signal for real-risk and regression scenarios, not a standalone target.
+Code coverage is tracked via [cargo-tarpaulin](https://github.com/xd009642/tarpaulin) as an informational signal (no fail-under threshold). A scheduled CI workflow generates HTML and JSON reports on push to `main` and uploads them as build artifacts.
 
 ```sh
 # Generate coverage report (output: coverage/tarpaulin-report.html and .json)
@@ -434,9 +430,9 @@ and the combined `SHA256SUMS` file.
 
 ## Roadmap
 
-### Phase 1 (CLI MVP) — Complete ✓
+### Phase 1 (CLI MVP) — Complete and Mature ✓
 
-All core features are implemented and verified:
+All core features and enhancements are implemented and verified:
 
 - [x] ZIP / TAR / TAR.GZ / TAR.ZST / TAR.XZ / GZIP / ZSTD / XZ / LZMA read/write
 - [x] Streaming I/O with bounded memory usage
@@ -447,45 +443,35 @@ All core features are implemented and verified:
 - [x] Zip Slip path traversal protection
 - [x] Shell completions (5 shells)
 - [x] `list --json` machine-readable output
-- [x] 300+ tests (unit + integration + interop + streaming smoke)
-40a:- [x] `list` dangerous path warning (stderr, doesn't pollute JSON stdout)
-40b:- [x] `test` archive integrity verification (CRC-32 for ZIP, structural for TAR, JSON output)
-40c:- [x] Single-stream format support for `test`: GZIP, ZSTD, XZ, LZMA
+- [x] `test` archive integrity verification with JSON output
+- [x] 400+ tests (unit + integration + interop + streaming smoke)
 - [x] 3-platform CI (Linux/macOS/Windows)
 - [x] cargo-deny security audit
-- [x] Criterion benchmarks
+- [x] Criterion benchmarks (advisory, no hard gate)
 - [x] **crates.io release**
+- [x] Multi-threaded compression (`-j`/`--jobs` for tar.gz, zstd/tar.zst)
+- [x] ZIP AES-256 password encryption
+- [x] 7z read-only support
+- [x] RAR read-only support
+- [x] stdin/stdout pipeline (single-stream + tar-based formats)
 
-417:> **Note**: The bench-regression job runs automatically on every PR and outputs results, but it is advisory only — GitHub-hosted runner performance variance makes hard thresholds unreliable. Logs are visible for manual review.
+### Phase 2 (Desktop GUI via Tauri) — Current Development 🚀
 
-> **Note**: Zstandard (zst/zstd) and TarZst (tar.zst/tzst) read/write were added after Phase 1 milestones as early Phase 2 format extensions folded back into the MVP.
+- [ ] Tauri + frontend framework project skeleton
+- [ ] Core engine binding via Tauri command bridge
+- [ ] File browser / drag-and-drop interface
+- [ ] Compress / decompress task management
+- [ ] Live progress display (via Tauri event emit)
+- [ ] Cancel-safe task execution
+- [ ] Password prompt for encrypted archives
+- [ ] Platform-native packaging (AppImage, .dmg, .msi)
 
-### Phase 2 (CLI Enhancements) — Active Development 🚀
+See [`docs/GUI_MVP_PLAN.md`](docs/GUI_MVP_PLAN.md) for detailed planning and task breakdown.
 
-- Multi-threaded compression via `-j`/`--jobs` — tar.gz (gzp/pigz-style), zstd/tar.zst (native zstdmt) — **done**
-- [x] **ZIP AES-256 password encryption** — `--password`, `--password-file`, `--password-stdin` (ZIP only)
-- XZ / LZMA read/write — **done**
-- TAR.ZST / TAR.XZ archive read/write — **done**
-- Encrypted ZIP (AES-256)
-- Volume-split archives
-- 7z read-only support
-- RAR read-only support
-- Multi-threading for additional formats (zip/xz/tar.xz — xz2 does not expose multithread API)
-- stdin/stdout pipeline (single-stream and tar-based formats done; zip/tar/7z/rar multi-file not yet supported)
-- Stable benchmark baselines and mandatory performance regression gates
+### Phase 3 (Future)
 
-### Phase 3 (Desktop GUI) — Future
-
-- Tauri-based desktop application
-- Drag-and-drop compression
-- Task queue for batch operations
-- Right-click shell integration
-- Platform-native installers (Homebrew, winget, APT)
-
-### Not Planned for Phase 1
-
-GUI, 7z write, RAR create, cloud sync, plugin system, or auto-update -- these will be considered in later phases.
-
+- [ ] Platform-native installers (Homebrew, winget, APT)
+- [ ] Additional format support (as needed)
 ---
 
 ## Configuration
