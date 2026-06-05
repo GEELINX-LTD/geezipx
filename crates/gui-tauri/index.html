@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>GeeZipX</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <div id="app">
+      <header>
+        <h1>GeeZipX</h1>
+        <p class="subtitle">High-performance compression/decompression tool</p>
+      </header>
+
+      <main>
+        <section id="content">
+          <h2>Supported Formats</h2>
+          <table>
+            <thead>
+              <tr>
+                <th>Format</th>
+                <th>Compress</th>
+                <th>Decompress</th>
+              </tr>
+            </thead>
+            <tbody id="format-list">
+            </tbody>
+          </table>
+        </section>
+
+        <section id="status">
+          <p id="loading">Loading format information...</p>
+        </section>
+      </main>
+
+      <footer>
+        <p>GeeZipX v0.4.0 &mdash; Desktop GUI</p>
+      </footer>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

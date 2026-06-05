@@ -1,0 +1,32 @@
+[package]
+name = "geezipx-gui"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "GeeZipX Desktop GUI — Tauri v2 application"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+geezipx-core.workspace = true
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+
+[features]
+default = ["rar"]
+rar = ["geezipx-core/rar"]
+
+[lib]
+name = "geezipx_gui_lib"
+path = "src/lib.rs"
+crate-type = ["lib", "cdylib", "staticlib"]
+
+[[bin]]
+name = "geezipx-gui"
+path = "src/main.rs"
