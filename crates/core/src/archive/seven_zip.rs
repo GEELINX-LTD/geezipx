@@ -11,7 +11,7 @@
 //! - **Single-entry extract** re-opens the archive and uses
 //!   `sevenz_rust2::ArchiveReader::read_file()`, which is O(n) for
 //!   solid archives (decodes all preceding data).  Callers that need
-//!   to extract many entries should use [`extract_all`] which decodes
+//!   to extract many entries should use [`ArchiveReader::extract_all`] which decodes
 //!   the entire archive in one pass via
 //!   [`sevenz_rust2::ArchiveReader::for_each_entries()`].
 //! - **Password safety** — The password is stored in the reader and

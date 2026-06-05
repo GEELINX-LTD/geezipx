@@ -13,7 +13,7 @@
 //!   stores a `PathBuf` rather than a `File` handle.
 //! - **Single-entry extract** — Re-opens the archive and scans entries
 //!   sequentially.  Callers that need to extract many entries should use
-//!   [`extract_all`] which processes all entries in one pass.
+//!   [`ArchiveReader::extract_all`] which processes all entries in one pass.
 //! - **Password safety** — The password is stored in the reader and
 //!   never logged or printed.  Empty passwords are rejected at the
 //!   CLI layer.

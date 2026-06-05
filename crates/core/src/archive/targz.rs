@@ -302,7 +302,7 @@ impl<W: Write + Send> TarGzWriter<W> {
     /// default level (6).
     ///
     /// This constructor uses a single-threaded flate2 encoder and does **not**
-    /// require `W: 'static`.  For parallel gzip compression see [`new_with_options`].
+    /// require `W: 'static`.  For parallel gzip compression see [`TarGzWriter::new_with_options`].
     pub fn new_with_level(writer: W, level: Option<u32>) -> Self {
         let compression = match level {
             None => Compression::default(),
@@ -344,8 +344,8 @@ impl<W: Write + Send + 'static> TarGzWriter<W> {
     /// **Note:** The parallel path requires `W: 'static` because the gzp
     /// library passes the writer into worker threads.  Single-threaded mode
     /// (`jobs <= 1`) also accepts the `'static` bound for uniformity, but
-    /// callers that cannot satisfy `'static` should use [`new_with_level`]
-    /// or [`new`] instead.
+    /// callers that cannot satisfy `'static` should use [`TarGzWriter::new_with_level`]
+    /// or [`TarGzWriter::new`] instead.
     pub fn new_with_options(writer: W, options: CompressOptions) -> Self {
         let jobs = options.effective_jobs();
         let level = options.level.unwrap_or(6);
