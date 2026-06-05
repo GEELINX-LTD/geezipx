@@ -24,7 +24,7 @@ jobs:
       - name: Install cargo-tarpaulin
         run: cargo install cargo-tarpaulin
       - name: Generate coverage report
-        run: cargo tarpaulin --out Html --out Json
+        run: cargo tarpaulin --workspace --exclude geezipx-gui --out Html --out Json
       - name: Upload coverage report
         if: always()
         uses: actions/upload-artifact@v7

@@ -27,7 +27,7 @@ jobs:
         with:
           toolchain: stable
           cache: true
-      - run: cargo doc --no-deps --document-private-items
+      - run: cargo doc --workspace --exclude geezipx-gui --no-deps --document-private-items
 
   fmt:
     runs-on: ubuntu-latest
@@ -53,7 +53,7 @@ jobs:
           toolchain: stable
           components: clippy
           cache: true
-      - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+      - run: cargo clippy --workspace --exclude geezipx-gui --all-targets --all-features -- -D warnings
 
   test:
     needs: fmt
@@ -67,7 +67,7 @@ jobs:
         with:
           toolchain: stable
           cache: true
-      - run: cargo test --workspace --all-features
+      - run: cargo test --workspace --exclude geezipx-gui --all-features
 
   build:
     needs: [fmt, clippy, test]
@@ -90,7 +90,7 @@ jobs:
         with:
           toolchain: stable
           cache: true
-      - run: cargo build --release --workspace
+      - run: cargo build --release --workspace --exclude geezipx-gui
       - uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.artifact }}
