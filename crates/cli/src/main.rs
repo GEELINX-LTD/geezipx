@@ -62,8 +62,8 @@ enum Commands {
         level: Option<u32>,
 
         /// Number of worker threads (0 = auto, default: 1 = single-threaded).
-        /// Only zstd and tar.zst currently use multiple threads; other formats
-        /// accept this flag for forward compatibility but ignore it.
+        /// tar.gz, zstd, and tar.zst use multiple threads;
+        /// other formats accept this flag for forward compatibility but ignore it.
         #[arg(short = 'j', long = "jobs", default_value_t = 1, value_parser = clap::value_parser!(u32).range(0..=256))]
         jobs: u32,
 
@@ -82,11 +82,11 @@ enum Commands {
         #[arg(long = "password-stdin")]
         password_stdin: bool,
 
-        /// Read uncompressed data from stdin (single-stream formats only: gzip, zstd, xz, lzma)
+        /// Read uncompressed data from stdin (single-stream and tar-based formats: gzip, zstd, xz, lzma, tar.gz, tar.zst, tar.xz)
         #[arg(long = "stdin")]
         stdin: bool,
 
-        /// Write compressed data to stdout (single-stream formats only: gzip, zstd, xz, lzma)
+        /// Write compressed data to stdout (single-stream and tar-based formats: gzip, zstd, xz, lzma, tar.gz, tar.zst, tar.xz)
         #[arg(long = "stdout")]
         stdout: bool,
     },
@@ -102,7 +102,7 @@ enum Commands {
         #[arg(short = 'o', long = "output-dir", default_value = ".")]
         output_dir: PathBuf,
 
-        /// Decompress to stdout (gzip/zstd/xz/lzma only; error for multi-file/archives)
+        /// Decompress to stdout (gzip/zstd/xz/lzma/tar.gz/tar.zst/tar.xz only; error for multi-file/archives)
         #[arg(long = "stdout")]
         stdout: bool,
 
@@ -128,7 +128,7 @@ enum Commands {
         #[arg(long = "password-stdin")]
         password_stdin: bool,
 
-        /// Read compressed data from stdin (single-stream formats only: gzip, zstd, xz, lzma)
+        /// Read compressed data from stdin (single-stream and tar-based formats: gzip, zstd, xz, lzma, tar.gz, tar.zst, tar.xz)
         #[arg(long = "stdin")]
         stdin: bool,
 

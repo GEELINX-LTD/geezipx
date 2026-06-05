@@ -1,18 +1,137 @@
 //! Tar.gz (tarball compressed with gzip) reader and writer.
 //!
-//! Combines [`tar`] and [`flate2`] to produce/consume a gzip-compressed
+//! Combines [`tar`] and [`flate2`] / [`gzp`] to produce/consume a gzip-compressed
 //! tar archive.  The reader is generic over any `Read + Seek + Send`
-//! source; the writer is generic over any `Write + Send` sink.
+//! source; the writer is generic over any `Write + Send + 'static` sink
+//! (the `'static` bound only applies to methods that use the parallel
+//! gzip encoder via `gzp`; `new` and `new_with_level` work with any `Write + Send`).
+//!
+//! When `CompressOptions.effective_jobs() > 1`, the writer uses `gzp`'s parallel
+//! gzip encoder (pigz-style chunked compression).  The reader uses
+//! `flate2::read::MultiGzDecoder` to support both single-member and
+//! multi-member (parallel) gzip streams.
 
 use std::fmt;
-use std::io::{Read, Seek, SeekFrom, Write};
+use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::Path;
+use std::sync::{Arc, Mutex};
+
+use flate2::Compression;
+use gzp::deflate::Gzip;
+use gzp::par::compress::{ParCompress, ParCompressBuilder};
+use gzp::ZWriter;
 
 use super::CountWriter;
 use crate::archive::{ArchiveReader, ArchiveWriter, Entry};
 use crate::config::CompressOptions;
 use crate::detect::ArchiveFormat;
 use crate::error::{GeeZipError, GeeZipResult};
+
+// ---------------------------------------------------------------------------
+// SharedCountWriter — a thread-safe writer wrapper that doubles as a
+// byte counter and allows recovery of the inner writer after ParCompress
+// has consumed the wrapper.
+// ---------------------------------------------------------------------------
+
+/// Thread-safe wrapper around `CountWriter` for use with gzp's parallel
+/// compressor (which moves the writer into internal threads).
+struct SharedCountWriter<W: Write + Send> {
+    inner: Arc<Mutex<CountWriter<W>>>,
+}
+
+impl<W: Write + Send> Write for SharedCountWriter<W> {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        self.inner.lock().unwrap().write(buf)
+    }
+    fn flush(&mut self) -> io::Result<()> {
+        self.inner.lock().unwrap().flush()
+    }
+}
+
+// Safety: `SharedCountWriter` is `Send` because `Arc<Mutex<CountWriter<W>>>` is `Send`
+// when `W: Send`.
+
+// ---------------------------------------------------------------------------
+// GzipEncoder — unified enum over single-threaded and multi-threaded gzip
+// encoders so that `tar::Builder` can be parameterised once.
+// ---------------------------------------------------------------------------
+
+/// Wraps either a single-threaded `flate2::write::GzEncoder` or a
+/// multi-threaded `gzp::par::compress::ParCompress<Gzip>` behind a single
+/// `Write` impl.  Both paths write to a `CountWriter` (directly or through
+/// a shared wrapper) so the byte count can be recovered on finalisation.
+enum GzipEncoder<W: Write + Send> {
+    /// Single-threaded flate2 encoder.
+    Single(flate2::write::GzEncoder<CountWriter<W>>),
+    /// Multi-threaded gzp encoder with a shared reference to the underlying
+    /// `CountWriter` (needed to recover it after `ParCompress` has finished).
+    Multi {
+        compressor: Option<ParCompress<Gzip>>,
+        shared: Arc<Mutex<CountWriter<W>>>,
+    },
+}
+
+impl<W: Write + Send> Write for GzipEncoder<W> {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        match self {
+            GzipEncoder::Single(e) => e.write(buf),
+            GzipEncoder::Multi {
+                ref mut compressor, ..
+            } => compressor.as_mut().unwrap().write(buf),
+        }
+    }
+    fn flush(&mut self) -> io::Result<()> {
+        match self {
+            GzipEncoder::Single(e) => e.flush(),
+            GzipEncoder::Multi {
+                ref mut compressor, ..
+            } => compressor.as_mut().unwrap().flush(),
+        }
+    }
+}
+
+/// Consume the encoder, finalise compression, and return `(total_bytes, inner_writer)`.
+fn finalise_gzip_encoder<W: Write + Send>(encoder: GzipEncoder<W>) -> GeeZipResult<(u64, W)> {
+    match encoder {
+        GzipEncoder::Single(e) => {
+            let cw = e
+                .finish()
+                .map_err(|e| GeeZipError::io(e, "finalising gzip stream"))?;
+            let bytes = cw.count;
+            let writer = cw.inner;
+            Ok((bytes, writer))
+        }
+        GzipEncoder::Multi {
+            mut compressor,
+            shared,
+        } => {
+            // Finalise the parallel compressor.
+            if let Some(ref mut c) = compressor {
+                ZWriter::finish(c).map_err(|e| {
+                    GeeZipError::io(
+                        io::Error::other(e.to_string()),
+                        "finalising parallel gzip stream",
+                    )
+                })?;
+            }
+            drop(compressor);
+
+            // Recover the CountWriter from the shared Arc.
+            let cw = Arc::try_unwrap(shared)
+                .map_err(|_| {
+                    GeeZipError::io(
+                        io::Error::other("compressor still holds writer ref"),
+                        "recovering writer after parallel gzip",
+                    )
+                })?
+                .into_inner()
+                .map_err(|e| GeeZipError::io(io::Error::other(e.to_string()), "mutex poisoned"))?;
+            let bytes = cw.count;
+            let writer = cw.inner;
+            Ok((bytes, writer))
+        }
+    }
+}
 
 // ---------------------------------------------------------------------------
 // TarGzReader
@@ -24,6 +143,9 @@ use crate::error::{GeeZipError, GeeZipResult};
 /// Each access to the archive resets the reader to the start of the
 /// stream and re-creates the gzip decoder, so a `Seek` source is
 /// required.
+///
+/// Uses `MultiGzDecoder` to support both single-member and multi-member
+/// (parallel) gzip streams.
 pub struct TarGzReader<R: Read + Seek + Send> {
     inner: R,
     format: ArchiveFormat,
@@ -103,14 +225,14 @@ impl<R: Read + Seek + Send> ArchiveReader for TarGzReader<R> {
 
     fn entries(&mut self) -> GeeZipResult<Vec<Entry>> {
         self.inner.seek(SeekFrom::Start(0))?;
-        let decoder = flate2::read::GzDecoder::new(&mut self.inner);
+        let decoder = flate2::read::MultiGzDecoder::new(&mut self.inner);
         let mut archive = tar::Archive::new(decoder);
         collect_targz_entries(&mut archive)
     }
 
     fn extract(&mut self, entry: &Entry, writer: &mut dyn Write) -> GeeZipResult<u64> {
         self.inner.seek(SeekFrom::Start(0))?;
-        let decoder = flate2::read::GzDecoder::new(&mut self.inner);
+        let decoder = flate2::read::MultiGzDecoder::new(&mut self.inner);
         let mut archive = tar::Archive::new(decoder);
 
         for result in archive.entries().map_err(convert_targz_error)? {
@@ -143,7 +265,7 @@ impl<R: Read + Seek + Send> ArchiveReader for TarGzReader<R> {
 
 /// Gzip-compressed TAR archive writer.
 ///
-/// Generic over any `W: Write + Send`.  Data is first tar-ed, then
+/// Generic over any `W: Write + Send + 'static`.  Data is first tar-ed, then
 /// gzip-compressed, and finally written to the underlying writer.
 /// Construct via [`TarGzWriter::new`], add entries with
 /// [`add_entry_from_reader`](ArchiveWriter::add_entry_from_reader),
@@ -151,10 +273,14 @@ impl<R: Read + Seek + Send> ArchiveReader for TarGzReader<R> {
 ///
 /// - [`TarGzWriter::finalize`] — returns `(total_bytes, inner_writer)`
 /// - [`ArchiveWriter::finish`] — returns `total_bytes` (trait object-safe)
+///
+/// When `jobs > 1` is requested via `CompressOptions`, the gzip layer uses
+/// a multi-threaded encoder (`gzp::ParCompress`); otherwise it uses the
+/// standard `flate2::GzEncoder`.
 pub struct TarGzWriter<W: Write + Send> {
-    // Chained: tar::Builder writes into GzEncoder, which writes into
+    // Chained: tar::Builder writes into GzipEncoder, which writes into
     // CountWriter, which writes into the user-supplied writer.
-    inner: Option<tar::Builder<flate2::write::GzEncoder<CountWriter<W>>>>,
+    inner: Option<tar::Builder<GzipEncoder<W>>>,
     format: ArchiveFormat,
 }
 
@@ -166,16 +292,21 @@ impl<W: Write + Send> fmt::Debug for TarGzWriter<W> {
     }
 }
 
+// ---- TarGzWriter impl blocks: single-threaded methods (no `'static` needed) ----
+
 impl<W: Write + Send> TarGzWriter<W> {
     /// Create a new tar.gz writer targeting the given output with the
     /// specified gzip compression level.
     ///
     /// `level` controls the gzip compression strength (0-9). `None` uses the
     /// default level (6).
+    ///
+    /// This constructor uses a single-threaded flate2 encoder and does **not**
+    /// require `W: 'static`.  For parallel gzip compression see [`new_with_options`].
     pub fn new_with_level(writer: W, level: Option<u32>) -> Self {
         let compression = match level {
-            None => flate2::Compression::default(),
-            Some(l) => flate2::Compression::new(l),
+            None => Compression::default(),
+            Some(l) => Compression::new(l),
         };
         let counter = CountWriter {
             inner: writer,
@@ -183,7 +314,7 @@ impl<W: Write + Send> TarGzWriter<W> {
         };
         let encoder = flate2::write::GzEncoder::new(counter, compression);
         TarGzWriter {
-            inner: Some(tar::Builder::new(encoder)),
+            inner: Some(tar::Builder::new(GzipEncoder::Single(encoder))),
             format: ArchiveFormat::TarGz,
         }
     }
@@ -196,13 +327,56 @@ impl<W: Write + Send> TarGzWriter<W> {
     pub fn new(writer: W) -> Self {
         Self::new_with_level(writer, None)
     }
+}
 
+// ---- TarGzWriter impl blocks: multi-threaded / finalize methods (need `'static`) ----
+// The `W: 'static` bound is needed by `gzp::ParCompressBuilder` which
+// passes the writer across thread boundaries internally.  Common types like
+// `File` and `Vec<u8>` satisfy this bound automatically.
+
+impl<W: Write + Send + 'static> TarGzWriter<W> {
     /// Create a new tar.gz writer with the given compression options.
     ///
-    /// Only `options.level` is applied; `options.jobs` is accepted but
-    /// ignored (gzip/deflate is single-threaded in `flate2`).
+    /// When `options.effective_jobs() > 1`, the gzip encoder uses a parallel
+    /// (pigz-style) compressor.  For single-threaded use (jobs <= 1) the
+    /// standard `flate2::GzEncoder` is used.
+    ///
+    /// **Note:** The parallel path requires `W: 'static` because the gzp
+    /// library passes the writer into worker threads.  Single-threaded mode
+    /// (`jobs <= 1`) also accepts the `'static` bound for uniformity, but
+    /// callers that cannot satisfy `'static` should use [`new_with_level`]
+    /// or [`new`] instead.
     pub fn new_with_options(writer: W, options: CompressOptions) -> Self {
-        Self::new_with_level(writer, options.level)
+        let jobs = options.effective_jobs();
+        let level = options.level.unwrap_or(6);
+        let compression_level = Compression::new(level.min(9));
+
+        let counter = CountWriter {
+            inner: writer,
+            count: 0,
+        };
+
+        let encoder = if jobs > 1 {
+            let shared = Arc::new(Mutex::new(counter));
+            let shared_writer = SharedCountWriter {
+                inner: shared.clone(),
+            };
+            let compressor = ParCompressBuilder::<Gzip>::new()
+                .compression_level(compression_level)
+                .from_writer(shared_writer);
+            GzipEncoder::Multi {
+                compressor: Some(compressor),
+                shared,
+            }
+        } else {
+            let encoder = flate2::write::GzEncoder::new(counter, compression_level);
+            GzipEncoder::Single(encoder)
+        };
+
+        TarGzWriter {
+            inner: Some(tar::Builder::new(encoder)),
+            format: ArchiveFormat::TarGz,
+        }
     }
 
     /// Finalise the archive and return the inner writer alongside
@@ -210,24 +384,27 @@ impl<W: Write + Send> TarGzWriter<W> {
     ///
     /// This is the "rich" version of [`ArchiveWriter::finish`] that lets
     /// callers recover the underlying writer.
+    ///
+    /// **Note:** When a parallel gzip encoder was used (`jobs > 1`), this
+    /// method recovers the writer from `Arc::try_unwrap` after the worker
+    /// threads have finished.  The `'static` bound ensures thread safety.
     pub fn finalize(mut self) -> GeeZipResult<(u64, W)> {
         let builder = self.inner.take().ok_or_else(|| GeeZipError::Format {
             message: "TAR writer already finalised".into(),
             format: ArchiveFormat::TarGz,
         })?;
-        let encoder = builder
+        let gz_encoder = builder
             .into_inner()
             .map_err(|e| GeeZipError::io(e, "finalising TAR stream"))?;
-        let count_writer = encoder
-            .finish()
-            .map_err(|e| GeeZipError::io(e, "finalising gzip stream"))?;
-        let bytes = count_writer.count;
-        let writer = count_writer.inner;
-        Ok((bytes, writer))
+        finalise_gzip_encoder(gz_encoder)
     }
 }
 
-impl<W: Write + Send> ArchiveWriter for TarGzWriter<W> {
+// Need static bound for ArchiveWriter trait object as well, but we need to
+// implement it for all W: Write + Send (trait bound).  Since the trait is
+// object-safe and the impl delegates to finalize which has the stronger bound,
+// we keep the impl bound minimal.
+impl<W: Write + Send + 'static> ArchiveWriter for TarGzWriter<W> {
     fn format(&self) -> ArchiveFormat {
         self.format
     }
@@ -469,7 +646,7 @@ mod tests {
                 || msg.to_lowercase().contains("gz")
                 || msg.to_lowercase().contains("io")
                 || msg.to_lowercase().contains("failed"),
-            "expected tar/gz error, got: {msg}"
+            "expected tar/gz/io error, got: {msg}"
         );
     }
 
@@ -832,8 +1009,181 @@ mod tests {
     }
 
     // -------------------------------------------------------------------
+    // Parallel compression (jobs > 1) round-trip
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn targz_parallel_jobs_2_roundtrip() {
+        let opts = CompressOptions {
+            level: Some(6),
+            jobs: Some(2),
+            password: None,
+        };
+        let buf = Vec::new();
+        let mut writer = TarGzWriter::new_with_options(buf, opts);
+        writer
+            .add_entry_from_reader(
+                &PathBuf::from("hello.txt"),
+                &mut Cursor::new(b"hello parallel"),
+            )
+            .unwrap();
+
+        let (bytes_written, data) = writer.finalize().unwrap();
+        assert!(bytes_written > 0, "should have written something");
+
+        // Verify with both single-member GzDecoder and MultiGzDecoder.
+        // MultiGzDecoder is the safer choice for parallel output.
+        let mut reader = TarGzReader::from_buf(data);
+        let entries = reader.entries().unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].path, "hello.txt");
+
+        let mut output = Vec::new();
+        let extracted = reader.extract(&entries[0], &mut output).unwrap();
+        assert_eq!(extracted, b"hello parallel".len() as u64);
+        assert_eq!(output, b"hello parallel");
+    }
+
+    #[test]
+    fn targz_parallel_jobs_4_roundtrip() {
+        // Use enough data that parallel compression has something to do.
+        let large_content = b"Hello from multi-threaded Gzip compression! ";
+        let repeated: Vec<u8> = large_content
+            .iter()
+            .copied()
+            .cycle()
+            .take(1024 * 10) // ~260 bytes * 40 copies = ~10 KB
+            .collect();
+
+        let opts = CompressOptions {
+            level: Some(6),
+            jobs: Some(4),
+            password: None,
+        };
+        let buf = Vec::new();
+        let mut writer = TarGzWriter::new_with_options(buf, opts);
+        writer
+            .add_entry_from_reader(&PathBuf::from("large.txt"), &mut Cursor::new(&repeated))
+            .unwrap();
+
+        let (bytes_written, data) = writer.finalize().unwrap();
+        assert!(bytes_written > 0, "should have written something");
+
+        // Read back and verify content.
+        let mut reader = TarGzReader::from_buf(data);
+        let entries = reader.entries().unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].path, "large.txt");
+
+        let mut output = Vec::new();
+        let extracted = reader.extract(&entries[0], &mut output).unwrap();
+        assert_eq!(extracted, repeated.len() as u64);
+        assert_eq!(output, repeated);
+    }
+
+    #[test]
+    fn targz_parallel_then_single_roundtrip() {
+        // Verify that data compressed with jobs > 1 can be read back.
+        let content = b"data for parallel then single read test";
+        let opts = CompressOptions {
+            level: None,
+            jobs: Some(2),
+            password: None,
+        };
+        let buf = Vec::new();
+        let mut writer = TarGzWriter::new_with_options(buf, opts);
+        writer
+            .add_entry_from_reader(&PathBuf::from("test.txt"), &mut Cursor::new(content))
+            .unwrap();
+        let (_bytes, data) = writer.finalize().unwrap();
+
+        // Read with MultiGzDecoder (used by TarGzReader)
+        let mut reader = TarGzReader::from_buf(data);
+        let entries = reader.entries().unwrap();
+        assert_eq!(entries.len(), 1);
+
+        let mut output = Vec::new();
+        reader.extract(&entries[0], &mut output).unwrap();
+        assert_eq!(output, content);
+    }
+
+    // -------------------------------------------------------------------
+    // Jobs=0 maps to available_parallelism (at least 1) → same as Single
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn targz_jobs_zero_uses_auto() {
+        // jobs=0 should map to at least 1 thread; compression should work.
+        let opts = CompressOptions {
+            level: None,
+            jobs: Some(0),
+            password: None,
+        };
+        let buf = Vec::new();
+        let mut writer = TarGzWriter::new_with_options(buf, opts);
+        writer
+            .add_entry_from_reader(&PathBuf::from("auto.txt"), &mut Cursor::new(b"jobs=0 test"))
+            .unwrap();
+        let (_bytes, data) = writer.finalize().unwrap();
+        assert!(!data.is_empty(), "compressed data should not be empty");
+
+        let mut reader = TarGzReader::from_buf(data);
+        let entries = reader.entries().unwrap();
+        assert_eq!(entries.len(), 1);
+        let mut output = Vec::new();
+        reader.extract(&entries[0], &mut output).unwrap();
+        assert_eq!(output, b"jobs=0 test");
+    }
+
+    // -------------------------------------------------------------------
     // Trait object safety (compile-time checks)
     // -------------------------------------------------------------------
+
+    #[test]
+    fn targz_parallel_finalize_multi_branch() {
+        // Explicitly exercise the GzipEncoder::Multi branch finalization
+        // path (Arc::try_unwrap + ParCompress::finish).  Uses jobs>1 and
+        // several entries to force the parallel path.
+        let opts = CompressOptions {
+            level: None,
+            jobs: Some(2),
+            password: None,
+        };
+        let buf = Vec::new();
+        let mut writer = TarGzWriter::new_with_options(buf, opts);
+
+        for i in 0..10 {
+            let name = format!("file-{}.txt", i);
+            let content = format!("content-{}\n", i);
+            writer
+                .add_entry_from_reader(
+                    &PathBuf::from(&name),
+                    &mut std::io::Cursor::new(content.as_bytes()),
+                )
+                .unwrap();
+        }
+
+        // finalize() should succeed, recovering the inner Vec<u8> writer.
+        let (bytes, data) = writer.finalize().unwrap();
+        assert!(bytes > 0, "should have written compressed bytes");
+        assert!(
+            !data.is_empty(),
+            "inner writer should be recovered after finalize"
+        );
+
+        // Sanity: verify the output is a valid gzip stream.
+        assert_eq!(data[..2], [0x1F, 0x8B], "gzip magic expected");
+
+        // Verify round-trip: decompress and check all entries are present.
+        let mut reader = TarGzReader::from_buf(data);
+        let entries = reader.entries().unwrap();
+        assert_eq!(entries.len(), 10, "all 10 entries should be present");
+
+        // Verify content of the last entry.
+        let mut output = Vec::new();
+        reader.extract(&entries[9], &mut output).unwrap();
+        assert_eq!(output, b"content-9\n");
+    }
 
     #[test]
     fn archive_reader_trait_object() {

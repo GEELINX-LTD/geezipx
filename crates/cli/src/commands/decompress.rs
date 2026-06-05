@@ -208,11 +208,18 @@ pub fn execute(
         }
         _ => {
             if stdout {
-                anyhow::bail!(
-                    "--stdout is only supported for single-stream formats (gzip, zstd, xz, lzma); \
-                     '{}' is a multi-file archive",
-                    format
-                );
+                let cancel_flag = cancel_token.clone().into_inner();
+                match format {
+                    ArchiveFormat::TarGz => decompress_gzip_stdout(archive, cancel_flag),
+                    ArchiveFormat::TarZst => decompress_zstd_stdout(archive, cancel_flag),
+                    ArchiveFormat::TarXz => decompress_xz_stdout(archive, cancel_flag),
+                    _ => anyhow::bail!(
+                        "--stdout is only supported for single-stream formats \
+                         (gzip, zstd, xz, lzma); '{}' is a multi-file archive",
+                        format
+                    ),
+                }?;
+                return Ok(());
             }
             let spinner = if show_progress {
                 Some(crate::render::progress::ProgressBarWrapper::spinner(
@@ -271,10 +278,16 @@ fn decompress_stdin_mode(
 
     // Validate: only single-stream formats work with stdin
     match fmt {
-        ArchiveFormat::Gzip | ArchiveFormat::Zstd | ArchiveFormat::Xz | ArchiveFormat::Lzma => {}
+        ArchiveFormat::Gzip
+        | ArchiveFormat::Zstd
+        | ArchiveFormat::Xz
+        | ArchiveFormat::Lzma
+        | ArchiveFormat::TarGz
+        | ArchiveFormat::TarZst
+        | ArchiveFormat::TarXz => {}
         _ => anyhow::bail!(
             "--stdin is only supported for single-stream formats \
-             (gzip, zstd, xz, lzma); got '{fmt}'"
+             (gzip, zstd, xz, lzma, tar.gz, tar.zst, tar.xz); got '{fmt}'"
         ),
     }
 
@@ -283,9 +296,15 @@ fn decompress_stdin_mode(
     if to_stdout {
         let mut writer = std::io::stdout().lock();
         let bytes = match fmt {
-            ArchiveFormat::Gzip => gzip::gzip_decompress(&mut reader, &mut writer)?,
-            ArchiveFormat::Zstd => zstd::zstd_decompress(&mut reader, &mut writer)?,
-            ArchiveFormat::Xz => xz::xz_decompress(&mut reader, &mut writer)?,
+            ArchiveFormat::Gzip | ArchiveFormat::TarGz => {
+                gzip::gzip_decompress(&mut reader, &mut writer)?
+            }
+            ArchiveFormat::Zstd | ArchiveFormat::TarZst => {
+                zstd::zstd_decompress(&mut reader, &mut writer)?
+            }
+            ArchiveFormat::Xz | ArchiveFormat::TarXz => {
+                xz::xz_decompress(&mut reader, &mut writer)?
+            }
             ArchiveFormat::Lzma => xz::lzma_decompress(&mut reader, &mut writer)?,
             _ => unreachable!(),
         };
@@ -307,9 +326,15 @@ fn decompress_stdin_mode(
         let mut writer = fs::File::create(&output_path)
             .with_context(|| format!("creating output '{}'", output_path.display()))?;
         let bytes = match fmt {
-            ArchiveFormat::Gzip => gzip::gzip_decompress(&mut reader, &mut writer)?,
-            ArchiveFormat::Zstd => zstd::zstd_decompress(&mut reader, &mut writer)?,
-            ArchiveFormat::Xz => xz::xz_decompress(&mut reader, &mut writer)?,
+            ArchiveFormat::Gzip | ArchiveFormat::TarGz => {
+                gzip::gzip_decompress(&mut reader, &mut writer)?
+            }
+            ArchiveFormat::Zstd | ArchiveFormat::TarZst => {
+                zstd::zstd_decompress(&mut reader, &mut writer)?
+            }
+            ArchiveFormat::Xz | ArchiveFormat::TarXz => {
+                xz::xz_decompress(&mut reader, &mut writer)?
+            }
             ArchiveFormat::Lzma => xz::lzma_decompress(&mut reader, &mut writer)?,
             _ => unreachable!(),
         };

@@ -19,9 +19,18 @@
 ///   - `Some(0)`: automatically use all available logical CPUs
 ///   - `Some(2..=256)`: explicit thread count
 ///
-///   Only formats whose underlying crates expose a native multi-thread
-///   encoder currently act on `jobs` (zstd).  Other formats accept the
-///   parameter for forward compatibility but ignore it.
+///   Formats that act on `jobs`:
+///   - **zstd / tar.zst**: native zstd multi-thread encoder
+///   - **tar.gz**: pigz-style parallel gzip via `gzp` (when jobs > 1)
+///
+///   **Note (tar.gz stdin mode):** When compressing via `--stdin` with
+///   tar.gz format, the raw-stream compression path is used (the outer
+///   gzip layer only), which currently does **not** use the parallel
+///   TarGzWriter.  In that mode `--jobs` has no effect; parallel
+///   compression only applies during archive-mode (`compress -f tar.gz
+///   files...`).
+///
+///   Other formats accept the parameter for forward compatibility but ignore it.
 ///
 /// * `password` — optional password for ZIP AES-256 encryption.
 ///   Only ZIP format supports this option; using `--password` with

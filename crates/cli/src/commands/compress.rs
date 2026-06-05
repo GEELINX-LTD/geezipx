@@ -49,11 +49,16 @@ pub fn execute(
     // Validate stdin/stdout is only for single-stream formats.
     if use_stdin || use_stdout {
         match format {
-            ArchiveFormat::Gzip | ArchiveFormat::Zstd | ArchiveFormat::Xz | ArchiveFormat::Lzma => {
-            }
+            ArchiveFormat::Gzip
+            | ArchiveFormat::Zstd
+            | ArchiveFormat::Xz
+            | ArchiveFormat::Lzma
+            | ArchiveFormat::TarGz
+            | ArchiveFormat::TarZst
+            | ArchiveFormat::TarXz => {}
             _ => anyhow::bail!(
                 "--stdin/--stdout is only supported for single-stream formats \
-                 (gzip, zstd, xz, lzma); got '{format}'"
+                 (gzip, zstd, xz, lzma, tar.gz, tar.zst, tar.xz); got '{format}'"
             ),
         }
     }
@@ -62,7 +67,25 @@ pub fn execute(
     validate_compress_inputs(inputs, format, &compress_options, use_stdin)?;
 
     match format {
+        // Single-stream formats always use single-stream mode.
         ArchiveFormat::Gzip | ArchiveFormat::Zstd | ArchiveFormat::Xz | ArchiveFormat::Lzma => {
+            compress_single_stream_mode(
+                inputs,
+                output,
+                format,
+                compress_options,
+                no_progress,
+                verbose,
+                cancel_token,
+                use_stdin,
+                use_stdout,
+            )
+        }
+        // Tar-based formats use single-stream mode only when reading/writing
+        // raw tar via stdin/stdout; otherwise they follow the archive path.
+        ArchiveFormat::TarGz | ArchiveFormat::TarZst | ArchiveFormat::TarXz
+            if use_stdin || use_stdout =>
+        {
             compress_single_stream_mode(
                 inputs,
                 output,
@@ -489,12 +512,21 @@ fn compress_single_stream<R: Read, W: Write>(
     format: ArchiveFormat,
 ) -> anyhow::Result<u64> {
     match format {
-        ArchiveFormat::Gzip => gzip::gzip_compress_with_options(reader, writer, options)
-            .map_err(|e| anyhow::anyhow!("gzip compression error: {}", e)),
-        ArchiveFormat::Zstd => zstd::zstd_compress_with_options(reader, writer, options)
-            .map_err(|e| anyhow::anyhow!("zstd compression error: {}", e)),
-        ArchiveFormat::Xz => xz::xz_compress_with_options(reader, writer, options)
-            .map_err(|e| anyhow::anyhow!("xz compression error: {}", e)),
+        // Note: single-stream compression (used for --stdin/--stdout) does
+        // NOT benefit from --jobs for tar.gz.  The gzp parallel gzip is
+        // only active in archive mode via TarGzWriter::new_with_options.
+        ArchiveFormat::Gzip | ArchiveFormat::TarGz => {
+            gzip::gzip_compress_with_options(reader, writer, options)
+                .map_err(|e| anyhow::anyhow!("gzip compression error: {}", e))
+        }
+        ArchiveFormat::Zstd | ArchiveFormat::TarZst => {
+            zstd::zstd_compress_with_options(reader, writer, options)
+                .map_err(|e| anyhow::anyhow!("zstd compression error: {}", e))
+        }
+        ArchiveFormat::Xz | ArchiveFormat::TarXz => {
+            xz::xz_compress_with_options(reader, writer, options)
+                .map_err(|e| anyhow::anyhow!("xz compression error: {}", e))
+        }
         ArchiveFormat::Lzma => xz::lzma_compress_with_options(reader, writer, options)
             .map_err(|e| anyhow::anyhow!("lzma compression error: {}", e)),
         _ => anyhow::bail!("cannot compress '{}' as a single stream", format),

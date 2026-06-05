@@ -2353,7 +2353,8 @@ fn targz_jobs_roundtrip() {
     tmp.write("targz_jobs.txt", content);
     let archive = tmp.join("out.tar.gz");
 
-    // Compress tar.gz with --jobs 4 — tar.gz ignores jobs but should not fail.
+    // Compress tar.gz with --jobs 4 — tar.gz now supports parallel gzip via
+    // the pigz-style `gzp` crate when jobs > 1.
     geezipx()
         .args([
             "compress",
@@ -2644,10 +2645,11 @@ fn tarzst_level_22() {
 }
 
 #[test]
-fn tarzst_stdout_fails_for_archive_format() {
-    // --stdout should be rejected for multi-file archive formats.
+fn tarzst_stdout_outputs_raw_tar_stream() {
+    // --stdout on tar.zst decompresses the outer zstd layer, outputting
+    // the raw tar stream (not the archive entries).
     let tmp = TestDir::new();
-    tmp.write("data.txt", "stdout should fail");
+    tmp.write("data.txt", "raw tar stream through stdout");
     let archive = tmp.join("out.tar.zst");
 
     geezipx()
@@ -2660,11 +2662,13 @@ fn tarzst_stdout_fails_for_archive_format() {
         .assert()
         .success();
 
+    // Now --stdout should succeed, outputting the raw tar stream.
+    // The raw tar stream contains "data.txt" in its headers.
     geezipx()
         .args(["decompress", archive.to_str().unwrap(), "--stdout"])
         .assert()
-        .failure()
-        .stderr(predicate::str::contains("--stdout"));
+        .success()
+        .stdout(predicate::str::contains("data.txt"));
 }
 
 // ---------------------------------------------------------------------------
@@ -2972,10 +2976,11 @@ fn tarxz_level_9() {
 }
 
 #[test]
-fn tarxz_stdout_fails_for_archive_format() {
-    // --stdout should be rejected for multi-file archive formats.
+fn tarxz_stdout_outputs_raw_tar_stream() {
+    // --stdout on tar.xz decompresses the outer xz layer, outputting
+    // the raw tar stream (not the archive entries).
     let tmp = TestDir::new();
-    tmp.write("data.txt", "stdout should fail");
+    tmp.write("data.txt", "raw tar stream through stdout");
     let archive = tmp.join("out.tar.xz");
 
     geezipx()
@@ -2988,11 +2993,13 @@ fn tarxz_stdout_fails_for_archive_format() {
         .assert()
         .success();
 
+    // Now --stdout should succeed, outputting the raw tar stream.
+    // The raw tar stream contains "data.txt" in its headers.
     geezipx()
         .args(["decompress", archive.to_str().unwrap(), "--stdout"])
         .assert()
-        .failure()
-        .stderr(predicate::str::contains("--stdout"));
+        .success()
+        .stdout(predicate::str::contains("data.txt"));
 }
 
 #[test]
@@ -6571,6 +6578,150 @@ fn compress_stdin_with_tar_fails() {
             predicate::str::contains("only supported for single-stream")
                 .or(predicate::str::contains("single-stream")),
         );
+}
+
+#[test]
+fn compress_stdin_targz_pipe_to_file_and_back() {
+    // stdin -> tar.gz (compress to file) -> decompress --stdout -> original tar
+    let td = TestDir::new();
+    td.write("test_data.txt", "hello from tar.gz stdin test\n");
+
+    // Create raw tar with compress -f tar.
+    let tar_path = td.join("test.tar");
+    geezipx()
+        .args([
+            "compress",
+            td.path().join("test_data.txt").to_str().unwrap(),
+            "-f",
+            "tar",
+            "-o",
+            tar_path.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+    let tar_bytes = std::fs::read(&tar_path).unwrap();
+    assert!(!tar_bytes.is_empty(), "raw tar should have data");
+
+    // Pipe raw tar through compress --stdin -f tar.gz.
+    let gz_path = td.join("out.tar.gz");
+    geezipx()
+        .args([
+            "compress",
+            "--stdin",
+            "-f",
+            "tar.gz",
+            "-o",
+            gz_path.to_str().unwrap(),
+        ])
+        .write_stdin(tar_bytes.clone())
+        .assert()
+        .success();
+    assert!(gz_path.exists(), "tar.gz output should exist");
+
+    // Round-trip: decompress --stdin --stdout, verify raw tar is recovered.
+    let compressed_bytes = std::fs::read(&gz_path).unwrap();
+    geezipx()
+        .args(["decompress", "--stdin", "-f", "tar.gz", "--stdout"])
+        .write_stdin(compressed_bytes)
+        .assert()
+        .success()
+        .stdout(tar_bytes.clone());
+}
+
+#[test]
+fn compress_stdin_tarzst_pipe_to_file_and_back() {
+    // stdin -> tar.zst (compress to file) -> decompress --stdout -> original tar
+    let td = TestDir::new();
+    td.write("test_data.txt", "hello from tar.zst stdin test\n");
+
+    // Create raw tar with compress -f tar.
+    let tar_path = td.join("test.tar");
+    geezipx()
+        .args([
+            "compress",
+            td.path().join("test_data.txt").to_str().unwrap(),
+            "-f",
+            "tar",
+            "-o",
+            tar_path.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+    let tar_bytes = std::fs::read(&tar_path).unwrap();
+    assert!(!tar_bytes.is_empty(), "raw tar should have data");
+
+    // Pipe raw tar through compress --stdin -f tar.zst.
+    let zst_path = td.join("out.tar.zst");
+    geezipx()
+        .args([
+            "compress",
+            "--stdin",
+            "-f",
+            "tar.zst",
+            "-o",
+            zst_path.to_str().unwrap(),
+        ])
+        .write_stdin(tar_bytes.clone())
+        .assert()
+        .success();
+    assert!(zst_path.exists(), "tar.zst output should exist");
+
+    // Round-trip: decompress --stdin --stdout, verify raw tar is recovered.
+    let compressed_bytes = std::fs::read(&zst_path).unwrap();
+    geezipx()
+        .args(["decompress", "--stdin", "-f", "tar.zst", "--stdout"])
+        .write_stdin(compressed_bytes)
+        .assert()
+        .success()
+        .stdout(tar_bytes.clone());
+}
+
+#[test]
+fn compress_stdin_tarxz_pipe_to_file_and_back() {
+    // stdin -> tar.xz (compress to file) -> decompress --stdout -> original tar
+    let td = TestDir::new();
+    td.write("test_data.txt", "hello from tar.xz stdin test\n");
+
+    // Create raw tar with compress -f tar.
+    let tar_path = td.join("test.tar");
+    geezipx()
+        .args([
+            "compress",
+            td.path().join("test_data.txt").to_str().unwrap(),
+            "-f",
+            "tar",
+            "-o",
+            tar_path.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+    let tar_bytes = std::fs::read(&tar_path).unwrap();
+    assert!(!tar_bytes.is_empty(), "raw tar should have data");
+
+    // Pipe raw tar through compress --stdin -f tar.xz.
+    let xz_path = td.join("out.tar.xz");
+    geezipx()
+        .args([
+            "compress",
+            "--stdin",
+            "-f",
+            "tar.xz",
+            "-o",
+            xz_path.to_str().unwrap(),
+        ])
+        .write_stdin(tar_bytes.clone())
+        .assert()
+        .success();
+    assert!(xz_path.exists(), "tar.xz output should exist");
+
+    // Round-trip: decompress --stdin --stdout, verify raw tar is recovered.
+    let compressed_bytes = std::fs::read(&xz_path).unwrap();
+    geezipx()
+        .args(["decompress", "--stdin", "-f", "tar.xz", "--stdout"])
+        .write_stdin(compressed_bytes)
+        .assert()
+        .success()
+        .stdout(tar_bytes.clone());
 }
 
 #[test]
