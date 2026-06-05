@@ -7,6 +7,15 @@
     <link rel="stylesheet" href="/src/style.css" />
   </head>
   <body>
+    <!-- Drop zone overlay -->
+    <div id="drop-overlay" style="display:none">
+      <div class="drop-overlay-content">
+        <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+        <p>Drop files or folders here</p>
+        <span class="drop-hint">Release to start — archives auto-switch to Extract, files to Compress</span>
+      </div>
+    </div>
+
     <div id="app">
       <header>
         <h1>GeeZipX</h1>
@@ -15,27 +24,34 @@
 
       <main>
         <!-- Mode Tabs -->
-        <nav id="mode-tabs">
-          <button class="mode-tab active" data-mode="compress">Compress</button>
-          <button class="mode-tab" data-mode="extract">Extract</button>
-          <button class="mode-tab" data-mode="list">List</button>
-          <button class="mode-tab" data-mode="test">Test</button>
+        <nav id="mode-tabs" role="tablist">
+          <button class="mode-tab active" data-mode="compress" role="tab" aria-selected="true" aria-controls="panel-compress">Compress</button>
+          <button class="mode-tab" data-mode="extract" role="tab" aria-selected="false" aria-controls="panel-extract">Extract</button>
+          <button class="mode-tab" data-mode="list" role="tab" aria-selected="false" aria-controls="panel-list">List</button>
+          <button class="mode-tab" data-mode="test" role="tab" aria-selected="false" aria-controls="panel-test">Test</button>
         </nav>
 
+        <!-- Recent files bar -->
+        <div id="recent-bar" class="recent-bar" style="display:none">
+          <span class="recent-label">Recent</span>
+          <div id="recent-chips" class="recent-chips"></div>
+        </div>
+
         <!-- ===================== COMPRESS PANEL ===================== -->
-        <section id="panel-compress" class="panel active">
+        <section id="panel-compress" class="panel active" role="tabpanel" aria-labelledby="compress-tab">
           <div class="field">
             <label>Source Files</label>
             <div class="input-row">
-              <input type="text" id="compress-sources" readonly placeholder="Select files or folders..." />
+              <input type="text" id="compress-sources" readonly placeholder="Drop files here or click Browse..." />
               <button id="compress-source-btn" class="btn-secondary">Browse</button>
             </div>
+            <div id="compress-source-chips" class="file-chips"></div>
           </div>
 
           <div class="field">
             <label>Output Archive</label>
             <div class="input-row">
-              <input type="text" id="compress-output" readonly placeholder="Select output path..." />
+              <input type="text" id="compress-output" readonly placeholder="Auto-filled from source..." />
               <button id="compress-output-btn" class="btn-secondary">Save As</button>
             </div>
           </div>
@@ -58,23 +74,25 @@
 
           <div class="field">
             <label>Password (ZIP only)</label>
-            <input type="password" id="compress-password" placeholder="Optional" />
+            <input type="password" id="compress-password" placeholder="Optional — leave empty for no encryption" />
           </div>
 
           <div class="actions">
             <button id="compress-run" class="btn-primary">Compress</button>
-            <button id="compress-cancel" class="btn-cancel" style="display:none">Cancel</button>
+            <button id="compress-cancel" class="btn-cancel" style="visibility:hidden" aria-hidden="true">Cancel</button>
           </div>
 
-          <div id="compress-result" class="result-panel"></div>
+          <div id="compress-result" class="result-panel">
+            <div class="result-empty">Configure sources above and click Compress</div>
+          </div>
         </section>
 
         <!-- ===================== EXTRACT PANEL ===================== -->
-        <section id="panel-extract" class="panel">
+        <section id="panel-extract" class="panel" role="tabpanel" aria-labelledby="extract-tab">
           <div class="field">
             <label>Archive File</label>
             <div class="input-row">
-              <input type="text" id="extract-archive" readonly placeholder="Select archive file..." />
+              <input type="text" id="extract-archive" readonly placeholder="Drop archive here or click Browse..." />
               <button id="extract-archive-btn" class="btn-secondary">Browse</button>
             </div>
           </div>
@@ -82,7 +100,7 @@
           <div class="field">
             <label>Output Directory</label>
             <div class="input-row">
-              <input type="text" id="extract-output" readonly placeholder="Select output directory..." />
+              <input type="text" id="extract-output" readonly placeholder="Auto-filled from archive..." />
               <button id="extract-output-btn" class="btn-secondary">Browse</button>
             </div>
           </div>
@@ -96,59 +114,65 @@
 
           <div class="field">
             <label>Password (for encrypted archives)</label>
-            <input type="password" id="extract-password" placeholder="Optional" />
+            <input type="password" id="extract-password" placeholder="Optional — leave empty for no password" />
           </div>
 
           <div class="actions">
             <button id="extract-run" class="btn-primary">Extract</button>
-            <button id="extract-cancel" class="btn-cancel" style="display:none">Cancel</button>
+            <button id="extract-cancel" class="btn-cancel" style="visibility:hidden" aria-hidden="true">Cancel</button>
           </div>
 
-          <div id="extract-result" class="result-panel"></div>
+          <div id="extract-result" class="result-panel">
+            <div class="result-empty">Select an archive and output directory</div>
+          </div>
         </section>
 
         <!-- ===================== LIST PANEL ===================== -->
-        <section id="panel-list" class="panel">
+        <section id="panel-list" class="panel" role="tabpanel" aria-labelledby="list-tab">
           <div class="field">
             <label>Archive File</label>
             <div class="input-row">
-              <input type="text" id="list-archive" readonly placeholder="Select archive file..." />
+              <input type="text" id="list-archive" readonly placeholder="Drop archive here or click Browse..." />
               <button id="list-archive-btn" class="btn-secondary">Browse</button>
             </div>
           </div>
 
           <div class="field">
             <label>Password (for encrypted archives)</label>
-            <input type="password" id="list-password" placeholder="Optional" />
+            <input type="password" id="list-password" placeholder="Optional — leave empty for no password" />
           </div>
 
           <div class="actions">
             <button id="list-run" class="btn-primary">List Contents</button>
           </div>
 
-          <div id="list-result" class="result-panel"></div>
+          <div id="list-result" class="result-panel">
+            <div class="result-empty">Select an archive and click List Contents</div>
+          </div>
         </section>
 
         <!-- ===================== TEST PANEL ===================== -->
-        <section id="panel-test" class="panel">
+        <section id="panel-test" class="panel" role="tabpanel" aria-labelledby="test-tab">
           <div class="field">
             <label>Archive File</label>
             <div class="input-row">
-              <input type="text" id="test-archive" readonly placeholder="Select archive file..." />
+              <input type="text" id="test-archive" readonly placeholder="Drop archive here or click Browse..." />
               <button id="test-archive-btn" class="btn-secondary">Browse</button>
             </div>
           </div>
 
           <div class="field">
             <label>Password (for encrypted archives)</label>
-            <input type="password" id="test-password" placeholder="Optional" />
+            <input type="password" id="test-password" placeholder="Optional — leave empty for no password" />
           </div>
 
           <div class="actions">
             <button id="test-run" class="btn-primary">Test Integrity</button>
           </div>
 
-          <div id="test-result" class="result-panel"></div>
+          <div id="test-result" class="result-panel">
+            <div class="result-empty">Select an archive and click Test Integrity</div>
+          </div>
         </section>
       </main>
 

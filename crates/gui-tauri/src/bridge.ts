@@ -6,6 +6,8 @@
 
 import { invoke } from "@tauri-apps/api/core";
 
+import { revealItemInDir, openPath } from "@tauri-apps/plugin-opener";
+
 // ---------------------------------------------------------------------------
 // Types (mirrors of Rust #[derive(Serialize)] structs)
 // ---------------------------------------------------------------------------
@@ -141,4 +143,28 @@ export async function compressArchive(
     password: password ?? null,
     taskId: taskId ?? null,
   });
+}
+
+/** Reveal a file in the file manager (e.g., Finder, Explorer, Nautilus).
+ * Returns false if the opener plugin is unavailable (preview/development mode). */
+export async function revealFile(path: string): Promise<boolean> {
+  try {
+    await revealItemInDir(path);
+    return true;
+  } catch {
+    console.warn("revealItemInDir not available (running in browser?)", path);
+    return false;
+  }
+}
+
+/** Open a directory or file in the default system application.
+ * Returns false if the opener plugin is unavailable. */
+export async function openFolder(path: string): Promise<boolean> {
+  try {
+    await openPath(path);
+    return true;
+  } catch {
+    console.warn("openPath not available (running in browser?)", path);
+    return false;
+  }
 }

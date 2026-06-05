@@ -431,3 +431,211 @@ select {
   pointer-events: none;
   opacity: 0.5;
 }
+
+/* --------------- Drop Zone Overlay --------------- */
+
+#drop-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.65);
+  z-index: 9999;
+  display: none;
+  align-items: center;
+  justify-content: center;
+}
+
+#drop-overlay.active {
+  display: flex;
+}
+
+.drop-overlay-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+  padding: 3rem;
+  border: 3px dashed var(--accent);
+  border-radius: 16px;
+  background: var(--surface);
+  color: var(--accent);
+}
+
+.drop-overlay-content p {
+  font-size: 1.3rem;
+  font-weight: 700;
+}
+
+.drop-hint {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  max-width: 280px;
+  text-align: center;
+}
+
+/* --------------- Recent Files Bar --------------- */
+
+.recent-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  margin-bottom: 1rem;
+  background: var(--surface);
+  border-radius: var(--radius);
+  border: 1px solid var(--surface-alt);
+  font-size: 0.8rem;
+  overflow-x: auto;
+}
+
+.recent-label {
+  color: var(--text-muted);
+  font-weight: 600;
+  text-transform: uppercase;
+  font-size: 0.7rem;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.recent-chips {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: nowrap;
+}
+
+.recent-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.2rem 0.6rem;
+  background: var(--input-bg);
+  border: 1px solid var(--input-border);
+  border-radius: 12px;
+  font-size: 0.75rem;
+  color: var(--text);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.recent-chip:hover {
+  border-color: var(--accent);
+  background: var(--surface-alt);
+}
+
+.recent-chip .chip-close {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  cursor: pointer;
+  line-height: 1;
+  margin-left: 0.1rem;
+}
+
+.recent-chip .chip-close:hover {
+  color: var(--red);
+}
+
+/* --------------- File Chips (selected files) --------------- */
+
+.file-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-top: 0.3rem;
+}
+
+.file-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.15rem 0.5rem;
+  background: var(--surface-alt);
+  border: 1px solid var(--input-border);
+  border-radius: 10px;
+  font-size: 0.75rem;
+  color: var(--text);
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-chip .chip-icon {
+  font-size: 0.7rem;
+  opacity: 0.7;
+}
+
+.file-chip.more-chip {
+  background: transparent;
+  border-style: dashed;
+  color: var(--text-muted);
+}
+
+/* --------------- Result Reveal Button --------------- */
+
+.result-footer {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--surface-alt);
+}
+
+.btn-reveal {
+  padding: 0.4rem 1rem;
+  background: var(--surface-alt);
+  color: var(--text);
+  border: 1px solid var(--input-border);
+  border-radius: var(--radius);
+  font-size: 0.78rem;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.btn-reveal:hover {
+  background: var(--border);
+  border-color: var(--accent);
+}
+
+/* --------------- Result empty state --------------- */
+
+.result-empty {
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  text-align: center;
+  padding: 1rem;
+}
+
+/* --------------- Panel running state --------------- */
+
+.panel {
+  position: relative;
+}
+
+.panel.running .btn-primary {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.panel.running .btn-secondary {
+  opacity: 0.4;
+  pointer-events: none;
+}
+
+.panel.running .mode-tab {
+  opacity: 0.4;
+  pointer-events: none;
+}
+
+/* --------------- Drag-over highlight for input rows --------------- */
+
+.input-row.drag-over {
+  outline: 2px dashed var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--radius);
+}
