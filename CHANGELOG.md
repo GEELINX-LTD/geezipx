@@ -20,6 +20,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `--password-stdin` reads the password from standard input (trailing newline stripped)
   - All three password sources (`--password`, `--password-file`, `--password-stdin`) are
     mutually exclusive
+- **Multi-threaded tar.gz compression** (Phase 2.5):
+  - `compress -j N` / `--jobs N` now enables parallel gzip for tar.gz via `gzp` crate (pigz-style)
+  - `gzp` 0.11 with `deflate_rust` feature (pure Rust, no native dependency)
+  - Reader side uses `flate2::read::MultiGzDecoder` for multi-member gzip compatibility
+  - **Note**: `--jobs` only active in archive mode; `--stdin` single-stream mode does not benefit
   - Empty passwords are rejected with an error
 - **7z read-only support**:
   - `.7z` format detection from magic bytes (`37 7A BC AF 27 1C`) and `.7z` extension
@@ -39,16 +44,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - CLI integration tests: list/decompress encrypted 7z with `--password`/`--password-file`;
     list encrypted ZIP with `--password-file`/`--password-stdin`;
 - **stdin/stdout pipe mode (Phase 2.5)**:
-  - `compress --stdin` reads uncompressed data from stdin (gzip/zstd/xz/lzma only)
-  - `compress --stdout` writes compressed data to stdout (gzip/zstd/xz/lzma only)
+  - `compress --stdin` reads uncompressed data from stdin (gzip/zstd/xz/lzma and tar.gz/tar.zst/tar.xz — raw tar stream)
+  - `compress --stdout` writes compressed data to stdout (gzip/zstd/xz/lzma and tar.gz/tar.zst/tar.xz — raw tar stream)
   - `compress file --stdout -f gz` compresses a file to stdout
-  - `decompress --stdin` reads compressed data from stdin (gzip/zstd/xz/lzma only)
+  - `decompress --stdin` reads compressed data from stdin (gzip/zstd/xz/lzma and tar.gz/tar.zst/tar.xz)
   - `decompress --stdin --stdout` full pipe mode: stdin to stdout
   - `decompress --stdin -o outdir` writes decompressed output as `{outdir}/output`
   - `--stdin` and `--stdout` require explicit `--format`
-  - Archive formats (zip, tar, 7z) are rejected with a clear error
+  - Archive formats (zip, tar, 7z, rar) are rejected with a clear error
   - `--stdin` is mutually exclusive with input file/archive arguments
   - `--stdout` is mutually exclusive with `--output`
+  - **tar-based formats now supported**: tar.gz/tar.zst/tar.xz `--stdin` reads raw tar from stdin, `--stdout` outputs raw tar stream; zip/tar/7z/rar still rejected
+  - `compress --stdin -f tar.gz < raw.tar` pipes raw tar through outer compression only
+  - `decompress archive.tar.gz --stdout` decompresses outer layer, outputs raw tar stream
+  - `decompress --stdin -f tar.gz --stdout` full tar.gz pipe mode
+  - **Note**: tar.gz `--jobs` does not apply in `--stdin` mode (gzp parallel gzip is archive-mode only)
     rejection of password sources on gzip/zstd/xz/lzma when listing
 
 - **RAR read-only support (Phase 2.6)**:

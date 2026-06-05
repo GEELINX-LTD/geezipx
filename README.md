@@ -27,7 +27,7 @@
 - **ZIP AES-256 encryption** -- `--password`, `--password-file`, or `--password-stdin` (ZIP and 7z read-only)
 - **Cross-platform** -- Linux, macOS, Windows (3-platform CI)
 - **Single binary** -- no runtime dependencies, `cargo install` ready
-- **Multi-threaded compression** -- `-j`/`--jobs` for parallel zstd and tar.zst compression
+- **Multi-threaded compression** -- `-j`/`--jobs` for parallel compression (tar.gz via gzp/pigz-style, zstd/tar.zst via native zstdmt)
 
 ---
 
@@ -154,13 +154,18 @@ geezipx test archive.zip
 geezipx test archive.tar.gz --json
 ```
 
-# Pipe data through stdin/stdout (gzip/zstd/xz/lzma only)
+# Pipe data through stdin/stdout (single-stream and tar-based formats)
 echo "Hello" | geezipx compress --stdin -f gz -o hello.gz
 echo "Hello" | geezipx compress --stdin -f gz --stdout > hello.gz
 cat hello.txt | geezipx compress --stdin -f zst -o hello.txt.zst
 cat hello.txt.gz | geezipx decompress --stdin -f gz --stdout > hello.txt
 cat hello.txt.gz | geezipx decompress --stdin -f gz -o outdir     # writes outdir/output
 geezipx compress hello.txt -f gz --stdout > hello.gz              # file to stdout
+# --- tar-based pipeline examples (raw tar stdin/stdout) ---
+cat raw.tar | geezipx compress --stdin -f tar.gz -o archive.tar.gz    # compress raw tar to file
+tar cf - mydir/ | geezipx compress --stdin -f tar.zst -o mydir.tar.zst # pipe tar directly
+geezipx decompress archive.tar.gz --stdout | tar tf -                  # decompress to raw tar stream
+geezipx decompress archive.tar.xz --stdout > raw.tar                    # extract compression layer only
 
 ---
 
@@ -185,10 +190,10 @@ geezipx compress <inputs...> -o <output> [options]
 | `-f`, `--format` | Format: `zip`, `tar`, `tar.gz`, `tgz`, `gz`, `gzip`, `tar.zst`, `tzst`, `zst`, `zstd`, `tar.xz`, `txz`, `xz`, `lzma` (inferred from extension if omitted, defaults to zip) |
 | `-r`, `--recursive` | Recursively add directories |
 - `-L`, `--level` | Compression level 0-9 (gzip/tar.gz/xz/tar.xz, default: 6); 0-22 (zstd/zst/tar.zst/tzst, default: zstd default) |
-| `-j`, `--jobs` | Worker threads: 1 (default, single-threaded), 0 (auto, use all CPUs), or N (explicit). Currently effective for zstd/tar.zst only; other formats accept but ignore for forward compat |
+| `-j`, `--jobs` | Worker threads: 1 (default, single-threaded), 0 (auto, use all CPUs), or N (explicit). Effective for tar.gz (gzp parallel gzip) and zstd/tar.zst (native zstdmt); tar.xz/zip/xz/lzma accept but ignore for forward compat. **Note**: tar.gz `--jobs` does not apply in `--stdin` single-stream mode, only in archive mode
 || `--password` | Encrypt ZIP with AES-256 (ZIP format only). Use `--password-file` to read the password from a file, or `--password-stdin` to read from stdin. These three options are mutually exclusive. For scripting, prefer `--password-file` or `--password-stdin` to avoid exposing the password in the process list |
-|| `--stdin` | Read uncompressed data from stdin (gzip/zstd/xz/lzma only; requires `--format`; mutually exclusive with input files) |
-|| `--stdout` | Write compressed data to stdout (gzip/zstd/xz/lzma only; requires `--format`; mutually exclusive with `--output`) |
+| `--stdin` | Read uncompressed data from stdin (gzip/zstd/xz/lzma single-stream and tar.gz/tar.zst/tar.xz raw tar; requires `--format`; mutually exclusive with input files)
+| `--stdout` | Write compressed data to stdout (gzip/zstd/xz/lzma single-stream and tar.gz/tar.zst/tar.xz raw tar; requires `--format`; mutually exclusive with `--output`)
 
 ### `decompress` — Extract archives
 
@@ -201,8 +206,8 @@ Auto-detects the format via magic bytes (with extension fallback).
 | Option | Description |
 |--------|-------------|
 | `-o`, `--output-dir` | Output directory (default: current directory) |
-| `--stdout` | Decompress to stdout (gzip/zstd/xz/lzma only; errors on multi-file archives like tar.gz, tar.zst, tar.xz) |
-|| `--stdin` | Read compressed data from stdin (gzip/zstd/xz/lzma only; requires `--format`; mutually exclusive with archive file) |
+| `--stdout` | Decompress to stdout. Single-stream (gzip/zstd/xz/lzma): outputs original content. Tar-based (tar.gz/tar.zst/tar.xz): outputs raw tar stream. Errors on multi-file archives (zip/tar/7z/rar)
+| `--stdin` | Read compressed data from stdin (gzip/zstd/xz/lzma and tar.gz/tar.zst/tar.xz; requires `--format`; mutually exclusive with archive file)
 || `-f`, `--format` | Archive/stream format (required with `--stdin`) |
 | `--no-clobber` | Skip files that already exist |
 | `--force` | Overwrite existing files (default; mutually exclusive with `--no-clobber`) |
@@ -457,7 +462,7 @@ All core features are implemented and verified:
 
 ### Phase 2 (CLI Enhancements) — Active Development 🚀
 
-- Multi-threaded zstd/tar.zst compression via `-j`/`--jobs` (zstd native NbWorkers) — **done**
+- Multi-threaded compression via `-j`/`--jobs` — tar.gz (gzp/pigz-style), zstd/tar.zst (native zstdmt) — **done**
 - [x] **ZIP AES-256 password encryption** — `--password`, `--password-file`, `--password-stdin` (ZIP only)
 - XZ / LZMA read/write — **done**
 - TAR.ZST / TAR.XZ archive read/write — **done**
@@ -465,8 +470,8 @@ All core features are implemented and verified:
 - Volume-split archives
 - 7z read-only support
 - RAR read-only support
-- Multi-threading for additional formats such as tar.gz, zip, and xz where practical
-- True stdin pipeline support for script-heavy workflows
+- Multi-threading for additional formats (zip/xz/tar.xz — xz2 does not expose multithread API)
+- stdin/stdout pipeline (single-stream and tar-based formats done; zip/tar/7z/rar multi-file not yet supported)
 - Stable benchmark baselines and mandatory performance regression gates
 
 ### Phase 3 (Desktop GUI) — Future

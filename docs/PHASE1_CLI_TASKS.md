@@ -97,12 +97,12 @@ geezipx compress <inputs...>
   -f, --format <FORMAT>          # zip | tar | tar.gz | tgz | tar.zst | tzst | tar.xz | txz | gz | gzip | zst | zstd | xz | lzma (default: 从扩展名推断或者 zip)
   -o, --output <PATH>            # 输出文件（必填）
   -r, --recursive                # 递归添加目录
-  -j, --jobs <JOBS>              # Worker 线程数: 1(默认单线程), 0(auto), N(指定); 当前 zstd/tar.zst 生效
+  e39|  -j, --jobs <JOBS>              # Worker 线程数: 1(默认单线程), 0(auto), N(指定); tar.gz/tar.zst 生效; tar.xz 接受但暂不生效; --stdin 模式下的 tar.gz 不生效
 
 geezipx decompress <archive>
   -o, --output-dir <PATH>        # 输出目录 (default: .)
-  --stdout                       # 解压到 stdout（仅 gzip/zstd/xz/lzma 单流；tar.gz/tar.zst/tar.xz 等多文件归档时报错）
-  --no-clobber                   # 跳过已存在的输出文件
+  --stdout                       # 解压到 stdout（gzip/zstd/xz/lzma 输出原文；tar.gz/tar.zst/tar.xz 输出裸 tar 流；zip/tar/7z/rar 等多文件归档时报错）
+  526|  --no-clobber                   # 跳过已存在的输出文件
   --force                        # 覆盖已存在的输出文件（默认行为）
 
 geezipx list <archive>
@@ -112,7 +112,7 @@ geezipx list <archive>
   - `--level` 压缩级别 — 已完成（`-L, --level <LEVEL>`，接受 0-22；gzip/tar.gz/xz/lzma/tar.xz 使用 0-9，zstd/zst/tar.zst/tzst 使用 0-22；zip/tar 参数接受但暂不生效）
   - `--no-progress` 进度条控制（opt-out 模式） — 已实现（M3-2）
   - `--no-clobber` 覆盖保护 — 已提前实现（见 M3-4）
-  - `--jobs` 多线程 — 已实现（`-j, --jobs <JOBS>`，默认 1 保持向后兼容；`0` 自动选择可用 CPU 数；当前 `zstd`/`tar.zst` 实际启用多线程，其他格式接受参数但不生效）
+  - `--jobs` 多线程 — 已实现（`-j, --jobs <JOBS>`，默认 1 保持向后兼容；`0` 自动选择可用 CPU 数；tar.gz/tar.zst 实际启用多线程；tar.xz/zip/xz/lzma 接受参数但暂不生效；**注意**：tar.gz 的 `--stdin` 单流模式下 `--jobs` 不生效）
 - **验收标准**：三个子命令均可通过 `--help` 查看参数说明 — 通过（见集成测试 `help_available`）。
 
 ### M2-2：compress 命令实现 ✅
@@ -132,7 +132,7 @@ geezipx list <archive>
 - **实际文件**：`crates/cli/src/commands/decompress.rs`、`crates/cli/src/commands/common.rs`
 - **流程**：文件存在检查 → 格式检测（magic bytes + extension fallback）→ 输出目录创建 → gzip 走独立函数，其他格式用 `extract_all` → 报告
 - **格式检测**：先读 magic bytes（gzip 检测后需通过 `.tar.gz`/`.tgz` 扩展名区分 TarGz），无 magic 则 fallback 到扩展名
-- **`--stdout` 限制**：仅 gzip/zstd/xz/lzma 单流格式支持；tar.gz、tar.zst、tar.xz 等多文件归档使用 `--stdout` 时报错并提示
+- **`--stdout` 行为**：gzip/zstd/xz/lzma 单流输出原文；tar.gz/tar.zst/tar.xz 输出裸 tar 流（见下方 Pipe 模式说明）；zip/tar/7z/rar 等多文件归档使用 `--stdout` 时报错并提示
 - **Zip Slip 防护**：`extract_all` 内置
 - **与原计划差异**：`--no-clobber` 覆盖策略当时未实现，已在 M3-4 中补充（含 `--force` 显式覆盖）
 - **验收标准**：全部通过

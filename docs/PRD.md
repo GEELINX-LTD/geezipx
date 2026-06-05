@@ -46,8 +46,8 @@ GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开�
 | 进度显示 | 进度条，支持 `--progress` / `--no-progress` | **已完成** |
 | 格式自动检测 | 根据文件魔数（magic bytes）自动检测归档格式 | **已完成** |
 | 压缩级别 | `--level 0-9`（gzip/tar.gz/xz/lzma/tar.xz）；`--level 0-22`（zstd/tar.zst） | **已完成** |
-| 多线程压缩 | zstd/tar.zst 支持 `-j`/`--jobs` 多线程并行（zstd native NbWorkers）；其他格式接受参数但暂不生效 | **已完成**（post-Phase-1 增强） |
-| 标准管道 | `--stdout` 支持 gzip/zstd/xz/lzma 单流解压到标准输出；tar.gz/tar.zst/tar.xz 等多文件归档使用 `--stdout` 时报错 | **已完成** |
+| 多线程压缩 | tar.gz/tar.zst 支持 `-j`/`--jobs` 多线程并行（tar.gz: pigz-style via gzp；tar.zst: zstd native NbWorkers）；tar.xz 接受参数但暂不生效（xz2 未暴露多线程 API）；**注意**：tar.gz 的 `--jobs` 在 `--stdin` 单流模式下不生效（仅归档模式有效） | **已完成** |
+| 标准管道 | `--stdout` 支持 gzip/zstd/xz/lzma 单流输出原文；tar.gz/tar.zst/tar.xz 输出裸 tar 流；`--stdin` 支持从 stdin 读取（单流及 tar-based 格式）；zip/tar/7z/rar 等多文件归档使用 `--stdout`/`--stdin` 时报错 | **已完成** |
 | 递归操作 | `-r` 递归添加目录，保持目录结构 | **已完成** |
 | 覆盖保护 | `--no-clobber` / `--force` 覆盖策略 | **已完成** |
 | 列表功能 | 表格 + JSON 输出，支持所有当前格式 | **已完成** |
@@ -79,7 +79,7 @@ GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开�
 ### FR-2: 解压缩
 - `geezipx decompress archive.zip` — 自动检测格式并解压到当前目录
 - `geezipx decompress archive.tar.zst -o /tmp/out` — 指定输出目录（支持 tar.gz、tar.zst、tar.xz 等归档格式）
-- `geezipx decompress archive.zip --stdout` — 解压到标准输出（仅 gzip/zstd/xz/lzma 单流格式支持；tar.gz、tar.zst、tar.xz 等多文件归档使用 `--stdout` 时报错）
+| `geezipx decompress archive.tar.gz --stdout` — 解压到标准输出：tar.gz/tar.zst/tar.xz 输出裸 tar 流；gzip/zstd/xz/lzma 输出原文；**zip/tar/7z/rar 等多文件归档使用会报错**
 
 ### FR-3: 格式自动检测
 - 检查文件头部魔数字节
@@ -106,9 +106,14 @@ GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开�
   - ZIP：逐 entry 触发 CRC-32 校验。
   - TAR：验证头结构、截断和压缩层，无 per-file CRC。
   - 加密 ZIP AES-256 password 保护已支持：`compress --password / --password-file / --password-stdin`。其它格式暂不支持
-- 当前已支持：`--stdout` 将 gzip/zstd/xz/lzma 等**单流格式**解压到标准输出，便于脚本串联。
-- 当前限制：tar.gz、tar.zst、tar.xz、zip、tar 等**多文件归档**使用 `--stdout` 会报错；CLI 仍要求显式传入归档路径，真正 stdin 输入管道仍需设计。
-- 后续方向：在不破坏多文件归档语义的前提下，设计 stdin 输入、tar stream 输出或显式 pipe 子命令。
+- 当前已支持：
+  - `--stdout` 将 gzip/zstd/xz/lzma 等**单流格式**解压到标准输出，便于脚本串联。
+  - `--stdout` 将 tar.gz/tar.zst/tar.xz 等 **tar-based 压缩归档**解压缩层并输出裸 tar 流，便于 `decompress --stdout archive.tar.gz | tar tf -` 管道串联。
+  - `--stdin` 从标准输入读取数据：`compress --stdin -f tar.gz < raw.tar` 接收裸 tar 流并做外层压缩；`decompress --stdin -f gz --stdout` 实现完整管道。
+- 当前限制：
+  - **zip/tar(无压缩)/7z/rar** 等多文件归档使用 `--stdout` 或 `--stdin` 仍会报错。
+  - `--stdin` 模式下需显式 `--format` 指定格式。
+  - tar.gz 的 `--stdin` 模式下 `--jobs` 不生效（gzp 并行 gzip 仅归档模式下有效）。
 
 ## 8. 非功能需求（Non-Functional Requirements）
 
@@ -137,8 +142,8 @@ Phase 2 (CLI 增强)
 ├── 读取 7z（只读）、RAR（只读）
 ├── 密码加密 ZIP (AES-256) — 支持 `--password`、`--password-file`、`--password-stdin`（已完成）
 ├── 密码加密 ZIP (AES-256)
-├── tar.gz/zip/xz 等更多格式的多线程压缩
-├── 真正 stdin 管道输入 / 更完整的脚本集成
+├── zip/xz/tar.xz 多线程压缩（xz2 暂未暴露多线程 API）
+├── stdin/stdout 管道增强（单流 + tar-based 已支持；zip/tar/7z/rar 等多文件格式仍不支持）
 └── 稳定 benchmark 基线与性能吞吐优化
 
 Phase 3 (Tauri GUI)

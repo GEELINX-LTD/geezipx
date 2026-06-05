@@ -28,9 +28,9 @@
 - **Shell 补全** -- bash、zsh、fish、PowerShell、elvish
 - **跨平台** -- Linux、macOS、Windows（三平台 CI）
 - **单一二进制** -- 无运行时依赖，`cargo install` 即装即用
-- **多线程压缩** -- zstd 和 tar.zst 支持 `-j`/`--jobs` 并行压缩
+- **多线程压缩** -- tar.gz（gzp/pigz 风格）、zstd/tar.zst（zstd 原生 NbWorkers）支持 `-j`/`--jobs` 并行压缩
 - **ZIP AES-256 加密** -- 支持 `--password`、`--password-file`、`--password-stdin`（仅限 ZIP 格式）
-- **stdin/stdout 管道支持** -- `compress --stdin`/`--stdout` 和 `decompress --stdin`，支持 gzip/zstd/xz/lzma 单流格式
+- **stdin/stdout 管道支持** -- `compress --stdin`/`--stdout` 和 `decompress --stdin`，支持 gzip/zstd/xz/lzma 单流格式和 tar.gz/tar.zst/tar.xz 裸 tar 流
 |- **7z 只读支持** -- `list`、`decompress`、`test` 支持 7z 格式，可处理 AES-256 加密的 7z
 - **RAR 只读支持** -- 默认启用；支持 `list`、`decompress`、`test`，可处理加密 RAR（首次构建需要 C++ 编译器）
 
@@ -55,7 +55,7 @@
 - Criterion 基准已建立，并已加入手动性能回归阈值检查；稳定基线和强制比较数据仍待完善。
 - PR 覆盖率注释、coverage badge 或 diff coverage 反馈尚未实现。
 - Release workflow 已能为后续 `v*` tag 自动构建二进制；历史 release 可能仍只有源码包，需要逐个 release 页面确认。
-- stdin/stdout 管道支持已完成（gzip/zstd/xz/lzma 单流格式）
+- stdin/stdout 管道支持已完成（单流格式 + tar-based 裸 tar 流；zip/tar/7z/rar 等多文件格式仍不支持）
 - 显式符号链接跟踪、Windows 长路径开关等高级文件系统选项仍属于后续增强。
 
 详细任务拆解参见 [`docs/PHASE1_CLI_TASKS.md`](docs/PHASE1_CLI_TASKS.md)。
@@ -146,7 +146,7 @@ cat hello.txt.gz | geezipx decompress --stdin -f gz -o outdir
 geezipx compress hello.txt -f gz --stdout > hello.gz
 ```
 
-注意：管道模式仅支持 gzip/zstd/xz/lzma 单流格式，不支持 zip/tar/7z。
+注意：管道模式支持 gzip/zstd/xz/lzma 单流格式和 tar.gz/tar.zst/tar.xz 裸 tar 流，不支持 zip/tar/7z/rar 等多文件归档。
 
 geezipx decompress hello.txt.gz --stdout > output.txt
 
@@ -161,6 +161,21 @@ geezipx compress hello.txt -f zst -o hello.txt.zst -j 4
 
 # 内建 glob 展开（压缩 src/ 下所有 .rs 文件）
 geezipx compress src/**/*.rs -f tar.gz -o src-rs.tar.gz
+
+# tar-based 管道示例（裸 tar stdin/stdout）
+注意：tar.gz/tar.zst/tar.xz 的 stdin/stdout 语义是将 stdin 当作裸 tar 流处理，只做外层压缩/解压缩：
+
+```bash
+# stdin -> tar.gz（压缩裸 tar 流到文件）
+cat raw.tar | geezipx compress --stdin -f tar.gz -o archive.tar.gz
+
+# 直接管道：tar -> tar.zst
+tar cf - mydir/ | geezipx compress --stdin -f tar.zst -o mydir.tar.zst
+
+# 归档 -> stdout（解压缩层，输出裸 tar 流）
+geezipx decompress archive.tar.gz --stdout | tar tf -
+geezipx decompress archive.tar.xz --stdout > raw.tar
+```
 
 # 递归压缩目录为 tar.zst
 geezipx compress mydir -r -f tar.zst -o mydir.tar.zst
@@ -216,12 +231,12 @@ geezipx compress <输入文件...> -o <输出文件> [选项]
 | `-f`, `--format` | 格式：`zip`、`tar`、`tar.gz`、`tgz`、`gz`、`gzip`、`tar.zst`、`tzst`、`zst`、`zstd`、`tar.xz`、`txz`、`xz`、`lzma`（省略时从扩展名推断，默认 zip） |
 | `-r`, `--recursive` | 递归添加目录 |
 | `-L`, `--level` | 压缩级别 0-9（gzip/tar.gz/xz/tar.xz，默认 6）；0-22（zstd/zst/tar.zst/tzst，默认使用 zstd 默认级别） |
-| `-j`, `--jobs` | Worker 线程数：1（默认，单线程）、0（自动使用全部 CPU）或 N（显式指定）。当前仅对 zstd/tar.zst 生效；其他格式接受但暂不使用，便于向前兼容 |
+|| `-j`, `--jobs` | Worker 线程数：1（默认，单线程）、0（自动使用全部 CPU）或 N（显式指定）。tar.gz（gzp 并行 gzip）和 zstd/tar.zst（zstd 原生 NbWorkers）实际启用多线程；tar.xz/zip/xz/lzma 接受但不生效（向前兼容）。**注意**：tar.gz 的 `--stdin` 单流模式下不生效（仅归档模式有效） |
 || `--password` | 使用 AES-256 加密 ZIP 归档（仅限 ZIP 格式）。使用 `--password-file` 从文件读取密码，或使用 `--password-stdin` 从标准输入读取。三者互斥。脚本中建议使用 `--password-file` 或 `--password-stdin` 以避免密码暴露在进程列表中 |
 
 ### `decompress` — 解压归档
-|| `--stdin` | 从 stdin 读取未压缩数据（仅 gzip/zstd/xz/lzma；需配合 `--format`；与输入文件互斥） |
-|| `--stdout` | 将压缩结果写入 stdout（仅 gzip/zstd/xz/lzma；需配合 `--format`；与 `--output` 互斥） |
+||| `--stdin` | 从 stdin 读取未压缩数据或裸 tar 流（gzip/zstd/xz/lzma 和 tar.gz/tar.zst/tar.xz；需配合 `--format`；与输入文件互斥） |
+||| `--stdout` | 将压缩结果写入 stdout（gzip/zstd/xz/lzma 和 tar.gz/tar.zst/tar.xz 裸 tar 流；需配合 `--format`；与 `--output` 互斥） |
 
 ```sh
 geezipx decompress <归档文件> [选项]
@@ -232,8 +247,8 @@ geezipx decompress <归档文件> [选项]
 | 选项 | 说明 |
 |------|------|
 | `-o`, `--output-dir` | 输出目录（默认：当前目录） |
-| `--stdout` | 解压到 stdout（仅 gzip/zstd/xz/lzma 单流格式；tar.gz、tar.zst、tar.xz 等多文件归档会报错） |
-|| `--stdin` | 从 stdin 读取压缩数据（仅 gzip/zstd/xz/lzma；需配合 `--format`；与归档文件互斥） |
+|| `--stdout` | 解压到 stdout：gzip/zstd/xz/lzma 输出原文；tar.gz/tar.zst/tar.xz 输出裸 tar 流；zip/tar/7z/rar 等多文件归档会报错 |
+||| `--stdin` | 从 stdin 读取压缩数据或压缩 tar 流（gzip/zstd/xz/lzma 和 tar.gz/tar.zst/tar.xz；需配合 `--format`；与归档文件互斥） |
 || `-f`, `--format` | 归档/流格式（使用 `--stdin` 时必填） |
 | `--no-clobber` | 跳过已存在的文件 |
 | `--force` | 覆盖已存在的文件（默认行为；与 `--no-clobber` 互斥） |
@@ -464,7 +479,7 @@ cargo build --release --workspace
 
 ### 第二阶段（CLI 增强）— 部分已完成 / 规划中
 
-- zstd/tar.zst 多线程压缩（`-j`/`--jobs`，zstd 原生 NbWorkers）— **已完成**
+- tar.gz（gzp/pigz 风格）/ zstd/tar.zst（zstd 原生 NbWorkers）多线程压缩 — **已完成**
 - xz / LZMA 读写 — **已完成**
 - Zstandard 读写 — **已完成**
 - tar.zst / tar.xz 归档格式读写 — **已完成**
@@ -472,8 +487,8 @@ cargo build --release --workspace
 - [ ] 分卷压缩
 - [x] **7z 只读支持**
 - [x] **RAR 只读支持**
-- tar.gz、zip、xz 等更多格式的多线程压缩
-- 面向脚本场景的真正 stdin 管道输入
+- zip/xz/tar.xz 多线程压缩（xz2 暂未暴露多线程 API）
+- stdin/stdout 管道增强（单流 + tar-based 已支持；zip/tar/7z/rar 等多文件格式仍不支持）
 - 稳定 benchmark 基线与强制性能回归门禁
 
 ### 第三阶段（桌面 GUI）— 未来

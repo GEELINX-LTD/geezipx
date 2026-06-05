@@ -79,7 +79,7 @@ pub trait ArchiveWriter: Send {
 | 模块 | 负责 | 依赖 crate |
 |------|------|-----------|
 | `archive::zip` | ZIP 读写（Store/Deflate） | `zip` |
-| `archive::targz` | tar + gzip 组合 | `tar`, `flate2` |
+| `archive::targz` | tar + gzip 组合；`--jobs>1` 启用 gzp 并行 gzip（pigz 风格）；解压用 MultiGzDecoder 兼容 multi-member gzip；stdin 单流模式下不启用并行 | `tar`, `flate2`, `gzp` |
 | `archive::tar` | 纯 tar 打包 | `tar` |
 | `archive::tarzst` | TAR + zstd 组合归档 | `tar`, `zstd` |
 | `archive::gzip` | .gz 单文件压缩 | `flate2` |
@@ -207,7 +207,7 @@ GUI 实现：通过 Tauri `emit` 事件推送进度到前端。
 | `completions` | `<shell>` | 生成指定 Shell 的自动补全脚本 |
 
 全局参数：`--no-progress`（禁用进度条）、`--verbose`（逐文件日志）。
-压缩特有参数：`-j`/`--jobs`（多线程工作数，默认 1 单线程；`0` auto；当前仅 `zstd`/`tar.zst` 实际启用多线程）
+压缩特有参数：`-j`/`--jobs`（多线程工作数，默认 1 单线程；`0` auto；tar.gz/tar.zst 实际启用多线程；tar.xz/zip/xz/lzma 接受参数但暂不生效；**注意**：tar.gz 的 `--stdin` 单流模式不使用 `--jobs`）
 
 ### 2.7 cli/render — 输出渲染
 
@@ -224,6 +224,7 @@ GUI 实现：通过 Tauri `emit` 事件推送进度到前端。
 | `zip` 2.x | ZIP 格式读写（`default-features = false`，仅 `deflate`） |
 | `tar` 0.4 | tar 归档包 |
 | `flate2` 1.x | gzip/deflate（`rust_backend` — 纯 Rust，无 C 依赖） |
+| `gzp` 0.11 | tar.gz 并行 gzip 压缩（`deflate_rust` feature — 纯 Rust）；当 `CompressOptions.effective_jobs() > 1` 时使用 `ParCompress` 实现 pigz 风格分块并行压缩 |
 | `thiserror` 2 | 错误类型 derive |
 | `log` 0.4 | 日志门面 |
 | `xz2` 0.1 | xz (.xz) / LZMA (.lzma) 单流压缩/解压（features = ["static"] — 静态链接 liblzma；当前无稳定多线程 API，`--jobs` 向前兼容占位） |
