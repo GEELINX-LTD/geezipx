@@ -1,0 +1,33 @@
+<svg width="100%" height="100%" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg" role="img">
+  <defs>
+    <linearGradient id="r1Bg" x1="26" y1="22" x2="174" y2="178" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#101820"/>
+      <stop offset="1" stop-color="#05070a"/>
+    </linearGradient>
+    <linearGradient id="r1Top" x1="46" y1="44" x2="154" y2="96" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#f7f3e8"/>
+      <stop offset="1" stop-color="#45ead4"/>
+    </linearGradient>
+    <linearGradient id="r1Bottom" x1="46" y1="104" x2="154" y2="156" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#d8ff4f"/>
+      <stop offset="1" stop-color="#ff9a2a"/>
+    </linearGradient>
+    <filter id="r1Shadow" x="-20%" y="-20%" width="140%" height="150%">
+      <feDropShadow dx="0" dy="12" stdDeviation="9" flood-color="#000000" flood-opacity="0.32"/>
+    </filter>
+  </defs>
+
+  <rect x="22" y="22" width="156" height="156" rx="42" fill="url(#r1Bg)"/>
+  <g filter="url(#r1Shadow)">
+    <path d="M46 66C60 47 86 41 100 62C114 41 140 47 154 66L128 94C119 84 110 79 100 79C90 79 81 84 72 94L46 66Z" fill="url(#r1Top)"/>
+    <path d="M46 134C60 153 86 159 100 138C114 159 140 153 154 134L128 106C119 116 110 121 100 121C90 121 81 116 72 106L46 134Z" fill="url(#r1Bottom)"/>
+    <rect x="86" y="54" width="28" height="92" rx="14" fill="#080b10"/>
+  </g>
+  <g fill="#ffe36e">
+    <rect x="95" y="66" width="10" height="10" rx="3"/>
+    <rect x="95" y="83" width="10" height="10" rx="3"/>
+    <rect x="95" y="100" width="10" height="10" rx="3"/>
+    <rect x="95" y="117" width="10" height="10" rx="3"/>
+  </g>
+  <circle cx="100" cy="143" r="7" fill="#ff7a1a"/>
+</svg>
