@@ -40,6 +40,8 @@ let browserArchivePath = "";
 let browserPassword = "";
 let browserCurrentDir = "";
 let browserSelected = new Set<string>();
+let browserExtractRunning = false;
+let browserExtractToken = 0;
 let currentDragTempId = "";
 let currentDragTimeout: ReturnType<typeof setTimeout> | null = null;
 const DRAG_CLEANUP_TIMEOUT_MS = 60_000;
@@ -169,6 +171,23 @@ function inferOutputDir(archivePath: string): string {
   const base = getBasename(archivePath);
   const stem = stripArchiveExt(base);
   return `${parent}/${stem}_extracted`;
+}
+
+function syncExtractFormFromArchive(archivePath: string, password = "") {
+  const archiveInput = el<HTMLInputElement>("extract-archive");
+  const outputInput = el<HTMLInputElement>("extract-output");
+  const passwordInput = el<HTMLInputElement>("extract-password");
+  const previousArchive = archiveInput.value.trim();
+
+  archiveInput.value = archivePath;
+  if (!outputInput.value.trim() || previousArchive !== archivePath) {
+    outputInput.value = inferOutputDir(archivePath);
+  }
+  passwordInput.value = password;
+}
+
+function syncBrowserExtractOutputFromArchive(archivePath: string) {
+  el<HTMLInputElement>("browser-extract-output").value = inferOutputDir(archivePath);
 }
 
 // ---------------------------------------------------------------------------
@@ -402,22 +421,29 @@ function renderBreadcrumb() {
 function renderArchiveBrowser() {
   const panel = el("list-result");
   const children = getCurrentDirChildren();
+  const entryCount = browserEntries.length;
+  const hasArchive = browserArchivePath.trim().length > 0;
 
-  if (children.length === 0) {
-    panel.innerHTML = `<div class="result-empty">This directory is empty.</div>`;
-    el("browser-bar").style.display = "none";
+  el("browser-bar").style.display = hasArchive ? "flex" : "none";
+  if (!hasArchive) {
+    panel.innerHTML = `<div class="result-empty">Select an archive and click Open Archive</div>`;
     el("browser-preview").style.display = "none";
+    updateSelectionUI();
     return;
   }
 
-  // Show browser bar
-  el("browser-bar").style.display = "flex";
-
-  // Render breadcrumb
   renderBreadcrumb();
 
+  if (children.length === 0) {
+    panel.innerHTML = `
+      <div class="browser-info">Archive: ${entryCount} entr${entryCount === 1 ? "y" : "ies"} &middot; showing 0 items</div>
+      <div class="result-empty">This directory is empty.</div>`;
+    el("browser-preview").style.display = "none";
+    updateSelectionUI();
+    return;
+  }
+
   // Build table rows
-  const entryCount = browserEntries.length;
   let rows = "";
   for (let i = 0; i < children.length; i++) {
     const { name, isDir, entry } = children[i];
@@ -673,63 +699,256 @@ async function showPreview(path: string) {
 // Archive Browser — selection & extraction
 // ---------------------------------------------------------------------------
 
-function updateSelectionUI() {
-  const count = el("browser-selection-count");
-  const btn = el<HTMLButtonElement>("browser-extract-selected");
+function beginBrowserExtract(): number | null {
+  if (!browserArchivePath || browserExtractRunning) {
+    return null;
+  }
 
-  const selectedCount = browserSelected.size;
-  count.textContent = selectedCount > 0 ? `${selectedCount} selected` : "";
-  btn.disabled = selectedCount === 0;
+  browserExtractRunning = true;
+  browserExtractToken += 1;
+  updateSelectionUI();
+  return browserExtractToken;
 }
 
-async function extractSelected() {
-  if (browserSelected.size === 0) return;
+function finishBrowserExtract(token: number) {
+  if (browserExtractToken !== token) {
+    return;
+  }
 
-  const outputDir = await pickDirectory();
-  if (!outputDir) return;
+  browserExtractRunning = false;
+  updateSelectionUI();
+}
 
-  const entryPaths = Array.from(browserSelected);
-  const taskId = `task-extract-entries-${Date.now()}`;
+function isBrowserExtractBlocked(): boolean {
+  if (!browserExtractRunning) {
+    return false;
+  }
 
-  btnDisabled("browser-extract-selected", true);
-  el("browser-extract-selected").textContent = "Extracting...";
+  if (browserArchivePath) {
+    el<HTMLInputElement>("list-archive").value = browserArchivePath;
+    renderArchiveBrowser();
+  }
+  el<HTMLInputElement>("list-password").value = browserPassword;
+  renderBrowserExtractError("Extraction is running, wait until it finishes.");
+  return true;
+}
+
+function updateSelectionUI() {
+  const count = el("browser-selection-count");
+  const extractAllBtn = el<HTMLButtonElement>("browser-extract-all");
+  const extractSelectedBtn = el<HTMLButtonElement>("browser-extract-selected");
+  const extractOutputInput = el<HTMLInputElement>("browser-extract-output");
+  const extractOutputBtn = el<HTMLButtonElement>("browser-extract-output-btn");
+  const listArchiveInput = el<HTMLInputElement>("list-archive");
+  const listArchiveBtn = el<HTMLButtonElement>("list-archive-btn");
+  const listRunBtn = el<HTMLButtonElement>("list-run");
+  const listPasswordInput = el<HTMLInputElement>("list-password");
+
+  const hasArchive = browserArchivePath.trim().length > 0;
+  const selectedCount = browserSelected.size;
+  count.textContent = browserExtractRunning
+    ? selectedCount > 0
+      ? `${selectedCount} selected · extracting...`
+      : "Extracting..."
+    : selectedCount > 0
+      ? `${selectedCount} selected`
+      : "";
+  extractAllBtn.disabled = !hasArchive || browserExtractRunning;
+  extractSelectedBtn.disabled = !hasArchive || browserExtractRunning || selectedCount === 0;
+  extractOutputInput.disabled = !hasArchive || browserExtractRunning;
+  extractOutputBtn.disabled = !hasArchive || browserExtractRunning;
+  listArchiveInput.disabled = browserExtractRunning;
+  listArchiveBtn.disabled = browserExtractRunning;
+  listRunBtn.disabled = browserExtractRunning;
+  listPasswordInput.disabled = browserExtractRunning;
+}
+
+function buildExtractErrorsHtml(errors: ExtractArchiveResult["errors"]): string {
+  if (errors.length === 0) {
+    return "";
+  }
+
+  return `
+    <div style="margin-top:0.5rem">
+      <p style="color:var(--red);font-size:0.8rem">Per-file errors:</p>
+      <ul style="padding-left:1.2rem;font-size:0.8rem;color:var(--text-muted)">
+        ${errors
+          .map(
+            (error) =>
+              `<li>${escapeHtml(error.path)}: ${escapeHtml(error.message)}</li>`,
+          )
+          .join("")}
+      </ul>
+    </div>`;
+}
+
+function clearBrowserOperationFeedback() {
+  el("list-result")
+    .querySelectorAll(".browser-operation-feedback")
+    .forEach((node) => node.remove());
+}
+
+function renderBrowserExtractFeedback(
+  title: string,
+  outputDir: string,
+  result: ExtractArchiveResult,
+) {
+  clearBrowserOperationFeedback();
+
+  const feedback = document.createElement("div");
+  feedback.className = "browser-operation-feedback";
+  feedback.innerHTML = `
+    <div class="success-message">${escapeHtml(title)}</div>
+    <div class="result-summary" style="margin-top:0.75rem">
+      <div class="result-summary-item">
+        <span class="label">Files Extracted</span>
+        <span class="value">${result.files_extracted}</span>
+      </div>
+      <div class="result-summary-item">
+        <span class="label">Bytes Extracted</span>
+        <span class="value">${formatBytes(result.bytes_extracted)}</span>
+      </div>
+      <div class="result-summary-item">
+        <span class="label">Skipped</span>
+        <span class="value">${result.files_skipped}</span>
+      </div>
+    </div>
+    ${buildExtractErrorsHtml(result.errors)}
+    <div class="result-footer">
+      <button class="btn-reveal" data-path="${escapeHtml(outputDir)}" data-action="reveal">
+        \u{1F4C2} Reveal in Folder
+      </button>
+      <button class="btn-reveal" data-path="${escapeHtml(outputDir)}" data-action="open">
+        \u{1F4C1} Open Folder
+      </button>
+    </div>`;
+
+  el("list-result").appendChild(feedback);
+  addRecent(outputDir);
+  wireRevealButtons(feedback);
+}
+
+function renderBrowserExtractError(msg: string) {
+  clearBrowserOperationFeedback();
+
+  const feedback = document.createElement("div");
+  feedback.className = "browser-operation-feedback";
+  feedback.innerHTML = `<div class="error-message">${escapeHtml(msg)}</div>`;
+  el("list-result").appendChild(feedback);
+}
+
+async function runExtractAll() {
+  if (!browserArchivePath) {
+    renderBrowserExtractError("Please open an archive first.");
+    return;
+  }
+
+  syncExtractFormFromArchive(browserArchivePath, browserPassword);
+  const outputInput = el<HTMLInputElement>("browser-extract-output");
+  if (!outputInput.value.trim()) {
+    outputInput.value = inferOutputDir(browserArchivePath);
+  }
+
+  const outputDir = outputInput.value.trim();
+  if (!outputDir) {
+    renderBrowserExtractError("Could not determine an output directory.");
+    return;
+  }
+
+  const token = beginBrowserExtract();
+  if (token === null) {
+    return;
+  }
+
+  const archivePath = browserArchivePath;
+  const password = browserPassword;
+  const overwrite = el<HTMLInputElement>("browser-overwrite").checked;
+  el<HTMLInputElement>("extract-overwrite").checked = overwrite;
+
+  const extractAllBtn = el<HTMLButtonElement>("browser-extract-all");
+  const taskId = `task-extract-all-${Date.now()}`;
+
+  extractAllBtn.textContent = "Extracting...";
+  clearBrowserOperationFeedback();
 
   try {
-    const result = await extractEntries(
-      browserArchivePath,
-      entryPaths,
+    const result = await extractArchive(
+      archivePath,
       outputDir,
-      el<HTMLInputElement>("browser-overwrite").checked,
-      browserPassword || undefined,
+      overwrite,
+      password || undefined,
       taskId,
     );
 
-    // Add output dir to recent files
-    addRecent(outputDir);
+    if (browserExtractToken !== token || browserArchivePath !== archivePath) {
+      return;
+    }
 
-    // Show success message
-    const panel = el("list-result");
-    const successDiv = document.createElement("div");
-    successDiv.innerHTML = `
-      <div class="success-message" style="margin-top:0.75rem">
-        Extracted ${result.files_extracted} entr${result.files_extracted === 1 ? "y" : "ies"} successfully
-        ${result.errors.length > 0 ? `<span style="color:var(--red)"> (${result.errors.length} error${result.errors.length === 1 ? "" : "s"})</span>` : ""}
-      </div>
-      <div class="result-footer">
-        <button class="btn-reveal" data-path="${escapeHtml(outputDir)}" data-action="reveal">\u{1F4C2} Reveal in Folder</button>
-        <button class="btn-reveal" data-path="${escapeHtml(outputDir)}" data-action="open">\u{1F4C1} Open Folder</button>
-      </div>`;
-    panel.appendChild(successDiv);
-
-    wireRevealButtons(successDiv);
+    renderBrowserExtractFeedback("Archive extracted successfully", outputDir, result);
   } catch (e) {
-    const panel = el("list-result");
-    const errDiv = document.createElement("div");
-    errDiv.innerHTML = `<div class="error-message" style="margin-top:0.75rem">${escapeHtml(String(e))}</div>`;
-    panel.appendChild(errDiv);
+    if (browserExtractToken === token) {
+      renderBrowserExtractError(String(e));
+    }
   } finally {
-    btnDisabled("browser-extract-selected", false);
-    el("browser-extract-selected").textContent = "Extract Selected";
+    extractAllBtn.textContent = "Extract All";
+    finishBrowserExtract(token);
+  }
+}
+
+async function extractSelected() {
+  if (!browserArchivePath || browserSelected.size === 0) return;
+
+  const token = beginBrowserExtract();
+  if (token === null) {
+    return;
+  }
+
+  const archivePath = browserArchivePath;
+  const password = browserPassword;
+  const entryPaths = Array.from(browserSelected);
+  const overwrite = el<HTMLInputElement>("browser-overwrite").checked;
+  const taskId = `task-extract-entries-${Date.now()}`;
+  const extractSelectedBtn = el<HTMLButtonElement>("browser-extract-selected");
+
+  extractSelectedBtn.textContent = "Choose Output...";
+
+  try {
+    const outputDir = await pickDirectory();
+    if (!outputDir) {
+      return;
+    }
+
+    if (!browserExtractRunning || browserExtractToken !== token || browserArchivePath !== archivePath) {
+      return;
+    }
+
+    syncExtractFormFromArchive(archivePath, password);
+    el<HTMLInputElement>("extract-overwrite").checked = overwrite;
+
+    extractSelectedBtn.textContent = "Extracting...";
+    clearBrowserOperationFeedback();
+
+    const result = await extractEntries(
+      archivePath,
+      entryPaths,
+      outputDir,
+      overwrite,
+      password || undefined,
+      taskId,
+    );
+
+    if (browserExtractToken !== token || browserArchivePath !== archivePath) {
+      return;
+    }
+
+    renderBrowserExtractFeedback("Selected entries extracted successfully", outputDir, result);
+  } catch (e) {
+    if (browserExtractToken === token) {
+      renderBrowserExtractError(String(e));
+    }
+  } finally {
+    extractSelectedBtn.textContent = "Extract Selected";
+    finishBrowserExtract(token);
   }
 }
 
@@ -807,21 +1026,7 @@ function renderCompressResult(result: CompressArchiveResult) {
 
 function renderExtractResult(result: ExtractArchiveResult) {
   const outputDir = el<HTMLInputElement>("extract-output").value.trim();
-  let errorsHtml = "";
-  if (result.errors.length > 0) {
-    errorsHtml =
-      `<div style="margin-top:0.5rem">
-        <p style="color:var(--red);font-size:0.8rem">Per-file errors:</p>
-        <ul style="padding-left:1.2rem;font-size:0.8rem;color:var(--text-muted)">
-          ${result.errors
-            .map(
-              (e) =>
-                `<li>${escapeHtml(e.path)}: ${escapeHtml(e.message)}</li>`,
-            )
-            .join("")}
-        </ul>
-      </div>`;
-  }
+  const errorsHtml = buildExtractErrorsHtml(result.errors);
 
   el("extract-result").innerHTML = `
     <div class="success-message">Extraction completed successfully</div>
@@ -1125,35 +1330,48 @@ async function runList() {
 
 /** Run list with an explicit archive path (from drop, recent chip, opened-archives, etc.) */
 async function runListWithPath(archivePath: string) {
+  if (isBrowserExtractBlocked()) {
+    return;
+  }
+
+  el<HTMLInputElement>("list-archive").value = archivePath;
   const password = el<HTMLInputElement>("list-password").value.trim() || undefined;
 
   const runButton = el<HTMLButtonElement>("list-run");
   runButton.disabled = true;
+  browserEntries = [];
+  browserArchivePath = "";
+  browserPassword = password ?? "";
+  browserCurrentDir = "";
+  browserSelected.clear();
+  updateSelectionUI();
+  el("browser-bar").style.display = "none";
+  el("browser-preview").style.display = "none";
   el("list-result").innerHTML =
     `<div class="running-text"><span class="running-spinner"></span> Listing contents...</div>`;
-  // Hide preview
-  el("browser-preview").style.display = "none";
 
   try {
     const entries = await listArchive(archivePath, password);
-    // Store browser state
     browserEntries = entries;
     browserArchivePath = archivePath;
     browserPassword = password ?? "";
     browserCurrentDir = "";
     browserSelected.clear();
 
-    // Add archive to recent files
-    addRecent(archivePath);
+    syncExtractFormFromArchive(archivePath, browserPassword);
+    syncBrowserExtractOutputFromArchive(archivePath);
 
-    // Render the interactive browser
+    addRecent(archivePath);
     renderArchiveBrowser();
   } catch (e) {
+    browserArchivePath = "";
     showError("list-result", String(e));
+    updateSelectionUI();
   } finally {
     runButton.disabled = false;
   }
 }
+
 
 async function runTest() {
   const archivePath = el<HTMLInputElement>("test-archive").value.trim();
@@ -1314,7 +1532,14 @@ window.addEventListener("DOMContentLoaded", async () => {
     el<HTMLInputElement>("list-archive").value = path;
   });
 
+  el("browser-extract-output-btn").addEventListener("click", async () => {
+    const path = await pickDirectory();
+    if (!path) return;
+    el<HTMLInputElement>("browser-extract-output").value = path;
+  });
+
   el("list-run").addEventListener("click", runList);
+  el("browser-extract-all").addEventListener("click", runExtractAll);
 
   // Browser: Extract Selected button
   el("browser-extract-selected").addEventListener("click", extractSelected);

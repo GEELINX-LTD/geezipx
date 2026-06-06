@@ -12,7 +12,7 @@
       <div class="drop-overlay-content">
         <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
         <p>Drop files or folders here</p>
-        <span class="drop-hint">Release to start — archives auto-switch to Extract, files to Compress</span>
+        <span class="drop-hint">Release to start — archives auto-open in Browse, files to Compress</span>
       </div>
     </div>
 
@@ -26,8 +26,8 @@
         <!-- Mode Tabs -->
         <nav id="mode-tabs" role="tablist">
           <button class="mode-tab active" data-mode="compress" role="tab" aria-selected="true" aria-controls="panel-compress">Compress</button>
-          <button class="mode-tab" data-mode="extract" role="tab" aria-selected="false" aria-controls="panel-extract">Extract</button>
-          <button class="mode-tab" data-mode="list" role="tab" aria-selected="false" aria-controls="panel-list">List</button>
+          <button class="mode-tab mode-tab-secondary" data-mode="extract" role="tab" aria-selected="false" aria-controls="panel-extract">Extract (Advanced)</button>
+          <button class="mode-tab" data-mode="list" role="tab" aria-selected="false" aria-controls="panel-list">Browse</button>
           <button class="mode-tab" data-mode="test" role="tab" aria-selected="false" aria-controls="panel-test">Test</button>
         </nav>
 
@@ -150,6 +150,7 @@
           <div id="browser-bar" class="browser-bar" style="display:none">
             <div id="browser-breadcrumb" class="browser-breadcrumb"></div>
             <div class="browser-actions">
+              <button id="browser-extract-all" class="btn-primary" disabled>Extract All</button>
               <button id="browser-extract-selected" class="btn-secondary" disabled>Extract Selected</button>
               <span id="browser-drag-status" class="drag-status">Drag rows out to desktop</span>
               <span id="browser-selection-count" class="browser-selection-count"></span>
@@ -158,6 +159,13 @@
                 Overwrite existing files
               </label>
             </div>
+          <div class="browser-extract-target">
+            <label for="browser-extract-output">Extract All Output</label>
+            <div class="input-row">
+              <input type="text" id="browser-extract-output" placeholder="Auto-filled from archive..." />
+              <button id="browser-extract-output-btn" class="btn-secondary">Browse</button>
+            </div>
+          </div>
           </div>
 
           <div id="list-result" class="result-panel">
