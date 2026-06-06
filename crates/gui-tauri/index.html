@@ -17,200 +17,240 @@
     </div>
 
     <div id="app">
-      <header>
-        <h1>GeeZipX</h1>
-        <p class="subtitle">High-performance compression/decompression tool</p>
-      </header>
-
-      <main>
-        <!-- Mode Tabs -->
-        <nav id="mode-tabs" role="tablist">
-          <button class="mode-tab active" data-mode="compress" role="tab" aria-selected="true" aria-controls="panel-compress">Compress</button>
-          <button class="mode-tab mode-tab-secondary" data-mode="extract" role="tab" aria-selected="false" aria-controls="panel-extract">Extract (Advanced)</button>
-          <button class="mode-tab" data-mode="list" role="tab" aria-selected="false" aria-controls="panel-list">Browse</button>
-          <button class="mode-tab" data-mode="test" role="tab" aria-selected="false" aria-controls="panel-test">Test</button>
-        </nav>
-
-        <!-- Recent files bar -->
-        <div id="recent-bar" class="recent-bar" style="display:none">
-          <span class="recent-label">Recent</span>
-          <div id="recent-chips" class="recent-chips"></div>
+      <aside id="sidebar">
+        <div class="sidebar-header">
+          <h2>GeeZipX</h2>
         </div>
+        <nav id="sidebar-nav">
+          <button class="nav-item active" data-mode="home">🏠 主页</button>
+          <button class="nav-item" data-mode="compress">📦 压缩</button>
+          <button class="nav-item" data-mode="extract">📂 解压缩</button>
+          <button class="nav-item" data-mode="settings">⚙️ 设置</button>
+          <button class="nav-item" data-mode="about">ℹ️ 关于</button>
+        </nav>
+      </aside>
 
-        <!-- ===================== COMPRESS PANEL ===================== -->
-        <section id="panel-compress" class="panel active" role="tabpanel" aria-labelledby="compress-tab">
-          <div class="field">
-            <label>Source Files</label>
-            <div class="input-row">
-              <input type="text" id="compress-sources" readonly placeholder="Drop files here or click Browse..." />
-              <button id="compress-source-btn" class="btn-secondary">Browse</button>
-            </div>
-            <div id="compress-source-chips" class="file-chips"></div>
+      <div class="app-content">
+        <header>
+          <h1 id="page-title">主页</h1>
+        </header>
+
+        <main>
+          <!-- Recent files bar -->
+          <div id="recent-bar" class="recent-bar" style="display:none">
+            <span class="recent-label">Recent</span>
+            <div id="recent-chips" class="recent-chips"></div>
           </div>
 
-          <div class="field">
-            <label>Output Archive</label>
-            <div class="input-row">
-              <input type="text" id="compress-output" readonly placeholder="Auto-filled from source..." />
-              <button id="compress-output-btn" class="btn-secondary">Save As</button>
-            </div>
-          </div>
-
-          <div class="field">
-            <label>Format</label>
-            <select id="compress-format"></select>
-          </div>
-
-          <div class="field-row">
+          <!-- ===================== COMPRESS PANEL ===================== -->
+          <section id="panel-compress" class="panel" role="tabpanel">
             <div class="field">
-              <label>Compression Level</label>
-              <input type="number" id="compress-level" min="0" max="22" placeholder="Auto" />
+              <label>Source Files</label>
+              <div class="input-row">
+                <input type="text" id="compress-sources" readonly placeholder="Drop files here or click Browse..." />
+                <button id="compress-source-btn" class="btn-secondary">Browse</button>
+              </div>
+              <div id="compress-source-chips" class="file-chips"></div>
             </div>
+
             <div class="field">
-              <label>Jobs (threads)</label>
-              <input type="number" id="compress-jobs" min="1" placeholder="Auto" />
+              <label>Output Archive</label>
+              <div class="input-row">
+                <input type="text" id="compress-output" readonly placeholder="Auto-filled from source..." />
+                <button id="compress-output-btn" class="btn-secondary">Save As</button>
+              </div>
             </div>
-          </div>
 
-          <div class="field">
-            <label>Password (ZIP only)</label>
-            <input type="password" id="compress-password" placeholder="Optional — leave empty for no encryption" />
-          </div>
-
-          <div class="actions">
-            <button id="compress-run" class="btn-primary">Compress</button>
-            <button id="compress-cancel" class="btn-cancel" style="visibility:hidden" aria-hidden="true">Cancel</button>
-          </div>
-
-          <div id="compress-result" class="result-panel">
-            <div class="result-empty">Configure sources above and click Compress</div>
-          </div>
-        </section>
-
-        <!-- ===================== EXTRACT PANEL ===================== -->
-        <section id="panel-extract" class="panel" role="tabpanel" aria-labelledby="extract-tab">
-          <div class="field">
-            <label>Archive File</label>
-            <div class="input-row">
-              <input type="text" id="extract-archive" readonly placeholder="Drop archive here or click Browse..." />
-              <button id="extract-archive-btn" class="btn-secondary">Browse</button>
+            <div class="field">
+              <label>Format</label>
+              <select id="compress-format"></select>
             </div>
-          </div>
 
-          <div class="field">
-            <label>Output Directory</label>
-            <div class="input-row">
-              <input type="text" id="extract-output" readonly placeholder="Auto-filled from archive..." />
-              <button id="extract-output-btn" class="btn-secondary">Browse</button>
+            <div class="field-row">
+              <div class="field">
+                <label>Compression Level</label>
+                <input type="number" id="compress-level" min="0" max="22" placeholder="Auto" />
+              </div>
+              <div class="field">
+                <label>Jobs (threads)</label>
+                <input type="number" id="compress-jobs" min="1" placeholder="Auto" />
+              </div>
             </div>
-          </div>
 
-          <div class="field">
-            <label class="checkbox-label">
-              <input type="checkbox" id="extract-overwrite" checked />
-              Overwrite existing files
-            </label>
-          </div>
-
-          <div class="field">
-            <label>Password (for encrypted archives)</label>
-            <input type="password" id="extract-password" placeholder="Optional — leave empty for no password" />
-          </div>
-
-          <div class="actions">
-            <button id="extract-run" class="btn-primary">Extract</button>
-            <button id="extract-cancel" class="btn-cancel" style="visibility:hidden" aria-hidden="true">Cancel</button>
-          </div>
-
-          <div id="extract-result" class="result-panel">
-            <div class="result-empty">Select an archive and output directory</div>
-          </div>
-        </section>
-
-        <!-- ===================== LIST PANEL ===================== -->
-        <section id="panel-list" class="panel" role="tabpanel" aria-labelledby="list-tab">
-          <div class="field">
-            <label>Archive File</label>
-            <div class="input-row">
-              <input type="text" id="list-archive" readonly placeholder="Drop archive here or click Browse..." />
-              <button id="list-archive-btn" class="btn-secondary">Browse</button>
+            <div class="field">
+              <label>Password (ZIP only)</label>
+              <input type="password" id="compress-password" placeholder="Optional — leave empty for no encryption" />
             </div>
-          </div>
 
-          <div class="field">
-            <label>Password (for encrypted archives)</label>
-            <input type="password" id="list-password" placeholder="Optional — leave empty for no password" />
-          </div>
+            <div class="actions">
+              <button id="compress-run" class="btn-primary">Compress</button>
+              <button id="compress-cancel" class="btn-cancel" style="visibility:hidden" aria-hidden="true">Cancel</button>
+            </div>
 
-          <div class="actions">
-            <button id="list-run" class="btn-primary">Open Archive</button>
-          </div>
+            <div id="compress-result" class="result-panel">
+              <div class="result-empty">Configure sources above and click Compress</div>
+            </div>
+          </section>
 
-          <!-- Archive browser bar (breadcrumb + actions) -->
-          <div id="browser-bar" class="browser-bar" style="display:none">
-            <div id="browser-breadcrumb" class="browser-breadcrumb"></div>
-            <div class="browser-actions">
-              <button id="browser-extract-all" class="btn-primary" disabled>Extract All</button>
-              <button id="browser-extract-selected" class="btn-secondary" disabled>Extract Selected</button>
-              <span id="browser-drag-status" class="drag-status">Drag rows out to desktop</span>
-              <span id="browser-selection-count" class="browser-selection-count"></span>
-              <label class="checkbox-label browser-overwrite-label">
-                <input type="checkbox" id="browser-overwrite" />
+          <!-- ===================== EXTRACT PANEL ===================== -->
+          <section id="panel-extract" class="panel" role="tabpanel">
+            <div class="field">
+              <label>Archive File</label>
+              <div class="input-row">
+                <input type="text" id="extract-archive" readonly placeholder="Drop archive here or click Browse..." />
+                <button id="extract-archive-btn" class="btn-secondary">Browse</button>
+              </div>
+            </div>
+
+            <div class="field">
+              <label>Output Directory</label>
+              <div class="input-row">
+                <input type="text" id="extract-output" readonly placeholder="Auto-filled from archive..." />
+                <button id="extract-output-btn" class="btn-secondary">Browse</button>
+              </div>
+            </div>
+
+            <div class="field">
+              <label class="checkbox-label">
+                <input type="checkbox" id="extract-overwrite" checked />
                 Overwrite existing files
               </label>
             </div>
-          <div class="browser-extract-target">
-            <label for="browser-extract-output">Extract All Output</label>
-            <div class="input-row">
-              <input type="text" id="browser-extract-output" placeholder="Auto-filled from archive..." />
-              <button id="browser-extract-output-btn" class="btn-secondary">Browse</button>
+
+            <div class="field">
+              <label>Password (for encrypted archives)</label>
+              <input type="password" id="extract-password" placeholder="Optional — leave empty for no password" />
             </div>
-          </div>
-          </div>
 
-          <div id="list-result" class="result-panel">
-            <div class="result-empty">Select an archive and click Open Archive</div>
-          </div>
-
-          <!-- Preview panel -->
-          <div id="browser-preview" class="browser-preview" style="display:none">
-            <div class="preview-header">
-              <span id="preview-title" class="preview-title"></span>
-              <span id="preview-size" class="preview-size"></span>
-              <button id="preview-close" class="btn-secondary preview-close-btn">&times;</button>
+            <div class="actions">
+              <button id="extract-run" class="btn-primary">Extract</button>
+              <button id="extract-cancel" class="btn-cancel" style="visibility:hidden" aria-hidden="true">Cancel</button>
             </div>
-            <pre id="preview-content" class="preview-content"></pre>
-          </div>
-        </section>
 
-        <!-- ===================== TEST PANEL ===================== -->
-        <section id="panel-test" class="panel" role="tabpanel" aria-labelledby="test-tab">
-          <div class="field">
-            <label>Archive File</label>
-            <div class="input-row">
-              <input type="text" id="test-archive" readonly placeholder="Drop archive here or click Browse..." />
-              <button id="test-archive-btn" class="btn-secondary">Browse</button>
+            <div id="extract-result" class="result-panel">
+              <div class="result-empty">Select an archive and output directory</div>
             </div>
-          </div>
+          </section>
 
-          <div class="field">
-            <label>Password (for encrypted archives)</label>
-            <input type="password" id="test-password" placeholder="Optional — leave empty for no password" />
-          </div>
+          <!-- ===================== LIST PANEL ===================== -->
+          <section id="panel-list" class="panel" role="tabpanel">
+            <div class="field">
+              <label>Archive File</label>
+              <div class="input-row">
+                <input type="text" id="list-archive" readonly placeholder="Drop archive here or click Browse..." />
+                <button id="list-archive-btn" class="btn-secondary">Browse</button>
+              </div>
+            </div>
 
-          <div class="actions">
-            <button id="test-run" class="btn-primary">Test Integrity</button>
-          </div>
+            <div class="field">
+              <label>Password (for encrypted archives)</label>
+              <input type="password" id="list-password" placeholder="Optional — leave empty for no password" />
+            </div>
 
-          <div id="test-result" class="result-panel">
-            <div class="result-empty">Select an archive and click Test Integrity</div>
-          </div>
-        </section>
-      </main>
+            <div class="actions">
+              <button id="list-run" class="btn-primary">Open Archive</button>
+            </div>
 
-      <footer>
-        <p>GeeZipX v0.4.0 &mdash; Desktop GUI</p>
-      </footer>
+            <!-- Archive browser bar (breadcrumb + actions) -->
+            <div id="browser-bar" class="browser-bar" style="display:none">
+              <div id="browser-breadcrumb" class="browser-breadcrumb"></div>
+              <div class="browser-actions">
+                <button id="browser-extract-all" class="btn-primary" disabled>Extract All</button>
+                <button id="browser-extract-selected" class="btn-secondary" disabled>Extract Selected</button>
+                <span id="browser-drag-status" class="drag-status">Drag rows out to desktop</span>
+                <span id="browser-selection-count" class="browser-selection-count"></span>
+                <label class="checkbox-label browser-overwrite-label">
+                  <input type="checkbox" id="browser-overwrite" />
+                  Overwrite existing files
+                </label>
+              </div>
+              <div class="browser-extract-target">
+                <label for="browser-extract-output">Extract All Output</label>
+                <div class="input-row">
+                  <input type="text" id="browser-extract-output" placeholder="Auto-filled from archive..." />
+                  <button id="browser-extract-output-btn" class="btn-secondary">Browse</button>
+                </div>
+              </div>
+            </div>
+
+            <div id="list-result" class="result-panel">
+              <div class="result-empty">Select an archive and click Open Archive</div>
+            </div>
+
+            <!-- Preview panel -->
+            <div id="browser-preview" class="browser-preview" style="display:none">
+              <div class="preview-header">
+                <span id="preview-title" class="preview-title"></span>
+                <span id="preview-size" class="preview-size"></span>
+                <button id="preview-close" class="btn-secondary preview-close-btn">&times;</button>
+              </div>
+              <pre id="preview-content" class="preview-content"></pre>
+            </div>
+          </section>
+
+          <!-- ===================== TEST PANEL ===================== -->
+          <section id="panel-test" class="panel" role="tabpanel">
+            <div class="field">
+              <label>Archive File</label>
+              <div class="input-row">
+                <input type="text" id="test-archive" readonly placeholder="Drop archive here or click Browse..." />
+                <button id="test-archive-btn" class="btn-secondary">Browse</button>
+              </div>
+            </div>
+
+            <div class="field">
+              <label>Password (for encrypted archives)</label>
+              <input type="password" id="test-password" placeholder="Optional — leave empty for no password" />
+            </div>
+
+            <div class="actions">
+              <button id="test-run" class="btn-primary">Test Integrity</button>
+            </div>
+
+            <div id="test-result" class="result-panel">
+              <div class="result-empty">Select an archive and click Test Integrity</div>
+            </div>
+          </section>
+
+          <section id="panel-home" class="panel active" role="tabpanel">
+            <div class="home-hero">
+              <h2>欢迎使用 GeeZipX</h2>
+              <p class="home-subtitle">高性能跨平台压缩/解压缩工具</p>
+            </div>
+            <div class="home-features">
+              <div class="home-card">📦 <strong>压缩</strong><br>支持 ZIP / TAR / TAR.GZ / TAR.ZST / TAR.XZ</div>
+              <div class="home-card">📂 <strong>解压缩</strong><br>支持 ZIP / TAR / GZ / ZST / XZ / 7Z / RAR</div>
+              <div class="home-card">🔍 <strong>浏览</strong><br>无需解压即可查看归档内容</div>
+              <div class="home-card">✅ <strong>校验</strong><br>测试归档完整性</div>
+            </div>
+          </section>
+
+          <section id="panel-settings" class="panel" role="tabpanel">
+            <div class="home-hero">
+              <h2>设置</h2>
+              <p class="home-subtitle">更多设置选项即将推出</p>
+            </div>
+            <div class="result-empty" style="margin-top:2rem">语言、主题、默认路径等设置将在后续版本中添加。</div>
+          </section>
+
+          <section id="panel-about" class="panel" role="tabpanel">
+            <div class="home-hero">
+              <h2>关于 GeeZipX</h2>
+              <p class="home-subtitle">v0.4.0</p>
+            </div>
+            <div class="result-panel" style="margin-top:1rem">
+              <p>GeeZipX 是一款使用 Rust 开发的跨平台压缩/解压缩工具。</p>
+              <p style="margin-top:0.5rem;color:var(--text-muted)">
+                技术栈：Rust + Tauri 2 + TypeScript
+              </p>
+            </div>
+          </section>
+        </main>
+
+        <footer>
+          <p>GeeZipX v0.4.0 &mdash; Desktop GUI</p>
+        </footer>
+      </div>
     </div>
     <script type="module" src="/src/main.ts"></script>
   </body>

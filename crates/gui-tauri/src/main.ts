@@ -1087,22 +1087,35 @@ function renderCancelNotice(mode: string) {
 // ---------------------------------------------------------------------------
 
 function switchMode(mode: string) {
-  // Hide all panels, deactivate all tabs
   document.querySelectorAll(".panel").forEach((p) => p.classList.remove("active"));
-  document.querySelectorAll(".mode-tab").forEach((t) => {
-    t.classList.remove("active");
-    t.setAttribute("aria-selected", "false");
+  document.querySelectorAll(".nav-item").forEach((n) => {
+    n.classList.remove("active");
   });
 
-  // Show target panel and activate tab
-  el(`panel-${mode}`).classList.add("active");
-  const tab = document.querySelector(`.mode-tab[data-mode="${mode}"]`);
-  if (tab) {
-    tab.classList.add("active");
-    tab.setAttribute("aria-selected", "true");
+  const panel = document.getElementById(`panel-${mode}`);
+  if (panel) {
+    panel.classList.add("active");
   }
 
-  // Hide preview when switching away
+  const navItem = document.querySelector(`.nav-item[data-mode="${mode}"]`);
+  if (navItem) {
+    navItem.classList.add("active");
+  }
+
+  const titles: Record<string, string> = {
+    home: "主页",
+    compress: "压缩",
+    extract: "解压缩",
+    settings: "设置",
+    about: "关于",
+    list: "浏览归档",
+    test: "测试完整性",
+  };
+  const titleEl = document.getElementById("page-title");
+  if (titleEl && titles[mode]) {
+    titleEl.textContent = titles[mode];
+  }
+
   if (mode !== "list") {
     el("browser-preview").style.display = "none";
   }
@@ -1442,10 +1455,10 @@ window.addEventListener("DOMContentLoaded", async () => {
   // --- Drag and drop ---
   setupDragDrop();
 
-  // --- Mode tabs ---
-  document.querySelectorAll(".mode-tab").forEach((tab) => {
-    tab.addEventListener("click", () => {
-      const mode = (tab as HTMLElement).dataset.mode;
+  // --- Sidebar navigation ---
+  document.querySelectorAll(".nav-item").forEach((item) => {
+    item.addEventListener("click", () => {
+      const mode = (item as HTMLElement).dataset.mode;
       if (mode) switchMode(mode);
     });
   });
@@ -1560,6 +1573,9 @@ window.addEventListener("DOMContentLoaded", async () => {
   });
 
   el("test-run").addEventListener("click", runTest);
+
+  // Start on home page
+  switchMode("home");
 
   // -----------------------------------------------------------------------
   // Opened archives (cold start + hot start via file association)

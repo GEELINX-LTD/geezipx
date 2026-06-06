@@ -32,42 +32,124 @@ body {
 
 #app {
   display: flex;
+  flex-direction: row;
+  min-height: 100vh;
+  max-width: none;
+  margin: 0;
+  padding: 0;
+}
+
+/* --------------- Sidebar --------------- */
+
+#sidebar {
+  width: 200px;
+  min-width: 200px;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+}
+
+.sidebar-header {
+  padding: 1.2rem 1rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.sidebar-header h2 {
+  font-size: 1.1rem;
+  color: var(--accent);
+  margin: 0;
+  font-weight: 700;
+}
+
+#sidebar-nav {
+  display: flex;
+  flex-direction: column;
+  padding: 0.5rem 1rem;
+  gap: 2px;
+  flex: 1;
+}
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.65rem 0.8rem;
+  background: transparent;
+  color: var(--text-muted);
+  border: none;
+  border-radius: var(--radius);
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 500;
+  text-align: left;
+  width: 100%;
+  transition: background 0.15s, color 0.15s;
+}
+
+.nav-item:hover {
+  background: var(--surface-alt);
+  color: var(--text);
+}
+
+.nav-item.active {
+  background: var(--surface-alt);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* --------------- Content Area --------------- */
+
+.app-content {
+  flex: 1;
+  display: flex;
   flex-direction: column;
   min-height: 100vh;
-  max-width: 800px;
+  overflow-y: auto;
+}
+
+.app-content header,
+.app-content main,
+.app-content footer {
+  max-width: 700px;
+  width: 100%;
   margin: 0 auto;
-  padding: 1.5rem;
+  padding-left: 1.5rem;
+  padding-right: 1.5rem;
+}
+
+.app-content header {
+  text-align: left;
+  padding-top: 1.5rem;
+  margin-bottom: 1rem;
+}
+
+.app-content main {
+  flex: 1;
+}
+
+.app-content footer {
+  text-align: center;
+  padding-top: 1.5rem;
+  padding-bottom: 1rem;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  border-top: 1px solid var(--surface-alt);
+  margin-top: 1.5rem;
 }
 
 /* --------------- Header --------------- */
 
-header {
-  text-align: center;
-  margin-bottom: 1.5rem;
-}
-
 h1 {
-  font-size: 2rem;
+  font-size: 1.3rem;
   color: var(--accent);
-  margin-bottom: 0.25rem;
+  margin-bottom: 0;
 }
 
 .subtitle {
   color: var(--text-muted);
   font-size: 0.9rem;
-}
-
-main {
-  flex: 1;
-}
-
-footer {
-  text-align: center;
-  padding-top: 1.5rem;
-  color: var(--text-muted);
-  font-size: 0.8rem;
-  border-top: 1px solid var(--surface-alt);
-  margin-top: 1.5rem;
 }
 
 /* --------------- Mode Tabs --------------- */
@@ -106,6 +188,47 @@ footer {
 
 .mode-tab-secondary:not(.active) {
   opacity: 0.78;
+}
+
+/* --------------- Home Panel --------------- */
+
+.home-hero {
+  text-align: left;
+  margin-bottom: 1.5rem;
+}
+
+.home-hero h2 {
+  font-size: 1.5rem;
+  color: var(--accent);
+  margin-bottom: 0.25rem;
+  font-weight: 700;
+}
+
+.home-subtitle {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+.home-features {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.75rem;
+}
+
+.home-card {
+  background: var(--surface);
+  border: 1px solid var(--surface-alt);
+  border-radius: var(--radius);
+  padding: 1rem;
+  font-size: 0.85rem;
+  color: var(--text);
+  line-height: 1.5;
+}
+
+.home-card strong {
+  display: block;
+  font-size: 0.9rem;
+  margin-bottom: 0.2rem;
 }
 
 /* --------------- Panels --------------- */
@@ -431,7 +554,8 @@ select {
 /* --------------- Disabled state overlay --------------- */
 
 .panel.running .btn-secondary,
-.panel.running .mode-tab {
+.panel.running .mode-tab,
+.panel.running .nav-item {
   pointer-events: none;
   opacity: 0.5;
 }
@@ -631,7 +755,8 @@ select {
   pointer-events: none;
 }
 
-.panel.running .mode-tab {
+.panel.running .mode-tab,
+.panel.running .nav-item {
   opacity: 0.4;
   pointer-events: none;
 }
