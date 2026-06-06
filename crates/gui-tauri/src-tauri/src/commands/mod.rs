@@ -11,5 +11,6 @@ pub mod extract;
 pub mod extract_entries;
 pub mod formats;
 pub mod list;
+pub mod progress;
 pub mod preview_entry;
 pub mod test;

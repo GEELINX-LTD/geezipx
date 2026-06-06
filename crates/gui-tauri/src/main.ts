@@ -23,6 +23,8 @@ import {
   type TestArchiveResult,
   type CompressArchiveResult,
   type ExtractArchiveResult,
+  type TaskProgressPayload,
+  type TaskPhase,
 } from "./bridge";
 import { open, save } from "@tauri-apps/plugin-dialog";
 
@@ -30,9 +32,27 @@ import { open, save } from "@tauri-apps/plugin-dialog";
 // State
 // ---------------------------------------------------------------------------
 
-let currentTaskId: string | null = null;
+type ProgressPanel = "compress" | "extract" | "list";
+
+const activeTaskIds: Record<ProgressPanel, string | null> = {
+  compress: null,
+  extract: null,
+  list: null,
+};
+
+const runningTaskIds: Record<ProgressPanel, string | null> = {
+  compress: null,
+  extract: null,
+  list: null,
+};
+
+const WAITING_PROGRESS_TEXT = "Waiting for backend progress...";
+
+type TerminalTaskStatus = Extract<TaskProgressPayload["status"], "finished" | "cancelled" | "failed">;
+
 let compressFormats: FormatInfo[] = [];
 let unlistenOpenedArchives: (() => void) | null = null;
+let unlistenTaskProgress: (() => void) | null = null;
 
 // Archive browser state
 let browserEntries: EntryInfo[] = [];
@@ -57,6 +77,177 @@ interface RecentEntry {
   label: string;
   isArchive: boolean;
 }
+
+function progressRoot(mode: ProgressPanel): HTMLDivElement {
+  return el<HTMLDivElement>(`${mode}-progress`);
+}
+
+function isTerminalTaskStatus(status: TaskProgressPayload["status"]): status is TerminalTaskStatus {
+  return status === "finished" || status === "cancelled" || status === "failed";
+}
+
+function terminalStage(status: TerminalTaskStatus): TaskProgressPayload["stage"] {
+  switch (status) {
+    case "finished":
+      return "completed";
+    case "cancelled":
+      return "cancelled";
+    case "failed":
+      return "failed";
+  }
+}
+
+function defaultTerminalMessage(mode: ProgressPanel, status: TerminalTaskStatus): string {
+  switch (status) {
+    case "finished":
+      return mode === "compress" ? "Compression completed." : "Extraction completed.";
+    case "cancelled":
+      return "Operation cancelled by user.";
+    case "failed":
+      return "Operation failed.";
+  }
+}
+
+function bindTaskProgress(mode: ProgressPanel, taskId: string, message: string) {
+  activeTaskIds[mode] = taskId;
+  runningTaskIds[mode] = taskId;
+  const root = progressRoot(mode);
+  root.hidden = false;
+  root.dataset.status = "started";
+  el(`${mode}-progress-stage`).textContent = "Queued";
+  el(`${mode}-progress-percent`).textContent = "--";
+  el(`${mode}-progress-message`).textContent = message;
+  el(`${mode}-progress-entry`).textContent = "";
+  el(`${mode}-progress-stats`).textContent = WAITING_PROGRESS_TEXT;
+  const bar = el<HTMLProgressElement>(`${mode}-progress-bar`);
+  bar.max = 100;
+  bar.removeAttribute("value");
+}
+
+function resetTaskProgress(mode: ProgressPanel) {
+  activeTaskIds[mode] = null;
+  runningTaskIds[mode] = null;
+  const root = progressRoot(mode);
+  root.hidden = true;
+  delete root.dataset.status;
+  el(`${mode}-progress-stage`).textContent = "";
+  el(`${mode}-progress-percent`).textContent = "";
+  el(`${mode}-progress-message`).textContent = "";
+  el(`${mode}-progress-entry`).textContent = "";
+  el(`${mode}-progress-stats`).textContent = "";
+  const bar = el<HTMLProgressElement>(`${mode}-progress-bar`);
+  bar.max = 100;
+  bar.removeAttribute("value");
+}
+
+function settleTaskProgressFallback(
+  mode: ProgressPanel,
+  taskId: string,
+  status: TerminalTaskStatus,
+  message?: string,
+) {
+  if (runningTaskIds[mode] !== taskId) {
+    return;
+  }
+
+  runningTaskIds[mode] = null;
+  if (activeTaskIds[mode] !== taskId) {
+    return;
+  }
+
+  const root = progressRoot(mode);
+  root.hidden = false;
+  root.dataset.status = status;
+  el(`${mode}-progress-stage`).textContent = stageLabel(terminalStage(status));
+
+  const percentEl = el(`${mode}-progress-percent`);
+  if (status === "finished") {
+    percentEl.textContent = "100%";
+  } else if (!percentEl.textContent.trim()) {
+    percentEl.textContent = "--";
+  }
+
+  el(`${mode}-progress-message`).textContent = message ?? defaultTerminalMessage(mode, status);
+  el(`${mode}-progress-entry`).textContent = "";
+
+  const statsEl = el(`${mode}-progress-stats`);
+  if (!statsEl.textContent.trim() || statsEl.textContent === WAITING_PROGRESS_TEXT) {
+    statsEl.textContent = defaultTerminalMessage(mode, status);
+  }
+
+  const bar = el<HTMLProgressElement>(`${mode}-progress-bar`);
+  bar.max = 100;
+  if (status === "finished") {
+    bar.value = 100;
+  } else if (!bar.hasAttribute("value")) {
+    bar.removeAttribute("value");
+  }
+}
+
+function formatTaskPercent(payload: TaskProgressPayload): string {
+  if (typeof payload.percent === "number") {
+    return `${Math.round(payload.percent)}%`;
+  }
+  if (payload.status === "finished") {
+    return "100%";
+  }
+  return "--";
+}
+
+function formatTaskStats(payload: TaskProgressPayload): string {
+  const bytes = payload.total == null
+    ? `${formatBytes(payload.current)} processed`
+    : `${formatBytes(payload.current)} / ${formatBytes(payload.total)}`;
+  const entries = payload.total_entries == null
+    ? `${payload.completed_entries} entries`
+    : `${payload.completed_entries} / ${payload.total_entries} entries`;
+  const rate = payload.bytes_per_second == null
+    ? ""
+    : ` · ${formatBytes(Math.max(0, Math.round(payload.bytes_per_second)))}/s`;
+  return `${bytes} · ${entries}${rate}`;
+}
+
+function resolveProgressPanel(taskId: string): ProgressPanel | null {
+  if (activeTaskIds.compress === taskId) return "compress";
+  if (activeTaskIds.extract === taskId) return "extract";
+  if (activeTaskIds.list === taskId) return "list";
+  return null;
+}
+
+function updateTaskProgress(payload: TaskProgressPayload) {
+  const mode = resolveProgressPanel(payload.task_id);
+  if (!mode) return;
+
+  const root = progressRoot(mode);
+  root.hidden = false;
+  root.dataset.status = payload.status;
+
+  const stageText = phaseLabel(payload.phase)
+    ? `${stageLabel(payload.stage)} · ${phaseLabel(payload.phase)}`
+    : stageLabel(payload.stage);
+  el(`${mode}-progress-stage`).textContent = stageText;
+  el(`${mode}-progress-percent`).textContent = formatTaskPercent(payload);
+  el(`${mode}-progress-message`).textContent = payload.message;
+  el(`${mode}-progress-entry`).textContent = payload.current_entry
+    ? `Current entry: ${payload.current_entry}`
+    : "";
+  el(`${mode}-progress-stats`).textContent = formatTaskStats(payload);
+
+  const bar = el<HTMLProgressElement>(`${mode}-progress-bar`);
+  bar.max = 100;
+  if (typeof payload.percent === "number") {
+    bar.value = Math.max(0, Math.min(100, payload.percent));
+  } else if (payload.status === "finished") {
+    bar.value = 100;
+  } else {
+    bar.removeAttribute("value");
+  }
+
+  if (isTerminalTaskStatus(payload.status)) {
+    runningTaskIds[mode] = null;
+  }
+}
+
 
 // ---------------------------------------------------------------------------
 // DOM helpers
@@ -867,7 +1058,10 @@ async function runExtractAll() {
 
   const extractAllBtn = el<HTMLButtonElement>("browser-extract-all");
   const taskId = `task-extract-all-${Date.now()}`;
+  let terminalStatus: TerminalTaskStatus | null = null;
+  let terminalMessage: string | undefined;
 
+  bindTaskProgress("list", taskId, "Preparing archive extraction...");
   extractAllBtn.textContent = "Extracting...";
   clearBrowserOperationFeedback();
 
@@ -879,6 +1073,8 @@ async function runExtractAll() {
       password || undefined,
       taskId,
     );
+    terminalStatus = "finished";
+    terminalMessage = "Extraction completed.";
 
     if (browserExtractToken !== token || browserArchivePath !== archivePath) {
       return;
@@ -886,11 +1082,17 @@ async function runExtractAll() {
 
     renderBrowserExtractFeedback("Archive extracted successfully", outputDir, result);
   } catch (e) {
+    const msg = String(e);
+    terminalStatus = msg.toLowerCase().includes("cancelled") ? "cancelled" : "failed";
+    terminalMessage = terminalStatus === "cancelled" ? "Operation cancelled by user." : msg;
     if (browserExtractToken === token) {
-      renderBrowserExtractError(String(e));
+      renderBrowserExtractError(msg);
     }
   } finally {
     extractAllBtn.textContent = "Extract All";
+    if (terminalStatus) {
+      settleTaskProgressFallback("list", taskId, terminalStatus, terminalMessage);
+    }
     finishBrowserExtract(token);
   }
 }
@@ -909,6 +1111,8 @@ async function extractSelected() {
   const overwrite = el<HTMLInputElement>("browser-overwrite").checked;
   const taskId = `task-extract-entries-${Date.now()}`;
   const extractSelectedBtn = el<HTMLButtonElement>("browser-extract-selected");
+  let terminalStatus: TerminalTaskStatus | null = null;
+  let terminalMessage: string | undefined;
 
   extractSelectedBtn.textContent = "Choose Output...";
 
@@ -925,6 +1129,7 @@ async function extractSelected() {
     syncExtractFormFromArchive(archivePath, password);
     el<HTMLInputElement>("extract-overwrite").checked = overwrite;
 
+    bindTaskProgress("list", taskId, "Preparing selective extraction...");
     extractSelectedBtn.textContent = "Extracting...";
     clearBrowserOperationFeedback();
 
@@ -936,6 +1141,8 @@ async function extractSelected() {
       password || undefined,
       taskId,
     );
+    terminalStatus = "finished";
+    terminalMessage = "Extraction completed.";
 
     if (browserExtractToken !== token || browserArchivePath !== archivePath) {
       return;
@@ -943,11 +1150,17 @@ async function extractSelected() {
 
     renderBrowserExtractFeedback("Selected entries extracted successfully", outputDir, result);
   } catch (e) {
+    const msg = String(e);
+    terminalStatus = msg.toLowerCase().includes("cancelled") ? "cancelled" : "failed";
+    terminalMessage = terminalStatus === "cancelled" ? "Operation cancelled by user." : msg;
     if (browserExtractToken === token) {
-      renderBrowserExtractError(String(e));
+      renderBrowserExtractError(msg);
     }
   } finally {
     extractSelectedBtn.textContent = "Extract Selected";
+    if (terminalStatus) {
+      settleTaskProgressFallback("list", taskId, terminalStatus, terminalMessage);
+    }
     finishBrowserExtract(token);
   }
 }
@@ -1277,22 +1490,29 @@ async function runCompress() {
   const level = levelRaw ? parseInt(levelRaw, 10) : undefined;
   const jobs = jobsRaw ? parseInt(jobsRaw, 10) : undefined;
   const taskId = `task-${Date.now()}`;
-  currentTaskId = taskId;
+  let terminalStatus: TerminalTaskStatus | null = null;
+  let terminalMessage: string | undefined;
 
+  bindTaskProgress("compress", taskId, "Preparing compression...");
   setRunning("compress", true);
   try {
     const result = await compressArchive(sources, outputPath, format, level, jobs, password, taskId);
+    terminalStatus = "finished";
+    terminalMessage = "Compression completed.";
     renderCompressResult(result);
-    currentTaskId = null;
   } catch (e) {
     const msg = String(e);
-    if (msg.toLowerCase().includes("cancelled")) {
+    terminalStatus = msg.toLowerCase().includes("cancelled") ? "cancelled" : "failed";
+    terminalMessage = terminalStatus === "cancelled" ? "Operation cancelled by user." : msg;
+    if (terminalStatus === "cancelled") {
       renderCancelNotice("compress");
     } else {
       showError("compress-result", msg);
     }
-    currentTaskId = null;
   } finally {
+    if (terminalStatus) {
+      settleTaskProgressFallback("compress", taskId, terminalStatus, terminalMessage);
+    }
     setRunning("compress", false);
   }
 }
@@ -1311,22 +1531,29 @@ async function runExtract() {
   const overwrite = el<HTMLInputElement>("extract-overwrite").checked;
   const password = el<HTMLInputElement>("extract-password").value.trim() || undefined;
   const taskId = `task-${Date.now()}`;
-  currentTaskId = taskId;
+  let terminalStatus: TerminalTaskStatus | null = null;
+  let terminalMessage: string | undefined;
 
+  bindTaskProgress("extract", taskId, "Preparing extraction...");
   setRunning("extract", true);
   try {
     const result = await extractArchive(archivePath, outputDir, overwrite, password, taskId);
+    terminalStatus = "finished";
+    terminalMessage = "Extraction completed.";
     renderExtractResult(result);
-    currentTaskId = null;
   } catch (e) {
     const msg = String(e);
-    if (msg.toLowerCase().includes("cancelled")) {
+    terminalStatus = msg.toLowerCase().includes("cancelled") ? "cancelled" : "failed";
+    terminalMessage = terminalStatus === "cancelled" ? "Operation cancelled by user." : msg;
+    if (terminalStatus === "cancelled") {
       renderCancelNotice("extract");
     } else {
       showError("extract-result", msg);
     }
-    currentTaskId = null;
   } finally {
+    if (terminalStatus) {
+      settleTaskProgressFallback("extract", taskId, terminalStatus, terminalMessage);
+    }
     setRunning("extract", false);
   }
 }
@@ -1358,6 +1585,7 @@ async function runListWithPath(archivePath: string) {
   browserCurrentDir = "";
   browserSelected.clear();
   updateSelectionUI();
+  resetTaskProgress("list");
   el("browser-bar").style.display = "none";
   el("browser-preview").style.display = "none";
   el("list-result").innerHTML =
@@ -1408,9 +1636,11 @@ async function runTest() {
 }
 
 async function handleCancel(mode: string) {
-  if (!currentTaskId) return;
+  const progressMode = mode as ProgressPanel;
+  const taskId = runningTaskIds[progressMode];
+  if (!taskId) return;
   try {
-    await cancelTask(currentTaskId);
+    await cancelTask(taskId);
   } catch (e) {
     console.warn("cancelTask error:", e);
   }
@@ -1454,6 +1684,19 @@ window.addEventListener("DOMContentLoaded", async () => {
 
   // --- Drag and drop ---
   setupDragDrop();
+
+  resetTaskProgress("compress");
+  resetTaskProgress("extract");
+  resetTaskProgress("list");
+
+  try {
+    const unlisten = await listen<TaskProgressPayload>("task:progress", (event) => {
+      updateTaskProgress(event.payload);
+    });
+    unlistenTaskProgress = unlisten;
+  } catch (e) {
+    console.debug("listen for task:progress skipped (browser preview):", e);
+  }
 
   // --- Sidebar navigation ---
   document.querySelectorAll(".nav-item").forEach((item) => {
@@ -1623,6 +1866,10 @@ window.addEventListener("DOMContentLoaded", async () => {
     if (unlistenOpenedArchives) {
       unlistenOpenedArchives();
       unlistenOpenedArchives = null;
+    }
+    if (unlistenTaskProgress) {
+      unlistenTaskProgress();
+      unlistenTaskProgress = null;
     }
   });
 });

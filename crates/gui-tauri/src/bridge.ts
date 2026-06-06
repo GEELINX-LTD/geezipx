@@ -47,6 +47,42 @@ export interface PreviewResult {
   truncated: boolean;
 }
 
+/** Progress event kind emitted by Rust backend tasks. */
+export type TaskKind = "compress" | "extract";
+
+/** Lifecycle status emitted for a running task. */
+export type TaskStatus = "started" | "progress" | "finished" | "cancelled" | "failed";
+
+/** High-level stage currently being performed. */
+export type TaskStage =
+  | "scanning"
+  | "compressing"
+  | "extracting"
+  | "finalizing"
+  | "completed"
+  | "cancelled"
+  | "failed";
+
+/** Low-level I/O phase, if known. */
+export type TaskPhase = "reading" | "writing" | "hashing";
+
+/** Payload of the `task:progress` event emitted by Rust commands. */
+export interface TaskProgressPayload {
+  task_id: string;
+  kind: TaskKind;
+  status: TaskStatus;
+  stage: TaskStage;
+  phase: TaskPhase | null;
+  message: string;
+  current: number;
+  total: number | null;
+  percent: number | null;
+  bytes_per_second: number | null;
+  current_entry: string | null;
+  completed_entries: number;
+  total_entries: number | null;
+}
+
 // ---------------------------------------------------------------------------
 // Wrapper functions
 // ---------------------------------------------------------------------------

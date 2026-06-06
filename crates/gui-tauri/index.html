@@ -87,6 +87,17 @@
               <button id="compress-cancel" class="btn-cancel" style="visibility:hidden" aria-hidden="true">Cancel</button>
             </div>
 
+            <div id="compress-progress" class="task-progress" hidden>
+              <div class="task-progress-header">
+                <span id="compress-progress-stage" class="task-progress-stage"></span>
+                <span id="compress-progress-percent" class="task-progress-percent"></span>
+              </div>
+              <progress id="compress-progress-bar" class="task-progress-bar" max="100"></progress>
+              <div id="compress-progress-message" class="task-progress-message"></div>
+              <div id="compress-progress-entry" class="task-progress-entry"></div>
+              <div id="compress-progress-stats" class="task-progress-stats"></div>
+            </div>
+
             <div id="compress-result" class="result-panel">
               <div class="result-empty">Configure sources above and click Compress</div>
             </div>
@@ -125,6 +136,17 @@
             <div class="actions">
               <button id="extract-run" class="btn-primary">Extract</button>
               <button id="extract-cancel" class="btn-cancel" style="visibility:hidden" aria-hidden="true">Cancel</button>
+            </div>
+
+            <div id="extract-progress" class="task-progress" hidden>
+              <div class="task-progress-header">
+                <span id="extract-progress-stage" class="task-progress-stage"></span>
+                <span id="extract-progress-percent" class="task-progress-percent"></span>
+              </div>
+              <progress id="extract-progress-bar" class="task-progress-bar" max="100"></progress>
+              <div id="extract-progress-message" class="task-progress-message"></div>
+              <div id="extract-progress-entry" class="task-progress-entry"></div>
+              <div id="extract-progress-stats" class="task-progress-stats"></div>
             </div>
 
             <div id="extract-result" class="result-panel">
@@ -171,6 +193,17 @@
                   <button id="browser-extract-output-btn" class="btn-secondary">Browse</button>
                 </div>
               </div>
+            </div>
+
+            <div id="list-progress" class="task-progress" hidden>
+              <div class="task-progress-header">
+                <span id="list-progress-stage" class="task-progress-stage"></span>
+                <span id="list-progress-percent" class="task-progress-percent"></span>
+              </div>
+              <progress id="list-progress-bar" class="task-progress-bar" max="100"></progress>
+              <div id="list-progress-message" class="task-progress-message"></div>
+              <div id="list-progress-entry" class="task-progress-entry"></div>
+              <div id="list-progress-stats" class="task-progress-stats"></div>
             </div>
 
             <div id="list-result" class="result-panel">
