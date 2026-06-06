@@ -7,7 +7,7 @@
 //! ## Temp directory layout
 //!
 //! ```text
-//! <platform temp>/geezipx-dragout/<temp_id>/<entry files/dirs...>
+//! <platform temp>/geezipx-dragout/<archive-name>/<entry files/dirs...>
 //! ```
 //!
 //! ## Cleanup strategy
@@ -17,10 +17,8 @@
 //! [`cleanup_stale_drag_temp_dirs`] to reclaim disk space from abandoned
 //! drag operations.
 
-use std::collections::hash_map::DefaultHasher;
 use std::fs;
-use std::hash::{Hash, Hasher};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
 use crate::commands::list::{detect_archive_format, open_reader};
@@ -54,18 +52,9 @@ pub async fn prepare_drag_entries(
     let path_buf = PathBuf::from(&archive_path);
     let pwd = password;
 
-    // Build a temp id from the first entry path so repeated drags of the
-    // same entries can be cached.
-    let temp_id = short_id(&entry_paths[0]);
+    let dir_name = derive_drag_directory_name(&path_buf);
     let temp_root = temp_dir_root();
-    let dest = temp_root.join(&temp_id);
-
-    // If the directory already exists, assume previous extraction is still
-    // valid (the frontend manages cleanup).  This avoids re‑extracting when
-    // the user starts a drag, cancels, and immediately starts again.
-    if dest.exists() {
-        return Ok(dest.to_string_lossy().to_string());
-    }
+    let dest = temp_root.join(&dir_name);
 
     // Clone dest before the move closure so we can clean up on errors.
     let dest_for_cleanup = dest.clone();
@@ -78,7 +67,11 @@ pub async fn prepare_drag_entries(
             .entries()
             .map_err(|e| format!("Failed to read archive entries: {e}"))?;
 
-        // Ensure the destination directory exists.
+        if dest.exists() {
+            fs::remove_dir_all(&dest)
+                .map_err(|e| format!("Cannot replace temp directory '{}': {e}", dest.display()))?;
+        }
+
         fs::create_dir_all(&dest).map_err(|e| format!("Cannot create temp directory: {e}"))?;
 
         // Collect the requested entries.
@@ -147,7 +140,7 @@ pub async fn prepare_drag_entries(
     }
 }
 
-/// Remove a drag‑out temp directory identified by `temp_id`.
+/// Remove a drag‑out temp directory identified by its directory name.
 #[tauri::command]
 pub async fn cleanup_drag_temp_dir(temp_id: String) -> Result<(), String> {
     let dest = temp_dir_root().join(&temp_id);
@@ -202,16 +195,119 @@ fn temp_dir_root() -> PathBuf {
     std::env::temp_dir().join(DRAG_TEMP_ROOT)
 }
 
-/// Derive a short, filesystem‑safe identifier from an entry path.
-///
-/// Uses a std hash of the path to produce a compact hex string suitable
-/// for use as a temp directory name component.
-fn short_id(path: &str) -> String {
-    let mut hasher = DefaultHasher::new();
-    path.hash(&mut hasher);
-    let hash = hasher.finish();
-    // Format as 16 hex chars (u64 = up to 16 hex digits).
-    format!("{hash:016x}")
+/// Derive a drag‑out directory name from the archive path.
+fn derive_drag_directory_name(path: &Path) -> String {
+    let file_name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("archive");
+
+    sanitize_dir_name(strip_archive_extension(file_name))
+}
+
+fn strip_archive_extension(file_name: &str) -> &str {
+    const COMPOUND_EXTENSIONS: &[&str] = &[
+        ".tar.lzma",
+        ".tar.bz2",
+        ".tar.zst",
+        ".tar.gz",
+        ".tar.xz",
+        ".tar.br",
+        ".tar.z",
+        ".tgz",
+        ".tbz2",
+        ".txz",
+        ".tzst",
+    ];
+    const SIMPLE_EXTENSIONS: &[&str] = &[
+        ".zip", ".rar", ".7z", ".tar", ".gz", ".zst", ".xz", ".lzma", ".bz2", ".br", ".z",
+    ];
+
+    let lower = file_name.to_ascii_lowercase();
+
+    for ext in COMPOUND_EXTENSIONS {
+        if lower.ends_with(ext) {
+            return &file_name[..file_name.len() - ext.len()];
+        }
+    }
+
+    for ext in SIMPLE_EXTENSIONS {
+        if lower.ends_with(ext) {
+            return &file_name[..file_name.len() - ext.len()];
+        }
+    }
+
+    file_name
+}
+
+fn sanitize_dir_name(name: &str) -> String {
+    const MAX_DIR_NAME_CHARS: usize = 100;
+
+    fn trim_edge_dots_and_spaces(value: &str) -> &str {
+        value.trim_matches(|ch: char| ch == '.' || ch.is_whitespace())
+    }
+
+    fn truncate_chars(value: &str, max_chars: usize) -> &str {
+        let end = value
+            .char_indices()
+            .map(|(idx, _)| idx)
+            .nth(max_chars)
+            .unwrap_or(value.len());
+        &value[..end]
+    }
+
+    fn finalize(value: &str) -> Option<String> {
+        let trimmed = trim_edge_dots_and_spaces(value);
+        let truncated = truncate_chars(trimmed, MAX_DIR_NAME_CHARS);
+        let cleaned = trim_edge_dots_and_spaces(truncated);
+        (!cleaned.is_empty()).then(|| cleaned.to_string())
+    }
+
+    fn is_windows_reserved_base_name(name: &str) -> bool {
+        matches!(
+            name.to_ascii_lowercase().as_str(),
+            "con"
+                | "prn"
+                | "aux"
+                | "nul"
+                | "com1"
+                | "com2"
+                | "com3"
+                | "com4"
+                | "com5"
+                | "com6"
+                | "com7"
+                | "com8"
+                | "com9"
+                | "lpt1"
+                | "lpt2"
+                | "lpt3"
+                | "lpt4"
+                | "lpt5"
+                | "lpt6"
+                | "lpt7"
+                | "lpt8"
+                | "lpt9"
+        )
+    }
+
+    let normalized: String = name
+        .chars()
+        .map(|ch| match ch {
+            '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*' => '_',
+            ch if ch.is_control() => '_',
+            ch => ch,
+        })
+        .collect();
+
+    let mut result = finalize(&normalized).unwrap_or_else(|| "archive".to_string());
+    let base = result.split('.').next().unwrap_or_default();
+    if is_windows_reserved_base_name(base) {
+        result.insert(0, '_');
+        result = finalize(&result).unwrap_or_else(|| "archive".to_string());
+    }
+
+    result
 }
 
 // ---------------------------------------------------------------------------
@@ -223,44 +319,84 @@ mod tests {
     use super::*;
 
     #[test]
-    fn short_id_is_deterministic() {
-        let a = short_id("/some/archive/path/file.txt");
-        let b = short_id("/some/archive/path/file.txt");
-        assert_eq!(a, b);
-    }
-
-    #[test]
-    fn short_id_differs_for_diff_paths() {
-        let a = short_id("/path/a/file.txt");
-        let b = short_id("/path/b/file.txt");
-        assert_ne!(a, b);
-    }
-
-    #[test]
-    fn short_id_is_filesystem_safe() {
-        let id = short_id("/some/weird/path/with spaces/& special?.txt");
-        // Should be lowercase hex characters only.
-        assert!(id.chars().all(|c| c.is_ascii_hexdigit()));
-        assert_eq!(id.len(), 16);
-    }
-
-    #[test]
-    fn short_id_length_is_always_16() {
-        for input in &[
-            "",
-            "a",
-            "short",
-            "a/very/long/path/that/exceeds/typical/lengths.txt",
+    fn derive_drag_directory_name_uses_archive_stem_for_supported_formats() {
+        for archive_name in [
+            "archive.zip",
+            "archive.tar.gz",
+            "archive.tar.bz2",
+            "archive.tar.xz",
+            "archive.tar.zst",
+            "archive.tar.lzma",
+            "archive.tgz",
+            "archive.tbz2",
         ] {
-            assert_eq!(short_id(input).len(), 16);
+            assert_eq!(
+                derive_drag_directory_name(Path::new(archive_name)),
+                "archive",
+                "{archive_name}"
+            );
         }
     }
 
     #[test]
-    fn short_id_handles_empty_string() {
-        let id = short_id("");
-        assert!(!id.is_empty());
-        assert!(id.chars().all(|c| c.is_ascii_hexdigit()));
+    fn strip_archive_extension_supports_case_insensitive_tar_variants() {
+        assert_eq!(strip_archive_extension("ARCHIVE.TAR.GZ"), "ARCHIVE");
+        assert_eq!(strip_archive_extension("archive.tar.br"), "archive");
+        assert_eq!(strip_archive_extension("archive.tar.Z"), "archive");
+        assert_eq!(strip_archive_extension("archive.tar.z"), "archive");
+    }
+
+    #[test]
+    fn derive_drag_directory_name_preserves_chinese_names() {
+        assert_eq!(
+            derive_drag_directory_name(Path::new("中文备份.zip")),
+            "中文备份"
+        );
+    }
+
+    #[test]
+    fn sanitize_dir_name_replaces_invalid_characters() {
+        assert_eq!(sanitize_dir_name("bad<na>me:\u{7}?*"), "bad_na_me____");
+        assert_eq!(sanitize_dir_name("中?文<备>份"), "中_文_备_份");
+    }
+
+    #[test]
+    fn sanitize_dir_name_cleans_leading_and_trailing_dots_and_spaces() {
+        assert_eq!(sanitize_dir_name(".foo"), "foo");
+        assert_eq!(sanitize_dir_name("foo."), "foo");
+        assert_eq!(sanitize_dir_name("  .foo.  "), "foo");
+        assert_eq!(derive_drag_directory_name(Path::new(".zip")), "archive");
+        assert_eq!(derive_drag_directory_name(Path::new("..zip")), "archive");
+    }
+
+    #[test]
+    fn derive_drag_directory_name_truncates_unicode_without_panicking() {
+        let archive_name = format!("{}.zip", "测".repeat(120));
+        let result = derive_drag_directory_name(Path::new(&archive_name));
+
+        assert_eq!(result.chars().count(), 100);
+        assert!(result.chars().all(|ch| ch == '测'));
+    }
+
+    #[test]
+    fn sanitize_dir_name_cleans_trailing_dot_and_space_after_truncation() {
+        let result = sanitize_dir_name(&("a".repeat(98) + " ."));
+
+        assert_eq!(result, "a".repeat(98));
+        assert!(!result.ends_with('.'));
+        assert!(!result.ends_with(' '));
+    }
+
+    #[test]
+    fn derive_drag_directory_name_prefixes_windows_reserved_names_with_extensions() {
+        assert_eq!(
+            derive_drag_directory_name(Path::new("CON.backup.zip")),
+            "_CON.backup"
+        );
+        assert_eq!(
+            derive_drag_directory_name(Path::new("lpt1.v1.zip")),
+            "_lpt1.v1"
+        );
     }
 
     #[test]
