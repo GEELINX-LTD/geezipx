@@ -91,14 +91,15 @@ pub async fn extract_entries(
                 }
 
                 let mut reader = open_reader(&path_buf, format, pwd.as_deref())?;
-                let all_entries = reader
-                    .entries()
-                    .map_err(|e| ExtractTaskError::Message(format!("Failed to read entries: {e}")))?;
+                let all_entries = reader.entries().map_err(|e| {
+                    ExtractTaskError::Message(format!("Failed to read entries: {e}"))
+                })?;
 
                 let matched = select_requested_entries(&all_entries, &entry_paths, &cancel_token)?;
                 if matched.is_empty() {
                     return Err(ExtractTaskError::Message(
-                        "No matching entries found in archive for the requested path(s)".to_string(),
+                        "No matching entries found in archive for the requested path(s)"
+                            .to_string(),
                     ));
                 }
 
