@@ -23,9 +23,7 @@ use geezipx_core::detect::ArchiveFormat;
 use geezipx_core::{GeeZipError, ProgressWriter};
 
 use crate::commands::list::{detect_archive_format, open_reader};
-use crate::commands::progress::{
-    is_cancelled_error, TaskKind, TaskProgressEmitter, TaskStage,
-};
+use crate::commands::progress::{is_cancelled_error, TaskKind, TaskProgressEmitter, TaskStage};
 use crate::state::AppState;
 
 const CANCELLED_MESSAGE: &str = "Operation cancelled by user";
@@ -149,9 +147,9 @@ pub async fn extract_archive(
                 }
 
                 let mut reader = open_reader(&path_buf, format, pwd.as_deref())?;
-                let entries = reader
-                    .entries()
-                    .map_err(|e| ExtractTaskError::Message(format!("Failed to read entries: {e}")))?;
+                let entries = reader.entries().map_err(|e| {
+                    ExtractTaskError::Message(format!("Failed to read entries: {e}"))
+                })?;
 
                 extract_entries_with_progress(
                     &mut *reader,

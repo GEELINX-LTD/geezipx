@@ -85,7 +85,13 @@ struct ProgressThrottle {
 }
 
 impl ProgressThrottle {
-    fn should_emit(&mut self, elapsed: Duration, current: u64, total: Option<u64>, force: bool) -> bool {
+    fn should_emit(
+        &mut self,
+        elapsed: Duration,
+        current: u64,
+        total: Option<u64>,
+        force: bool,
+    ) -> bool {
         if force || self.last_emitted_at.is_none() {
             self.record(elapsed, current, total);
             return true;
@@ -149,13 +155,19 @@ impl TaskProgressEmitter {
     }
 
     pub fn set_totals(&self, total: Option<u64>, total_entries: Option<u64>) {
-        let mut state = self.state.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut state = self
+            .state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         state.total = total;
         state.total_entries = total_entries;
     }
 
     pub fn latest_snapshot(&self) -> (u64, u64) {
-        let state = self.state.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let state = self
+            .state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         (state.last_current_seen, state.last_completed_entries)
     }
 
@@ -301,7 +313,10 @@ impl TaskProgressEmitter {
     ) {
         let elapsed = self.started_at.elapsed();
         let (total, total_entries, should_emit) = {
-            let mut state = self.state.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+            let mut state = self
+                .state
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
             state.last_current_seen = current;
             state.last_completed_entries = completed_entries;
             let total = state.total;
@@ -473,13 +488,16 @@ mod tests {
     fn percentage_is_clamped() {
         assert_eq!(percentage_bucket(150, Some(100)), Some(100));
         assert_eq!(percentage_bucket(0, Some(0)), None);
-        assert!(matches!(percentage_value(150, Some(100)), Some(value) if (value - 100.0).abs() < f64::EPSILON));
+        assert!(
+            matches!(percentage_value(150, Some(100)), Some(value) if (value - 100.0).abs() < f64::EPSILON)
+        );
     }
-
 
     #[test]
     fn percentage_value_reports_fractional_progress() {
-        assert!(matches!(percentage_value(25, Some(200)), Some(value) if (value - 12.5).abs() < f64::EPSILON));
+        assert!(
+            matches!(percentage_value(25, Some(200)), Some(value) if (value - 12.5).abs() < f64::EPSILON)
+        );
     }
 
     #[test]
