@@ -80,6 +80,8 @@ pub async fn extract_entries(
                 match format {
                     ArchiveFormat::Gzip
                     | ArchiveFormat::Bzip2
+                    | ArchiveFormat::Brotli
+                    | ArchiveFormat::Lz4
                     | ArchiveFormat::Zstd
                     | ArchiveFormat::Xz
                     | ArchiveFormat::Lzma => {

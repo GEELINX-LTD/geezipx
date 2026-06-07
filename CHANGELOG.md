@@ -9,11 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Format support — bzip2 / tar.bz2 / ZIP aliases**:
-  - Added single-stream `.bz2` / `bzip2` read-write support and tar-wrapped `.tar.bz2` / `.tbz` / `.tbz2` archive support.
-  - Added CLI `--format bz2` / `bzip2` / `tar.bz2` / `tbz` / `tbz2` plus raw tar `--stdin` / `--stdout` behavior for tar.bz2.
+- **Format support — bzip2 / brotli / lz4 / ZIP aliases**:
+  - Added single-stream `.bz2` / `bzip2`, `.br` / `brotli`, and `.lz4` read-write support.
+  - Added tar-wrapped `.tar.bz2` / `.tbz` / `.tbz2`, `.tar.br`, and `.tar.lz4` archive support.
+  - Added CLI `--format br` / `brotli` / `lz4` / `tar.br` / `tar.lz4` plus raw tar `--stdin` / `--stdout` behavior for tar.br and tar.lz4.
   - Added ZIP-compatible alias parsing/detection for `.jar`, `.war`, `.apk`, `.ipa`, and `.xpi` (all routed to the ZIP reader/writer).
-  - GUI format metadata, drag-out extension stripping, and compression validation now reflect the newly supported bzip2/tar.bz2 formats.
+  - GUI format metadata, drag-out extension stripping, and compression validation now reflect the newly supported bzip2/tar.bz2/brotli/tar.br/lz4/tar.lz4 formats.
 
 - **Desktop GUI — task progress reporting**:
   - Real-time progress events emitted from the Rust backend to the Tauri frontend

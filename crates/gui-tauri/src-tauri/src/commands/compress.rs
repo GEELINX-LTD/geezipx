@@ -1,7 +1,8 @@
 //! `compress_archive` command — create an archive from local files.
 //!
-//! Supported archive container formats: zip, tar, tar.gz, tar.bz2, tar.zst, tar.xz.
-//! Single-stream formats are intentionally rejected for the current GUI MVP.
+//! Supported archive container formats: zip, tar, tar.gz, tar.bz2, tar.br,
+//! tar.lz4, tar.zst, tar.xz. Single-stream formats are intentionally rejected
+//! for the current GUI MVP.
 //!
 //! All heavy work runs on `tokio::task::spawn_blocking` so the Tauri event loop
 //! is never blocked. Progress is emitted as `task:progress` events.
@@ -17,8 +18,10 @@ use tauri::AppHandle;
 use tokio::task::spawn_blocking;
 
 use geezipx_core::archive::tar::TarWriter;
+use geezipx_core::archive::tarbr::TarBrWriter;
 use geezipx_core::archive::tarbz2::TarBz2Writer;
 use geezipx_core::archive::targz::TarGzWriter;
+use geezipx_core::archive::tarlz4::TarLz4Writer;
 use geezipx_core::archive::tarxz::TarXzWriter;
 use geezipx_core::archive::tarzst::TarZstWriter;
 use geezipx_core::archive::zip::ZipWriter;
@@ -310,6 +313,8 @@ fn parse_gui_compress_format(s: &str) -> Result<ArchiveFormat, String> {
         "tar" => Ok(ArchiveFormat::Tar),
         "tar.gz" | "tgz" => Ok(ArchiveFormat::TarGz),
         "tar.bz2" | "tbz" | "tbz2" => Ok(ArchiveFormat::TarBz2),
+        "tar.br" => Ok(ArchiveFormat::TarBr),
+        "tar.lz4" => Ok(ArchiveFormat::TarLz4),
         "tar.zst" | "tzst" => Ok(ArchiveFormat::TarZst),
         "tar.xz" | "txz" => Ok(ArchiveFormat::TarXz),
         "gz" | "gzip" => Err(
@@ -321,6 +326,16 @@ fn parse_gui_compress_format(s: &str) -> Result<ArchiveFormat, String> {
         "bz2" | "bzip2" => Err(
             "'bzip2' is a single-stream compression format; \
              use tar.bz2/tbz/tbz2 in the GUI, or use the CLI for standalone .bz2 compression"
+                .to_string(),
+        ),
+        "br" | "brotli" => Err(
+            "'brotli' is a single-stream compression format; \
+             use tar.br in the GUI, or use the CLI for standalone .br compression"
+                .to_string(),
+        ),
+        "lz4" => Err(
+            "'lz4' is a single-stream compression format; \
+             use tar.lz4 in the GUI, or use the CLI for standalone .lz4 compression"
                 .to_string(),
         ),
         "zst" | "zstd" => Err(
@@ -350,7 +365,7 @@ fn parse_gui_compress_format(s: &str) -> Result<ArchiveFormat, String> {
                 .to_string(),
         ),
         other => Err(format!(
-            "Unsupported format '{other}'; expected: zip, tar, tar.gz, tgz, tar.bz2, tbz, tbz2, tar.zst, tzst, tar.xz, txz"
+            "Unsupported format '{other}'; expected: zip, tar, tar.gz, tgz, tar.bz2, tbz, tbz2, tar.br, tar.lz4, tar.zst, tzst, tar.xz, txz"
         )),
     }
 }
@@ -486,10 +501,18 @@ fn create_gui_writer(
         ArchiveFormat::Tar => Ok(Box::new(TarWriter::new(file))),
         ArchiveFormat::TarGz => Ok(Box::new(TarGzWriter::new_with_options(file, options))),
         ArchiveFormat::TarBz2 => Ok(Box::new(TarBz2Writer::new_with_options(file, options))),
+        ArchiveFormat::TarBr => Ok(Box::new(
+            TarBrWriter::new_with_options(file, options).map_err(|e| e.to_string())?,
+        )),
+        ArchiveFormat::TarLz4 => Ok(Box::new(
+            TarLz4Writer::new_with_options(file, options).map_err(|e| e.to_string())?,
+        )),
         ArchiveFormat::TarZst => Ok(Box::new(TarZstWriter::new_with_options(file, options))),
         ArchiveFormat::TarXz => Ok(Box::new(TarXzWriter::new_with_options(file, options))),
         ArchiveFormat::Gzip
         | ArchiveFormat::Bzip2
+        | ArchiveFormat::Brotli
+        | ArchiveFormat::Lz4
         | ArchiveFormat::Zstd
         | ArchiveFormat::Xz
         | ArchiveFormat::Lzma => Err(format!(
@@ -530,5 +553,28 @@ mod tests {
         let err2 = parse_gui_compress_format("bzip2").unwrap_err();
         assert!(err2.contains("single-stream"));
         assert!(err2.contains("tar.bz2"));
+    }
+
+    #[test]
+    fn parse_gui_compress_format_accepts_tarbr_and_tarlz4() {
+        assert_eq!(
+            parse_gui_compress_format("tar.br").unwrap(),
+            ArchiveFormat::TarBr
+        );
+        assert_eq!(
+            parse_gui_compress_format("tar.lz4").unwrap(),
+            ArchiveFormat::TarLz4
+        );
+    }
+
+    #[test]
+    fn parse_gui_compress_format_rejects_single_stream_brotli_and_lz4() {
+        let br_err = parse_gui_compress_format("brotli").unwrap_err();
+        assert!(br_err.contains("single-stream"));
+        assert!(br_err.contains("tar.br"));
+
+        let lz4_err = parse_gui_compress_format("lz4").unwrap_err();
+        assert!(lz4_err.contains("single-stream"));
+        assert!(lz4_err.contains("tar.lz4"));
     }
 }

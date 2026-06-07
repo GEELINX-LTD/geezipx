@@ -5,8 +5,10 @@ use std::io::{BufReader, Read, Write};
 use std::path::Path;
 
 use anyhow::{Context, Result};
+use geezipx_core::archive::brotli;
 use geezipx_core::archive::bzip2;
 use geezipx_core::archive::gzip;
+use geezipx_core::archive::lz4;
 use geezipx_core::archive::xz;
 use geezipx_core::archive::zstd;
 use geezipx_core::config::CompressOptions;
@@ -52,16 +54,20 @@ pub fn execute(
         match format {
             ArchiveFormat::Gzip
             | ArchiveFormat::Bzip2
+            | ArchiveFormat::Brotli
+            | ArchiveFormat::Lz4
             | ArchiveFormat::Zstd
             | ArchiveFormat::Xz
             | ArchiveFormat::Lzma
             | ArchiveFormat::TarGz
             | ArchiveFormat::TarBz2
+            | ArchiveFormat::TarBr
+            | ArchiveFormat::TarLz4
             | ArchiveFormat::TarZst
             | ArchiveFormat::TarXz => {}
             _ => anyhow::bail!(
                 "--stdin/--stdout is only supported for single-stream formats \
-                 (gzip, bzip2, zstd, xz, lzma, tar.gz, tar.bz2, tar.zst, tar.xz); got '{format}'"
+                 (gzip, bzip2, brotli, lz4, zstd, xz, lzma, tar.gz, tar.bz2, tar.br, tar.lz4, tar.zst, tar.xz); got '{format}'"
             ),
         }
     }
@@ -73,6 +79,8 @@ pub fn execute(
         // Single-stream formats always use single-stream mode.
         ArchiveFormat::Gzip
         | ArchiveFormat::Bzip2
+        | ArchiveFormat::Brotli
+        | ArchiveFormat::Lz4
         | ArchiveFormat::Zstd
         | ArchiveFormat::Xz
         | ArchiveFormat::Lzma => compress_single_stream_mode(
@@ -90,6 +98,8 @@ pub fn execute(
         // raw tar via stdin/stdout; otherwise they follow the archive path.
         ArchiveFormat::TarGz
         | ArchiveFormat::TarBz2
+        | ArchiveFormat::TarBr
+        | ArchiveFormat::TarLz4
         | ArchiveFormat::TarZst
         | ArchiveFormat::TarXz
             if use_stdin || use_stdout =>
@@ -441,9 +451,11 @@ fn validate_compress_inputs(
         );
     }
 
-    // Single-stream formats (gzip, bzip2, zstd, xz, lzma) only accept one input.
+    // Single-stream formats (gzip, bzip2, brotli, lz4, zstd, xz, lzma) only accept one input.
     if (format == ArchiveFormat::Gzip
         || format == ArchiveFormat::Bzip2
+        || format == ArchiveFormat::Brotli
+        || format == ArchiveFormat::Lz4
         || format == ArchiveFormat::Zstd
         || format == ArchiveFormat::Xz
         || format == ArchiveFormat::Lzma)
@@ -457,8 +469,9 @@ fn validate_compress_inputs(
     }
 
     // Gzip/bzip2/xz/lzma/tar.gz/tar.bz2/tar.xz levels are limited to 0..=9;
-    // zstd/tar.zst supports 0..=22. For bzip2/tar.bz2, level 0 maps to the
-    // default encoder level because libbz2 has no store-only mode.
+    // brotli/tar.br supports 0..=11; zstd/tar.zst supports 0..=22; lz4/tar.lz4
+    // accepts only 0 or omitted. For bzip2/tar.bz2, level 0 maps to the default
+    // encoder level because libbz2 has no store-only mode.
     if format == ArchiveFormat::Gzip
         || format == ArchiveFormat::Bzip2
         || format == ArchiveFormat::Xz
@@ -474,6 +487,23 @@ fn validate_compress_inputs(
         }
     }
 
+    if format == ArchiveFormat::Brotli || format == ArchiveFormat::TarBr {
+        if let Some(l) = options.level {
+            if l > 11 {
+                anyhow::bail!("{} compression level must be 0..=11, got {}", format, l);
+            }
+        }
+    }
+
+    if (format == ArchiveFormat::Lz4 || format == ArchiveFormat::TarLz4)
+        && options.level.is_some_and(|l| l != 0)
+    {
+        anyhow::bail!(
+            "{} compression level is not configurable in the current encoder; use 0 or omit the level",
+            format
+        );
+    }
+
     // Resolve all paths and check they exist.
     for input in inputs {
         if !input.exists() {
@@ -481,6 +511,8 @@ fn validate_compress_inputs(
         }
         if (format == ArchiveFormat::Gzip
             || format == ArchiveFormat::Bzip2
+            || format == ArchiveFormat::Brotli
+            || format == ArchiveFormat::Lz4
             || format == ArchiveFormat::Zstd
             || format == ArchiveFormat::Xz
             || format == ArchiveFormat::Lzma)
@@ -501,6 +533,8 @@ fn validate_compress_inputs(
             format,
             ArchiveFormat::Gzip
                 | ArchiveFormat::Bzip2
+                | ArchiveFormat::Brotli
+                | ArchiveFormat::Lz4
                 | ArchiveFormat::Zstd
                 | ArchiveFormat::Xz
                 | ArchiveFormat::Lzma
@@ -531,8 +565,10 @@ fn compress_single_stream<R: Read, W: Write>(
 ) -> anyhow::Result<u64> {
     match format {
         // Note: single-stream compression (used for --stdin/--stdout) does
-        // NOT benefit from --jobs for tar.gz.  The gzp parallel gzip is
+        // NOT benefit from --jobs for tar.gz. The gzp parallel gzip is
         // only active in archive mode via TarGzWriter::new_with_options.
+        // Brotli and lz4 currently accept --jobs for forward compatibility,
+        // but the selected encoder paths are single-threaded.
         ArchiveFormat::Gzip | ArchiveFormat::TarGz => {
             gzip::gzip_compress_with_options(reader, writer, options)
                 .map_err(|e| anyhow::anyhow!("gzip compression error: {}", e))
@@ -540,6 +576,14 @@ fn compress_single_stream<R: Read, W: Write>(
         ArchiveFormat::Bzip2 | ArchiveFormat::TarBz2 => {
             bzip2::bzip2_compress_with_options(reader, writer, options)
                 .map_err(|e| anyhow::anyhow!("bzip2 compression error: {}", e))
+        }
+        ArchiveFormat::Brotli | ArchiveFormat::TarBr => {
+            brotli::brotli_compress_with_options(reader, writer, options)
+                .map_err(|e| anyhow::anyhow!("brotli compression error: {}", e))
+        }
+        ArchiveFormat::Lz4 | ArchiveFormat::TarLz4 => {
+            lz4::lz4_compress_with_options(reader, writer, options)
+                .map_err(|e| anyhow::anyhow!("lz4 compression error: {}", e))
         }
         ArchiveFormat::Zstd | ArchiveFormat::TarZst => {
             zstd::zstd_compress_with_options(reader, writer, options)

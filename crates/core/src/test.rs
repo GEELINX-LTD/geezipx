@@ -1,8 +1,8 @@
 //! Archive and compression stream integrity verification.
 //!
 //! Provides [`verify_archive_reader`] for archive-based formats (zip, tar,
-//! tar.gz, tar.bz2, tar.zst, tar.xz) and [`verify_single_stream`] for single-stream
-//! compression formats (gzip, bzip2, zstd, xz, lzma).
+//! tar.gz, tar.bz2, tar.zst, tar.xz, tar.br, tar.lz4) and [`verify_single_stream`]
+//! for single-stream compression formats (gzip, bzip2, brotli, lz4, zstd, xz, lzma).
 //!
 //! # Design
 //!
@@ -71,8 +71,8 @@ pub fn verify_archive_reader(reader: &mut dyn ArchiveReader) -> GeeZipResult<Tes
     })
 }
 
-/// Verify the integrity of a single-stream compressed file (gzip, bzip2, zstd,
-/// xz, lzma).
+/// Verify the integrity of a single-stream compressed file (gzip, bzip2,
+/// brotli, lz4, zstd, xz, lzma).
 ///
 /// Opens the file, creates the appropriate decoder, and copies the entire
 /// decompressed stream to `std::io::sink()`.  Returns an error if the
@@ -90,6 +90,16 @@ pub fn verify_single_stream(path: &Path, format: ArchiveFormat) -> GeeZipResult<
             let mut decoder = ::bzip2::read::MultiBzDecoder::new(file);
             std::io::copy(&mut decoder, &mut std::io::sink())
                 .map_err(|e| GeeZipError::io(e, "bzip2 verification failed"))?
+        }
+        ArchiveFormat::Brotli => {
+            let mut decoder = brotli::Decompressor::new(file, 64 * 1024);
+            std::io::copy(&mut decoder, &mut std::io::sink())
+                .map_err(|e| GeeZipError::io(e, "brotli verification failed"))?
+        }
+        ArchiveFormat::Lz4 => {
+            let mut decoder = lz4_flex::frame::FrameDecoder::new(file);
+            std::io::copy(&mut decoder, &mut std::io::sink())
+                .map_err(|e| GeeZipError::io(e, "lz4 verification failed"))?
         }
         ArchiveFormat::Zstd => {
             let mut decoder = zstd::stream::Decoder::new(file)

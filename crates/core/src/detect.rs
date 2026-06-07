@@ -23,10 +23,18 @@ pub enum ArchiveFormat {
     Gzip,
     /// Bzip2 compressed stream (`BZh`).
     Bzip2,
+    /// Brotli-compressed stream (extension-based — `.br`; no stable magic header).
+    Brotli,
+    /// LZ4 frame (`04 22 4D 18`).
+    Lz4,
     /// Tar archive compressed with gzip (extension-based — `.tar.gz`, `.tgz`).
     TarGz,
     /// Tar archive compressed with bzip2 (extension-based — `.tar.bz2`, `.tbz`, `.tbz2`).
     TarBz2,
+    /// Tar archive compressed with Brotli (extension-based — `.tar.br`).
+    TarBr,
+    /// Tar archive compressed with LZ4 (extension-based — `.tar.lz4`).
+    TarLz4,
     /// LZMA-compressed XZ stream (`\xFD7zXZ\x00`).
     Xz,
     /// Zstandard frame (`\x28\xB5\x2F\xFD`).
@@ -52,8 +60,12 @@ impl fmt::Display for ArchiveFormat {
             ArchiveFormat::Tar => write!(f, "tar"),
             ArchiveFormat::Gzip => write!(f, "gzip"),
             ArchiveFormat::Bzip2 => write!(f, "bzip2"),
+            ArchiveFormat::Brotli => write!(f, "brotli"),
+            ArchiveFormat::Lz4 => write!(f, "lz4"),
             ArchiveFormat::TarGz => write!(f, "tar.gz"),
             ArchiveFormat::TarBz2 => write!(f, "tar.bz2"),
+            ArchiveFormat::TarBr => write!(f, "tar.br"),
+            ArchiveFormat::TarLz4 => write!(f, "tar.lz4"),
             ArchiveFormat::Xz => write!(f, "xz"),
             ArchiveFormat::Zstd => write!(f, "zstd"),
             ArchiveFormat::TarZst => write!(f, "tar.zst"),
@@ -78,6 +90,8 @@ const MAGIC_ZIP_EMPTY: &[u8] = b"PK\x05\x06";
 const MAGIC_GZIP: &[u8] = &[0x1F, 0x8B];
 /// Bzip2 magic: `BZh`.
 const MAGIC_BZIP2: &[u8] = b"BZh";
+/// LZ4 frame magic: `04 22 4D 18`.
+const MAGIC_LZ4_FRAME: &[u8] = &[0x04, 0x22, 0x4D, 0x18];
 /// Zstandard magic: `\x28\xB5\x2F\xFD`.
 const MAGIC_ZSTD: &[u8] = &[0x28, 0xB5, 0x2F, 0xFD];
 /// XZ magic: `\xFD7zXZ\x00`.
@@ -98,6 +112,8 @@ const EXTENSION_MAP: &[(&str, ArchiveFormat)] = &[
     (".tar", ArchiveFormat::Tar),
     (".gz", ArchiveFormat::Gzip),
     (".bz2", ArchiveFormat::Bzip2),
+    (".br", ArchiveFormat::Brotli),
+    (".lz4", ArchiveFormat::Lz4),
     // Note: .tgz/.tbz/.tbz2 are handled by detect_from_extension's compound checks.
     (".xz", ArchiveFormat::Xz),
     (".zst", ArchiveFormat::Zstd),
@@ -118,10 +134,12 @@ const EXTENSION_MAP: &[(&str, ArchiveFormat)] = &[
 /// sequences.  Returns `None` when no magic matches; the caller can
 /// fall back to extension-based detection.
 ///
-/// **Note**: For tar-wrapped compressed formats such as `.tar.gz`/`.tgz`
-/// and `.tar.bz2`/`.tbz`/`.tbz2`, this function returns the outer stream
-/// format (`Gzip` / `Bzip2`) because the compression magic header does not
-/// reveal whether the inner stream is a tar archive.
+/// **Note**: For tar-wrapped compressed formats such as `.tar.gz`/`.tgz`,
+/// `.tar.bz2`/`.tbz`/`.tbz2`, and `.tar.lz4`, this function returns the
+/// outer stream format (`Gzip` / `Bzip2` / `Lz4`) because the compression
+/// magic header does not reveal whether the inner stream is a tar archive.
+/// Brotli streams have no stable magic header here, so `.br` / `.tar.br`
+/// rely on extension-based detection only.
 pub fn detect_format(data: &[u8]) -> Option<ArchiveFormat> {
     if data.starts_with(MAGIC_ZIP) || data.starts_with(MAGIC_ZIP_EMPTY) {
         return Some(ArchiveFormat::Zip);
@@ -131,6 +149,9 @@ pub fn detect_format(data: &[u8]) -> Option<ArchiveFormat> {
     }
     if data.starts_with(MAGIC_BZIP2) {
         return Some(ArchiveFormat::Bzip2);
+    }
+    if data.starts_with(MAGIC_LZ4_FRAME) {
+        return Some(ArchiveFormat::Lz4);
     }
     if data.starts_with(MAGIC_ZSTD) {
         return Some(ArchiveFormat::Zstd);
@@ -168,6 +189,12 @@ pub fn detect_from_extension(path: &Path) -> Option<ArchiveFormat> {
     }
     if lower.ends_with(".tar.bz2") || lower.ends_with(".tbz") || lower.ends_with(".tbz2") {
         return Some(ArchiveFormat::TarBz2);
+    }
+    if lower.ends_with(".tar.br") {
+        return Some(ArchiveFormat::TarBr);
+    }
+    if lower.ends_with(".tar.lz4") {
+        return Some(ArchiveFormat::TarLz4);
     }
     if lower.ends_with(".tar.xz") || lower.ends_with(".txz") {
         return Some(ArchiveFormat::TarXz);
@@ -240,6 +267,32 @@ mod tests {
     #[test]
     fn detect_bzip2() {
         assert_eq!(detect_format(b"BZh91AY"), Some(ArchiveFormat::Bzip2));
+    }
+
+    #[test]
+    fn detect_lz4_magic() {
+        assert_eq!(
+            detect_format(&[0x04, 0x22, 0x4D, 0x18, 0x64, 0x40, 0xA7, 0x0D]),
+            Some(ArchiveFormat::Lz4)
+        );
+    }
+
+    #[test]
+    fn detect_brotli_is_extension_only() {
+        let mut compressed = Vec::new();
+        let params = brotli::enc::backward_references::BrotliEncoderParams::default();
+        brotli::BrotliCompress(
+            &mut std::io::Cursor::new(b"hello brotli payload"),
+            &mut compressed,
+            &params,
+        )
+        .expect("brotli compression should succeed");
+
+        assert_eq!(detect_format(&compressed), None);
+        assert_eq!(
+            detect_from_extension(Path::new("archive.br")),
+            Some(ArchiveFormat::Brotli)
+        );
     }
 
     #[test]
@@ -375,6 +428,30 @@ mod tests {
     }
 
     #[test]
+    fn ext_tar_br_takes_priority_over_br() {
+        assert_eq!(
+            detect_from_extension(Path::new("archive.tar.br")),
+            Some(ArchiveFormat::TarBr)
+        );
+    }
+
+    #[test]
+    fn ext_lz4() {
+        assert_eq!(
+            detect_from_extension(Path::new("archive.lz4")),
+            Some(ArchiveFormat::Lz4)
+        );
+    }
+
+    #[test]
+    fn ext_tar_lz4_takes_priority_over_lz4() {
+        assert_eq!(
+            detect_from_extension(Path::new("archive.tar.lz4")),
+            Some(ArchiveFormat::TarLz4)
+        );
+    }
+
+    #[test]
     fn ext_xz() {
         assert_eq!(
             detect_from_extension(Path::new("archive.xz")),
@@ -502,6 +579,26 @@ mod tests {
     #[test]
     fn display_targz() {
         assert_eq!(ArchiveFormat::TarGz.to_string(), "tar.gz");
+    }
+
+    #[test]
+    fn display_brotli() {
+        assert_eq!(ArchiveFormat::Brotli.to_string(), "brotli");
+    }
+
+    #[test]
+    fn display_lz4() {
+        assert_eq!(ArchiveFormat::Lz4.to_string(), "lz4");
+    }
+
+    #[test]
+    fn display_tarbr() {
+        assert_eq!(ArchiveFormat::TarBr.to_string(), "tar.br");
+    }
+
+    #[test]
+    fn display_tarlz4() {
+        assert_eq!(ArchiveFormat::TarLz4.to_string(), "tar.lz4");
     }
 
     #[test]

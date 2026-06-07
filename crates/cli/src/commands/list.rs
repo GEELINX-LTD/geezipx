@@ -25,6 +25,8 @@ pub fn execute(archive: &Path, json: bool, password: Option<String>) -> Result<(
             format,
             ArchiveFormat::Gzip
                 | ArchiveFormat::Bzip2
+                | ArchiveFormat::Brotli
+                | ArchiveFormat::Lz4
                 | ArchiveFormat::Zstd
                 | ArchiveFormat::Xz
                 | ArchiveFormat::Lzma
@@ -53,6 +55,32 @@ pub fn execute(archive: &Path, json: bool, password: Option<String>) -> Result<(
         ArchiveFormat::Bzip2 => {
             // Bzip2 is a single-stream compression — produce a synthetic entry.
             let inferred_name = common::bzip2_output_filename(archive);
+            let compressed_size = fs::metadata(archive).map(|m| m.len()).unwrap_or(0);
+            vec![Entry {
+                path: inferred_name.to_string_lossy().into_owned(),
+                size: 0,
+                compressed_size,
+                crc32: None,
+                modified: None,
+                is_dir: false,
+            }]
+        }
+        ArchiveFormat::Brotli => {
+            // Brotli is a single-stream compression — produce a synthetic entry.
+            let inferred_name = common::brotli_output_filename(archive);
+            let compressed_size = fs::metadata(archive).map(|m| m.len()).unwrap_or(0);
+            vec![Entry {
+                path: inferred_name.to_string_lossy().into_owned(),
+                size: 0,
+                compressed_size,
+                crc32: None,
+                modified: None,
+                is_dir: false,
+            }]
+        }
+        ArchiveFormat::Lz4 => {
+            // LZ4 is a single-stream compression — produce a synthetic entry.
+            let inferred_name = common::lz4_output_filename(archive);
             let compressed_size = fs::metadata(archive).map(|m| m.len()).unwrap_or(0);
             vec![Entry {
                 path: inferred_name.to_string_lossy().into_owned(),

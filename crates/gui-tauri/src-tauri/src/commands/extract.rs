@@ -4,7 +4,7 @@
 //! `open_reader`) and bridges extraction progress to the frontend via
 //! `task:progress` events.
 //!
-//! # Single-stream formats (gzip, bzip2, zstd, xz, lzma)
+//! # Single-stream formats (gzip, bzip2, brotli, lz4, zstd, xz, lzma)
 //!
 //! These are not yet supported for extraction in the GUI. The command returns a
 //! clear error directing users to a future update.
@@ -135,6 +135,8 @@ pub async fn extract_archive(
                 match format {
                     ArchiveFormat::Gzip
                     | ArchiveFormat::Bzip2
+                    | ArchiveFormat::Brotli
+                    | ArchiveFormat::Lz4
                     | ArchiveFormat::Zstd
                     | ArchiveFormat::Xz
                     | ArchiveFormat::Lzma => {

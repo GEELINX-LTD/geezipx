@@ -7029,6 +7029,454 @@ fn compress_stdin_tarbz2_pipe_to_file_and_back() {
 }
 
 #[test]
+fn brotli_stdout_roundtrip() {
+    let tmp = TestDir::new();
+    let content = "Hello, GeeZipX! brotli --stdout round-trip.";
+    tmp.write("hello.txt", content);
+    let archive = tmp.join("hello.txt.br");
+
+    geezipx()
+        .args([
+            "compress",
+            tmp.join("hello.txt").to_str().unwrap(),
+            "-f",
+            "brotli",
+            "-o",
+            archive.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    geezipx()
+        .args(["list", archive.to_str().unwrap()])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("hello.txt"));
+
+    geezipx()
+        .args(["decompress", archive.to_str().unwrap(), "--stdout"])
+        .assert()
+        .success()
+        .stdout(content);
+}
+
+#[test]
+fn brotli_auto_format_from_br_extension() {
+    let tmp = TestDir::new();
+    let content = "Auto-format brotli via .br extension.";
+    tmp.write("auto.txt", content);
+    let archive = tmp.join("auto.txt.br");
+
+    geezipx()
+        .args([
+            "compress",
+            tmp.join("auto.txt").to_str().unwrap(),
+            "-o",
+            archive.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    geezipx()
+        .args(["decompress", archive.to_str().unwrap(), "--stdout"])
+        .assert()
+        .success()
+        .stdout(content);
+}
+
+#[test]
+fn brotli_level_12_rejected() {
+    let tmp = TestDir::new();
+    tmp.write("test.txt", "brotli level reject test");
+
+    geezipx()
+        .args([
+            "compress",
+            tmp.join("test.txt").to_str().unwrap(),
+            "-f",
+            "brotli",
+            "-L",
+            "12",
+            "-o",
+            tmp.join("out.br").to_str().unwrap(),
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("0..=11"));
+}
+
+#[test]
+fn lz4_stdout_roundtrip() {
+    let tmp = TestDir::new();
+    let content = "Hello, GeeZipX! lz4 --stdout round-trip.";
+    tmp.write("hello.txt", content);
+    let archive = tmp.join("hello.txt.lz4");
+
+    geezipx()
+        .args([
+            "compress",
+            tmp.join("hello.txt").to_str().unwrap(),
+            "-f",
+            "lz4",
+            "-o",
+            archive.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    geezipx()
+        .args(["list", archive.to_str().unwrap()])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("hello.txt"));
+
+    geezipx()
+        .args(["decompress", archive.to_str().unwrap(), "--stdout"])
+        .assert()
+        .success()
+        .stdout(content);
+}
+
+#[test]
+fn lz4_auto_format_from_lz4_extension() {
+    let tmp = TestDir::new();
+    let content = "Auto-format lz4 via .lz4 extension.";
+    tmp.write("auto.txt", content);
+    let archive = tmp.join("auto.txt.lz4");
+
+    geezipx()
+        .args([
+            "compress",
+            tmp.join("auto.txt").to_str().unwrap(),
+            "-o",
+            archive.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    geezipx()
+        .args(["decompress", archive.to_str().unwrap(), "--stdout"])
+        .assert()
+        .success()
+        .stdout(content);
+}
+
+#[test]
+fn lz4_level_1_rejected() {
+    let tmp = TestDir::new();
+    tmp.write("test.txt", "lz4 level reject test");
+
+    geezipx()
+        .args([
+            "compress",
+            tmp.join("test.txt").to_str().unwrap(),
+            "-f",
+            "lz4",
+            "-L",
+            "1",
+            "-o",
+            tmp.join("out.lz4").to_str().unwrap(),
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("use 0 or omit"));
+}
+
+#[test]
+fn tarbr_auto_format_from_tar_br_extension() {
+    let tmp = TestDir::new();
+    tmp.write("hello.txt", "Auto-format tar.br.");
+    let archive = tmp.join("out.tar.br");
+    let output = tmp.join("out");
+
+    geezipx()
+        .args([
+            "compress",
+            tmp.join("hello.txt").to_str().unwrap(),
+            "-o",
+            archive.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    geezipx()
+        .args(["list", archive.to_str().unwrap()])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("hello.txt"));
+
+    std::fs::create_dir_all(&output).unwrap();
+    geezipx()
+        .args([
+            "decompress",
+            archive.to_str().unwrap(),
+            "-o",
+            output.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    assert_eq!(
+        std::fs::read_to_string(output.join("hello.txt")).unwrap(),
+        "Auto-format tar.br."
+    );
+}
+
+#[test]
+fn tarbr_explicit_format_roundtrip() {
+    let tmp = TestDir::new();
+    let src = tmp.join("src");
+    std::fs::create_dir_all(src.join("nested")).unwrap();
+    std::fs::write(src.join("root.txt"), "root level").unwrap();
+    std::fs::write(src.join("nested").join("deep.txt"), "nested level").unwrap();
+    let archive = tmp.join("out.tar.br");
+    let output = tmp.join("extracted");
+
+    geezipx()
+        .args([
+            "compress",
+            src.to_str().unwrap(),
+            "-r",
+            "-f",
+            "tar.br",
+            "-o",
+            archive.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    std::fs::create_dir_all(&output).unwrap();
+    geezipx()
+        .args([
+            "decompress",
+            archive.to_str().unwrap(),
+            "-o",
+            output.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    assert!(output.join("src").join("root.txt").exists());
+    assert!(output.join("src").join("nested").join("deep.txt").exists());
+}
+
+#[test]
+fn tarbr_stdout_outputs_raw_tar_stream() {
+    let tmp = TestDir::new();
+    tmp.write("data.txt", "raw tar from tar.br stdout");
+    let archive = tmp.join("data.tar.br");
+
+    geezipx()
+        .args([
+            "compress",
+            tmp.join("data.txt").to_str().unwrap(),
+            "-f",
+            "tar.br",
+            "-o",
+            archive.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    geezipx()
+        .args(["decompress", archive.to_str().unwrap(), "--stdout"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("data.txt"));
+}
+
+#[test]
+fn compress_stdin_tarbr_pipe_to_file_and_back() {
+    let td = TestDir::new();
+    td.write("test_data.txt", "hello from tar.br stdin test\n");
+
+    let tar_path = td.join("test.tar");
+    geezipx()
+        .args([
+            "compress",
+            td.path().join("test_data.txt").to_str().unwrap(),
+            "-f",
+            "tar",
+            "-o",
+            tar_path.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+    let tar_bytes = std::fs::read(&tar_path).unwrap();
+    assert!(!tar_bytes.is_empty(), "raw tar should have data");
+
+    let br_path = td.join("out.tar.br");
+    geezipx()
+        .args([
+            "compress",
+            "--stdin",
+            "-f",
+            "tar.br",
+            "-o",
+            br_path.to_str().unwrap(),
+        ])
+        .write_stdin(tar_bytes.clone())
+        .assert()
+        .success();
+    assert!(br_path.exists(), "tar.br output should exist");
+
+    let compressed_bytes = std::fs::read(&br_path).unwrap();
+    geezipx()
+        .args(["decompress", "--stdin", "-f", "tar.br", "--stdout"])
+        .write_stdin(compressed_bytes)
+        .assert()
+        .success()
+        .stdout(tar_bytes.clone());
+}
+
+#[test]
+fn tarlz4_auto_format_from_tar_lz4_extension() {
+    let tmp = TestDir::new();
+    tmp.write("hello.txt", "Auto-format tar.lz4.");
+    let archive = tmp.join("out.tar.lz4");
+    let output = tmp.join("out");
+
+    geezipx()
+        .args([
+            "compress",
+            tmp.join("hello.txt").to_str().unwrap(),
+            "-o",
+            archive.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    geezipx()
+        .args(["list", archive.to_str().unwrap()])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("hello.txt"));
+
+    std::fs::create_dir_all(&output).unwrap();
+    geezipx()
+        .args([
+            "decompress",
+            archive.to_str().unwrap(),
+            "-o",
+            output.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    assert_eq!(
+        std::fs::read_to_string(output.join("hello.txt")).unwrap(),
+        "Auto-format tar.lz4."
+    );
+}
+
+#[test]
+fn tarlz4_explicit_format_roundtrip() {
+    let tmp = TestDir::new();
+    let src = tmp.join("src");
+    std::fs::create_dir_all(src.join("nested")).unwrap();
+    std::fs::write(src.join("root.txt"), "root level").unwrap();
+    std::fs::write(src.join("nested").join("deep.txt"), "nested level").unwrap();
+    let archive = tmp.join("out.tar.lz4");
+    let output = tmp.join("extracted");
+
+    geezipx()
+        .args([
+            "compress",
+            src.to_str().unwrap(),
+            "-r",
+            "-f",
+            "tar.lz4",
+            "-o",
+            archive.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    std::fs::create_dir_all(&output).unwrap();
+    geezipx()
+        .args([
+            "decompress",
+            archive.to_str().unwrap(),
+            "-o",
+            output.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    assert!(output.join("src").join("root.txt").exists());
+    assert!(output.join("src").join("nested").join("deep.txt").exists());
+}
+
+#[test]
+fn tarlz4_stdout_outputs_raw_tar_stream() {
+    let tmp = TestDir::new();
+    tmp.write("data.txt", "raw tar from tar.lz4 stdout");
+    let archive = tmp.join("data.tar.lz4");
+
+    geezipx()
+        .args([
+            "compress",
+            tmp.join("data.txt").to_str().unwrap(),
+            "-f",
+            "tar.lz4",
+            "-o",
+            archive.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    geezipx()
+        .args(["decompress", archive.to_str().unwrap(), "--stdout"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("data.txt"));
+}
+
+#[test]
+fn compress_stdin_tarlz4_pipe_to_file_and_back() {
+    let td = TestDir::new();
+    td.write("test_data.txt", "hello from tar.lz4 stdin test\n");
+
+    let tar_path = td.join("test.tar");
+    geezipx()
+        .args([
+            "compress",
+            td.path().join("test_data.txt").to_str().unwrap(),
+            "-f",
+            "tar",
+            "-o",
+            tar_path.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+    let tar_bytes = std::fs::read(&tar_path).unwrap();
+    assert!(!tar_bytes.is_empty(), "raw tar should have data");
+
+    let lz4_path = td.join("out.tar.lz4");
+    geezipx()
+        .args([
+            "compress",
+            "--stdin",
+            "-f",
+            "tar.lz4",
+            "-o",
+            lz4_path.to_str().unwrap(),
+        ])
+        .write_stdin(tar_bytes.clone())
+        .assert()
+        .success();
+    assert!(lz4_path.exists(), "tar.lz4 output should exist");
+
+    let compressed_bytes = std::fs::read(&lz4_path).unwrap();
+    geezipx()
+        .args(["decompress", "--stdin", "-f", "tar.lz4", "--stdout"])
+        .write_stdin(compressed_bytes)
+        .assert()
+        .success()
+        .stdout(tar_bytes.clone());
+}
+
+#[test]
 fn zip_alias_formats_list_and_decompress() {
     let tmp = TestDir::new();
 

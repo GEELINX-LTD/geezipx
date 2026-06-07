@@ -25,10 +25,10 @@ pub struct TestArchiveResult {
 
 /// Test/verify the integrity of an archive.
 ///
-/// - For archive-based formats (zip, tar, tar.gz, tar.zst, tar.xz, 7z, rar):
+/// - For archive-based formats (zip, tar, tar.gz, tar.bz2, tar.br, tar.lz4, tar.zst, tar.xz, 7z, rar):
 ///   iterates every entry and streams its content to sink, triggering format-level
 ///   integrity checks.
-/// - For single-stream formats (gzip, bzip2, zstd, xz, lzma): decodes the full stream
+/// - For single-stream formats (gzip, bzip2, brotli, lz4, zstd, xz, lzma): decodes the full stream
 ///   to sink and validates the checksum footer.
 ///
 /// Returns an error if the archive is corrupt or the format is not supported.
@@ -47,6 +47,8 @@ pub async fn test_archive(
             // Single-stream formats: use verify_single_stream
             ArchiveFormat::Gzip
             | ArchiveFormat::Bzip2
+            | ArchiveFormat::Brotli
+            | ArchiveFormat::Lz4
             | ArchiveFormat::Zstd
             | ArchiveFormat::Xz
             | ArchiveFormat::Lzma => {

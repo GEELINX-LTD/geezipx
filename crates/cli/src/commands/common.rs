@@ -14,10 +14,14 @@ use geezipx_core::archive::rar::RarReader;
 use geezipx_core::archive::seven_zip::SevenZipReader;
 use geezipx_core::archive::tar::TarReader;
 use geezipx_core::archive::tar::TarWriter;
+use geezipx_core::archive::tarbr::TarBrReader;
+use geezipx_core::archive::tarbr::TarBrWriter;
 use geezipx_core::archive::tarbz2::TarBz2Reader;
 use geezipx_core::archive::tarbz2::TarBz2Writer;
 use geezipx_core::archive::targz::TarGzReader;
 use geezipx_core::archive::targz::TarGzWriter;
+use geezipx_core::archive::tarlz4::TarLz4Reader;
+use geezipx_core::archive::tarlz4::TarLz4Writer;
 use geezipx_core::archive::tarxz::TarXzReader;
 use geezipx_core::archive::tarxz::TarXzWriter;
 use geezipx_core::archive::tarzst::TarZstReader;
@@ -35,16 +39,21 @@ use geezipx_core::detect::{self, ArchiveFormat};
 /// Parse a user-supplied format string into an [`ArchiveFormat`].
 ///
 /// Accepts: `zip`, ZIP-derived aliases (`jar`, `war`, `apk`, `ipa`, `xpi`),
-/// `tar`, `tar.gz`, `tgz`, `tar.bz2`, `tbz`, `tbz2`, `bz2`, `bzip2`,
-/// `zst`, `zstd`, `tar.zst`, `tzst`, `tar.xz`, `txz`, `xz`, `lzma`, `7z`, `rar`.
+/// `tar`, `tar.gz`, `tgz`, `tar.bz2`, `tbz`, `tbz2`, `tar.br`, `gz`, `gzip`,
+/// `bz2`, `bzip2`, `br`, `brotli`, `lz4`, `tar.lz4`, `zst`, `zstd`, `tar.zst`,
+/// `tzst`, `tar.xz`, `txz`, `xz`, `lzma`, `7z`, `rar`.
 pub fn parse_format(s: &str) -> Result<ArchiveFormat> {
     match s.to_ascii_lowercase().as_str() {
         "zip" | "jar" | "war" | "apk" | "ipa" | "xpi" => Ok(ArchiveFormat::Zip),
         "tar" => Ok(ArchiveFormat::Tar),
         "tar.gz" | "tgz" => Ok(ArchiveFormat::TarGz),
         "tar.bz2" | "tbz" | "tbz2" => Ok(ArchiveFormat::TarBz2),
+        "tar.br" => Ok(ArchiveFormat::TarBr),
         "gz" | "gzip" => Ok(ArchiveFormat::Gzip),
         "bz2" | "bzip2" => Ok(ArchiveFormat::Bzip2),
+        "br" | "brotli" => Ok(ArchiveFormat::Brotli),
+        "lz4" => Ok(ArchiveFormat::Lz4),
+        "tar.lz4" => Ok(ArchiveFormat::TarLz4),
         "zst" | "zstd" => Ok(ArchiveFormat::Zstd),
         "tar.zst" | "tzst" => Ok(ArchiveFormat::TarZst),
         "tar.xz" | "txz" => Ok(ArchiveFormat::TarXz),
@@ -53,7 +62,7 @@ pub fn parse_format(s: &str) -> Result<ArchiveFormat> {
         "7z" => Ok(ArchiveFormat::SevenZip),
         "rar" => Ok(ArchiveFormat::Rar),
         other => Err(anyhow::anyhow!(
-            "unsupported format '{other}'; expected: zip, jar, war, apk, ipa, xpi, tar, tar.gz, tgz, tar.bz2, tbz, tbz2, gz, gzip, bz2, bzip2, zst, zstd, tar.zst, tzst, tar.xz, txz, xz, lzma, 7z, rar"
+            "unsupported format '{other}'; expected: zip, jar, war, apk, ipa, xpi, tar, tar.gz, tgz, tar.bz2, tbz, tbz2, tar.br, gz, gzip, bz2, bzip2, br, brotli, lz4, tar.lz4, zst, zstd, tar.zst, tzst, tar.xz, txz, xz, lzma, 7z, rar"
         )),
     }
 }
@@ -75,7 +84,7 @@ pub fn resolve_format(cli_format: Option<&str>, output: &Path) -> Result<Archive
 /// fallback.
 ///
 /// 1. Read `MAGIC_DETECT_SIZE` bytes.
-/// 2. If gzip/bzip2 magic, check tar-wrapped extensions first.
+/// 2. If gzip/bzip2/lz4 magic, check tar-wrapped extensions first.
 /// 3. Otherwise return the magic-based result or fall back to extension.
 pub fn detect_archive_format(path: &Path) -> Result<ArchiveFormat> {
     let mut file = fs::File::open(path).with_context(|| format!("opening '{}'", path.display()))?;
@@ -98,6 +107,14 @@ pub fn detect_archive_format(path: &Path) -> Result<ArchiveFormat> {
                 Ok(ArchiveFormat::TarBz2)
             } else {
                 Ok(ArchiveFormat::Bzip2)
+            }
+        }
+        Some(ArchiveFormat::Lz4) => {
+            // LZ4 frame magic is also present in `.tar.lz4`.
+            if let Some(ArchiveFormat::TarLz4) = detect::detect_from_extension(path) {
+                Ok(ArchiveFormat::TarLz4)
+            } else {
+                Ok(ArchiveFormat::Lz4)
             }
         }
         Some(ArchiveFormat::Zstd) => {
@@ -285,6 +302,8 @@ pub fn open_reader(
         ArchiveFormat::Tar => Box::new(TarReader::new(file)),
         ArchiveFormat::TarGz => Box::new(TarGzReader::new(file)),
         ArchiveFormat::TarBz2 => Box::new(TarBz2Reader::new(file)),
+        ArchiveFormat::TarBr => Box::new(TarBrReader::new(file)),
+        ArchiveFormat::TarLz4 => Box::new(TarLz4Reader::new(file)),
         ArchiveFormat::TarZst => Box::new(TarZstReader::new(file)),
         ArchiveFormat::TarXz => Box::new(TarXzReader::new(file)),
         #[cfg(feature = "rar")]
@@ -297,6 +316,8 @@ pub fn open_reader(
         }
         ArchiveFormat::Gzip
         | ArchiveFormat::Bzip2
+        | ArchiveFormat::Brotli
+        | ArchiveFormat::Lz4
         | ArchiveFormat::Zstd
         | ArchiveFormat::Xz
         | ArchiveFormat::Lzma => anyhow::bail!(
@@ -337,9 +358,13 @@ pub fn create_writer(
         ArchiveFormat::Tar => Ok(Box::new(TarWriter::new(file))),
         ArchiveFormat::TarGz => Ok(Box::new(TarGzWriter::new_with_options(file, options))),
         ArchiveFormat::TarBz2 => Ok(Box::new(TarBz2Writer::new_with_options(file, options))),
+        ArchiveFormat::TarBr => Ok(Box::new(TarBrWriter::new_with_options(file, options)?)),
+        ArchiveFormat::TarLz4 => Ok(Box::new(TarLz4Writer::new_with_options(file, options)?)),
         ArchiveFormat::TarZst => Ok(Box::new(TarZstWriter::new_with_options(file, options))),
         ArchiveFormat::Gzip
         | ArchiveFormat::Bzip2
+        | ArchiveFormat::Brotli
+        | ArchiveFormat::Lz4
         | ArchiveFormat::Zstd
         | ArchiveFormat::Xz
         | ArchiveFormat::Lzma => {
@@ -373,6 +398,26 @@ pub fn bzip2_output_filename(archive: &Path) -> PathBuf {
         .map(|s| s.to_string_lossy().to_string())
         .unwrap_or_else(|| "output".to_string());
     let stripped = name.strip_suffix(".bz2").unwrap_or(&name);
+    PathBuf::from(stripped)
+}
+
+/// Infer the decompressed filename for a Brotli file by stripping `.br`.
+pub fn brotli_output_filename(archive: &Path) -> PathBuf {
+    let name = archive
+        .file_name()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_else(|| "output".to_string());
+    let stripped = name.strip_suffix(".br").unwrap_or(&name);
+    PathBuf::from(stripped)
+}
+
+/// Infer the decompressed filename for an lz4 file by stripping `.lz4`.
+pub fn lz4_output_filename(archive: &Path) -> PathBuf {
+    let name = archive
+        .file_name()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_else(|| "output".to_string());
+    let stripped = name.strip_suffix(".lz4").unwrap_or(&name);
     PathBuf::from(stripped)
 }
 

@@ -9,9 +9,9 @@ pub struct FormatInfo {
     pub name: String,
     /// Whether the current GUI compression command can create this format.
     ///
-    /// In the current GUI release, single-stream `gzip`, `bzip2`, `zstd`,
-    /// `xz`, and `lzma` entries remain decompress-only even though the engine
-    /// can detect and extract them.
+    /// In the current GUI release, single-stream `gzip`, `bzip2`, `brotli`,
+    /// `lz4`, `zstd`, `xz`, and `lzma` entries remain decompress-only even
+    /// though the engine can detect and extract them.
     pub can_compress: bool,
     /// Whether this format supports extracting archives (decompression).
     pub can_decompress: bool,
@@ -51,6 +51,26 @@ pub fn get_formats() -> Vec<FormatInfo> {
         },
         FormatInfo {
             name: "tar.bz2".into(),
+            can_compress: true,
+            can_decompress: true,
+        },
+        FormatInfo {
+            name: "brotli".into(),
+            can_compress: false,
+            can_decompress: true,
+        },
+        FormatInfo {
+            name: "tar.br".into(),
+            can_compress: true,
+            can_decompress: true,
+        },
+        FormatInfo {
+            name: "lz4".into(),
+            can_compress: false,
+            can_decompress: true,
+        },
+        FormatInfo {
+            name: "tar.lz4".into(),
             can_compress: true,
             can_decompress: true,
         },
@@ -99,7 +119,7 @@ mod tests {
     #[test]
     fn get_formats_returns_expected_count() {
         let formats = get_formats();
-        assert_eq!(formats.len(), 13, "expected 13 supported formats");
+        assert_eq!(formats.len(), 17, "expected 17 supported formats");
     }
 
     #[test]
@@ -132,6 +152,38 @@ mod tests {
         let tarbz2 = formats.iter().find(|f| f.name == "tar.bz2").unwrap();
         assert!(tarbz2.can_compress);
         assert!(tarbz2.can_decompress);
+    }
+
+    #[test]
+    fn get_formats_brotli_decompress_only() {
+        let formats = get_formats();
+        let br = formats.iter().find(|f| f.name == "brotli").unwrap();
+        assert!(!br.can_compress);
+        assert!(br.can_decompress);
+    }
+
+    #[test]
+    fn get_formats_tarbr_compress_decompress() {
+        let formats = get_formats();
+        let tarbr = formats.iter().find(|f| f.name == "tar.br").unwrap();
+        assert!(tarbr.can_compress);
+        assert!(tarbr.can_decompress);
+    }
+
+    #[test]
+    fn get_formats_lz4_decompress_only() {
+        let formats = get_formats();
+        let lz4 = formats.iter().find(|f| f.name == "lz4").unwrap();
+        assert!(!lz4.can_compress);
+        assert!(lz4.can_decompress);
+    }
+
+    #[test]
+    fn get_formats_tarlz4_compress_decompress() {
+        let formats = get_formats();
+        let tarlz4 = formats.iter().find(|f| f.name == "tar.lz4").unwrap();
+        assert!(tarlz4.can_compress);
+        assert!(tarlz4.can_decompress);
     }
 
     #[test]
