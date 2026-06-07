@@ -176,11 +176,11 @@ pub fn read_magic_bytes<R: Read>(reader: &mut R) -> io::Result<Vec<u8>>;
 
 检测策略：
 
-- ZIP / gzip / zstd / xz / 7z / RAR 优先用魔数字节；
-- `tar`、`tar.gz`、`tar.zst`、`tar.xz` 依赖扩展名回退；
+- ZIP / gzip / bzip2 / zstd / xz / 7z / RAR 优先用魔数字节；
+- `tar`、`tar.gz`、`tar.bz2`、`tar.zst`、`tar.xz` 依赖扩展名回退；
 - `read_magic_bytes()` 仅读取前 `MAGIC_DETECT_SIZE` 字节，供调用方自行决定后续缓存与回放策略。
 
-> **格式扩展方向**：`ArchiveFormat` 枚举随新增格式逐步扩展。新格式检测优先使用魔数字节；若魔数无定义（如 lzma），依赖扩展名回退或用户显式指定。新增格式枚举值需同步更新所有 `match` 分支的完整性检查。完整格式目标见 `docs/PRD.md` 第 5.1 节。
+> **格式扩展方向**：`ArchiveFormat` 枚举随新增格式逐步扩展。新格式检测优先使用魔数字节；若魔数无定义（如 lzma），依赖扩展名回退或用户显式指定。ZIP 兼容别名（`.jar`/`.war`/`.apk`/`.ipa`/`.xpi`）统一映射到 `ArchiveFormat::Zip`。新增格式枚举值需同步更新所有 `match` 分支的完整性检查。完整格式目标见 `docs/PRD.md` 第 5.1 节。
 
 ### 2.4 `core/error` — 统一错误模型
 
@@ -237,6 +237,7 @@ CLI 当前子命令为：
 | `zip` 2.x | ZIP 读写（启用 `deflate`、`aes-crypto`） |
 | `tar` 0.4 | TAR 容器读写 |
 | `flate2` 1.x | gzip/deflate（纯 Rust backend） |
+| `bzip2` 0.6 | bzip2 / tar.bz2 |
 | `gzp` 0.11 | tar.gz 并行 gzip 压缩 |
 | `xz2` 0.1 | xz / lzma / tar.xz |
 | `zstd` 0.13 | zstd / tar.zst，多线程支持 `zstdmt` |

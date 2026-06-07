@@ -5,6 +5,7 @@ use std::io::{BufReader, Read, Write};
 use std::path::Path;
 
 use anyhow::{Context, Result};
+use geezipx_core::archive::bzip2;
 use geezipx_core::archive::gzip;
 use geezipx_core::archive::xz;
 use geezipx_core::archive::zstd;
@@ -50,15 +51,17 @@ pub fn execute(
     if use_stdin || use_stdout {
         match format {
             ArchiveFormat::Gzip
+            | ArchiveFormat::Bzip2
             | ArchiveFormat::Zstd
             | ArchiveFormat::Xz
             | ArchiveFormat::Lzma
             | ArchiveFormat::TarGz
+            | ArchiveFormat::TarBz2
             | ArchiveFormat::TarZst
             | ArchiveFormat::TarXz => {}
             _ => anyhow::bail!(
                 "--stdin/--stdout is only supported for single-stream formats \
-                 (gzip, zstd, xz, lzma, tar.gz, tar.zst, tar.xz); got '{format}'"
+                 (gzip, bzip2, zstd, xz, lzma, tar.gz, tar.bz2, tar.zst, tar.xz); got '{format}'"
             ),
         }
     }
@@ -68,22 +71,27 @@ pub fn execute(
 
     match format {
         // Single-stream formats always use single-stream mode.
-        ArchiveFormat::Gzip | ArchiveFormat::Zstd | ArchiveFormat::Xz | ArchiveFormat::Lzma => {
-            compress_single_stream_mode(
-                inputs,
-                output,
-                format,
-                compress_options,
-                no_progress,
-                verbose,
-                cancel_token,
-                use_stdin,
-                use_stdout,
-            )
-        }
+        ArchiveFormat::Gzip
+        | ArchiveFormat::Bzip2
+        | ArchiveFormat::Zstd
+        | ArchiveFormat::Xz
+        | ArchiveFormat::Lzma => compress_single_stream_mode(
+            inputs,
+            output,
+            format,
+            compress_options,
+            no_progress,
+            verbose,
+            cancel_token,
+            use_stdin,
+            use_stdout,
+        ),
         // Tar-based formats use single-stream mode only when reading/writing
         // raw tar via stdin/stdout; otherwise they follow the archive path.
-        ArchiveFormat::TarGz | ArchiveFormat::TarZst | ArchiveFormat::TarXz
+        ArchiveFormat::TarGz
+        | ArchiveFormat::TarBz2
+        | ArchiveFormat::TarZst
+        | ArchiveFormat::TarXz
             if use_stdin || use_stdout =>
         {
             compress_single_stream_mode(
@@ -433,8 +441,9 @@ fn validate_compress_inputs(
         );
     }
 
-    // Single-stream formats (gzip, zstd, xz, lzma) only accept one input.
+    // Single-stream formats (gzip, bzip2, zstd, xz, lzma) only accept one input.
     if (format == ArchiveFormat::Gzip
+        || format == ArchiveFormat::Bzip2
         || format == ArchiveFormat::Zstd
         || format == ArchiveFormat::Xz
         || format == ArchiveFormat::Lzma)
@@ -447,11 +456,15 @@ fn validate_compress_inputs(
         );
     }
 
-    // Gzip/xz/lzma/tar.gz/tar.xz level is limited to 0..=9; zstd/tar.zst supports 0..=22.
+    // Gzip/bzip2/xz/lzma/tar.gz/tar.bz2/tar.xz levels are limited to 0..=9;
+    // zstd/tar.zst supports 0..=22. For bzip2/tar.bz2, level 0 maps to the
+    // default encoder level because libbz2 has no store-only mode.
     if format == ArchiveFormat::Gzip
+        || format == ArchiveFormat::Bzip2
         || format == ArchiveFormat::Xz
         || format == ArchiveFormat::Lzma
         || format == ArchiveFormat::TarGz
+        || format == ArchiveFormat::TarBz2
         || format == ArchiveFormat::TarXz
     {
         if let Some(l) = options.level {
@@ -467,6 +480,7 @@ fn validate_compress_inputs(
             anyhow::bail!("input '{}' does not exist", input.display());
         }
         if (format == ArchiveFormat::Gzip
+            || format == ArchiveFormat::Bzip2
             || format == ArchiveFormat::Zstd
             || format == ArchiveFormat::Xz
             || format == ArchiveFormat::Lzma)
@@ -485,7 +499,11 @@ fn validate_compress_inputs(
     if options.password.is_some()
         && matches!(
             format,
-            ArchiveFormat::Gzip | ArchiveFormat::Zstd | ArchiveFormat::Xz | ArchiveFormat::Lzma
+            ArchiveFormat::Gzip
+                | ArchiveFormat::Bzip2
+                | ArchiveFormat::Zstd
+                | ArchiveFormat::Xz
+                | ArchiveFormat::Lzma
         )
     {
         anyhow::bail!(
@@ -518,6 +536,10 @@ fn compress_single_stream<R: Read, W: Write>(
         ArchiveFormat::Gzip | ArchiveFormat::TarGz => {
             gzip::gzip_compress_with_options(reader, writer, options)
                 .map_err(|e| anyhow::anyhow!("gzip compression error: {}", e))
+        }
+        ArchiveFormat::Bzip2 | ArchiveFormat::TarBz2 => {
+            bzip2::bzip2_compress_with_options(reader, writer, options)
+                .map_err(|e| anyhow::anyhow!("bzip2 compression error: {}", e))
         }
         ArchiveFormat::Zstd | ArchiveFormat::TarZst => {
             zstd::zstd_compress_with_options(reader, writer, options)

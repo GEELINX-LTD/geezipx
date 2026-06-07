@@ -28,7 +28,7 @@ pub struct TestArchiveResult {
 /// - For archive-based formats (zip, tar, tar.gz, tar.zst, tar.xz, 7z, rar):
 ///   iterates every entry and streams its content to sink, triggering format-level
 ///   integrity checks.
-/// - For single-stream formats (gzip, zstd, xz, lzma): decodes the full stream
+/// - For single-stream formats (gzip, bzip2, zstd, xz, lzma): decodes the full stream
 ///   to sink and validates the checksum footer.
 ///
 /// Returns an error if the archive is corrupt or the format is not supported.
@@ -45,7 +45,11 @@ pub async fn test_archive(
 
         match format {
             // Single-stream formats: use verify_single_stream
-            ArchiveFormat::Gzip | ArchiveFormat::Zstd | ArchiveFormat::Xz | ArchiveFormat::Lzma => {
+            ArchiveFormat::Gzip
+            | ArchiveFormat::Bzip2
+            | ArchiveFormat::Zstd
+            | ArchiveFormat::Xz
+            | ArchiveFormat::Lzma => {
                 let report = verify_single_stream(&path_buf, format)
                     .map_err(|e| format!("Verification failed: {}", e))?;
                 Ok(TestArchiveResult {

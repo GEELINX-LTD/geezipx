@@ -42,21 +42,21 @@ GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开�
 
 | 特性 | 说明 | 状态 |
 |------|------|------|
-| 格式支持 | `.tar.gz`/`.tgz`, `.zip`, `.tar`, `.gz`/`.gzip`, `.tar.zst`/`.tzst`, `.zst`/`.zstd`, `.tar.xz`/`.txz`, `.xz`, `.lzma`（读/写）；7z/RAR（只读） | **已完成**（11 格式） |
+| 格式支持 | `.tar.gz`/`.tgz`, `.tar.bz2`/`.tbz`/`.tbz2`, `.zip`（含 `.jar`/`.war`/`.apk`/`.ipa`/`.xpi` 别名）, `.tar`, `.gz`/`.gzip`, `.bz2`, `.tar.zst`/`.tzst`, `.zst`/`.zstd`, `.tar.xz`/`.txz`, `.xz`, `.lzma`（读/写）；7z/RAR（只读） | **已完成**（13 格式 + 5 ZIP 别名） |
 | 流式处理 | 文件流读写，内存占用与文件大小解耦 | **已完成** |
 | 进度显示 | TTY 下默认显示进度，可用 `--no-progress` 禁用 | **已完成** |
 | 格式自动检测 | 根据文件魔数（magic bytes）自动检测归档格式 | **已完成** |
-| 压缩级别 | `--level 0-9`（gzip/tar.gz/xz/lzma/tar.xz）；`--level 0-22`（zstd/tar.zst） | **已完成** |
+| 压缩级别 | `--level 0-9`（gzip/bzip2/tar.gz/tar.bz2/xz/lzma/tar.xz，bzip2 的 level 0 映射为默认级别）；`--level 0-22`（zstd/tar.zst） | **已完成** |
 | 多线程压缩 | tar.gz/tar.zst 支持 `-j`/`--jobs` 多线程并行（tar.gz: pigz-style via gzp；tar.zst: zstd native NbWorkers）；tar.xz 接受参数但暂不生效（xz2 未暴露多线程 API）；**注意**：tar.gz 的 `--jobs` 在 `--stdin` 单流模式下不生效（仅归档模式有效） | **已完成** |
-| 标准管道 | `--stdout` 支持 gzip/zstd/xz/lzma 单流输出原文；tar.gz/tar.zst/tar.xz 输出裸 tar 流；`--stdin` 支持从 stdin 读取（单流及 tar-based 格式）；zip/tar/7z/rar 等多文件归档使用 `--stdout`/`--stdin` 时报错 | **已完成** |
+| 标准管道 | `--stdout` 支持 gzip/bzip2/zstd/xz/lzma 单流输出原文；tar.gz/tar.bz2/tar.zst/tar.xz 输出裸 tar 流；`--stdin` 支持从 stdin 读取（单流及 tar-based 格式）；zip/tar/7z/rar 等多文件归档使用 `--stdout`/`--stdin` 时报错 | **已完成** |
 | 递归操作 | `-r` 递归添加目录，保持目录结构 | **已完成** |
 | 覆盖保护 | `--no-clobber` / `--force` 覆盖策略 | **已完成** |
 | 列表功能 | 表格 + JSON 输出，支持所有当前格式 | **已完成** |
-| 归档完整性验证 | `test` 子命令，不解压到磁盘验证归档完整性，支持 `--json` 输出。ZIP 逐 entry CRC-32 校验，TAR 验证结构/截断/压缩层，TAR.GZ/TAR.ZST/TAR.XZ 组合校验。单流格式包括 GZIP/ZSTD/XZ/LZMA。退出码 0/1 | **已完成** |
+| 归档完整性验证 | `test` 子命令，不解压到磁盘验证归档完整性，支持 `--json` 输出。ZIP 逐 entry CRC-32 校验，TAR 验证结构/截断/压缩层，TAR.GZ/TAR.BZ2/TAR.ZST/TAR.XZ 组合校验。单流格式包括 GZIP/BZIP2/ZSTD/XZ/LZMA。退出码 0/1 | **已完成** |
 | 测试覆盖 | 400+ 测试，覆盖 core 单元/CLI 集成/格式 round-trip/流式冒烟。覆盖率 workflow 为 informational-only 观测模式，不设硬门禁 | **已完成** |
 | 三平台 CI | GitHub Actions：三平台矩阵（ubuntu/macos/windows），push/PR/tag/manual 触发 | **已完成** |
 
-> **扩展格式识别**：魔数检测已支持 xz（`FD 37 7A 58 5A 00`）和 zstd（`28 B5 2F FD`）。xz 和 lzma 单流压缩/解压已支持（`geezipx-core` via `xz2` crate）；`.tar.xz`/`.txz` 识别为 tar+xz 完整归档格式，与单流 `.xz` 区分。zstd 单流压缩/解压已支持（`geezipx-core` via `zstd` crate）；`.tar.zst`/`.tzst` 识别为 tar+zstd 归档格式。lzma 无固定魔数，仅通过扩展名/显式格式识别。
+> **扩展格式识别**：魔数检测已支持 bzip2（`BZh`）、xz（`FD 37 7A 58 5A 00`）和 zstd（`28 B5 2F FD`）。bzip2 单流压缩/解压已支持（`geezipx-core` via `bzip2` crate）；`.tar.bz2`/`.tbz`/`.tbz2` 识别为 tar+bzip2 完整归档格式，与单流 `.bz2` 区分。xz 和 lzma 单流压缩/解压已支持（`geezipx-core` via `xz2` crate）；`.tar.xz`/`.txz` 识别为 tar+xz 完整归档格式，与单流 `.xz` 区分。zstd 单流压缩/解压已支持（`geezipx-core` via `zstd` crate）；`.tar.zst`/`.tzst` 识别为 tar+zstd 归档格式。lzma 无固定魔数，仅通过扩展名/显式格式识别。
 
 ### 5.1 格式支持目标扩展
 
@@ -69,6 +69,8 @@ GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开�
 | ZIP | .zip | ✅ 已支持 | 含 AES-256 加密 |
 | TAR | .tar | ✅ 已支持 | 无压缩容器 |
 | TAR.GZ | .tar.gz, .tgz | ✅ 已支持 | — |
+| TAR.BZ2 | .tar.bz2, .tbz, .tbz2 | ✅ 已支持 | — |
+| BZIP2 | .bz2 | ✅ 已支持 | — |
 | GZIP | .gz, .gzip | ✅ 已支持 | — |
 | ZSTD | .zst, .zstd | ✅ 已支持 | — |
 | TAR.ZST | .tar.zst, .tzst | ✅ 已支持 | — |
@@ -139,12 +141,12 @@ GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开�
 - `geezipx compress [input]... --format tar.gz -o output.tar.gz`
 - 支持通配符：`geezipx compress src/*.rs --format zip -o src.zip`
 - `-r` 递归添加目录
-- `--level N` 控制压缩级别（gzip/tar.gz: 0-9, zstd: 0-22）
+- `--level N` 控制压缩级别（gzip/bzip2/tar.gz/tar.bz2/xz/lzma/tar.xz: 0-9, zstd: 0-22）
 
 ### FR-2: 解压缩
 - `geezipx decompress archive.zip` — 自动检测格式并解压到当前目录
-- `geezipx decompress archive.tar.zst -o /tmp/out` — 指定输出目录（支持 tar.gz、tar.zst、tar.xz 等归档格式）
-| `geezipx decompress archive.tar.gz --stdout` — 解压到标准输出：tar.gz/tar.zst/tar.xz 输出裸 tar 流；gzip/zstd/xz/lzma 输出原文；**zip/tar/7z/rar 等多文件归档使用会报错**
+- `geezipx decompress archive.tar.zst -o /tmp/out` — 指定输出目录（支持 tar.gz、tar.bz2、tar.zst、tar.xz 等归档格式）
+| `geezipx decompress archive.tar.gz --stdout` — 解压到标准输出：tar.gz/tar.bz2/tar.zst/tar.xz 输出裸 tar 流；gzip/bzip2/zstd/xz/lzma 输出原文；**zip/tar/7z/rar 等多文件归档使用会报错**
 
 ### FR-3: 格式自动检测
 - 检查文件头部魔数字节
@@ -166,15 +168,15 @@ GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开�
 - `geezipx test <archive>`：不解压到磁盘，逐 entry 读取验证归档。
 - 退出码 `0` 表示全部通过，`1` 表示存在损坏。
 - `--json`：输出 JSON 格式的详细验证结果。
-- 支持的格式：ZIP、TAR、TAR.GZ、TAR.ZST、TAR.XZ、GZIP、ZSTD、XZ、LZMA。
+- 支持的格式：ZIP、TAR、TAR.GZ、TAR.BZ2、TAR.ZST、TAR.XZ、GZIP、BZIP2、ZSTD、XZ、LZMA。
 - 各格式校验方式：
   - ZIP：逐 entry 触发 CRC-32 校验。
   - TAR：验证头结构、截断和压缩层，无 per-file CRC。
   - 加密 ZIP AES-256 password 保护已支持：`compress --password / --password-file / --password-stdin`。其它格式暂不支持
 - 当前已支持：
-  - `--stdout` 将 gzip/zstd/xz/lzma 等**单流格式**解压到标准输出，便于脚本串联。
-  - `--stdout` 将 tar.gz/tar.zst/tar.xz 等 **tar-based 压缩归档**解压缩层并输出裸 tar 流，便于 `decompress --stdout archive.tar.gz | tar tf -` 管道串联。
-  - `--stdin` 从标准输入读取数据：`compress --stdin -f tar.gz < raw.tar` 接收裸 tar 流并做外层压缩；`decompress --stdin -f gz --stdout` 实现完整管道。
+  - `--stdout` 将 gzip/bzip2/zstd/xz/lzma 等**单流格式**解压到标准输出，便于脚本串联。
+  - `--stdout` 将 tar.gz/tar.bz2/tar.zst/tar.xz 等 **tar-based 压缩归档**解压缩层并输出裸 tar 流，便于 `decompress --stdout archive.tar.gz | tar tf -` 管道串联。
+  - `--stdin` 从标准输入读取数据：`compress --stdin -f tar.gz < raw.tar` / `compress --stdin -f tar.bz2 < raw.tar` 接收裸 tar 流并做外层压缩；`decompress --stdin -f gz --stdout` 实现完整管道。
 - 当前限制：
   - **zip/tar(无压缩)/7z/rar** 等多文件归档使用 `--stdout` 或 `--stdin` 仍会报错。
   - `--stdin` 模式下需显式 `--format` 指定格式。

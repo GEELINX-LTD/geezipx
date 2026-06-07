@@ -48,7 +48,11 @@ fn run_verify(archive: &Path, json: bool, password: Option<String>) -> Result<()
     if password.is_some()
         && matches!(
             format,
-            ArchiveFormat::Gzip | ArchiveFormat::Zstd | ArchiveFormat::Xz | ArchiveFormat::Lzma
+            ArchiveFormat::Gzip
+                | ArchiveFormat::Bzip2
+                | ArchiveFormat::Zstd
+                | ArchiveFormat::Xz
+                | ArchiveFormat::Lzma
         )
     {
         anyhow::bail!(
@@ -69,6 +73,7 @@ fn run_verify(archive: &Path, json: bool, password: Option<String>) -> Result<()
         | ArchiveFormat::Rar
         | ArchiveFormat::Tar
         | ArchiveFormat::TarGz
+        | ArchiveFormat::TarBz2
         | ArchiveFormat::TarZst
         | ArchiveFormat::TarXz => {
             let mut reader = common::open_reader(archive, format, password.as_deref())?;

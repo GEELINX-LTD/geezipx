@@ -14,6 +14,8 @@ use geezipx_core::archive::rar::RarReader;
 use geezipx_core::archive::seven_zip::SevenZipReader;
 use geezipx_core::archive::tar::TarReader;
 use geezipx_core::archive::tar::TarWriter;
+use geezipx_core::archive::tarbz2::TarBz2Reader;
+use geezipx_core::archive::tarbz2::TarBz2Writer;
 use geezipx_core::archive::targz::TarGzReader;
 use geezipx_core::archive::targz::TarGzWriter;
 use geezipx_core::archive::tarxz::TarXzReader;
@@ -32,13 +34,17 @@ use geezipx_core::detect::{self, ArchiveFormat};
 
 /// Parse a user-supplied format string into an [`ArchiveFormat`].
 ///
-/// Accepts: `zip`, `tar`, `tar.gz`, `tgz`, `gz`, `gzip`, `zst`, `zstd`, `tar.zst`, `tzst`.
+/// Accepts: `zip`, ZIP-derived aliases (`jar`, `war`, `apk`, `ipa`, `xpi`),
+/// `tar`, `tar.gz`, `tgz`, `tar.bz2`, `tbz`, `tbz2`, `bz2`, `bzip2`,
+/// `zst`, `zstd`, `tar.zst`, `tzst`, `tar.xz`, `txz`, `xz`, `lzma`, `7z`, `rar`.
 pub fn parse_format(s: &str) -> Result<ArchiveFormat> {
     match s.to_ascii_lowercase().as_str() {
-        "zip" => Ok(ArchiveFormat::Zip),
+        "zip" | "jar" | "war" | "apk" | "ipa" | "xpi" => Ok(ArchiveFormat::Zip),
         "tar" => Ok(ArchiveFormat::Tar),
         "tar.gz" | "tgz" => Ok(ArchiveFormat::TarGz),
+        "tar.bz2" | "tbz" | "tbz2" => Ok(ArchiveFormat::TarBz2),
         "gz" | "gzip" => Ok(ArchiveFormat::Gzip),
+        "bz2" | "bzip2" => Ok(ArchiveFormat::Bzip2),
         "zst" | "zstd" => Ok(ArchiveFormat::Zstd),
         "tar.zst" | "tzst" => Ok(ArchiveFormat::TarZst),
         "tar.xz" | "txz" => Ok(ArchiveFormat::TarXz),
@@ -47,7 +53,7 @@ pub fn parse_format(s: &str) -> Result<ArchiveFormat> {
         "7z" => Ok(ArchiveFormat::SevenZip),
         "rar" => Ok(ArchiveFormat::Rar),
         other => Err(anyhow::anyhow!(
-            "unsupported format '{other}'; expected: zip, tar, tar.gz, tgz, gz, gzip, zst, zstd, tar.zst, tzst, tar.xz, txz, xz, lzma, 7z, rar"
+            "unsupported format '{other}'; expected: zip, jar, war, apk, ipa, xpi, tar, tar.gz, tgz, tar.bz2, tbz, tbz2, gz, gzip, bz2, bzip2, zst, zstd, tar.zst, tzst, tar.xz, txz, xz, lzma, 7z, rar"
         )),
     }
 }
@@ -69,7 +75,7 @@ pub fn resolve_format(cli_format: Option<&str>, output: &Path) -> Result<Archive
 /// fallback.
 ///
 /// 1. Read `MAGIC_DETECT_SIZE` bytes.
-/// 2. If gzip magic, check extension for `.tar.gz` / `.tgz` → `TarGz`.
+/// 2. If gzip/bzip2 magic, check tar-wrapped extensions first.
 /// 3. Otherwise return the magic-based result or fall back to extension.
 pub fn detect_archive_format(path: &Path) -> Result<ArchiveFormat> {
     let mut file = fs::File::open(path).with_context(|| format!("opening '{}'", path.display()))?;
@@ -84,6 +90,14 @@ pub fn detect_archive_format(path: &Path) -> Result<ArchiveFormat> {
                 Ok(ArchiveFormat::TarGz)
             } else {
                 Ok(ArchiveFormat::Gzip)
+            }
+        }
+        Some(ArchiveFormat::Bzip2) => {
+            // Bzip2 magic is also present in `.tar.bz2` / `.tbz` / `.tbz2`.
+            if let Some(ArchiveFormat::TarBz2) = detect::detect_from_extension(path) {
+                Ok(ArchiveFormat::TarBz2)
+            } else {
+                Ok(ArchiveFormat::Bzip2)
             }
         }
         Some(ArchiveFormat::Zstd) => {
@@ -270,6 +284,7 @@ pub fn open_reader(
         }
         ArchiveFormat::Tar => Box::new(TarReader::new(file)),
         ArchiveFormat::TarGz => Box::new(TarGzReader::new(file)),
+        ArchiveFormat::TarBz2 => Box::new(TarBz2Reader::new(file)),
         ArchiveFormat::TarZst => Box::new(TarZstReader::new(file)),
         ArchiveFormat::TarXz => Box::new(TarXzReader::new(file)),
         #[cfg(feature = "rar")]
@@ -281,6 +296,7 @@ pub fn open_reader(
             reader
         }
         ArchiveFormat::Gzip
+        | ArchiveFormat::Bzip2
         | ArchiveFormat::Zstd
         | ArchiveFormat::Xz
         | ArchiveFormat::Lzma => anyhow::bail!(
@@ -320,8 +336,13 @@ pub fn create_writer(
         }
         ArchiveFormat::Tar => Ok(Box::new(TarWriter::new(file))),
         ArchiveFormat::TarGz => Ok(Box::new(TarGzWriter::new_with_options(file, options))),
+        ArchiveFormat::TarBz2 => Ok(Box::new(TarBz2Writer::new_with_options(file, options))),
         ArchiveFormat::TarZst => Ok(Box::new(TarZstWriter::new_with_options(file, options))),
-        ArchiveFormat::Gzip | ArchiveFormat::Zstd | ArchiveFormat::Xz | ArchiveFormat::Lzma => {
+        ArchiveFormat::Gzip
+        | ArchiveFormat::Bzip2
+        | ArchiveFormat::Zstd
+        | ArchiveFormat::Xz
+        | ArchiveFormat::Lzma => {
             anyhow::bail!(
                 "'{format}' is a single-stream compression format; use 'compress' directly, not an archive writer"
             )
@@ -342,6 +363,16 @@ pub fn gzip_output_filename(archive: &Path) -> PathBuf {
         .strip_suffix(".gz")
         .or_else(|| name.strip_suffix(".gzip"))
         .unwrap_or(&name);
+    PathBuf::from(stripped)
+}
+
+/// Infer the decompressed filename for a bzip2 file by stripping `.bz2`.
+pub fn bzip2_output_filename(archive: &Path) -> PathBuf {
+    let name = archive
+        .file_name()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_else(|| "output".to_string());
+    let stripped = name.strip_suffix(".bz2").unwrap_or(&name);
     PathBuf::from(stripped)
 }
 

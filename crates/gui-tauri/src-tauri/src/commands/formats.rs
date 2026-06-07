@@ -9,9 +9,9 @@ pub struct FormatInfo {
     pub name: String,
     /// Whether the current GUI compression command can create this format.
     ///
-    /// In the current GUI release, single-stream `gzip`, `zstd`, `xz`, and
-    /// `lzma` entries remain decompress-only even though the engine can detect
-    /// and extract them.
+    /// In the current GUI release, single-stream `gzip`, `bzip2`, `zstd`,
+    /// `xz`, and `lzma` entries remain decompress-only even though the engine
+    /// can detect and extract them.
     pub can_compress: bool,
     /// Whether this format supports extracting archives (decompression).
     pub can_decompress: bool,
@@ -42,6 +42,16 @@ pub fn get_formats() -> Vec<FormatInfo> {
         FormatInfo {
             name: "gzip".into(),
             can_compress: false,
+            can_decompress: true,
+        },
+        FormatInfo {
+            name: "bzip2".into(),
+            can_compress: false,
+            can_decompress: true,
+        },
+        FormatInfo {
+            name: "tar.bz2".into(),
+            can_compress: true,
             can_decompress: true,
         },
         FormatInfo {
@@ -89,7 +99,7 @@ mod tests {
     #[test]
     fn get_formats_returns_expected_count() {
         let formats = get_formats();
-        assert_eq!(formats.len(), 11, "expected 11 supported formats");
+        assert_eq!(formats.len(), 13, "expected 13 supported formats");
     }
 
     #[test]
@@ -106,6 +116,22 @@ mod tests {
         let sz = formats.iter().find(|f| f.name == "7z").unwrap();
         assert!(!sz.can_compress);
         assert!(sz.can_decompress);
+    }
+
+    #[test]
+    fn get_formats_bzip2_decompress_only() {
+        let formats = get_formats();
+        let bz2 = formats.iter().find(|f| f.name == "bzip2").unwrap();
+        assert!(!bz2.can_compress);
+        assert!(bz2.can_decompress);
+    }
+
+    #[test]
+    fn get_formats_tarbz2_compress_decompress() {
+        let formats = get_formats();
+        let tarbz2 = formats.iter().find(|f| f.name == "tar.bz2").unwrap();
+        assert!(tarbz2.can_compress);
+        assert!(tarbz2.can_decompress);
     }
 
     #[test]

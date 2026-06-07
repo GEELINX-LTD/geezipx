@@ -21,8 +21,12 @@ pub enum ArchiveFormat {
     Tar,
     /// Gzip compressed stream (`\x1F\x8B`).
     Gzip,
+    /// Bzip2 compressed stream (`BZh`).
+    Bzip2,
     /// Tar archive compressed with gzip (extension-based — `.tar.gz`, `.tgz`).
     TarGz,
+    /// Tar archive compressed with bzip2 (extension-based — `.tar.bz2`, `.tbz`, `.tbz2`).
+    TarBz2,
     /// LZMA-compressed XZ stream (`\xFD7zXZ\x00`).
     Xz,
     /// Zstandard frame (`\x28\xB5\x2F\xFD`).
@@ -47,7 +51,9 @@ impl fmt::Display for ArchiveFormat {
             ArchiveFormat::Zip => write!(f, "zip"),
             ArchiveFormat::Tar => write!(f, "tar"),
             ArchiveFormat::Gzip => write!(f, "gzip"),
+            ArchiveFormat::Bzip2 => write!(f, "bzip2"),
             ArchiveFormat::TarGz => write!(f, "tar.gz"),
+            ArchiveFormat::TarBz2 => write!(f, "tar.bz2"),
             ArchiveFormat::Xz => write!(f, "xz"),
             ArchiveFormat::Zstd => write!(f, "zstd"),
             ArchiveFormat::TarZst => write!(f, "tar.zst"),
@@ -70,6 +76,8 @@ const MAGIC_ZIP: &[u8] = b"PK\x03\x04";
 const MAGIC_ZIP_EMPTY: &[u8] = b"PK\x05\x06";
 /// Gzip magic: `\x1F\x8B`.
 const MAGIC_GZIP: &[u8] = &[0x1F, 0x8B];
+/// Bzip2 magic: `BZh`.
+const MAGIC_BZIP2: &[u8] = b"BZh";
 /// Zstandard magic: `\x28\xB5\x2F\xFD`.
 const MAGIC_ZSTD: &[u8] = &[0x28, 0xB5, 0x2F, 0xFD];
 /// XZ magic: `\xFD7zXZ\x00`.
@@ -82,9 +90,15 @@ pub const MAGIC_RAR: &[u8] = b"Rar!\x1A\x07";
 /// Map of well-known single extensions to their archive format.
 const EXTENSION_MAP: &[(&str, ArchiveFormat)] = &[
     (".zip", ArchiveFormat::Zip),
+    (".jar", ArchiveFormat::Zip),
+    (".war", ArchiveFormat::Zip),
+    (".apk", ArchiveFormat::Zip),
+    (".ipa", ArchiveFormat::Zip),
+    (".xpi", ArchiveFormat::Zip),
     (".tar", ArchiveFormat::Tar),
     (".gz", ArchiveFormat::Gzip),
-    // Note: .tgz is handled by detect_from_extension's compound check → TarGz
+    (".bz2", ArchiveFormat::Bzip2),
+    // Note: .tgz/.tbz/.tbz2 are handled by detect_from_extension's compound checks.
     (".xz", ArchiveFormat::Xz),
     (".zst", ArchiveFormat::Zstd),
     (".zstd", ArchiveFormat::Zstd),
@@ -104,15 +118,19 @@ const EXTENSION_MAP: &[(&str, ArchiveFormat)] = &[
 /// sequences.  Returns `None` when no magic matches; the caller can
 /// fall back to extension-based detection.
 ///
-/// **Note**: For `.tar.gz` and `.tgz` files, this function returns `Gzip`
-/// because the gzip magic header (`\x1F\x8B`) does not reveal whether the
-/// inner stream is a tar archive.
+/// **Note**: For tar-wrapped compressed formats such as `.tar.gz`/`.tgz`
+/// and `.tar.bz2`/`.tbz`/`.tbz2`, this function returns the outer stream
+/// format (`Gzip` / `Bzip2`) because the compression magic header does not
+/// reveal whether the inner stream is a tar archive.
 pub fn detect_format(data: &[u8]) -> Option<ArchiveFormat> {
     if data.starts_with(MAGIC_ZIP) || data.starts_with(MAGIC_ZIP_EMPTY) {
         return Some(ArchiveFormat::Zip);
     }
     if data.starts_with(MAGIC_GZIP) {
         return Some(ArchiveFormat::Gzip);
+    }
+    if data.starts_with(MAGIC_BZIP2) {
+        return Some(ArchiveFormat::Bzip2);
     }
     if data.starts_with(MAGIC_ZSTD) {
         return Some(ArchiveFormat::Zstd);
@@ -147,6 +165,9 @@ pub fn detect_from_extension(path: &Path) -> Option<ArchiveFormat> {
     // Check compound extensions first (e.g. .tar.gz, .tar.xz).
     if lower.ends_with(".tar.gz") || lower.ends_with(".tgz") {
         return Some(ArchiveFormat::TarGz);
+    }
+    if lower.ends_with(".tar.bz2") || lower.ends_with(".tbz") || lower.ends_with(".tbz2") {
+        return Some(ArchiveFormat::TarBz2);
     }
     if lower.ends_with(".tar.xz") || lower.ends_with(".txz") {
         return Some(ArchiveFormat::TarXz);
@@ -217,6 +238,11 @@ mod tests {
     }
 
     #[test]
+    fn detect_bzip2() {
+        assert_eq!(detect_format(b"BZh91AY"), Some(ArchiveFormat::Bzip2));
+    }
+
+    #[test]
     fn detect_zstd() {
         assert_eq!(
             detect_format(&[0x28, 0xB5, 0x2F, 0xFD]),
@@ -260,6 +286,23 @@ mod tests {
     }
 
     #[test]
+    fn ext_zip_aliases() {
+        for path in [
+            "plugin.jar",
+            "webapp.war",
+            "mobile.apk",
+            "bundle.ipa",
+            "addon.xpi",
+        ] {
+            assert_eq!(
+                detect_from_extension(Path::new(path)),
+                Some(ArchiveFormat::Zip),
+                "{path}"
+            );
+        }
+    }
+
+    #[test]
     fn ext_tar() {
         assert_eq!(
             detect_from_extension(Path::new("archive.tar")),
@@ -296,6 +339,38 @@ mod tests {
         assert_eq!(
             detect_from_extension(Path::new("archive.tgz")),
             Some(ArchiveFormat::TarGz)
+        );
+    }
+
+    #[test]
+    fn ext_bz2() {
+        assert_eq!(
+            detect_from_extension(Path::new("archive.bz2")),
+            Some(ArchiveFormat::Bzip2)
+        );
+    }
+
+    #[test]
+    fn ext_tar_bz2() {
+        assert_eq!(
+            detect_from_extension(Path::new("archive.tar.bz2")),
+            Some(ArchiveFormat::TarBz2)
+        );
+    }
+
+    #[test]
+    fn ext_tbz() {
+        assert_eq!(
+            detect_from_extension(Path::new("archive.tbz")),
+            Some(ArchiveFormat::TarBz2)
+        );
+    }
+
+    #[test]
+    fn ext_tbz2() {
+        assert_eq!(
+            detect_from_extension(Path::new("archive.tbz2")),
+            Some(ArchiveFormat::TarBz2)
         );
     }
 
@@ -412,6 +487,16 @@ mod tests {
     #[test]
     fn display_zip() {
         assert_eq!(ArchiveFormat::Zip.to_string(), "zip");
+    }
+
+    #[test]
+    fn display_bzip2() {
+        assert_eq!(ArchiveFormat::Bzip2.to_string(), "bzip2");
+    }
+
+    #[test]
+    fn display_tarbz2() {
+        assert_eq!(ArchiveFormat::TarBz2.to_string(), "tar.bz2");
     }
 
     #[test]

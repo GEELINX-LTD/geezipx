@@ -1,6 +1,6 @@
 //! `compress_archive` command — create an archive from local files.
 //!
-//! Supported archive container formats: zip, tar, tar.gz, tar.zst, tar.xz.
+//! Supported archive container formats: zip, tar, tar.gz, tar.bz2, tar.zst, tar.xz.
 //! Single-stream formats are intentionally rejected for the current GUI MVP.
 //!
 //! All heavy work runs on `tokio::task::spawn_blocking` so the Tauri event loop
@@ -17,6 +17,7 @@ use tauri::AppHandle;
 use tokio::task::spawn_blocking;
 
 use geezipx_core::archive::tar::TarWriter;
+use geezipx_core::archive::tarbz2::TarBz2Writer;
 use geezipx_core::archive::targz::TarGzWriter;
 use geezipx_core::archive::tarxz::TarXzWriter;
 use geezipx_core::archive::tarzst::TarZstWriter;
@@ -308,12 +309,18 @@ fn parse_gui_compress_format(s: &str) -> Result<ArchiveFormat, String> {
         "zip" => Ok(ArchiveFormat::Zip),
         "tar" => Ok(ArchiveFormat::Tar),
         "tar.gz" | "tgz" => Ok(ArchiveFormat::TarGz),
+        "tar.bz2" | "tbz" | "tbz2" => Ok(ArchiveFormat::TarBz2),
         "tar.zst" | "tzst" => Ok(ArchiveFormat::TarZst),
         "tar.xz" | "txz" => Ok(ArchiveFormat::TarXz),
         "gz" | "gzip" => Err(
             "'gzip' is a single-stream compression format; \
              single-stream compression is not yet supported in the GUI \
              (will be added in a later update)"
+                .to_string(),
+        ),
+        "bz2" | "bzip2" => Err(
+            "'bzip2' is a single-stream compression format; \
+             use tar.bz2/tbz/tbz2 in the GUI, or use the CLI for standalone .bz2 compression"
                 .to_string(),
         ),
         "zst" | "zstd" => Err(
@@ -343,7 +350,7 @@ fn parse_gui_compress_format(s: &str) -> Result<ArchiveFormat, String> {
                 .to_string(),
         ),
         other => Err(format!(
-            "Unsupported format '{other}'; expected: zip, tar, tar.gz, tgz, tar.zst, tzst, tar.xz, txz"
+            "Unsupported format '{other}'; expected: zip, tar, tar.gz, tgz, tar.bz2, tbz, tbz2, tar.zst, tzst, tar.xz, txz"
         )),
     }
 }
@@ -478,15 +485,50 @@ fn create_gui_writer(
         }
         ArchiveFormat::Tar => Ok(Box::new(TarWriter::new(file))),
         ArchiveFormat::TarGz => Ok(Box::new(TarGzWriter::new_with_options(file, options))),
+        ArchiveFormat::TarBz2 => Ok(Box::new(TarBz2Writer::new_with_options(file, options))),
         ArchiveFormat::TarZst => Ok(Box::new(TarZstWriter::new_with_options(file, options))),
         ArchiveFormat::TarXz => Ok(Box::new(TarXzWriter::new_with_options(file, options))),
-        ArchiveFormat::Gzip | ArchiveFormat::Zstd | ArchiveFormat::Xz | ArchiveFormat::Lzma => {
-            Err(format!(
-                "'{format}' is a single-stream compression format; \
+        ArchiveFormat::Gzip
+        | ArchiveFormat::Bzip2
+        | ArchiveFormat::Zstd
+        | ArchiveFormat::Xz
+        | ArchiveFormat::Lzma => Err(format!(
+            "'{format}' is a single-stream compression format; \
                  single-stream compression is not yet supported in the GUI \
                  (will be added in a later update)"
-            ))
-        }
+        )),
         _ => Err(format!("Unsupported format for writing in GUI: {format}")),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_gui_compress_format_accepts_tarbz2_variants() {
+        assert_eq!(
+            parse_gui_compress_format("tar.bz2").unwrap(),
+            ArchiveFormat::TarBz2
+        );
+        assert_eq!(
+            parse_gui_compress_format("tbz").unwrap(),
+            ArchiveFormat::TarBz2
+        );
+        assert_eq!(
+            parse_gui_compress_format("tbz2").unwrap(),
+            ArchiveFormat::TarBz2
+        );
+    }
+
+    #[test]
+    fn parse_gui_compress_format_rejects_single_stream_bzip2() {
+        let err = parse_gui_compress_format("bz2").unwrap_err();
+        assert!(err.contains("single-stream"));
+        assert!(err.contains("tar.bz2"));
+
+        let err2 = parse_gui_compress_format("bzip2").unwrap_err();
+        assert!(err2.contains("single-stream"));
+        assert!(err2.contains("tar.bz2"));
     }
 }

@@ -23,7 +23,11 @@ pub fn execute(archive: &Path, json: bool, password: Option<String>) -> Result<(
     if password.is_some()
         && matches!(
             format,
-            ArchiveFormat::Gzip | ArchiveFormat::Zstd | ArchiveFormat::Xz | ArchiveFormat::Lzma
+            ArchiveFormat::Gzip
+                | ArchiveFormat::Bzip2
+                | ArchiveFormat::Zstd
+                | ArchiveFormat::Xz
+                | ArchiveFormat::Lzma
         )
     {
         anyhow::bail!(
@@ -36,6 +40,19 @@ pub fn execute(archive: &Path, json: bool, password: Option<String>) -> Result<(
         ArchiveFormat::Gzip => {
             // Gzip is a single-stream compression — produce a synthetic entry.
             let inferred_name = common::gzip_output_filename(archive);
+            let compressed_size = fs::metadata(archive).map(|m| m.len()).unwrap_or(0);
+            vec![Entry {
+                path: inferred_name.to_string_lossy().into_owned(),
+                size: 0,
+                compressed_size,
+                crc32: None,
+                modified: None,
+                is_dir: false,
+            }]
+        }
+        ArchiveFormat::Bzip2 => {
+            // Bzip2 is a single-stream compression — produce a synthetic entry.
+            let inferred_name = common::bzip2_output_filename(archive);
             let compressed_size = fs::metadata(archive).map(|m| m.len()).unwrap_or(0);
             vec![Entry {
                 path: inferred_name.to_string_lossy().into_owned(),

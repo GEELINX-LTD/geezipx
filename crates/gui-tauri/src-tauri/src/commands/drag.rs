@@ -206,10 +206,12 @@ fn derive_drag_directory_name(path: &Path) -> String {
 }
 
 fn strip_archive_extension(file_name: &str) -> &str {
-    const COMPOUND_EXTENSIONS: &[&str] =
-        &[".tar.gz", ".tar.xz", ".tar.zst", ".tgz", ".txz", ".tzst"];
+    const COMPOUND_EXTENSIONS: &[&str] = &[
+        ".tar.gz", ".tar.bz2", ".tar.xz", ".tar.zst", ".tgz", ".tbz", ".tbz2", ".txz", ".tzst",
+    ];
     const SIMPLE_EXTENSIONS: &[&str] = &[
-        ".zip", ".tar", ".gz", ".gzip", ".xz", ".zst", ".zstd", ".lzma", ".7z", ".rar",
+        ".zip", ".jar", ".war", ".apk", ".ipa", ".xpi", ".tar", ".gz", ".gzip", ".bz2", ".xz",
+        ".zst", ".zstd", ".lzma", ".7z", ".rar",
     ];
 
     let lower = file_name.to_ascii_lowercase();
@@ -311,15 +313,24 @@ mod tests {
     fn derive_drag_directory_name_uses_archive_stem_for_supported_formats() {
         for archive_name in [
             "archive.zip",
+            "archive.jar",
+            "archive.war",
+            "archive.apk",
+            "archive.ipa",
+            "archive.xpi",
             "archive.tar",
             "archive.tar.gz",
+            "archive.tar.bz2",
             "archive.tar.xz",
             "archive.tar.zst",
             "archive.tgz",
+            "archive.tbz",
+            "archive.tbz2",
             "archive.txz",
             "archive.tzst",
             "archive.gz",
             "archive.gzip",
+            "archive.bz2",
             "archive.xz",
             "archive.zst",
             "archive.zstd",
@@ -338,11 +349,15 @@ mod tests {
     #[test]
     fn strip_archive_extension_supports_case_insensitive_supported_variants() {
         assert_eq!(strip_archive_extension("ARCHIVE.TAR.GZ"), "ARCHIVE");
+        assert_eq!(strip_archive_extension("archive.TAR.BZ2"), "archive");
         assert_eq!(strip_archive_extension("archive.TAR.XZ"), "archive");
         assert_eq!(strip_archive_extension("archive.tZsT"), "archive");
         assert_eq!(strip_archive_extension("archive.GZIP"), "archive");
+        assert_eq!(strip_archive_extension("archive.BZ2"), "archive");
         assert_eq!(strip_archive_extension("archive.ZSTD"), "archive");
         assert_eq!(strip_archive_extension("archive.LZMA"), "archive");
+        assert_eq!(strip_archive_extension("archive.JAR"), "archive");
+        assert_eq!(strip_archive_extension("archive.WAR"), "archive");
     }
 
     #[test]

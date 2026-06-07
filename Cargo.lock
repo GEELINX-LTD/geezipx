@@ -1781,6 +1781,7 @@ dependencies = [
 name = "geezipx-core"
 version = "0.5.0"
 dependencies = [
+ "bzip2",
  "criterion",
  "flate2",
  "gzp",
