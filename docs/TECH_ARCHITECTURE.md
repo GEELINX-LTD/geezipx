@@ -113,6 +113,9 @@ pub trait ArchiveWriter: Send {
 | `archive::seven_zip` | 7z 只读（`list` / `extract` / `test`） |
 | `archive::rar` | RAR 只读（`list` / `extract` / `test`，feature-gated） |
 
+> **注**：上表仅列出当前已实现的格式模块。项目长期规划支持更多格式（详见 `docs/PRD.md` 第 5.1 节），
+> 新增格式遵循相同的 `ArchiveReader` / `ArchiveWriter` trait 接口和 feature gate 策略，归档模块数量随阶段逐步扩展。
+
 ### 2.2 `core/io` — 流式进度与取消包装
 
 进度相关能力集中在 `crates/core/src/io.rs` 中实现，并不存在独立的 progress 子模块：
@@ -176,6 +179,8 @@ pub fn read_magic_bytes<R: Read>(reader: &mut R) -> io::Result<Vec<u8>>;
 - ZIP / gzip / zstd / xz / 7z / RAR 优先用魔数字节；
 - `tar`、`tar.gz`、`tar.zst`、`tar.xz` 依赖扩展名回退；
 - `read_magic_bytes()` 仅读取前 `MAGIC_DETECT_SIZE` 字节，供调用方自行决定后续缓存与回放策略。
+
+> **格式扩展方向**：`ArchiveFormat` 枚举随新增格式逐步扩展。新格式检测优先使用魔数字节；若魔数无定义（如 lzma），依赖扩展名回退或用户显式指定。新增格式枚举值需同步更新所有 `match` 分支的完整性检查。完整格式目标见 `docs/PRD.md` 第 5.1 节。
 
 ### 2.4 `core/error` — 统一错误模型
 

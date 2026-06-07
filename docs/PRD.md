@@ -58,17 +58,79 @@ GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开�
 
 > **扩展格式识别**：魔数检测已支持 xz（`FD 37 7A 58 5A 00`）和 zstd（`28 B5 2F FD`）。xz 和 lzma 单流压缩/解压已支持（`geezipx-core` via `xz2` crate）；`.tar.xz`/`.txz` 识别为 tar+xz 完整归档格式，与单流 `.xz` 区分。zstd 单流压缩/解压已支持（`geezipx-core` via `zstd` crate）；`.tar.zst`/`.tzst` 识别为 tar+zstd 归档格式。lzma 无固定魔数，仅通过扩展名/显式格式识别。
 
-## 6. 非目标（当前明确不做）
+### 5.1 格式支持目标扩展
 
-以下能力在当前阶段明确不做：
+> **说明**：以下为项目长期格式支持目标，按阶段交付。每种格式按独立依赖引入，通过 feature gate 控制可选编译。历史/专有格式通过适配器层或外部库桥接，不承诺当前版本实现。
 
-- 7z/RAR 写入 — 7z 格式复杂，RAR 受 UnRAR 许可限制
+**压缩/创建目标格式：**
+
+| 格式 | 别名 | 当前状态 | 说明 |
+|------|------|---------|------|
+| ZIP | .zip | ✅ 已支持 | 含 AES-256 加密 |
+| TAR | .tar | ✅ 已支持 | 无压缩容器 |
+| TAR.GZ | .tar.gz, .tgz | ✅ 已支持 | — |
+| GZIP | .gz, .gzip | ✅ 已支持 | — |
+| ZSTD | .zst, .zstd | ✅ 已支持 | — |
+| TAR.ZST | .tar.zst, .tzst | ✅ 已支持 | — |
+| XZ | .xz | ✅ 已支持 | — |
+| TAR.XZ | .tar.xz, .txz | ✅ 已支持 | — |
+| LZMA | .lzma | ✅ 已支持 | — |
+| 7Z | .7z | 🔄 只读 → 待写入 | 格式复杂，后续阶段 |
+| RAR | .rar | 📖 只读 | 受 UnRAR 许可限制，不规划写入 |
+| LZH | .lzh | 📋 规划中 | — |
+| ISO | .iso | 📋 规划中 | 仅数据 ISO |
+| ZIPX | .zipx | 📋 规划中 | WinZIP 扩展格式 |
+| SFX | .exe | 📋 规划中 | 自解压 ZIP/7z 模块 |
+| ZPAQ | .zpaq | 📋 规划中 | 高压缩比 |
+
+**解压缩/读取目标格式（不含上表已列）：**
+
+| 格式 | 当前状态 | 说明 |
+|------|---------|------|
+| CAB, WIM | 📋 规划中 | Microsoft 归档/映像格式 |
+| ARJ, LHA, ACE, ALZ, BH, PMA, PEA, EGG, ARC | 📋 规划中 | 历史/专有格式，通过适配器评估 |
+| BR (Brotli), BZ2 (.bz/.bz2/.tbz/.tbz2) | 📋 规划中 | 现代压缩：brotli + bzip2 |
+| LZ4, LZ (.lz) | 📋 规划中 | LZ4 / Lzip |
+| UU (.uu/.uue/.xxe), Z (.Z) | 📋 规划中 | 编码格式 / Unix compress |
+| AES | 📋 规划中 | AES 加密容器 |
+| JAR, WAR, APK, IPA, XPI | 📋 规划中 | 本质为 ZIP 容器，复用 ZIP 引擎 |
+| DEB | 📋 规划中 | Debian 包（ar + tar.xz/gz） |
+| ASAR | 📋 规划中 | Electron 归档 |
+| IMG, ISZ, UDF | 📋 规划中 | 磁盘镜像格式 |
+| BIN, I00 | 📋 规划中 | 原始二进制 / 分卷索引 |
+| 001 | 📋 规划中 | 分卷文件（部分解压场景） |
+
+**依赖与交付策略：**
+- Rust 原生 crate 优先；仅在无合适实现时评估外部工具或系统库。
+- 每种格式按独立 feature gate 引入，不捆绑，用户可按需编译。
+- 格式优先级由用户需求与社区反馈驱动，不要求当前版本一次性完成。
+- 历史/专有格式通过统一适配器接口渐进接入。
+- 读/写分离：一种格式可先实现只读，写入能力后续补充。
+
+## 6. 阶段目标与边界
+
+### 6.1 当前阶段（Phase 1/2）明确不做
+
+以下能力在 Phase 1（CLI MVP）和 Phase 2（桌面 GUI）阶段明确不做：
+
+- 7z 写入 — 7z 格式复杂，待后续阶段评估
+- RAR 创建 — 受 UnRAR 许可限制，仅保持只读
 - 分卷压缩
 - 右键菜单集成
 - 自动更新
 - 云同步
 - 插件系统
 - 可视化对比 / 压缩率图表
+
+### 6.2 格式支持交付策略
+
+新增格式不要求当前版本一次性完成。
+
+- **依赖策略**：按格式决定。优先 Rust 原生 crate（如 `zip`、`flate2`、`zstd`、`xz2`），仅在无合适实现时评估外部工具或系统库。
+- **Feature gate**：每种格式按独立 feature 引入，用户可按需编译。
+- **优先级**：由用户需求与社区反馈驱动，不做全格式一次性覆盖。
+- **读/写分离**：一种格式可先实现只读（如当前 7z/RAR），写入能力后续补充。
+- **历史格式**：ARJ、LHA、ACE、ARC、ALZ 等历史/专有格式通过适配器层外部库评估，不承诺当前版本实现。
 
 ## 7. 功能需求（Feature Requirements）
 
@@ -160,9 +222,26 @@ Phase 2 (Desktop GUI via Tauri)  ← 🚀 当前阶段（v0.5.0）
 ├── 自动/手动格式检测（压缩时）               ── ✅ 已完成
 └── 平台原生打包 (AppImage/.dmg/.msi)         ── ⚙️ 已配置，待 tag release 实战验证
 
-Phase 3 (生态)
+Phase 3 (生态 + 格式扩展)
 ├── Homebrew / winget / APT 仓库
-└── 按需扩展格式支持
+├── 压缩格式扩展
+│   ├── 7z 写入 — 完整 7z 写入支持
+│   ├── ZIPX — WinZIP 扩展格式（JPEG 预压缩等高级特性）
+│   ├── LZH — LHA/LZH 归档格式
+│   ├── ISO — 数据 ISO 归档处理
+│   ├── SFX — 自解压 ZIP/7z 模块
+│   ├── ZPAQ — 高压缩比格式
+│   └── 其他按用户需求驱动的格式
+├── 解压格式扩展
+│   ├── Brotli (.br)、bzip2 (.bz2)、LZ4 — 现代压缩格式
+│   ├── CAB、WIM — Microsoft 归档/映像格式
+│   ├── DEB、ASAR — 应用包格式
+│   ├── ARJ、LHA、ACE、ARC、ALZ — 历史格式适配器
+│   ├── UU/UUE/XXE、.Z — 编码/早期压缩格式
+│   ├── PEA、PMA、AES、EGG — 专有格式按需评估
+│   ├── IMG、ISZ、UDF — 磁盘镜像格式
+│   └── JAR/WAR/APK/IPA/XPI — ZIP 容器格式（复用引擎）
+└── 更多格式按社区反馈渐进补充
 ```
 
 ## 10. 成功指标

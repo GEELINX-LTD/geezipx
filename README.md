@@ -14,7 +14,7 @@
 
 ## Features
 
-- **Multi-format** -- ZIP, TAR, TAR.GZ/TGZ, TAR.ZST/TZST, TAR.XZ/TXZ, GZIP/GZ, Zstandard/ZST, XZ, LZMA (read/write), 7Z (read-only), and RAR (read-only)
+- **Multi-format** -- ZIP, TAR, TAR.GZ/TGZ, TAR.ZST/TZST, TAR.XZ/TXZ, GZIP/GZ, Zstandard/ZST, XZ, LZMA (read/write), 7Z (read-only), and RAR (read-only). *Planned: 7Z write, LZH, ISO, ZIPX, SFX, ZPAQ, bzip2, Brotli, CAB, WIM, and more — see [docs/PRD.md](docs/PRD.md) section 5.1*
 - **Streaming I/O** -- process large files with bounded memory usage
 - **Live progress bars** -- real-time speed, ETA, and per-file status on TTY
 - **Cancel-safe** -- graceful Ctrl+C with partial-file cleanup; double Ctrl+C force-kill
@@ -485,7 +485,13 @@ See [`docs/GUI_MVP_PLAN.md`](docs/GUI_MVP_PLAN.md) for detailed planning and tas
 ### Phase 3 (Future)
 
 - [ ] Platform-native installers (Homebrew, winget, APT)
-- [ ] Additional format support (as needed)
+- **Format expansion** — phased, see [docs/PRD.md](docs/PRD.md) section 5.1 for the full target list
+  - Compress: 7Z write, LZH, ISO, ZIPX, SFX, ZPAQ
+  - Decompress: Brotli, bzip2, LZ4, CAB, WIM, DEB, ASAR
+  - Historical/legacy: ARJ, LHA, ACE, ARC, ALZ (via adapter/evaluation)
+  - Container/derived: JAR, WAR, APK, IPA, XPI (ZIP-reuse)
+  - Disk images: IMG, ISZ, UDF
+  - More formats driven by user requests and community feedback
 ---
 
 ## Configuration
