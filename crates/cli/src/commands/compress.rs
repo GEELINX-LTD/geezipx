@@ -19,6 +19,31 @@ use geezipx_core::ProgressReader;
 
 use super::common;
 
+fn is_single_stream_format(format: ArchiveFormat) -> bool {
+    matches!(
+        format,
+        ArchiveFormat::Gzip
+            | ArchiveFormat::Bzip2
+            | ArchiveFormat::Brotli
+            | ArchiveFormat::Lz4
+            | ArchiveFormat::Zstd
+            | ArchiveFormat::Xz
+            | ArchiveFormat::Lzma
+    )
+}
+
+fn is_tar_wrapped_format(format: ArchiveFormat) -> bool {
+    matches!(
+        format,
+        ArchiveFormat::TarGz
+            | ArchiveFormat::TarBz2
+            | ArchiveFormat::TarBr
+            | ArchiveFormat::TarLz4
+            | ArchiveFormat::TarZst
+            | ArchiveFormat::TarXz
+    )
+}
+
 /// Execute the `compress` subcommand.
 #[allow(clippy::too_many_arguments)]
 pub fn execute(
@@ -49,41 +74,22 @@ pub fn execute(
         common::resolve_format(format, output.context("--output is required")?)?
     };
 
-    // Validate stdin/stdout is only for single-stream formats.
-    if use_stdin || use_stdout {
-        match format {
-            ArchiveFormat::Gzip
-            | ArchiveFormat::Bzip2
-            | ArchiveFormat::Brotli
-            | ArchiveFormat::Lz4
-            | ArchiveFormat::Zstd
-            | ArchiveFormat::Xz
-            | ArchiveFormat::Lzma
-            | ArchiveFormat::TarGz
-            | ArchiveFormat::TarBz2
-            | ArchiveFormat::TarBr
-            | ArchiveFormat::TarLz4
-            | ArchiveFormat::TarZst
-            | ArchiveFormat::TarXz => {}
-            _ => anyhow::bail!(
-                "--stdin/--stdout is only supported for single-stream formats \
-                 (gzip, bzip2, brotli, lz4, zstd, xz, lzma, tar.gz, tar.bz2, tar.br, tar.lz4, tar.zst, tar.xz); got '{format}'"
-            ),
-        }
+    // Stdio compression is only supported for raw single-stream formats and
+    // tar-wrapped codecs operating on a raw tar stream from stdin.
+    if (use_stdin || use_stdout)
+        && !(is_single_stream_format(format) || is_tar_wrapped_format(format))
+    {
+        anyhow::bail!(
+            "--stdin/--stdout is only supported for single-stream formats \
+             (gzip, bzip2, brotli, lz4, zstd, xz, lzma, tar.gz, tar.bz2, tar.br, tar.lz4, tar.zst, tar.xz); got '{format}'"
+        );
     }
 
     let cancel_token = crate::signal::CancellationToken::new();
-    validate_compress_inputs(inputs, format, &compress_options, use_stdin)?;
+    validate_compress_inputs(inputs, format, &compress_options, use_stdin, use_stdout)?;
 
-    match format {
-        // Single-stream formats always use single-stream mode.
-        ArchiveFormat::Gzip
-        | ArchiveFormat::Bzip2
-        | ArchiveFormat::Brotli
-        | ArchiveFormat::Lz4
-        | ArchiveFormat::Zstd
-        | ArchiveFormat::Xz
-        | ArchiveFormat::Lzma => compress_single_stream_mode(
+    if is_single_stream_format(format) || (is_tar_wrapped_format(format) && use_stdin) {
+        return compress_single_stream_mode(
             inputs,
             output,
             format,
@@ -93,43 +99,20 @@ pub fn execute(
             cancel_token,
             use_stdin,
             use_stdout,
-        ),
-        // Tar-based formats use single-stream mode only when reading/writing
-        // raw tar via stdin/stdout; otherwise they follow the archive path.
-        ArchiveFormat::TarGz
-        | ArchiveFormat::TarBz2
-        | ArchiveFormat::TarBr
-        | ArchiveFormat::TarLz4
-        | ArchiveFormat::TarZst
-        | ArchiveFormat::TarXz
-            if use_stdin || use_stdout =>
-        {
-            compress_single_stream_mode(
-                inputs,
-                output,
-                format,
-                compress_options,
-                no_progress,
-                verbose,
-                cancel_token,
-                use_stdin,
-                use_stdout,
-            )
-        }
-        _ => {
-            // Archive formats: collect files, write entries, finalise.
-            compress_archive_mode(
-                inputs,
-                output,
-                format,
-                recursive,
-                compress_options,
-                no_progress,
-                verbose,
-                cancel_token,
-            )
-        }
+        );
     }
+
+    // Archive formats: collect files, write entries, finalise.
+    compress_archive_mode(
+        inputs,
+        output,
+        format,
+        recursive,
+        compress_options,
+        no_progress,
+        verbose,
+        cancel_token,
+    )
 }
 
 /// Compress a single-stream format, handling stdin/stdout modes.
@@ -432,6 +415,7 @@ fn validate_compress_inputs(
     format: ArchiveFormat,
     options: &CompressOptions,
     use_stdin: bool,
+    use_stdout: bool,
 ) -> Result<()> {
     if inputs.is_empty() && !use_stdin {
         anyhow::bail!("at least one input file is required");
@@ -451,16 +435,15 @@ fn validate_compress_inputs(
         );
     }
 
+    if is_tar_wrapped_format(format) && use_stdout && !use_stdin {
+        anyhow::bail!(
+            "--stdout for '{}' only supports raw tar input via --stdin; archiving file/directory inputs to stdout is not supported yet. Use -o/--output instead",
+            format
+        );
+    }
+
     // Single-stream formats (gzip, bzip2, brotli, lz4, zstd, xz, lzma) only accept one input.
-    if (format == ArchiveFormat::Gzip
-        || format == ArchiveFormat::Bzip2
-        || format == ArchiveFormat::Brotli
-        || format == ArchiveFormat::Lz4
-        || format == ArchiveFormat::Zstd
-        || format == ArchiveFormat::Xz
-        || format == ArchiveFormat::Lzma)
-        && inputs.len() > 1
-    {
+    if is_single_stream_format(format) && inputs.len() > 1 {
         anyhow::bail!(
             "{} compression only supports a single input file (got {})",
             format,
@@ -509,15 +492,7 @@ fn validate_compress_inputs(
         if !input.exists() {
             anyhow::bail!("input '{}' does not exist", input.display());
         }
-        if (format == ArchiveFormat::Gzip
-            || format == ArchiveFormat::Bzip2
-            || format == ArchiveFormat::Brotli
-            || format == ArchiveFormat::Lz4
-            || format == ArchiveFormat::Zstd
-            || format == ArchiveFormat::Xz
-            || format == ArchiveFormat::Lzma)
-            && input.is_dir()
-        {
+        if is_single_stream_format(format) && input.is_dir() {
             anyhow::bail!(
                 "{} compression does not support directories ('{}')",
                 format,

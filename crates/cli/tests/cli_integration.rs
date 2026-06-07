@@ -6985,6 +6985,29 @@ fn tarbz2_stdout_outputs_raw_tar_stream() {
 }
 
 #[test]
+fn tarbz2_stdout_with_multiple_inputs_requires_output_file() {
+    let td = TestDir::new();
+    let a = td.join("a.txt");
+    let b = td.join("b.txt");
+    std::fs::write(&a, "first").unwrap();
+    std::fs::write(&b, "second").unwrap();
+
+    geezipx()
+        .args([
+            "compress",
+            a.to_str().unwrap(),
+            b.to_str().unwrap(),
+            "--stdout",
+            "-f",
+            "tar.bz2",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("raw tar input via --stdin"))
+        .stderr(predicate::str::contains("-o/--output"));
+}
+
+#[test]
 fn compress_stdin_tarbz2_pipe_to_file_and_back() {
     let td = TestDir::new();
     td.write("test_data.txt", "hello from tar.bz2 stdin test\n");
@@ -7286,6 +7309,29 @@ fn tarbr_stdout_outputs_raw_tar_stream() {
 }
 
 #[test]
+fn tarbr_stdout_with_directory_requires_output_file() {
+    let td = TestDir::new();
+    let src = td.join("src");
+    std::fs::create_dir_all(src.join("nested")).unwrap();
+    std::fs::write(src.join("root.txt"), "root level").unwrap();
+    std::fs::write(src.join("nested").join("deep.txt"), "nested level").unwrap();
+
+    geezipx()
+        .args([
+            "compress",
+            src.to_str().unwrap(),
+            "-r",
+            "--stdout",
+            "-f",
+            "tar.br",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("raw tar input via --stdin"))
+        .stderr(predicate::str::contains("-o/--output"));
+}
+
+#[test]
 fn compress_stdin_tarbr_pipe_to_file_and_back() {
     let td = TestDir::new();
     td.write("test_data.txt", "hello from tar.br stdin test\n");
@@ -7430,6 +7476,25 @@ fn tarlz4_stdout_outputs_raw_tar_stream() {
         .assert()
         .success()
         .stdout(predicate::str::contains("data.txt"));
+}
+
+#[test]
+fn tarlz4_stdout_with_file_requires_output_file() {
+    let td = TestDir::new();
+    td.write("data.txt", "tar.lz4 stdout should stay on archive path");
+
+    geezipx()
+        .args([
+            "compress",
+            td.join("data.txt").to_str().unwrap(),
+            "--stdout",
+            "-f",
+            "tar.lz4",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("raw tar input via --stdin"))
+        .stderr(predicate::str::contains("-o/--output"));
 }
 
 #[test]
