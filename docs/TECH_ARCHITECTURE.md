@@ -2,397 +2,375 @@
 
 ## 1. 架构概览
 
-采用 **Rust Cargo Workspace** 分层架构，核心引擎库与前端（CLI / GUI）完全分离。
+GeeZipX 采用 Rust Cargo Workspace 分层架构，核心引擎库与前端（CLI / GUI）解耦，当前仓库实际结构如下：
 
-```
+```text
 geezipx/
-├── Cargo.toml             # [workspace] 定义 crate 成员
+├── Cargo.toml
 ├── crates/
-│   ├── core/              # 核心引擎库 — 纯逻辑，流式 I/O
-│   │   ├── Cargo.toml
+│   ├── core/
 │   │   └── src/
-│   │       ├── lib.rs
-|│   │       ├── archive/       # 各归档格式的读写实现 (zip/tar/tar.gz/tar.zst/tar.xz/gzip/zstd/xz/7z/rar)
-│   │       ├── detect.rs      # 格式自动检测（魔数 + 扩展名）
-│   │       ├── error.rs       # 统一错误类型
-│   │       └── io.rs          # 流式读/写/计数/进度封装
-│   │       ├── config.rs     # 压缩配置（CompressOptions, level + jobs 统一传递）
-│   └── cli/                   # CLI 二进制 — clap + 进度渲染
-│       ├── Cargo.toml
-│       └── src/
-│           ├── main.rs
-│           ├── commands/      # compress / decompress / list / test / completions
-│           └── render/        # 进度条
+│   │       ├── archive/       # 各归档/压缩格式实现
+│   │       ├── config.rs      # CompressOptions 等参数模型
+│   │       ├── detect.rs      # 魔数字节 + 扩展名检测
+│   │       ├── error.rs       # GeeZipError
+│   │       ├── io.rs          # ProgressReader / ProgressWriter / ProgressEvent
+│   │       └── test.rs        # 完整性验证与测试辅助
+│   ├── cli/
+│   │   ├── src/
+│   │   │   ├── commands/      # compress / decompress / list / test / completions
+│   │   │   ├── render/        # 进度条与终端输出
+│   │   │   └── signal.rs      # Ctrl+C 取消处理
+│   │   └── tests/             # CLI 集成测试
+│   └── gui-tauri/
+│       ├── src/
+│       │   ├── bridge.ts
+│       │   ├── main.ts
+│       │   └── style.css
+│       └── src-tauri/
+│           ├── src/
+│           │   ├── commands/
+│           │   ├── lib.rs
+│           │   └── state.rs
+│           └── tauri.conf.json
 ├── docs/
-├── scripts/               # 构建/CI/互操作性测试脚本
-├── CHANGELOG.md
-├── deny.toml
-├── LICENSE
-├── rustfmt.toml
-└── .rust-toolchain.toml
+├── scripts/
+└── .github/workflows/
 ```
-
-> 注：`gui-tauri/` 目录是 Phase 2 桌面 GUI 阶段（当前阶段）的工作目录，将在 GUI MVP 实施时创建。
 
 ### 分层原则
 
-```
-┌─────────────┐  ┌─────────────┐
-│  cli (bin)  │  │ gui-tauri   │  ← 前端层：用户交互，不处理核心逻辑
-│  clap       │  │ Tauri + FE │
-└──────┬──────┘  └──────┬──────┘
-       │                │
-       └───────┬────────┘
-               │ 依赖
-       ┌───────▼────────┐
-       │  core (lib)     │  ← 核心引擎层：所有压缩/解压/格式逻辑
-       │  ─ 纯数据流     │
-       │  ─ 无 I/O 假设  │
-       │  ─ 无终端依赖   │
-       └────────────────┘
+```text
+┌─────────────┐  ┌─────────────────┐
+│  cli (bin)  │  │  gui-tauri       │  ← 前端层：终端 UI / Tauri GUI
+└──────┬──────┘  └────────┬─────────┘
+       │                  │
+       └────────┬─────────┘
+                │ depends on
+        ┌───────▼──────────┐
+        │  core (lib)       │  ← 核心引擎：归档/压缩/检测/错误/进度
+        │  ─ 无终端依赖     │
+        │  ─ 无 Tauri 依赖  │
+        │  ─ 可被多前端复用 │
+        └──────────────────┘
 ```
 
-> **为什么这样分？** core 库可以被 CLI 和 GUI 同时依赖，确保行为一致；core 不依赖终端特性，可以方便地在 Tauri 命令或 WebAssembly 中复用。
+设计目标：
+
+- core 只保留格式逻辑、I/O 包装、错误模型与安全检查；
+- CLI 负责参数解析、TTY 进度、stdout/stderr 呈现；
+- Tauri GUI 负责图形交互、任务管理、事件桥接；
+- 7z / RAR 在当前版本中保持只读语义（`list` / `decompress` / `test`）。
 
 ## 2. 模块设计
 
-### 2.1 core/archive — 归档格式读写
+### 2.1 `core/archive` — 归档格式读写抽象
 
-每个格式一个独立模块，通过统一 trait `ArchiveReader` / `ArchiveWriter` 暴露。
+`crates/core/src/archive/mod.rs` 定义了当前真实的共享 trait 语义：
 
 ```rust
-// 伪代码示意 trait 定义
 pub trait ArchiveReader: Send {
     fn format(&self) -> ArchiveFormat;
-    fn entries(&mut self) -> Result<Vec<Entry>>;
-    fn extract(&mut self, entry: &Entry, writer: &mut dyn Write) -> Result<u64>;
-    fn extract_all(&mut self, dest: &Path) -> Result<ExtractReport>;
+    fn entries(&mut self) -> GeeZipResult<Vec<Entry>>;
+    fn extract(&mut self, entry: &Entry, writer: &mut dyn Write) -> GeeZipResult<u64>;
+    fn extract_all(&mut self, dest: &Path, overwrite: bool) -> GeeZipResult<ExtractReport>;
+    fn extract_all_with_cancel(
+        &mut self,
+        dest: &Path,
+        overwrite: bool,
+        is_cancelled: &dyn Fn() -> bool,
+    ) -> GeeZipResult<ExtractReport>;
+    fn set_password(&mut self, _password: &str) -> GeeZipResult<()>;
 }
 
 pub trait ArchiveWriter: Send {
     fn format(&self) -> ArchiveFormat;
-    fn add_entry(&mut self, path: &Path, reader: &mut dyn Read) -> Result<()>;
-    fn finish(self: Box<Self>, writer: &mut dyn Write) -> Result<u64>;
+    fn add_entry_from_reader(&mut self, path: &Path, reader: &mut dyn Read) -> GeeZipResult<()>;
+    fn finish(self: Box<Self>) -> GeeZipResult<u64>;
+    fn add_directory(&mut self, _path: &Path) -> GeeZipResult<()>;
 }
 ```
 
-| 模块 | 负责 | 依赖 crate |
-|------|------|-----------|
-| `archive::zip` | ZIP 读写（Store/Deflate） | `zip` |
-| `archive::targz` | tar + gzip 组合；`--jobs>1` 启用 gzp 并行 gzip（pigz 风格）；解压用 MultiGzDecoder 兼容 multi-member gzip；stdin 单流模式下不启用并行 | `tar`, `flate2`, `gzp` |
-| `archive::tar` | 纯 tar 打包 | `tar` |
-| `archive::tarzst` | TAR + zstd 组合归档 | `tar`, `zstd` |
-| `archive::gzip` | .gz 单文件压缩 | `flate2` |
-| `archive::zstd` | .zst/.zstd 单文件压缩/解压 | `zstd` |
-| `archive::xz` | .xz/.lzma 单文件压缩/解压 | `xz2` |
-| `archive::tarxz` | .tar.xz/.txz 归档压缩/解压/list | `tar` + `xz2` |
-|| `archive::seven_zip` | 7Z read-only (list/extract/test) | `sevenz-rust2` ||
-||| `archive::rar` | RAR read-only (list/extract/test) | `unrar` (default-enabled) |
-### 2.2 core/io — 流式接口
+要点：
 
-关键抽象：`ProgressReader` 和 `ProgressWriter`，包裹任意 `Read + Write`，计数并调用进度回调。
+- 多文件归档格式通过 `ArchiveReader` / `ArchiveWriter` 统一。
+- `finish(self: Box<Self>) -> GeeZipResult<u64>` 负责结束写入并返回写出的总字节数。
+- `extract_all(..., overwrite)` 与 `extract_all_with_cancel(..., overwrite, ...)` 是当前真实批量提取入口。
+- 密码接口只用于读取已加密归档；写入加密仅 ZIP 支持。
+
+当前模块职责：
+
+| 模块 | 当前职责 |
+|------|----------|
+| `archive::zip` | ZIP 读写，支持 ZIP AES-256 创建与读取 |
+| `archive::tar` | 纯 TAR 读写 |
+| `archive::targz` | TAR.GZ / TGZ 读写；`--jobs > 1` 时启用并行 gzip |
+| `archive::tarzst` | TAR.ZST / TZST 读写 |
+| `archive::tarxz` | TAR.XZ / TXZ 读写 |
+| `archive::gzip` | GZIP/GZ 单流压缩/解压 helper |
+| `archive::zstd` | ZSTD/ZST 单流压缩/解压 helper |
+| `archive::xz` | XZ/LZMA 单流压缩/解压 helper |
+| `archive::seven_zip` | 7z 只读（`list` / `extract` / `test`） |
+| `archive::rar` | RAR 只读（`list` / `extract` / `test`，feature-gated） |
+
+### 2.2 `core/io` — 流式进度与取消包装
+
+进度相关能力集中在 `crates/core/src/io.rs` 中实现，并不存在独立的 progress 子模块：
 
 ```rust
-pub struct ProgressReader<R: Read> {
-    inner: R,
-    total: Option<u64>,
-    callback: Box<dyn Fn(ProgressEvent) + Send>,
+pub enum Phase {
+    Reading,
+    Writing,
+    Hashing,
 }
 
 pub struct ProgressEvent {
     pub current: u64,
     pub total: Option<u64>,
-    pub phase: Phase,  // Reading | Writing | Hashing
+    pub phase: Phase,
+}
+
+pub trait ProgressCallback: Send {
+    fn update(&mut self, _event: ProgressEvent) {}
+    fn is_cancelled(&self) -> bool { false }
+}
+
+pub struct ProgressReader<R: Read> {
+    inner: R,
+    bytes_read: u64,
+    total: Option<u64>,
+    callback: Option<Box<dyn ProgressCallback>>,
+}
+
+pub struct ProgressWriter<W: Write> {
+    inner: W,
+    bytes_written: u64,
+    total: Option<u64>,
+    callback: Option<Box<dyn ProgressCallback>>,
 }
 ```
 
-流式管线示例：
+实际行为：
 
-```
-[File] → ProgressReader ──→ [Decompressor] ──→ ProgressWriter → [File]
-         ↑                    ↑                    ↑
-    (计数+回调)          (flate2::read::DeflateDecoder)  (计数+回调)
-```
+- `ProgressReader` / `ProgressWriter` 在每次成功 `read` / `write` 后发出 `ProgressEvent`；
+- 在每次 I/O 之前先调用 `is_cancelled()`；
+- 无回调时只有一次 `Option` 分支检查；
+- GUI 层在此基础上封装更丰富的任务级进度 payload。
 
-对于 `tar.gz`，管线为四段：
+### 2.3 `core/detect` — 格式检测
 
-```
-[.tar.gz] → [GzDecoder] → [TarArchive] → [entry-by-entry] → [FileWriter]
-               ↑               ↑               ↑              ↑
-          (流式解压)      (tar 解包)      (逐个 entry)    (带进度写)
-```
-
-### 2.3 core/detect — 格式自动检测
-
-基于文件魔数字节的匹配引擎，轻量无外部依赖。
+`crates/core/src/detect.rs` 的当前接口是：
 
 ```rust
 pub enum ArchiveFormat {
-    Zip, Tar, Gzip, TarGz, TarZst, TarXz, Xz, Lzma, Zstd, SevenZip, Rar, Unknown,
+    Zip, Tar, Gzip, TarGz, Xz, Zstd, TarZst, Lzma, TarXz, SevenZip, Rar, Unknown,
 }
 
-pub fn detect_format(reader: &mut dyn Read) -> Result<ArchiveFormat>;
+pub fn detect_format(data: &[u8]) -> Option<ArchiveFormat>;
+pub fn detect_from_extension(path: &Path) -> Option<ArchiveFormat>;
+pub fn read_magic_bytes<R: Read>(reader: &mut R) -> io::Result<Vec<u8>>;
 ```
 
-魔数表：
+检测策略：
 
-| 格式 | 魔数 (hex) |
-|------|-----------|
-| ZIP | `50 4B 03 04` |
-| ZIP (empty) | `50 4B 05 06` |
-| gzip | `1F 8B` |
-| tar.gz | 同 gzip (`1F 8B`)，配合 `.tar.gz`/`.tgz` 扩展名 |
-| tar.zst/tzst | 同 zstd (`28 B5 2F FD`)，配合 `.tar.zst`/`.tzst` 扩展名 |
-| tar.xz/txz | 同 xz (`FD 37 7A 58 5A 00`)，配合 `.tar.xz`/`.txz` 扩展名 |
-| xz | `FD 37 7A 58 5A 00` |
-| lzma | 无固定魔数 — 仅通过 `.lzma` 扩展名或显式 `--format lzma` 识别 |
-| tar | 无魔数，fallback 到 `.tar` 扩展名 |
-| 7z | `37 7A BC AF 27 1C` |
-| RAR | `52 61 72 21 1A 07` |
+- ZIP / gzip / zstd / xz / 7z / RAR 优先用魔数字节；
+- `tar`、`tar.gz`、`tar.zst`、`tar.xz` 依赖扩展名回退；
+- `read_magic_bytes()` 仅读取前 `MAGIC_DETECT_SIZE` 字节，供调用方自行决定后续缓存与回放策略。
 
-### 2.4 core/error — 统一错误模型
+### 2.4 `core/error` — 统一错误模型
 
-单一错误类型 `GeeZipError`，全库通用：
+当前核心错误类型仍统一为 `GeeZipError`，主要覆盖：
 
-```rust
-pub enum GeeZipError {
-    // I/O 错误，携带上下文
-    Io { source: io::Error, context: String },
-    // 格式错误（头损坏、CRC 不匹配等）
-    Format { message: String, format: ArchiveFormat },
-    // 不支持格式
-    UnsupportedFormat(Vec<u8>),  // 包含前 8 字节魔数
-    // 用户取消
-    Cancelled,
-    // 密码错误 / 加密相关
-    Crypto { message: String },
-    // 路径逃逸（Zip Slip 防护）
-    PathTraversal { entry: String, target: String },
-    // 覆盖保护
-    ClobberDenied { path: String },
-}
+- `Io { source, context }`
+- `Format { message, format }`
+- `UnsupportedFormat(Vec<u8>)`
+- `Cancelled`
+- `Crypto { message }`
+- `PathTraversal { entry, target }`
+- `ClobberDenied { path }`
 
-impl Error for GeeZipError { /* ... */ }
-```
+设计要求：
 
-设计原则：
-- 所有错误都做到 `Send + Sync`。
-- 每条错误信息应包含：**出错位置 + 原因 + 建议**。
-- 示例：`error: cannot extract 'foo/../../etc/passwd': path traversal detected, use --unsafe to bypass`
+- 错误值可跨线程传递（`Send + Sync`）；
+- 错误消息包含上下文；
+- 路径穿越错误保持保守拒绝策略，不提供当前 CLI 中不存在的“绕过开关”。
 
-### 2.5 core/progress — 进度回调
+### 2.5 `cli/commands` — 命令分发
 
-定义 trait，cli 和 gui 各自实现：
-
-```rust
-pub trait ProgressCallback: Send {
-    fn update(&mut self, event: ProgressEvent);
-    fn is_cancelled(&self) -> bool;  // 默认返回 false
-}
-```
-
-CLI 实现：`indicatif` 渲染 tqdm 风格进度条，可被 `--no-progress` 禁用。
-GUI 实现：通过 Tauri `emit` 事件推送进度到前端。
-
-### 2.6 cli/commands — 命令分发
-
-使用 `clap` v4 derive API，五个子命令：
+CLI 当前子命令为：
 
 | 子命令 | 主要参数 | 核心流程 |
-|--------|---------|---------|
-|| `compress` | `<inputs...>` `--format` `-o` `-L` `--level` `-j` `--jobs` `-r` | 收集文件 → 创建 ArchiveWriter → 写入 |
-| `decompress` | `<archive>` `-o` `--stdout` `--no-clobber` `--force` | 检测格式 → 创建 ArchiveReader → 解包 |
-| `list` | `<archive>` `--json` | 检测格式 → 读取 entries → 表格/JSON 输出 |
-| `test` | `<archive>` `--json` | 检测格式 → 读取所有 entry 验证完整性 → 通过/失败报告 |
-| `completions` | `<shell>` | 生成指定 Shell 的自动补全脚本 |
+|--------|----------|----------|
+| `compress` | `<inputs...>` `--format` `-o` `-L/--level` `-j/--jobs` `-r` | 选择目标格式 → 多文件归档走 `ArchiveWriter`，单流格式走对应 helper |
+| `decompress` | `<archive>` `-o` `--stdout` `--no-clobber` `--force` | 检测格式 → 打开 reader / decoder → 提取到目录或 stdout |
+| `list` | `<archive>` `--json` | 检测格式 → 读取 `entries()` → 表格/JSON 输出 |
+| `test` | `<archive>` `--json` | 检测格式 → 读取全部 entry 验证完整性 → 结果输出 |
+| `completions` | `<shell>` | 生成指定 shell 的补全脚本 |
 
-全局参数：`--no-progress`（禁用进度条）、`--verbose`（逐文件日志）。
-压缩特有参数：`-j`/`--jobs`（多线程工作数，默认 1 单线程；`0` auto；tar.gz/tar.zst 实际启用多线程；tar.xz/zip/xz/lzma 接受参数但暂不生效；**注意**：tar.gz 的 `--stdin` 单流模式不使用 `--jobs`）
+补充说明：
 
-### 2.7 cli/render — 输出渲染
+- 全局 `--no-progress` 用于关闭 TTY 进度条；
+- `--verbose` 输出逐文件日志；
+- ZIP AES-256 创建仅在 `compress` + ZIP 路径可用；
+- 7z / RAR 密码只服务于只读命令（`list` / `decompress` / `test`）。
 
-- 进度条：`indicatif` 的 `ProgressBar` + `ProgressStyle` 自定义模板。
-- 列表输出：`comfy-table` 格式化表格。
+### 2.6 `cli/render` — 输出渲染
+
+- 进度条：`indicatif`；
+- 列表渲染：`comfy-table`；
+- JSON：`serde` + `serde_json`；
+- Ctrl+C：`ctrlc` + `signal.rs` 中的取消令牌。
 
 ## 3. 关键依赖
-当前实际依赖（以 `crates/core/Cargo.toml` 和 `crates/cli/Cargo.toml` 为准）：
 
-#### core 依赖
+当前依赖以 `crates/core/Cargo.toml` 和 `crates/cli/Cargo.toml` 为准：
+
+### core 依赖
 
 | Crate | 用途 |
-|-------|------|
-| `zip` 2.x | ZIP 格式读写（`default-features = false`，仅 `deflate`） |
-| `tar` 0.4 | tar 归档包 |
-| `flate2` 1.x | gzip/deflate（`rust_backend` — 纯 Rust，无 C 依赖） |
-| `gzp` 0.11 | tar.gz 并行 gzip 压缩（`deflate_rust` feature — 纯 Rust）；当 `CompressOptions.effective_jobs() > 1` 时使用 `ParCompress` 实现 pigz 风格分块并行压缩 |
-| `thiserror` 2 | 错误类型 derive |
+|------|------|
+| `zip` 2.x | ZIP 读写（启用 `deflate`、`aes-crypto`） |
+| `tar` 0.4 | TAR 容器读写 |
+| `flate2` 1.x | gzip/deflate（纯 Rust backend） |
+| `gzp` 0.11 | tar.gz 并行 gzip 压缩 |
+| `xz2` 0.1 | xz / lzma / tar.xz |
+| `zstd` 0.13 | zstd / tar.zst，多线程支持 `zstdmt` |
+| `sevenz-rust2` 0.21 | 7z 只读支持 |
+| `unrar` 0.5.8 | RAR 只读支持（optional, default-enabled） |
+| `thiserror` 2 | 错误定义 |
 | `log` 0.4 | 日志门面 |
-| `xz2` 0.1 | xz (.xz) / LZMA (.lzma) 单流压缩/解压（features = ["static"] — 静态链接 liblzma；当前无稳定多线程 API，`--jobs` 向前兼容占位） |
-| `zstd` 0.13 | Zstandard（zstd/zst）单流压缩/解压；启用 `zstdmt` feature 支持多线程（`NbWorkers`） |
-| `sevenz-rust2` 0.21 | 7Z read-only (list/extract/test)；AES-256 加密 7z 支持 |
-| `unrar` 0.5.8 | RAR read-only (list/extract/test)；optional, default-enabled；链接 RARLAB freeware UnRAR C++ 源码 |
 
-##### dev-dependencies
+### cli 依赖
 
 | Crate | 用途 |
-|-------|------|
-| `tempfile` 3 | 测试临时目录 |
-| `criterion` 0.5 | 基准测试（`html_reports`） |
-
-#### cli 依赖
-
-| Crate | 用途 |
-| `geezipx-core` | workspace 依赖 (`default-features = false`) |
-| `clap` v4 | CLI 参数解析（derive API） |
-| `clap_complete` 4 | Shell 自动补全生成 |
-| `anyhow` 1 | 二进制层错误传播 |
-| `indicatif` 0.17 | 终端进度条 |
-| `comfy-table` 7 | 表格输出 |
-| `serde` + `serde_json` 1 | `--json` 输出序列化 |
+|------|------|
+| `geezipx-core` | 核心引擎 workspace 依赖 |
+| `clap` v4 | 参数解析 |
+| `clap_complete` 4 | Shell 补全 |
+| `anyhow` 1 | 边界层错误传播 |
+| `indicatif` 0.17 | TTY 进度条 |
+| `comfy-table` 7 | 表格渲染 |
+| `serde` / `serde_json` | JSON 输出 |
 | `ctrlc` 3 | Ctrl+C 信号处理 |
-
-##### dev-dependencies
-
-| Crate | 用途 |
-|-------|------|
-| `assert_cmd` 2 | CLI 二进制集成测试 |
-| `predicates` 3 | CLI 输出断言 |
-| `tempfile` 3 | 测试临时目录 |
-
-> **与早期草案的变化**：Phase 1 初始不包含 `xz2`/`zstd`/`crossterm`/`owo-colors`/`env_logger`/`snapbox`。zstd 后已用 `zstd` crate 添加单流读写支持（`archive::zstd` 模块 + CLI `-f zst`/`-f zstd` 参数 + 扩展名自动推断）；TarZst（tar.zst/tzst）也基于 `zstd` crate 和 `tar` crate 实现完整归档压缩/解压/list（`archive::tarzst` 模块）。xz 和 lzma 已通过 `xz2` crate 实现单流压缩/解压（`archive::xz` 模块 + CLI `-f xz`/`-f lzma` 参数）；TarXz（tar.xz/txz）基于 `xz2` crate 和 `tar` crate 实现完整归档压缩/解压/list（`archive::tarxz` 模块）。后续新增了 `config.rs`（`CompressOptions`）统一传递压缩参数（level + jobs），`zstd` 启用 `zstdmt` feature 支持多线程（`-j`/`--jobs`）。当前 core 使用 `[features]` 实现可选 RAR 支持：`rar = ["dep:unrar"]`，默认通过 `default = ["rar"]` 启用。核心的 zip、flate2、zstd（含 zstdmt）、xz2 均为必选依赖。
+| `glob` 0.3 | 输入模式展开 |
 
 ## 4. 进度与取消机制
 
 ### 进度流
 
-Reader(File) → ProgressReader → Decompress → ProgressWriter → File
-                    ↑                            ↑
-               (计数, callback)             (计数, callback)
-            （回调在每次 read/write 后触发；
-             CLI 端 `indicatif` 内部负责自己的渲染节流）
+```text
+Reader/File → ProgressReader → Decoder/ArchiveReader → ProgressWriter → Output/File
+                 │                    │                     │
+                 └──── update() ──────┴──── update() ───────┘
 ```
 
-- `indicatif` 内部每 100ms 刷新一次渲染，不影响流式 I/O 性能。
-- 标准输出被检测为 pipe 或无终端时不输出进度条，通过 `--no-progress` 禁用。
+当前行为：
+
+- CLI 在 TTY 下默认显示进度条；`--no-progress` 可禁用；
+- 非 TTY / pipe 输出默认不渲染 ANSI 进度条；
+- GUI 后端将 core 事件转换成 `task:progress` 事件；
+- GUI 事件节流由 `TaskProgressEmitter` 负责（时间与字节步长双阈值）。
 
 ### 用户取消
 
-- `ProgressCallback::is_cancelled()` 方法，默认每读取 64KB 检查一次。
-- CLI 下：支持 Ctrl+C（`SIGINT` 处理），收到信号后设置取消标志。
-- 取消后：已完成 entry 保留，当前进行中的 entry 回滚，输出报告。
+- CLI：`signal.rs` 中的取消令牌与 core 的 `is_cancelled()` 联动；
+- core：`extract_all_with_cancel()` 在处理 entry 之前检查取消，并使用 `CancellableWriter` 在写入阶段再次检查；
+- GUI：`cancel_task` 把对应 `Arc<AtomicBool>` 标记为取消，前端收到终态事件后收束 UI。
 
-## 5. 跨平台文件系统差异处理
+## 5. 跨平台文件系统策略
 
-| 差异 | 处理策略 |
-|------|---------|
-| 路径分隔符 | 内部统一使用 `/`，写入时转换为平台分隔符 `Path::join` |
-| 文件权限 | 仅 Linux/macOS 保存执行位；Windows 忽略，GUI 阶段加 ACL 映射 |
-| 符号链接 | 当前默认按普通路径处理/跳过高风险场景；显式 `--follow-symlinks` 仍属后续增强 |
-| 长路径 (Windows) | 必须持续验证；显式 `--win-longpaths` CLI 开关仍属后续增强 |
-| 文件名非法字符 | Windows 下应替换 `\\ / : * ? " < > |` 为 `_`，其他平台保留；实现需通过测试覆盖确认 |
-| 时间戳 & 时区 | 统一使用 UTC 存储，恢复时使用平台系统时间 |
-| 字符编码 | 归档内文件名 UTF-8；CP437 ZIP 兼容转换 |
+| 主题 | 当前策略 |
+|------|----------|
+| 路径安全 | 提取前统一执行 Zip Slip/path traversal 检查 |
+| 路径分隔符 | 归档内统一使用 `/`；落盘时交给 `Path` 处理 |
+| 覆盖策略 | 通过 `overwrite: bool` / `--no-clobber` / `--force` 控制 |
+| Unicode 文件名 | 作为一等场景测试，ZIP 同时兼顾 CP437 兼容 |
+| 长路径 / 符号链接 | 采取保守策略并在文档中明确限制；当前 CLI 未暴露 `--follow-symlinks` 或 `--win-longpaths` |
 
-> 当前 CLI 尚未暴露 `--follow-symlinks` 或 `--win-longpaths` 等高级文件系统开关。上述策略是跨平台设计目标；未暴露的开关应作为 Phase 2+ 增强或在文档中保持明确限制。
 ## 6. 测试策略
 
-| 层级 | 工具 | 内容 |
-|------|------|------|
-| 单元测试 | 内联 `#[cfg(test)]` | 每个模块的基础逻辑（魔数检测、路径安全、错误转换） |
-| 集成测试 | `/tests/*.rs` | 真实文件压缩→解压→对比 hash；CLI 命令调用 |
-| 格式互操作测试 | 脚本 + 原生工具 | 用 Info-ZIP / GNU tar 创建归档，GeeZipX 解压；反之 |
-| 基准测试 | `/benches/*.rs` + `scripts/check-bench-regression.sh` | `criterion` 吞吐量；手动 benchmark workflow 可基于 comparison JSON 检查回归阈值 |
-| 模糊测试 | `cargo-fuzz`（Phase 2） | 格式鲁棒性，确保恶意文件不会 panic |
+| 层级 | 当前内容 |
+|------|----------|
+| core 单元测试 | 路径安全、时间戳、进度包装、格式检测、错误映射 |
+| CLI 集成测试 | 压缩/解压/列表/完整性验证、JSON 输出、密码与覆盖策略 |
+| 互操作测试 | `scripts/check-interop.sh` 与系统工具交叉验证 |
+| 流式 smoke 测试 | 大文件/长耗时路径通过单独测试入口执行 |
+| benchmark | Criterion + advisory regression check |
 
 ## 7. CI/CD（GitHub Actions）
 
-**主 CI 触发条件**：对 `main` 分支的 push、任意 `v*` 标签的 push、任意分支的 pull_request，以及手动 workflow_dispatch。
-Matrix:
-  - os: ubuntu-latest, macos-latest, windows-latest
-  - toolchain: stable (单一版本)
+### 7.1 主 CI：core / CLI 质量门禁
 
-Jobs (串行依赖):
-  1. fmt           — cargo fmt --all --check
-  2. clippy        — cargo clippy --workspace --all-targets --all-features -- -D warnings (全线，依赖 fmt)
-  3. test          — cargo test --workspace --all-features (全线，依赖 fmt)
-  4. build         — cargo build --release --workspace (全线，依赖 fmt+clippy+test)
-                     → 产物上传至 workflow artifact (`geezipx-{os}-x86_64`)
-  5. interop       — bash scripts/check-interop.sh (依赖 clippy+test+build)
-  6. bench-compile — cargo bench --no-run -p geezipx-core (依赖 fmt; advisory, 不阻塞 PR 合并)
-```
+主 CI 位于 `.github/workflows/ci.yml`，当前事实：
 
-主 CI `bench-regression` job（依赖 test 通过）在每次 PR 的 ubuntu-latest 上自动运行完整 Criterion benchmarks。
-该 job 为 **advisory**：使用 `continue-on-error: true`，不阻塞 PR 合并。不进一步投资于 benchmark 基线或 CI 性能门禁。
+- 触发：`main` push、`v*` tag push、`pull_request`、`workflow_dispatch`；
+- `fmt`：`cargo fmt --all --check`；
+- `doc`：`cargo doc --workspace --exclude geezipx-gui --no-deps --document-private-items`；
+- `clippy`：三平台矩阵执行 `cargo clippy --workspace --exclude geezipx-gui --all-targets --all-features -- -D warnings`；
+- `test`：三平台矩阵执行 `cargo test --workspace --exclude geezipx-gui --all-features`；
+- `build`：三平台矩阵执行 `cargo build --release --workspace --exclude geezipx-gui`；
+- `interop`、`streaming-smoke`、`bench-compile`、`bench-regression` 为补充质量检查；
+- GUI 不在主 CI 的 clippy/test/build 门禁里，GUI 构建由独立 workflow 负责。
 
-此外，独立的 `Benchmark` workflow 支持手动触发运行 Criterion benchmarks 并执行相同的回归检查，适用于开发者按需深入分析。
+### 7.2 其他工作流
 
-> 注意：CI 不含 `cargo publish` 步骤。`cargo-deny` 安全审计由独立 `deny.yml` 工作流覆盖（`v*` 标签 push + 手动触发）。crates.io 发布目前为手工操作（`cargo publish -p geezipx-core && cargo publish -p geezipx`），不纳入 CI/CD。
+- `deny.yml`：`cargo-deny` 安全审计；
+- `coverage.yml`：覆盖率观测（informational-only）；
+- `bench.yml`：基准基线 / 手动 benchmark；
+- `gui-windows.yml`：独立 Windows GUI 手动构建工作流；
+- `release.yml`：CLI + GUI bundles 发布构建工作流。
 
-### 7.1 Release 二进制 artifacts workflow
+### 7.3 Release / GUI bundle workflow
 
-独立工作流 `.github/workflows/release.yml`，专注于发布构建产物：
+`.github/workflows/release.yml` 当前已配置：
 
-- **触发**：`v*` 标签 push（创建 Release）或手动 `workflow_dispatch`（默认 dry-run，仅验证）
-- **手动触发**（`workflow_dispatch`）：
-  - 默认 `dry_run: true`：构建三平台 artifacts、验证完整性、生成 `SHA256SUMS`，**不创建 GitHub Release**
-  - 可设置 `dry_run: false`：构建和验证行为相同，仍不会创建 Release（仅 tag push 创建 Release）
-- **权限**：全局 `contents: read`，release job 单独 `contents: write`
-- **三平台构建**：
-  - `ubuntu-latest` → `geezipx-linux-x86_64.tar.gz` + `.sha256`
-  - `macos-latest` → `geezipx-macos-x86_64.tar.gz` + `.sha256`
-  - `windows-latest` → `geezipx-windows-x86_64.zip` + `.sha256`
-- **consolidate job**（始终运行）：
-  - 下载所有平台 artifacts
-  - 合并 `.sha256` 为 `SHA256SUMS`，输出至 `$GITHUB_STEP_SUMMARY`
-  - 验证三平台 archive 存在、大小 > 100 KB、SHA256 校验通过
-  - 上传 `SHA256SUMS` 作为 workflow artifact（保留 90 天）
-- **release job**（仅 `v*` tag push 时运行）：
-  - 使用 `softprops/action-gh-release@v2` 将 `.tar.gz`、`.zip`、`.sha256` 和 `SHA256SUMS` 上传至 GitHub Release
-  - `draft` / `prerelease`：均设为 `false`（正式 release）
-  - `fail_on_unmatched_files: true`：任何 artifact 缺失将导致 job 失败
-- **不包含**：`cargo publish`（crates.io 发布仍手工操作）
-
-> `workflow_dispatch` / `dry-run` 可用于在实际发布前验证 artifacts 完整性，
-> 避免 tag push 后才发现构建失败。artifact 完整性检查分两层执行：
-> consolidate job 手动校验存在性、大小和 checksum；release job 使用 `fail_on_unmatched_files: true` 防止遗漏上传。
+- CLI 三平台产物：`.tar.gz` / `.zip` + `.sha256`；
+- GUI 三平台 bundle：Linux `.AppImage`、macOS `.dmg`、Windows `.msi`；
+- `consolidate` job 会校验所需 artifacts 并生成 `SHA256SUMS`；
+- `release` job 在 `v*` tag push 时把 CLI 与 GUI artifacts 上传到 GitHub Release；
+- 当前状态统一表述为“已配置，待首个真实 tag release 实战验证”。
 
 ## 8. Tauri GUI 接入方式（Phase 2 当前阶段）
 
-桌面 GUI 阶段已进入当前开发阶段。详见 `docs/GUI_MVP_PLAN.md`。
-
+```text
+crates/gui-tauri/
+├── src/
+│   ├── bridge.ts
+│   ├── main.ts
+│   └── style.css
+└── src-tauri/
+    ├── src/
+    │   ├── commands/
+    │   │   ├── app.rs
+    │   │   ├── cancel.rs
+    │   │   ├── compress.rs
+    │   │   ├── drag.rs
+    │   │   ├── extract.rs
+    │   │   ├── extract_entries.rs
+    │   │   ├── formats.rs
+    │   │   ├── list.rs
+    │   │   ├── preview_entry.rs
+    │   │   ├── progress.rs
+    │   │   └── test.rs
+    │   ├── lib.rs
+    │   └── state.rs
+    └── tauri.conf.json
 ```
-gui-tauri/
-├── Cargo.toml               # [package] name = "geezipx-gui"
-├── src-tauri/
-│   ├── Cargo.toml           # 依赖 core, tauri, tauri-build
-│   ├── src/
-│   │   └── main.rs          # Tauri 命令调用 core 库
-│   │       └── #[tauri::command] fn compress(...) -> Result<...>
-│   └── tauri.conf.json
-└── src/                     # 前端 SPA (Vue 3 / Svelte 5)
-    ├── App.vue
-    ├── components/
-    │   ├── FileBrowser.vue
-    │   ├── ProgressPanel.vue
-    │   └── FormatSelector.vue
-    └── stores/
-        └── task.ts          # 压缩任务状态管理
-```
 
-关键点：
-- GUI 的 Rust 后端非常薄：仅仅把 `core` 库的方法暴露为 Tauri 命令。
-- 进度通过 `tauri::Window::emit` 推送到前端，前端用 WebSocket/EventSource 风格监听。
-- 取消通过 Tauri 事件反向传递到 core 的 `is_cancelled()`。
-- 右键菜单、文件关联、自动启动等平台集成在 Tauri 配置中声明。
+当前接入要点：
 
-| 风险 | 影响 | 缓解 |
-|------|------|------|
-| `zip` crate 对 Deflate64 支持不完整 | 部分 ZIP 无法解压 | Phase 2 回退到系统 `unzip`；社区 PR |
-|| zstd 的 C 库交叉编译（zstd crate 纯 Rust 现已解） | Phase 1 已通过 pure-Rust `zstd` crate 解决；`zstdmt` feature 开启后仍为纯 Rust |
-|| 大文件进度精度受限于预扫描 | 压缩前需要遍历目标文件计算总大小 | Phase 1 接受首次扫描开销；Phase 2 考虑文件扫描并行化 |
-| Windows 下符号链接/长路径不一致 | 功能受限 | 清晰文档说明限制；渐进式支持 |
-| 不同平台 gzip 压缩默认级别差异 | 产生不同二进制 | CI 强制 `--level` 保证一致性；默认值文档说明 |
+- GUI Rust 后端是 thin bridge：暴露 Tauri commands，调用 `geezipx-core`；
+- 进度通过 `task:progress` 事件推送，文件关联/单实例通过 `opened-archives` 事件通知前端；
+- 前端当前以 `src/main.ts` 为主，包含最近路径 chips、归档浏览器、任务状态管理；
+- 选择性提取、条目预览、拖出归档条目等 GUI 专属交互都建立在 core 的只读/提取能力之上；
+- 目前尚无完整设置系统或 i18n 框架，这些仍属于后续规划。
 
+| 风险 | 影响 | 当前缓解 |
+|------|------|----------|
+| GUI bundle 发布尚未经历真实 tag release 演练 | 发布路径可能存在流程性缺口 | 保守表述为“已配置，待验证” |
+| 大文件压缩进度依赖预扫描总量 | 首次开始任务前会有扫描延迟 | UI 上明确扫描阶段 |
+| Windows 长路径/符号链接差异 | 个别归档场景行为与 Unix 不完全一致 | 持续测试 + 文档限制说明 |
+| 7z / RAR 仍为只读 | GUI 不能创建这些格式 | 在产品文档中明确范围 |
 ## 附录：Cargo Workspace 配置
 
 ```toml
@@ -402,14 +380,14 @@ resolver = "2"
 members = ["crates/core", "crates/cli", "crates/gui-tauri/src-tauri"]
 
 [workspace.package]
-version = "0.3.0"
+version = "0.5.0"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/GEELINX-LTD/geezipx"
 rust-version = "1.96"
 
 [workspace.dependencies]
-geezipx-core = { version = "0.3.0", path = "crates/core", default-features = false }
+geezipx-core = { version = "0.5.0", path = "crates/core", default-features = false }
 ```
 
 ```toml

@@ -3,6 +3,13 @@
 > **阶段**：Phase 2（当前开发阶段）
 >
 > **前置依赖**：Phase 1 CLI 已完成并成熟，core 引擎库 API 稳定，crates.io 已发布。
+>
+> **已完成（v0.5.0）**：GUI 应用骨架、core 引擎桥接、归档浏览器、选择性提取、文件预览、
+> 拖拽/拖出、文件关联、单实例、侧边栏、密码输入、任务进度、取消操作。
+>
+> **当前状态**：独立 `gui-windows.yml` 已可手动构建 Windows GUI；`release.yml` 已配置三平台 GUI bundle 构建并上传 `.AppImage` / `.dmg` / `.msi`。首个真实 tag release 仍待实战验证。
+>
+> **剩余**：窗口状态持久化、更多发布验证与细节打磨项。
 
 ---
 
@@ -71,216 +78,190 @@
 
 ## 4. 架构边界
 
-```
+```text
 ┌─────────────────────────────────────┐
-│        Tauri Frontend (WebView)      │
-│  Vue 3 / Svelte 5 SPA               │
-│  - 文件选择交互                       │
-│  - 格式/参数 UI                      │
-│  - 进度监听 & 实时显示                │
-│  - 任务状态管理                       │
+│      Tauri Frontend (WebView)       │
+│  当前实现：src/main.ts + style.css    │
+│  - 文件选择 / 拖拽 / 浏览 / 预览       │
+│  - 任务状态与进度面板                 │
 └──────────────┬──────────────────────┘
-               │ Tauri IPC (invoke / event)
+               │ invoke / event
 ┌──────────────▼──────────────────────┐
-│      Tauri Rust Backend (thin)       │
-│  #[tauri::command] 桥接层            │
-│  - compress_cmd(args) -> task_id     │
-│  - decompress_cmd(args) -> task_id   │
-│  - list_archive(path) -> contents    │
-│  - cancel_task(task_id)              │
+│    Tauri Rust Backend (thin bridge) │
+│  src-tauri/src/commands/*           │
+│  - compress_archive                 │
+│  - extract_archive / extract_entries│
+│  - list_archive / test_archive      │
+│  - preview_entry / drag helpers     │
+│  - cancel_task                      │
 └──────────────┬──────────────────────┘
-               │ Rust API calls
+               │ reuse core APIs
 ┌──────────────▼──────────────────────┐
-│        geezipx-core 引擎库            │
-│  archive/compress/detect/fs/         │
-│  progress/pipeline/task              │
+│         geezipx-core 引擎库          │
+│  archive/*  detect.rs  error.rs     │
+│  config.rs  io.rs  test.rs          │
 │  - 纯业务逻辑，不依赖 Tauri          │
 └─────────────────────────────────────┘
 ```
 
 **关键约束**：
-- `geezipx-gui` 依赖 `geezipx-core`，反之不成立。
-- core 引擎不引入任何 Tauri 依赖。
-- GUI Rust 后端仅做参数映射、进度桥接、任务生命周期管理，不实现压缩逻辑。
-- 前端不直接调用压缩库——所有操作通过 Tauri command bridge 转发。
+
+- `geezipx-gui`/`crates/gui-tauri/src-tauri` 依赖 `geezipx-core`，反向依赖不允许。
+- GUI Rust 后端只做参数映射、任务生命周期管理、进度桥接与前端数据整形。
+- 前端不直接处理压缩格式细节；所有实际归档操作都经由 Tauri command bridge。
+- 7z / RAR 在 GUI 中仍然保持只读语义：可浏览、测试、提取，不可创建。
 
 ## 5. Core API 复用策略
 
-GUI 直接复用 core 的以下 API，不重复实现：
+GUI 直接复用 core 的以下能力，不重复实现压缩/解压逻辑：
 
-| Core 模块 | 复用方式 |
-|-----------|---------|
-| `core::task::CompressTask` / `DecompressTask` | GUI 构造任务结构体，传递参数 |
-| `core::progress::Event::Progress { current, total }` | Tauri event emit 转发进度 |
-| `core::pipeline::Pipeline` | GUI 触发运行，监听取消信号 |
-| `core::detect::detect_format` | 自动识别拖入文件的格式 |
-| `core::archive::ZipArchive` / `TarArchive` / ... | list 预览内容 |
-| `core::error::Error` | 序列化为字符串展示给用户 |
+| Core 模块 | GUI 复用方式 |
+|-----------|--------------|
+| `core::archive::*` | 复用 `ArchiveReader` / `ArchiveWriter` trait，以及 7z/RAR 只读 reader |
+| `core::io::{ProgressReader, ProgressWriter, ProgressCallback, ProgressEvent}` | 进度计数与取消检查；由 GUI 后端转成 Tauri 事件 |
+| `core::detect::{detect_format, detect_from_extension, read_magic_bytes}` | 自动识别拖入文件与归档类型 |
+| `core::config::CompressOptions` | 统一传递 level、jobs、password 等参数 |
+| `core::error::GeeZipError` | 后端转换为用户可读字符串并返回前端 |
+| `core::test` | 归档完整性验证逻辑，供 `test_archive` 调用 |
 
-### 5.1 Tauri Command Bridge 设计
+### 5.1 Tauri command bridge
+
+当前后端命令入口位于 `crates/gui-tauri/src-tauri/src/lib.rs`：
 
 ```rust
-// gui-tauri/src-tauri/src/commands.rs
+#[tauri::command]
+async fn compress_archive(...) -> Result<CompressArchiveResult, String>;
 
 #[tauri::command]
-async fn compress(
-    app: AppHandle,
-    files: Vec<String>,
-    format: String,       // "zip" | "tar" | "tar.gz" | ...
-    level: Option<u32>,
-    password: Option<String>,
-    output_dir: Option<String>,
-    jobs: Option<u32>,
-) -> Result<String, String> {
-    // 1. 创建 CompressTask
-    // 2. 在 tokio spawn_blocking 中执行
-    // 3. 通过 app.emit("progress", event) 推送进度
-    // 4. 返回 task_id
-}
+async fn extract_archive(...) -> Result<ExtractArchiveResult, String>;
 
 #[tauri::command]
-async fn decompress(
-    app: AppHandle,
-    archive: String,
-    output_dir: Option<String>,
-    password: Option<String>,
-    overwrite: Option<bool>,
-) -> Result<String, String> {
-    // 类似 compress
-}
+async fn extract_entries(...) -> Result<ExtractArchiveResult, String>;
 
 #[tauri::command]
-async fn list_archive(path: String, password: Option<String>) -> Result<Vec<EntryInfo>, String> {
-    // 调用 core detect + list
-}
+async fn list_archive(...) -> Result<Vec<EntryInfo>, String>;
 
 #[tauri::command]
-async fn cancel_task(task_id: String) -> Result<(), String> {
-    // 设置取消标志
-}
+async fn test_archive(...) -> Result<TestArchiveResult, String>;
+
+#[tauri::command]
+async fn preview_entry(...) -> Result<PreviewEntryResult, String>;
+
+#[tauri::command]
+fn cancel_task(task_id: String, state: State<'_, AppState>) -> Result<(), String>;
 ```
+
+补充命令还包括：
+
+- `get_formats`：向前端暴露支持的格式列表；
+- `get_opened_archives`：读取冷启动/文件关联传入的归档路径；
+- `prepare_drag_entries` / `cleanup_drag_temp_dir` / `cleanup_stale_drag_temp_dirs`：支持从归档浏览器拖出条目到系统文件管理器。
 
 ## 6. 进度与取消
 
 ### 6.1 进度推送
 
-core 的 `ProgressEvent` 通过 channel 或 callback 暴露给 GUI 后端：
+core 侧的 `ProgressEvent` 只有流式层所需的最小信息：
 
 ```rust
-// core 侧
-pub enum ProgressEvent {
-    Started { total_bytes: u64 },
-    Progress { current: u64, total: u64, rate: f64 },
-    Message { text: String },
-    Finished { result: Result<(), Error> },
+pub struct ProgressEvent {
+    pub current: u64,
+    pub total: Option<u64>,
+    pub phase: Phase, // Reading | Writing | Hashing
 }
 ```
 
-GUI 后端在 `spawn_blocking` 中监听 core 的 channel，并通过 `app.emit("task:progress", payload)` 推送到前端。
+GUI 后端在 `src-tauri/src/commands/progress.rs` 中把它包装为更丰富的 `TaskProgressPayload`，并通过固定事件名 `task:progress` 推送给前端。payload 额外包含：
+
+- `task_id` / `kind` / `status` / `stage`
+- `percent` / `bytes_per_second`
+- `current_entry`
+- `completed_entries` / `total_entries`
+- 用户可读 `message`
 
 ### 6.2 取消机制
 
-```rust
-// core 侧已有
-pub struct CancelToken(Arc<AtomicBool>);
-impl CancelToken {
-    pub fn is_cancelled(&self) -> bool { ... }
-}
+- 每个 GUI 任务都会注册一个 `Arc<AtomicBool>` 取消令牌到 `AppState`。
+- 前端调用 `cancel_task(task_id)` 后，后端将对应令牌置为取消态。
+- `ProgressReader` / `ProgressWriter` 会在每次 I/O 前调用 `ProgressCallback::is_cancelled()`。
+- 底层 `Interrupted` / `GeeZipError::Cancelled` 会被 GUI 层统一映射为“用户取消”状态。
 
-// GUI 后端
-#[tauri::command]
-async fn cancel_task(task_id: String, state: State<'_, TaskState>) -> Result<(), String> {
-    state.cancel_tokens.lock().unwrap().remove(&task_id);
-    // 设置 token。core pipeline 检查 is_cancelled() 后提前返回。
-}
-```
-
-### 6.3 前端事件监听
+### 6.3 前端监听
 
 ```typescript
-// 前端 (TypeScript)
 import { listen } from '@tauri-apps/api/event';
+import type { TaskProgressPayload } from './bridge';
 
-listen<ProgressPayload>('task:progress', (event) => {
-    const { current, total, rate } = event.payload;
-    progress.value = current / total;
-    speed.value = formatSpeed(rate);
+listen<TaskProgressPayload>('task:progress', (event) => {
+  const payload = event.payload;
+  updateTaskProgress(payload);
 });
 ```
 
 ## 7. 密码处理
 
-- 仅在需要密码的格式（ZIP AES-256、7z、RAR）展示密码输入框。
-- 密码通过 Tauri invoke 以 string 参数传入 Rust 后端。
-- 不持久化密码；每次任务独立输入。
-- 提供"显示密码"切换（明文/遮掩切换）。
+- ZIP：支持创建 AES-256 加密归档，也支持浏览/测试/提取已加密 ZIP。
+- 7z / RAR：仅支持只读路径下的密码输入（`list` / `test` / `extract`）。
+- 密码仅作为任务参数传递，不做持久化。
+- 前端提供显隐切换，但不保存默认密码。
 
 ## 8. 覆盖策略
 
-- 解压时默认检查目标文件是否存在。
-- 发现冲突时弹出对话框提供选项：
-  - 跳过（默认）
-  - 覆盖
-  - 全部跳过 / 全部覆盖
-- core 的 `ClobberStrategy` 枚举已实现该逻辑，GUI 直接复用。
+- GUI 提取相关命令使用显式 `overwrite: bool` 参数传给后端。
+- 关闭覆盖时，core 会通过 `ClobberDenied`/skip 语义保护已有文件。
+- 选择性提取与整包提取共享同一套覆盖逻辑与进度汇报。
 
 ## 9. 平台原生打包
 
-| 平台 | 格式 | 工具 |
-|------|------|------|
-| macOS | .dmg | tauri-bundler + create-dmg |
-| Linux | .AppImage / .deb | tauri-bundler / linuxdeploy |
-| Windows | .msi / .exe | tauri-bundler / NSIS |
+| 平台 | 当前 bundle / workflow 状态 |
+|------|-----------------------------|
+| macOS | `release.yml` 已配置构建 `.dmg` 并上传 release artifacts；待真实 tag release 验证 |
+| Linux | `release.yml` 已配置构建 `.AppImage` 并上传 release artifacts；待真实 tag release 验证 |
+| Windows | `gui-windows.yml` 可手动构建 Windows GUI；`release.yml` 已配置 `.msi` release artifacts |
 
-> 打包配置在 Tauri 项目 `tauri.conf.json` 中声明。CI release workflow 为每个 tag 构建三平台安装包并发布到 GitHub Releases。
+> 打包配置声明在 `crates/gui-tauri/src-tauri/tauri.conf.json`。当前文档统一以“已配置，待 tag release 实战验证”为准。
 
-## 10. 首批任务拆分
+## 10. 首批任务拆分（当前回顾）
 
 ### G1：项目骨架与 Tauri 集成
 
-- [x] 调研结论：Tauri v2 + Vue 3 / Svelte 5 均可选用
-- [ ] 创建 `gui-tauri/` workspace member
-- [ ] 初始化 Tauri + Vue 3 项目模板
-- [ ] 添加 `geezipx-core` 依赖到 `gui-tauri/Cargo.toml`
-- [ ] 验证 `cargo build -p geezipx-gui` 通过
-- [ ] 验证 Tauri dev 模式启动正常
+- [x] 创建 `crates/gui-tauri/` 目录与 `crates/gui-tauri/src-tauri` workspace member
+- [x] 初始化 Tauri v2 + Vue 3 GUI 项目
+- [x] 接入 `geezipx-core` 依赖并验证 `cargo build -p geezipx-gui`
+- [x] 验证开发模式可启动
 
 ### G2：Core 引擎桥接
 
-- [ ] 实现 `compress_cmd` Tauri command
-- [ ] 实现 `decompress_cmd` Tauri command
-- [ ] 实现 `list_archive` Tauri command
-- [ ] 实现 `cancel_task` Tauri command
-- [ ] 进度事件通过 `app.emit` 推送到前端
-- [ ] 验证压缩/解压缩端到端可用
+- [x] `compress_archive` / `extract_archive` / `list_archive` / `test_archive`
+- [x] `cancel_task` 取消桥接
+- [x] `preview_entry` / `extract_entries` / drag helpers
+- [x] 后端通过 `task:progress` 发出 GUI 任务进度事件
 
 ### G3：前端基础 UI
 
-- [ ] 主窗口布局（header + 任务区 + 状态栏）
-- [ ] 文件选择对话框 + 拖拽支持
-- [ ] 格式选择器 + 压缩级别 slider
-- [ ] 密码输入组件
-- [ ] 解压预览列表
-- [ ] 覆盖策略对话框
+- [x] 主窗口布局（导航 + 内容区 + 状态反馈）
+- [x] 文件选择与拖拽导入
+- [x] 格式选择、压缩级别、密码输入
+- [x] 归档浏览器（目录树 / 列表 / 预览）
+- [x] 最近路径 chips 与文件关联打开
 
 ### G4：进度与任务管理
 
-- [ ] 实时进度条 + 速度/剩余时间显示
-- [ ] 取消按钮（安全中断）
-- [ ] 完成/错误通知
-- [ ] 任务状态管理（前端 store）
+- [x] 实时进度条 + 速度 / 剩余时间显示
+- [x] 取消按钮（安全中断）
+- [x] 完成 / 错误通知
+- [x] 前端任务状态管理
 
 ### G5：平台打包与 CI
 
-- [ ] `tauri.conf.json` 打包配置
-- [ ] macOS .dmg 构建验证
-- [ ] Linux .AppImage 构建验证
-- [ ] Windows .msi 构建验证
-- [ ] GitHub Actions release workflow（构建 + 上传三平台 artifacts）
+- [x] `tauri.conf.json` 打包配置
+- [x] `gui-windows.yml` 独立 Windows GUI 构建工作流
+- [x] `release.yml` 三平台 GUI bundle 构建与 artifact 上传配置（`.AppImage` / `.dmg` / `.msi`）
+- [ ] 首次真实 tag release 的端到端验证
 
-### G6（MVP 后）：细节打磨
+### G6：MVP 后打磨
 
 - [ ] 窗口状态持久化（位置、大小）
-- [ ] 最近文件列表
-- [ ] 拖拽时自动检测格式
-- [ ] 性能优化（大文件列表预渲染等）
+- [x] 最近路径 / 最近归档 chips（当前以前端 `localStorage` 形式存在）
+- [x] 拖拽时自动检测格式
+- [ ] 更细粒度的设置项与更多性能打磨

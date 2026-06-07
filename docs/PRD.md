@@ -4,7 +4,7 @@
 
 GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开发。
 
-第一阶段 CLI 已开发完成并进入成熟阶段。当前阶段基于 Tauri 提供 macOS/Linux/Windows 桌面 GUI，复用已有 Rust core 引擎。
+第一阶段 CLI 已开发完成并进入成熟阶段（v0.1.0）。当前为第二阶段：基于 Tauri 的桌面 GUI（已发布 v0.5.0），复用已有 Rust core 引擎。
 
 > **核心理念**：压缩操作通常位于自动化脚本、服务器运维、CI/CD 流水线中，CLI 是先发价值；GUI 提供附加便捷，不牺牲底层性能。
 
@@ -36,16 +36,15 @@ GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开�
 
 ## 5. MVP 范围（Phase 1 — CLI MVP）
 
-> **当前状态**：基础 `compress`、`decompress`、`list`、`test`、`completions` 子命令已实现，
-> 支持 zip/tar/tar.gz/gzip 格式。以下表格标记了各特性的完成状态。
+> **当前状态**：Phase 1（CLI MVP）已全部完成并成熟。当前为 Phase 2（桌面 GUI via Tauri，v0.5.0），复用 core 引擎。
 
 严格限定为 **命令行高性能压缩/解压缩**：
 
 | 特性 | 说明 | 状态 |
 |------|------|------|
-| 格式支持 | `.tar.gz`, `.tgz`, `.zip`, `.tar`, `.gz`, `.tar.zst`, `.tzst`, `.zst`, `.zstd`, `.tar.xz`, `.txz`, `.xz`, `.lzma`（读/写） | **已完成** (9 格式) |
+| 格式支持 | `.tar.gz`/`.tgz`, `.zip`, `.tar`, `.gz`/`.gzip`, `.tar.zst`/`.tzst`, `.zst`/`.zstd`, `.tar.xz`/`.txz`, `.xz`, `.lzma`（读/写）；7z/RAR（只读） | **已完成**（11 格式） |
 | 流式处理 | 文件流读写，内存占用与文件大小解耦 | **已完成** |
-| 进度显示 | 进度条，支持 `--progress` / `--no-progress` | **已完成** |
+| 进度显示 | TTY 下默认显示进度，可用 `--no-progress` 禁用 | **已完成** |
 | 格式自动检测 | 根据文件魔数（magic bytes）自动检测归档格式 | **已完成** |
 | 压缩级别 | `--level 0-9`（gzip/tar.gz/xz/lzma/tar.xz）；`--level 0-22`（zstd/tar.zst） | **已完成** |
 | 多线程压缩 | tar.gz/tar.zst 支持 `-j`/`--jobs` 多线程并行（tar.gz: pigz-style via gzp；tar.zst: zstd native NbWorkers）；tar.xz 接受参数但暂不生效（xz2 未暴露多线程 API）；**注意**：tar.gz 的 `--jobs` 在 `--stdin` 单流模式下不生效（仅归档模式有效） | **已完成** |
@@ -53,24 +52,23 @@ GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开�
 | 递归操作 | `-r` 递归添加目录，保持目录结构 | **已完成** |
 | 覆盖保护 | `--no-clobber` / `--force` 覆盖策略 | **已完成** |
 | 列表功能 | 表格 + JSON 输出，支持所有当前格式 | **已完成** |
-
-535:|| 归档完整性验证 | `test` 子命令，不解压到磁盘验证归档完整性，支持 `--json` 输出。ZIP 逐 entry CRC-32 校验，TAR 验证结构/截断/压缩层，TAR.GZ/TAR.ZST/TAR.XZ 组合校验。单流格式包括 GZIP/ZSTD/XZ/LZMA。退出码 0/1 | **已完成** |
-| 测试覆盖 | 356 个测试（core 239 + CLI lib 11 + CLI integration 106），覆盖率追踪已启用，当前基线 overall ~74%、core archive ~64% | **已完成**（覆盖率 workflow 为观测性/信息性，优先补真实高风险/回归路径） |
-| 三平台 CI | GitHub Actions：三平台矩阵（ubuntu/macos/windows），push/PR/tag/manual 触发 | **大部分完成** (M4) |
+| 归档完整性验证 | `test` 子命令，不解压到磁盘验证归档完整性，支持 `--json` 输出。ZIP 逐 entry CRC-32 校验，TAR 验证结构/截断/压缩层，TAR.GZ/TAR.ZST/TAR.XZ 组合校验。单流格式包括 GZIP/ZSTD/XZ/LZMA。退出码 0/1 | **已完成** |
+| 测试覆盖 | 400+ 测试，覆盖 core 单元/CLI 集成/格式 round-trip/流式冒烟。覆盖率 workflow 为 informational-only 观测模式，不设硬门禁 | **已完成** |
+| 三平台 CI | GitHub Actions：三平台矩阵（ubuntu/macos/windows），push/PR/tag/manual 触发 | **已完成** |
 
 > **扩展格式识别**：魔数检测已支持 xz（`FD 37 7A 58 5A 00`）和 zstd（`28 B5 2F FD`）。xz 和 lzma 单流压缩/解压已支持（`geezipx-core` via `xz2` crate）；`.tar.xz`/`.txz` 识别为 tar+xz 完整归档格式，与单流 `.xz` 区分。zstd 单流压缩/解压已支持（`geezipx-core` via `zstd` crate）；`.tar.zst`/`.tzst` 识别为 tar+zstd 归档格式。lzma 无固定魔数，仅通过扩展名/显式格式识别。
 
-## 6. 非目标（Phase 1 明确不做）
+## 6. 非目标（当前明确不做）
 
-以下能力在 CLI 阶段明确不做，部分可能作为 GUI 阶段后续考虑：
+以下能力在当前阶段明确不做：
 
-- 7z 格式写入 — 格式复杂，后续评估
-- 分卷压缩 — 后续评估
-- 右键菜单集成 — GUI 阶段后续考虑
-- 自动更新 — GUI 阶段后续考虑
-- 云同步 — 非目标
-- 插件系统 — 非目标
-- 可视化对比 / 压缩率图表 — GUI 阶段后续考虑
+- 7z/RAR 写入 — 7z 格式复杂，RAR 受 UnRAR 许可限制
+- 分卷压缩
+- 右键菜单集成
+- 自动更新
+- 云同步
+- 插件系统
+- 可视化对比 / 压缩率图表
 
 ## 7. 功能需求（Feature Requirements）
 
@@ -146,15 +144,21 @@ Phase 1 (MVP — CLI)              ← ✅ 已完成并成熟
     ├── 7z 只读 / RAR 只读
     └── stdin/stdout 管道
 
-Phase 2 (Desktop GUI via Tauri)  ← 🚀 当前阶段
-├── Tauri + Vue/Svelte 项目骨架
-├── Core 引擎命令桥接 (command bridge)
-├── 文件浏览器 + 拖拽支持
-├── 压缩/解压任务管理
-├── 实时进度显示 (Tauri event emit)
-├── 取消安全的任务执行
-├── 加密归档密码输入
-└── 平台原生打包 (AppImage/.dmg/.msi)
+Phase 2 (Desktop GUI via Tauri)  ← 🚀 当前阶段（v0.5.0）
+├── Tauri + Vue 项目骨架                     ── ✅ 已完成
+├── Core 引擎命令桥接 (command bridge)        ── ✅ 已完成
+├── 文件浏览器 + 拖拽支持                     ── ✅ 已完成
+├── 压缩/解压任务管理                         ── ✅ 已完成
+├── 实时进度显示 (Tauri event emit)           ── ✅ 已完成
+├── 取消安全的任务执行                        ── ✅ 已完成
+├── 加密归档密码输入                          ── ✅ 已完成
+├── 归档内容浏览 (+ 文件关联)                 ── ✅ 已完成
+├── 拖拽导入归档                              ── ✅ 已完成
+├── 多语言 (i18n) 支持                        ── ⏳ 后续规划
+├── 偏好设置窗口                              ── ⏳ 后续规划
+├── 格式偏好 / 默认行为配置                   ── ⏳ 后续规划
+├── 自动/手动格式检测（压缩时）               ── ✅ 已完成
+└── 平台原生打包 (AppImage/.dmg/.msi)         ── ⚙️ 已配置，待 tag release 实战验证
 
 Phase 3 (生态)
 ├── Homebrew / winget / APT 仓库

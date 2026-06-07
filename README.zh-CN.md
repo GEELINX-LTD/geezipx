@@ -16,39 +16,33 @@
 
 - **多格式支持** -- ZIP、TAR、TAR.GZ/TGZ、TAR.ZST/TZST、TAR.XZ/TXZ、GZIP/GZ、Zstandard/ZST、XZ、LZMA（读写），7Z（只读）、RAR（只读）
 - **流式 I/O** -- 大文件处理内存可控
-- **实时进度条** -- 显示速度、预计完成时间、逐文件状态
+- **实时进度条** -- 在 TTY 中显示速度、预计完成时间、逐文件状态
 - **取消安全** -- Ctrl+C 优雅退出，自动清理未完成文件；双击强制退出
 - **格式自动检测** -- 魔数字节识别 + 扩展名回退
 - **压缩级别** -- gzip/tar.gz/xz/lzma/tar.xz 支持 `--level 0-9`；zstd/tar.zst 支持 `--level 0-22`
 - **覆盖控制** -- `--no-clobber` 跳过已有文件，`--force` 强制覆盖
-- **Zip Slip 防护** -- 所有归档格式防护路径穿越攻击
-- **JSON 输出** -- `list --json` 机器可读格式
-
-- **完整性验证** -- `test --json` 验证归档完整性，支持 CRC-32 校验
+- **Zip Slip 防护** -- 所有归档格式都防护路径穿越攻击
+- **JSON 输出** -- `list --json` 机器可读；`test --json` 适合程序化验证
 - **Shell 补全** -- bash、zsh、fish、PowerShell、elvish
+- **ZIP AES-256 加密** -- 可用 `--password`、`--password-file`、`--password-stdin` 创建加密 ZIP 归档
+- **加密 7z/RAR 只读支持** -- 只读 `list`、`decompress`、`test` 可处理带密码的 7z/RAR 归档
 - **跨平台** -- Linux、macOS、Windows（三平台 CI）
 - **单一二进制** -- 无运行时依赖，`cargo install` 即装即用
-- **多线程压缩** -- tar.gz（gzp/pigz 风格）、zstd/tar.zst（zstd 原生 NbWorkers）支持 `-j`/`--jobs` 并行压缩
-- **ZIP AES-256 加密** -- 支持 `--password`、`--password-file`、`--password-stdin`（仅限 ZIP 格式）
-- **stdin/stdout 管道支持** -- `compress --stdin`/`--stdout` 和 `decompress --stdin`，支持 gzip/zstd/xz/lzma 单流格式和 tar.gz/tar.zst/tar.xz 裸 tar 流
-|- **7z 只读支持** -- `list`、`decompress`、`test` 支持 7z 格式，可处理 AES-256 加密的 7z
-- **RAR 只读支持** -- 默认启用；支持 `list`、`decompress`、`test`，可处理加密 RAR（首次构建需要 C++ 编译器）
+- **多线程压缩** -- tar.gz（gzp/pigz 风格）与 zstd/tar.zst（zstd 原生 NbWorkers）支持 `-j`/`--jobs` 并行压缩
 
 ---
 
 ## 项目状态
 
-第一阶段（CLI MVP）的**核心 CLI 功能已全部完成并进入成熟阶段**。`compress`、`decompress`、`list`、`test`、`completions` 五个子命令对当前支持格式均正常工作。
+第一阶段（CLI MVP）已经**全部完成并进入成熟阶段**。适用的子命令均已落地：读写格式支持 `compress`、`decompress`、`list`、`test`；只读 7z/RAR 支持 `list`、`decompress`、`test`。`completions` 子命令也已完成。crates.io 上已发布 `geezipx` 和 `geezipx-core` 包。
+第二阶段（桌面 GUI via Tauri）**是当前开发重心**。
 
-第二阶段（桌面 GUI 通过 Tauri）**是当前开发重心**。
-详见 [`docs/GUI_MVP_PLAN.md`](docs/GUI_MVP_PLAN.md) 了解当前规划和任务拆解。
+| 阶段 | 主题 | 状态 |
+|------|------|------|
+| 1 | CLI MVP | **已完成** -- crates.io 上已发布 `geezipx` 与 `geezipx-core` |
+| 2 | 桌面 GUI (Tauri) | **开发中** -- v0.5.0 已包含归档浏览器、拖拽、进度显示、选择性提取等能力 |
 
-| 里程碑 | 主题 | 状态 |
-|--------|------|------|
-| M1 | 项目骨架 + 核心引擎库 | ✅ 已完成 |
-| M2 | CLI 基本命令 | ✅ 已完成 |
-| M3 | 流式处理 / 进度 / 打磨 | ✅ 已完成 |
-| M4 | CI / 测试 / 发布 | ✅ 已完成 |
+详见 [`docs/GUI_MVP_PLAN.md`](docs/GUI_MVP_PLAN.md) 了解详细规划和剩余任务。
 
 ---
 
@@ -117,27 +111,6 @@ geezipx compress mydir/ -r -f tar.gz -o mydir.tar.gz
 geezipx decompress hello.zip
 
 # gzip 解压到 stdout
-
-# 管道模式（stdin/stdout）
-管道模式将数据通过 stdin 读取或写入 stdout，适合脚本链式调用。
-
-```bash
-# stdin -> 文件
-echo "Hello" | geezipx compress --stdin -f gz -o hello.gz
-
-# stdin -> stdout（完整管道）
-echo "Hello" | geezipx compress --stdin -f gz --stdout > hello.gz
-cat hello.txt.gz | geezipx decompress --stdin -f gz --stdout > restored.txt
-
-# stdin -> 目录（输出文件固定名为 output）
-cat hello.txt.gz | geezipx decompress --stdin -f gz -o outdir
-
-# 文件 -> stdout
-geezipx compress hello.txt -f gz --stdout > hello.gz
-```
-
-注意：管道模式支持 gzip/zstd/xz/lzma 单流格式和 tar.gz/tar.zst/tar.xz 裸 tar 流，不支持 zip/tar/7z/rar 等多文件归档。
-
 geezipx decompress hello.txt.gz --stdout > output.txt
 
 # 使用 zstandard 压缩
@@ -148,24 +121,6 @@ geezipx decompress hello.txt.zst --stdout > output.txt
 
 # 多线程 zstd 压缩（4 个 worker）
 geezipx compress hello.txt -f zst -o hello.txt.zst -j 4
-
-# 内建 glob 展开（压缩 src/ 下所有 .rs 文件）
-geezipx compress src/**/*.rs -f tar.gz -o src-rs.tar.gz
-
-# tar-based 管道示例（裸 tar stdin/stdout）
-注意：tar.gz/tar.zst/tar.xz 的 stdin/stdout 语义是将 stdin 当作裸 tar 流处理，只做外层压缩/解压缩：
-
-```bash
-# stdin -> tar.gz（压缩裸 tar 流到文件）
-cat raw.tar | geezipx compress --stdin -f tar.gz -o archive.tar.gz
-
-# 直接管道：tar -> tar.zst
-tar cf - mydir/ | geezipx compress --stdin -f tar.zst -o mydir.tar.zst
-
-# 归档 -> stdout（解压缩层，输出裸 tar 流）
-geezipx decompress archive.tar.gz --stdout | tar tf -
-geezipx decompress archive.tar.xz --stdout > raw.tar
-```
 
 # 递归压缩目录为 tar.zst
 geezipx compress mydir -r -f tar.zst -o mydir.tar.zst
@@ -196,7 +151,23 @@ geezipx test archive.zip
 
 # JSON 格式验证
 geezipx test archive.tar.gz --json
+
+# stdin/stdout 管道示例（单流格式）
+echo "Hello" | geezipx compress --stdin -f gz -o hello.gz
+echo "Hello" | geezipx compress --stdin -f gz --stdout > hello.gz
+cat hello.txt | geezipx compress --stdin -f zst -o hello.txt.zst
+cat hello.txt.gz | geezipx decompress --stdin -f gz --stdout > restored.txt
+cat hello.txt.gz | geezipx decompress --stdin -f gz -o outdir      # 输出为 outdir/output
+geezipx compress hello.txt -f gz --stdout > hello.gz               # 文件 -> stdout
+
+# tar-based 管道示例（stdin/stdout 传输裸 tar 流）
+cat raw.tar | geezipx compress --stdin -f tar.gz -o archive.tar.gz
+tar cf - mydir/ | geezipx compress --stdin -f tar.zst -o mydir.tar.zst
+geezipx decompress archive.tar.gz --stdout | tar tf -
+geezipx decompress archive.tar.xz --stdout > raw.tar
 ```
+
+注意：管道模式支持 gzip/zstd/xz/lzma 单流格式和 tar.gz/tar.zst/tar.xz 裸 tar 流，不支持 zip/tar/7z/rar 等多文件归档。
 
 ---
 
@@ -217,16 +188,16 @@ geezipx compress <输入文件...> -o <输出文件> [选项]
 
 | 选项 | 说明 |
 |------|------|
-| `-o`, `--output` | 输出文件路径 **（必填）** |
+| `-o`, `--output` | 输出文件路径（除非使用 `--stdout`，否则必填） |
 | `-f`, `--format` | 格式：`zip`、`tar`、`tar.gz`、`tgz`、`gz`、`gzip`、`tar.zst`、`tzst`、`zst`、`zstd`、`tar.xz`、`txz`、`xz`、`lzma`（省略时从扩展名推断，默认 zip） |
 | `-r`, `--recursive` | 递归添加目录 |
 | `-L`, `--level` | 压缩级别 0-9（gzip/tar.gz/xz/tar.xz，默认 6）；0-22（zstd/zst/tar.zst/tzst，默认使用 zstd 默认级别） |
-|| `-j`, `--jobs` | Worker 线程数：1（默认，单线程）、0（自动使用全部 CPU）或 N（显式指定）。tar.gz（gzp 并行 gzip）和 zstd/tar.zst（zstd 原生 NbWorkers）实际启用多线程；tar.xz/zip/xz/lzma 接受但不生效（向前兼容）。**注意**：tar.gz 的 `--stdin` 单流模式下不生效（仅归档模式有效） |
-|| `--password` | 使用 AES-256 加密 ZIP 归档（仅限 ZIP 格式）。使用 `--password-file` 从文件读取密码，或使用 `--password-stdin` 从标准输入读取。三者互斥。脚本中建议使用 `--password-file` 或 `--password-stdin` 以避免密码暴露在进程列表中 |
+| `-j`, `--jobs` | Worker 线程数：1（默认，单线程）、0（自动使用全部 CPU）或 N（显式指定）。tar.gz（gzp 并行 gzip）和 zstd/tar.zst（zstd 原生 NbWorkers）实际启用多线程；tar.xz/zip/xz/lzma 接受但不生效（向前兼容）。**注意**：tar.gz 的 `--stdin` 单流模式下不生效（仅归档模式有效） |
+| `--password` | 使用 AES-256 加密 ZIP 归档（仅限 ZIP 格式）。使用 `--password-file` 从文件读取密码，或使用 `--password-stdin` 从标准输入读取。三者互斥。脚本中建议使用 `--password-file` 或 `--password-stdin` 以避免密码暴露在进程列表中 |
+| `--stdin` | 从 stdin 读取未压缩数据或裸 tar 流（gzip/zstd/xz/lzma 和 tar.gz/tar.zst/tar.xz；需配合 `--format`；与输入文件互斥） |
+| `--stdout` | 将压缩结果写入 stdout（gzip/zstd/xz/lzma 和 tar.gz/tar.zst/tar.xz 裸 tar 流；需配合 `--format`；与 `--output` 互斥） |
 
 ### `decompress` — 解压归档
-||| `--stdin` | 从 stdin 读取未压缩数据或裸 tar 流（gzip/zstd/xz/lzma 和 tar.gz/tar.zst/tar.xz；需配合 `--format`；与输入文件互斥） |
-||| `--stdout` | 将压缩结果写入 stdout（gzip/zstd/xz/lzma 和 tar.gz/tar.zst/tar.xz 裸 tar 流；需配合 `--format`；与 `--output` 互斥） |
 
 ```sh
 geezipx decompress <归档文件> [选项]
@@ -237,12 +208,12 @@ geezipx decompress <归档文件> [选项]
 | 选项 | 说明 |
 |------|------|
 | `-o`, `--output-dir` | 输出目录（默认：当前目录） |
-|| `--stdout` | 解压到 stdout：gzip/zstd/xz/lzma 输出原文；tar.gz/tar.zst/tar.xz 输出裸 tar 流；zip/tar/7z/rar 等多文件归档会报错 |
-||| `--stdin` | 从 stdin 读取压缩数据或压缩 tar 流（gzip/zstd/xz/lzma 和 tar.gz/tar.zst/tar.xz；需配合 `--format`；与归档文件互斥） |
-|| `-f`, `--format` | 归档/流格式（使用 `--stdin` 时必填） |
+| `--stdout` | 解压到 stdout：gzip/zstd/xz/lzma 输出原文；tar.gz/tar.zst/tar.xz 输出裸 tar 流；zip/tar/7z/rar 等多文件归档会报错 |
+| `--stdin` | 从 stdin 读取压缩数据或压缩 tar 流（gzip/zstd/xz/lzma 和 tar.gz/tar.zst/tar.xz；需配合 `--format`；与归档文件互斥） |
+| `-f`, `--format` | 归档/流格式（使用 `--stdin` 时必填） |
 | `--no-clobber` | 跳过已存在的文件 |
 | `--force` | 覆盖已存在的文件（默认行为；与 `--no-clobber` 互斥） |
-|| `--password` | 解密加密归档的密码（ZIP AES-256、7z AES-256、RAR）。使用 `--password-file` 从文件读取，或使用 `--password-stdin` 从标准输入读取。三者互斥 |
+| `--password` | 解密加密归档的密码（ZIP AES-256、7z AES-256、RAR）。使用 `--password-file` 从文件读取，或使用 `--password-stdin` 从标准输入读取。三者互斥 |
 
 ### `list` — 查看归档内容
 
@@ -255,7 +226,7 @@ geezipx list <归档文件> [选项]
 | 选项 | 说明 |
 |------|------|
 | `-j`, `--json` | 以 JSON 数组格式输出 |
-|| `--password` | 解密加密归档（ZIP/7z/RAR）的密码。使用 `--password-file` 从文件读取密码，或使用 `--password-stdin` 从标准输入读取。三者互斥 |
+| `--password` | 解密加密归档（ZIP/7z/RAR）的密码。使用 `--password-file` 从文件读取密码，或使用 `--password-stdin` 从标准输入读取。三者互斥 |
 
 > **危险路径警告**：归档中的危险路径（绝对路径、路径穿越条目、Windows 设备路径）会输出警告到 stderr；stdout/JSON 输出保持干净不受影响。
 
@@ -272,7 +243,7 @@ ZIP 格式额外支持 CRC-32 校验。
 | 选项 | 说明 |
 |------|------|
 | `-j`, `--json` | 以 JSON 格式输出，包含 `ok` 布尔字段 |
-|| `--password` | 验证加密归档的密码（ZIP AES-256、7z AES-256、RAR）。使用 `--password-file` 从文件读取，或使用 `--password-stdin` 从标准输入读取。三者互斥 |
+| `--password` | 验证加密归档的密码（ZIP AES-256、7z AES-256、RAR）。使用 `--password-file` 从文件读取，或使用 `--password-stdin` 从标准输入读取。三者互斥 |
 
 ### `completions` — 生成 Shell 补全脚本
 
@@ -301,51 +272,61 @@ geezipx completions fish > ~/.config/fish/completions/geezipx.fish
 
 ## 项目结构
 
-```
+```text
 geezipx/
 ├── AGENTS.md               # AI 代理协作指南
 ├── CHANGELOG.md            # 发布变更日志
 ├── Cargo.toml              # Workspace 根定义
 ├── crates/
-│   ├── core/               # 压缩/解压缩核心引擎库
+│   ├── core/
 │   │   └── src/
-│   │       ├── archive/    # ZIP、TAR、TAR.GZ、TAR.ZST、TAR.XZ、GZIP、ZSTD、XZ、LZMA 等格式实现
-│   │       ├── config.rs   # 压缩选项（CompressOptions、--jobs/--level）
+│   │       ├── archive/    # 各类归档/容器实现
+│   │       ├── config.rs   # 压缩选项（level/jobs/password）
 │   │       ├── detect.rs   # 格式检测（魔数字节 + 扩展名）
 │   │       ├── error.rs    # 统一错误类型（GeeZipError）
-│   │       └── io.rs       # 流式 I/O 封装（ProgressReader 等）
-│   └── cli/                # CLI 二进制（clap 驱动，core 的薄壳）
-│       └── src/
-│           ├── commands/   # compress / decompress / list / test
-│           ├── render/     # 进度条渲染
-│           └── signal.rs   # Ctrl+C 取消处理
+│   │       ├── io.rs       # ProgressReader / ProgressWriter / ProgressEvent
+│   │       └── test.rs     # 归档完整性辅助逻辑
+│   ├── cli/
+│   │   ├── src/
+│   │   │   ├── commands/   # compress / decompress / list / test / completions
+│   │   │   ├── render/     # 终端进度与输出渲染
+│   │   │   └── signal.rs   # Ctrl+C 取消处理
+│   │   └── tests/          # CLI 集成测试与流式 smoke 测试
+│   └── gui-tauri/
+│       ├── src/
+│       │   ├── bridge.ts   # 前端与 Tauri 的桥接类型/辅助函数
+│       │   ├── main.ts     # 当前 Tauri 前端主逻辑（TypeScript/Vite）
+│       │   └── style.css   # GUI 样式
+│       └── src-tauri/
+│           ├── src/
+│           │   ├── commands/
+│           │   ├── lib.rs
+│           │   └── state.rs
+│           └── tauri.conf.json
 ├── docs/                   # 产品与架构文档
-├── scripts/                # 构建、CI 和互操作测试脚本
-├── crates/cli/tests/       # CLI 集成测试和流式 smoke 测试
-├── .github/workflows/      # CI、审计和基准测试工作流
-├── deny.toml               # cargo-deny 安全审计配置
-└── .rust-toolchain.toml    # Rust 工具链固定
+├── scripts/                # 构建、CI、benchmark、互操作脚本
+└── .github/workflows/      # CI、审计、覆盖率、benchmark、release 工作流
 ```
 
 ### 架构
 
 GeeZipX 采用分层 workspace 架构：
 
-```
-┌─────────────┐  ┌─────────────┐
-│  cli (bin)  │  │  gui-tauri  │  ← 前端层（CLI / 未来 GUI）
-└──────┬──────┘  └──────┬──────┘
-       │                │
-       └───────┬────────┘
-               │   依赖
-       ┌───────▼────────┐
-       │  core (lib)     │  ← 核心引擎：所有归档/压缩逻辑
-       │  ─ 纯数据流     │     - 无 I/O 假设
-       │  ─ 无终端依赖   │     - 可被 CLI 和未来 Tauri GUI 复用
-       └────────────────┘
+```text
+┌─────────────┐  ┌─────────────────┐
+│  cli (bin)  │  │  gui-tauri       │  ← 前端层（CLI / Tauri GUI）
+└──────┬──────┘  └────────┬─────────┘
+       │                  │
+       └────────┬─────────┘
+                │ 依赖
+        ┌───────▼──────────┐
+        │  core (lib)       │  ← 核心引擎：归档/压缩逻辑
+        │  ─ 纯数据流       │     - 不承载终端/UI 逻辑
+        │  ─ 可复用 API     │     - 被 CLI 与 GUI 共同复用
+        └──────────────────┘
 ```
 
-核心库通过 `ArchiveReader` / `ArchiveWriter` 统一 trait 处理所有格式逻辑。CLI 仅处理参数解析和进度显示。这一设计确保了同一压缩引擎可在未来的 Tauri 桌面 GUI 中复用，无需重复开发。
+核心库通过统一的 `ArchiveReader` / `ArchiveWriter` trait 以及单流 helper 处理格式逻辑。CLI 和 Tauri GUI 只负责参数映射、用户交互与进度展示，不重复实现压缩/解压逻辑。
 
 ---
 
@@ -445,11 +426,12 @@ cargo build --release --workspace
 
 ### 第一阶段（CLI MVP）— 已完成并成熟 ✓
 
-所有核心功能和增强特性均已实现并验证：
+所有核心能力与适用格式的子命令均已实现并验证：
 
 - [x] ZIP / TAR / TAR.GZ / TAR.ZST / TAR.XZ / GZIP / ZSTD / XZ / LZMA 读写
+- [x] 7z / RAR 只读支持（`list`、`decompress`、`test`）
 - [x] 流式 I/O，内存占用可控
-- [x] indicatif 进度条
+- [x] `indicatif` 进度条
 - [x] Ctrl+C 优雅取消
 - [x] 自动格式检测（魔数字节 + 扩展名）
 - [x] 覆盖保护（`--no-clobber` / `--force`）
@@ -461,29 +443,32 @@ cargo build --release --workspace
 - [x] 三平台 CI（Linux/macOS/Windows）
 - [x] cargo-deny 安全审计
 - [x] Criterion 基准测试（advisory，无硬门禁）
-- [x] **crates.io 发布**
+- [x] crates.io 发布
 - [x] 多线程压缩（`-j`/`--jobs` for tar.gz, zstd/tar.zst）
 - [x] ZIP AES-256 密码加密
-- [x] 7z 只读支持
-- [x] RAR 只读支持
 - [x] stdin/stdout 管道（单流 + tar-based 格式）
 
-### 第二阶段（桌面 GUI via Tauri）— 当前开发重心 🚀
+### 第二阶段（桌面 GUI via Tauri）— 当前开发重心（v0.5.0）
 
-- [ ] Tauri + 前端框架项目骨架
-- [ ] 通过 Tauri command bridge 绑定 core 引擎
-- [ ] 文件浏览器 / 拖拽界面
-- [ ] 压缩/解压任务管理
-- [ ] 实时进度显示（通过 Tauri event emit）
-- [ ] 取消安全的任务执行
-- [ ] 加密归档密码输入
-- [ ] 平台原生打包（AppImage, .dmg, .msi）
+- [x] Tauri v2 项目骨架 + TypeScript/Vite 前端
+- [x] Core 引擎桥接（Tauri commands）
+- [x] 归档浏览器 + 文件关联
+- [x] 选择性提取
+- [x] 内联预览（文本 + 十六进制）
+- [x] 拖入应用与拖出条目
+- [x] 侧边栏导航与最近路径 chips
+- [x] 加密归档密码输入（ZIP AES-256、7z、RAR）
+- [x] 实时进度显示（速度 + 剩余时间）
+- [x] 取消安全的任务执行
+- [x] GUI bundle CI 已配置：独立 `gui-windows.yml` 用于 Windows 构建，`release.yml` 用于 `.AppImage`、`.dmg`、`.msi` 产物
+- [ ] GUI bundle 的首次 tag release 端到端验证
+- [ ] 窗口状态持久化与更多打磨项
 
 详见 [`docs/GUI_MVP_PLAN.md`](docs/GUI_MVP_PLAN.md) 了解详细规划和任务拆解。
 
 ### 第三阶段（未来）
 
-- [ ] 平台原生安装包（Homebrew, winget, APT）
+- [ ] 平台原生安装渠道（Homebrew、winget、APT）
 - [ ] 按需扩展格式支持
 
 ### 明确不做（当前阶段）

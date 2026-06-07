@@ -13,8 +13,8 @@
 |--------|------|------|------|------|
 | M1 | 项目骨架 + 核心引擎库 | 第 1-4 周 | `geezipx-core` lib crate，zip/tar/gz 基础读写 | **已完成** |
 | M2 | CLI 基本命令 | 第 5-7 周 | `geezipx` binary，三个子命令可用 | **已完成** |
-|| M3 | 流式/进度/兼容性打磨 | 第 8-10 周 | 进度条、管道、格式检测、跨平台测试 | **已完成** |
-| M4 | CI/测试/发布 | 第 11-12 周 | CI 全线通过、crates.io 发布、覆盖率追踪、GitHub Release workflow | 大部分完成（核心交付完成，剩余为后续门禁/验证项） |
+| M3 | 流式/进度/兼容性打磨 | 第 8-10 周 | 进度条、管道、格式检测、跨平台测试 | **已完成** |
+| M4 | CI/测试/发布 | 第 11-12 周 | CI 全线通过、crates.io 发布、覆盖率追踪、GitHub Release workflow | **已完成**（核心交付全部完成） |
 
 ---
 
@@ -68,7 +68,7 @@
 ### M1-6：核心模块的单元测试 ✅
 - **覆盖范围**：detect 模块（magic detection、extension detection、Display、read_magic_bytes）、archive 模块（path normalization、Zip Slip 检查、path safety 拒绝绝对路径/路径穿越、normalize_path 边界、datetime_to_timestamp 闰年）、error 模块
 - **验收标准**：`cargo test -p geezipx-core` 全部通过（数十个单元测试）
-- **未完成**：覆盖率 > 60% 指标尚未使用 `cargo-tarpaulin` 测量；已补充 path safety、normalize_path 边界和 datetime_to_timestamp 单元测试。
+- **补充说明**：覆盖率>60%指标当时尚未测量，后续在 M4 中通过 `cargo-tarpaulin` coverage workflow 上线（informational-only 模式，不设硬门禁）。已补充 path safety、normalize_path 边界和 datetime_to_timestamp 单元测试。
 
 ### M1 里程碑检查清单
 - [x] `cargo build` 全线通过
@@ -97,12 +97,12 @@ geezipx compress <inputs...>
   -f, --format <FORMAT>          # zip | tar | tar.gz | tgz | tar.zst | tzst | tar.xz | txz | gz | gzip | zst | zstd | xz | lzma (default: 从扩展名推断或者 zip)
   -o, --output <PATH>            # 输出文件（必填）
   -r, --recursive                # 递归添加目录
-  e39|  -j, --jobs <JOBS>              # Worker 线程数: 1(默认单线程), 0(auto), N(指定); tar.gz/tar.zst 生效; tar.xz 接受但暂不生效; --stdin 模式下的 tar.gz 不生效
+  -j, --jobs <JOBS>              # Worker 线程数: 1(默认单线程), 0(auto), N(指定); tar.gz/tar.zst 生效; tar.xz 接受但暂不生效; --stdin 模式下的 tar.gz 不生效
 
 geezipx decompress <archive>
   -o, --output-dir <PATH>        # 输出目录 (default: .)
   --stdout                       # 解压到 stdout（gzip/zstd/xz/lzma 输出原文；tar.gz/tar.zst/tar.xz 输出裸 tar 流；zip/tar/7z/rar 等多文件归档时报错）
-  526|  --no-clobber                   # 跳过已存在的输出文件
+  --no-clobber                   # 跳过已存在的输出文件
   --force                        # 覆盖已存在的输出文件（默认行为）
 
 geezipx list <archive>
@@ -144,7 +144,7 @@ geezipx list <archive>
   - `--json`：`serde_json` JSON 数组（path, size, compressed_size, compression_ratio, modified 字段）
 - **gzip 特殊处理**：gzip 产生一个合成 entry，文件名从 `.gz`/`.gzip` 后缀推断，压缩大小来自文件元数据，原始大小未知
 - **与原计划差异**：已新增压缩率和修改时间列（commit d82600d）。gzip 条目未知原始大小/修改时间时，表格显示 `-`，JSON 输出 `null`
-8b7|- **危险路径警告**：`list` 检测到含绝对路径、`../` 穿越、Windows UNC/设备前缀的 entry 时，在 stderr 输出警告；不影响 JSON stdout（`--json`）。
+- **危险路径警告**：`list` 检测到含绝对路径、`../` 穿越、Windows UNC/设备前缀的 entry 时，在 stderr 输出警告；不影响 JSON stdout（`--json`）。
 
 ### M2-5：CLI 集成测试 ✅
 - **实际文件**：`crates/cli/tests/cli_integration.rs`（135 个集成测试）
@@ -327,12 +327,12 @@ geezipx list <archive>
 
   - **主 CI 触发条件**：`main` 分支 push、任意 `v*` 标签 push、任意分支 pull_request、manual workflow_dispatch
   - **fmt**：`ubuntu-latest` × `stable`，`cargo fmt --all --check`
-  - **Clippy**：三平台矩阵（ubuntu / macos / windows）× `stable`，`cargo clippy -D warnings`
-  - **Test**：三平台矩阵 × `stable`，`cargo test --workspace --all-features`
-  - **Build**：三平台矩阵，`cargo build --release` + artifact 上传（`actions/upload-artifact@v7`，保留 7 天）
+  - **Clippy**：三平台矩阵（ubuntu / macos / windows）× `stable`，`cargo clippy --workspace --exclude geezipx-gui --all-targets --all-features -- -D warnings`
+  - **Test**：三平台矩阵 × `stable`，`cargo test --workspace --exclude geezipx-gui --all-features`
+  - **Build**：三平台矩阵，`cargo build --release --workspace --exclude geezipx-gui` + artifact 上传（`actions/upload-artifact@v7`，保留 7 天）
   - **Interop**：`ubuntu-latest` 运行 `scripts/check-interop.sh`，依赖 clippy+test+build 通过
   - **Streaming Smoke**：`ubuntu-latest` 运行 `cargo test -p geezipx --test streaming_smoke -- --test-threads=1 --ignored`，依赖 clippy+test 通过；覆盖 16 MiB gzip + 32 MiB tar.gz 流式 round-trip
-  - **Doc**：`ubuntu-latest` 运行 `cargo doc --no-deps --document-private-items`，`RUSTDOCFLAGS=-D warnings`，依赖 fmt 通过
+  - **Doc**：`ubuntu-latest` 运行 `cargo doc --workspace --exclude geezipx-gui --no-deps --document-private-items`，`RUSTDOCFLAGS=-D warnings`，依赖 fmt 通过
   - **Audit**：独立 `deny.yml` 工作流，使用 `EmbarkStudios/cargo-deny-action@v2`，`v*` 标签 push + 手动触发
   - **缓存**：所有 step 均启用 `cache: true`（`actions-rust-lang/setup-rust-toolchain@v1` 内置）
   - **Rust 版本**：`channel = "stable"`（跟踪最新 stable，当前 1.96），无固定 MSRV 矩阵
@@ -342,7 +342,7 @@ geezipx list <archive>
 - **实际文件**：`deny.toml`、`.github/workflows/deny.yml`
 - **当前状态**：已实现 `deny.toml` 配置 + 独立 `deny.yml` CI 工作流，`v*` 标签 push 或手动触发时运行 `cargo-deny check --all-features`。
 - **覆盖率 workflow**：已添加 `.github/workflows/coverage.yml`（push/PR/每周一触发），使用 `cargo-tarpaulin` 生成 HTML+JSON 报告，报告上传至 workflow artifact（保留 30 天）。当前为**观测性/信息性**（informational only），不设硬门禁。最新基线：overall ~74%，core archive/mod.rs ~64%。
-- **尚未实现**：专用 lint workflow（clippy 已在 ci.yml 中覆盖）、PR 自动标记覆盖率
+- **后续可选**：PR 自动标记覆盖率注释（已冻结，不主动推进）
 
 ### M4-3：性能基准测试 ✅（阈值检查已初步接入）
 - **状态**：已完成基准框架，加入手动 benchmark workflow 的回归阈值检查，并为 `ci.yml` 添加了自动 bench-regression job。
@@ -359,7 +359,7 @@ geezipx list <archive>
   - TAR.GZ 压缩/解压：10×1 KiB、1×1 MiB
   - ZIP 压缩/解压：10×1 KiB、1×1 MiB
 - **验证**：`cargo bench -p geezipx-core --no-run` 编译通过，`--list` 确认 24 个 benchmark 函数均已注册；本地已有 Criterion comparison 时，`bash scripts/check-bench-regression.sh` 可检查默认 +10% 回退阈值。
-- **仍需完善**：建立稳定 benchmark 基线，并决定是否在 CI 中强制要求 comparison data（`GEEZIPX_BENCH_REQUIRE_COMPARISON=1`）。
+- **后续状态**：已冻结。GitHub-hosted runner 性能波动使硬阈值不可靠。不做进一步投入。
 
 ### M4-4：README 与文档 ✅
 - **状态**：README.md 和 `docs/` 目录已建立。此 M4 任务包含在当前的文档同步中。
@@ -393,7 +393,7 @@ geezipx list <archive>
   - `fail_on_unmatched_files: true`，任何 artifact 缺失将导致 job 失败
 - **权限**：全局 `contents: read`，release job 单独 `contents: write`
 - **不包含**：`cargo publish`（发布 crates.io 仍手工执行）
-- **注意**：workflow_dispatch 默认 dry-run，不会创建 GitHub Release；开发者可通过 Actions 页面触发以提前验证 artifact 完整性。consolidate job 的 SHA256SUMS 作为 workflow artifact 上传（保留 90 天），便于审计。
+- **注意**：workflow_dispatch 默认 dry-run，不会创建 GitHub Release；开发者可通过 Actions 页面触发以提前验证 artifact 完整性。当前 `release.yml` 后续已扩展为同时构建 GUI bundles（`.AppImage` / `.dmg` / `.msi`），但本里程碑关注的 Phase 1 交付仍是 CLI artifacts。
 
 ### M4 里程碑检查清单
 

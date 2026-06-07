@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Desktop GUI — task progress reporting**:
+  - Real-time progress events emitted from the Rust backend to the Tauri frontend
+  - Frontend progress indicator with speed and remaining time display
+  - Cancel button integrated with the core cancellation mechanism
+
+- **GUI release builds**:
+  - New `.github/workflows/gui-windows.yml` workflow for standalone Windows desktop bundle builds
+  - `.github/workflows/release.yml` now includes cross-platform GUI bundle jobs for `.AppImage`, `.dmg`, and `.msi` artifacts
+
+### Notes
+
+- GUI release builds are configured in CI. The standalone Windows workflow is ready for manual builds, and the tag-triggered `release.yml` path is configured for cross-platform GUI bundles; the first end-to-end tagged release still needs real-world verification.
+
 ## [0.5.0] - 2026-06-05
 
 ### Added

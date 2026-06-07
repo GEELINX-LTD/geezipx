@@ -31,8 +31,8 @@ GeeZipX 是一个使用 Rust 开发的跨平台压缩/解压缩工具。
 ### 语言与平台
 
 - 主语言：Rust。
-- 第一阶段目标：跨平台 CLI。
-- 后续 GUI：Tauri。
+- 第一阶段（CLI）：已在 v0.1.0 达成并保持成熟稳定；当前项目整体版本已演进到 v0.5.0。
+- 第二阶段（GUI）：Tauri，当前阶段（v0.5.0）。
 - 目标平台：
   - macOS
   - Linux 终端
@@ -49,12 +49,11 @@ geezipx/
 ├── crates/
 │   ├── core/        # 压缩/解压缩核心引擎库
 │   ├── cli/         # 命令行入口
-│   └── gui-tauri/   # 后续 Tauri 桌面应用
+│   └── gui-tauri/   # 当前 Tauri 桌面应用
 ├── docs/
 └── AGENTS.md
 ```
 
-如果当前仓库尚未建立上述结构，后续实现时应以此为目标逐步搭建。
 
 ## 开发原则
 
@@ -109,22 +108,26 @@ CLI 和后续 Tauri GUI 只负责：
 
 ### 5. 格式支持循序渐进
 
-第一阶段优先支持：
+当前已支持：
 
-- ZIP；
+- ZIP（含 AES-256 加密）；
 - TAR；
-- GZIP；
-- TAR.GZ。
+- TAR.GZ / TGZ；
+- TAR.XZ / TXZ；
+- TAR.ZST / TZST；
+- GZIP / GZ；
+- Zstandard / ZST / ZSTD；
+- XZ；
+- LZMA；
+- 7z（只读）；
+- RAR（只读）。
 
-后续再考虑：
+后续可扩展现：
 
-- Zstandard；
-- XZ / LZMA；
-- 7z；
-- 加密压缩；
-- 分卷压缩。
+- 分卷压缩；
+- 完整 7z 写入。
 
-不要在第一阶段承诺完整替代 7-Zip / WinRAR。
+当前阶段不承诺完整替代 7-Zip / WinRAR。
 
 ## 代码约定
 
@@ -151,41 +154,44 @@ CLI 和后续 Tauri GUI 只负责：
 
 ### 模块边界
 
-建议 core 层包含：
+实际 core 层结构：
 
 ```text
 core/src/
-├── archive/     # zip/tar/7z 等归档容器
-├── compress/    # gzip/zstd/xz 等压缩算法封装
-├── detect/      # 格式检测
-├── error.rs     # 统一错误类型
-├── fs/          # 跨平台文件系统处理
-├── pipeline/    # 流式处理管道
-├── progress/    # 进度事件与回调 trait
-└── task/        # 压缩/解压缩任务模型
+├── archive/     # zip/tar/7z/rar 等归档容器实现
+├── config.rs    # CLI 配置参数模型
+├── detect.rs    # 格式检测（魔数 + 扩展名）
+├── error.rs     # 统一错误类型 GeeZipError
+├── io.rs        # ProgressReader / ProgressWriter 流式封装
+└── test.rs      # 测试工具函数
 ```
 
-CLI 层只应包含：
+实际 CLI 层结构：
 
 ```text
 cli/src/
 ├── main.rs
-├── commands/
-├── output/
-└── progress.rs
+├── commands/    # compress / decompress / list / test / completions
+├── render/      # 进度渲染（progress.rs）和终端输出
+└── signal.rs    # Ctrl+C 取消处理（CancellationToken）
 ```
 
 ## 测试与验证
 
-实现代码后，应优先运行以下检查：
+实现代码后，应按变更范围执行检查：
+
+**core / CLI 默认质量门禁**
 
 ```bash
 cargo fmt --all --check
-cargo clippy --workspace --all-targets --all-features -- -D warnings
-cargo test --workspace --all-features
+cargo clippy --workspace --exclude geezipx-gui --all-targets --all-features -- -D warnings
+cargo test --workspace --exclude geezipx-gui --all-features
 ```
 
-如果项目尚未建立 Cargo workspace，则以上命令可能暂时不可用；建立 workspace 后应将它们作为默认质量门禁。
+**GUI 变更额外关注**
+
+- `.github/workflows/gui-windows.yml`：独立 Windows GUI build workflow；
+- `.github/workflows/release.yml`：已配置三平台 GUI bundle 构建与上传（`.AppImage` / `.dmg` / `.msi`），如涉及发布链路应结合 tag release 进行实战验证。
 
 核心测试要求：
 
@@ -456,7 +462,7 @@ archive/compress pipeline
 
 当前最高优先级：
 
-1. **GUI MVP（Tauri）** — 尽快投入桌面 GUI 开发，复用 core 引擎。详见 `docs/GUI_MVP_PLAN.md`。
+1. **GUI 迭代（Tauri）** — 桌面 GUI 已达 v0.5.0，继续迭代增强，复用 core 引擎。详见 `docs/GUI_MVP_PLAN.md`。
 2. **GUI 相关测试** — 仅针对 GUI 实现添加必要的测试；不主动推进 core/CLI 基准测试基线或覆盖率补测。
 3. **文档同步** — GUI 实现过程中的文档跟随更新。
 
@@ -468,6 +474,7 @@ archive/compress pipeline
 ### 任何时候修改代码仍需遵守
 
 - `cargo fmt --all --check`
-- `cargo clippy --workspace --all-targets --all-features -- -D warnings`
-- `cargo test --workspace --all-features`
+- `cargo clippy --workspace --exclude geezipx-gui --all-targets --all-features -- -D warnings`
+- `cargo test --workspace --exclude geezipx-gui --all-features`
+- GUI 改动需额外关注 `gui-windows.yml` 与 `release.yml` 的构建/发布链路
 - Core/CLI 解耦原则（core 不依赖 GUI，GUI 不实现压缩逻辑）

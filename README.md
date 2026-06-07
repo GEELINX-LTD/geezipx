@@ -24,7 +24,8 @@
 - **Zip Slip protection** -- blocks path-traversal attacks in all archive formats
 - **JSON output** -- `list --json` for machine-readable inspection; `test --json` for programmatic integrity results
 - **Shell completions** -- bash, zsh, fish, PowerShell, elvish
-- **ZIP AES-256 encryption** -- `--password`, `--password-file`, or `--password-stdin` (ZIP and 7z read-only)
+- **ZIP AES-256 encryption** -- create encrypted ZIP archives with `--password`, `--password-file`, or `--password-stdin`
+- **Encrypted 7z/RAR read support** -- read-only `list`, `decompress`, and `test` can handle password-protected 7z/RAR archives
 - **Cross-platform** -- Linux, macOS, Windows (3-platform CI)
 - **Single binary** -- no runtime dependencies, `cargo install` ready
 - **Multi-threaded compression** -- `-j`/`--jobs` for parallel compression (tar.gz via gzp/pigz-style, zstd/tar.zst via native zstdmt)
@@ -33,15 +34,15 @@
 
 ## Status
 
-Phase 1 (CLI MVP) is **complete and mature**. All core subcommands (`compress`, `decompress`, `list`, `test`, `completions`) work for all supported formats.
+Phase 1 (CLI MVP) is **complete and mature**. The applicable subcommands are fully implemented: read/write formats support `compress`, `decompress`, `list`, and `test`; read-only 7z/RAR support `list`, `decompress`, and `test`. The `completions` command is also complete.
 Phase 2 (Desktop GUI via Tauri) is **now the active development focus**.
-See [`docs/GUI_MVP_PLAN.md`](docs/GUI_MVP_PLAN.md) for current planning and task breakdown.
-| Milestone | Theme | Status |
-|-----------|-------|--------|
-| M1 | Project skeleton + core engine library | **Complete** |
-| M2 | CLI basic commands | **Complete** |
-| M3 | Streaming / progress / polish | **Complete** |
-| M4 | CI / testing / release | **Complete** |
+
+| Phase | Theme | Status |
+|-------|-------|--------|
+| 1 | CLI MVP | **Complete** -- crates.io releases `geezipx` and `geezipx-core` are available |
+| 2 | Desktop GUI (Tauri) | **In development** -- v0.5.0 already includes archive browsing, drag/drop, progress reporting, and selective extraction |
+
+See [`docs/GUI_MVP_PLAN.md`](docs/GUI_MVP_PLAN.md) for detailed planning and remaining tasks.
 
 ## Install
 
@@ -119,9 +120,6 @@ geezipx decompress hello.txt.zst --stdout > output.txt
 # Multi-threaded zstd compression (4 workers)
 geezipx compress hello.txt -f zst -o hello.txt.zst -j 4
 
-# Glob pattern expansion (all .rs files in src/)
-geezipx compress src/**/*.rs -f tar.gz -o src-rs.tar.gz
-
 # Compress directory into tar.zst archive
 geezipx compress mydir -r -f tar.zst -o mydir.tar.zst
 
@@ -145,25 +143,27 @@ geezipx list archive.zip
 
 # List archive contents as JSON
 geezipx list archive.tar.gz --json
+
 # Test archive integrity (without extracting to disk)
 geezipx test archive.zip
 
 # Test with JSON output
 geezipx test archive.tar.gz --json
-```
 
-# Pipe data through stdin/stdout (single-stream and tar-based formats)
+# Pipe data through stdin/stdout (single-stream formats)
 echo "Hello" | geezipx compress --stdin -f gz -o hello.gz
 echo "Hello" | geezipx compress --stdin -f gz --stdout > hello.gz
 cat hello.txt | geezipx compress --stdin -f zst -o hello.txt.zst
 cat hello.txt.gz | geezipx decompress --stdin -f gz --stdout > hello.txt
 cat hello.txt.gz | geezipx decompress --stdin -f gz -o outdir     # writes outdir/output
 geezipx compress hello.txt -f gz --stdout > hello.gz              # file to stdout
-# --- tar-based pipeline examples (raw tar stdin/stdout) ---
-cat raw.tar | geezipx compress --stdin -f tar.gz -o archive.tar.gz    # compress raw tar to file
-tar cf - mydir/ | geezipx compress --stdin -f tar.zst -o mydir.tar.zst # pipe tar directly
-geezipx decompress archive.tar.gz --stdout | tar tf -                  # decompress to raw tar stream
-geezipx decompress archive.tar.xz --stdout > raw.tar                    # extract compression layer only
+
+# Tar-based pipeline examples (raw tar stdin/stdout)
+cat raw.tar | geezipx compress --stdin -f tar.gz -o archive.tar.gz
+tar cf - mydir/ | geezipx compress --stdin -f tar.zst -o mydir.tar.zst
+geezipx decompress archive.tar.gz --stdout | tar tf -
+geezipx decompress archive.tar.xz --stdout > raw.tar
+```
 
 ---
 
@@ -184,12 +184,12 @@ geezipx compress <inputs...> -o <output> [options]
 
 | Option | Description |
 |--------|-------------|
-|| `-o`, `--output` | Output file path (required unless `--stdout` is used) |
+| `-o`, `--output` | Output file path (required unless `--stdout` is used) |
 | `-f`, `--format` | Format: `zip`, `tar`, `tar.gz`, `tgz`, `gz`, `gzip`, `tar.zst`, `tzst`, `zst`, `zstd`, `tar.xz`, `txz`, `xz`, `lzma` (inferred from extension if omitted, defaults to zip) |
 | `-r`, `--recursive` | Recursively add directories |
-- `-L`, `--level` | Compression level 0-9 (gzip/tar.gz/xz/tar.xz, default: 6); 0-22 (zstd/zst/tar.zst/tzst, default: zstd default) |
+| `-L`, `--level` | Compression level 0-9 (gzip/tar.gz/xz/tar.xz, default: 6); 0-22 (zstd/zst/tar.zst/tzst, default: zstd default) |
 | `-j`, `--jobs` | Worker threads: 1 (default, single-threaded), 0 (auto, use all CPUs), or N (explicit). Effective for tar.gz (gzp parallel gzip) and zstd/tar.zst (native zstdmt); tar.xz/zip/xz/lzma accept but ignore for forward compat. **Note**: tar.gz `--jobs` does not apply in `--stdin` single-stream mode, only in archive mode
-|| `--password` | Encrypt ZIP with AES-256 (ZIP format only). Use `--password-file` to read the password from a file, or `--password-stdin` to read from stdin. These three options are mutually exclusive. For scripting, prefer `--password-file` or `--password-stdin` to avoid exposing the password in the process list |
+| `--password` | Encrypt ZIP with AES-256 (ZIP format only). Use `--password-file` to read the password from a file, or `--password-stdin` to read from stdin. These three options are mutually exclusive. For scripting, prefer `--password-file` or `--password-stdin` to avoid exposing the password in the process list |
 | `--stdin` | Read uncompressed data from stdin (gzip/zstd/xz/lzma single-stream and tar.gz/tar.zst/tar.xz raw tar; requires `--format`; mutually exclusive with input files)
 | `--stdout` | Write compressed data to stdout (gzip/zstd/xz/lzma single-stream and tar.gz/tar.zst/tar.xz raw tar; requires `--format`; mutually exclusive with `--output`)
 
@@ -206,10 +206,10 @@ Auto-detects the format via magic bytes (with extension fallback).
 | `-o`, `--output-dir` | Output directory (default: current directory) |
 | `--stdout` | Decompress to stdout. Single-stream (gzip/zstd/xz/lzma): outputs original content. Tar-based (tar.gz/tar.zst/tar.xz): outputs raw tar stream. Errors on multi-file archives (zip/tar/7z/rar)
 | `--stdin` | Read compressed data from stdin (gzip/zstd/xz/lzma and tar.gz/tar.zst/tar.xz; requires `--format`; mutually exclusive with archive file)
-|| `-f`, `--format` | Archive/stream format (required with `--stdin`) |
+| `-f`, `--format` | Archive/stream format (required with `--stdin`) |
 | `--no-clobber` | Skip files that already exist |
 | `--force` | Overwrite existing files (default; mutually exclusive with `--no-clobber`) |
-|| `--password` | Password for decrypting encrypted archives (ZIP AES-256, 7z AES-256, RAR). Use `--password-file` to read from a file, or `--password-stdin` to read from stdin. These three options are mutually exclusive |
+| `--password` | Password for decrypting encrypted archives (ZIP AES-256, 7z AES-256, RAR). Use `--password-file` to read from a file, or `--password-stdin` to read from stdin. These three options are mutually exclusive |
 
 ### `list` — Inspect archives
 
@@ -242,7 +242,7 @@ A corrupted archive results in a non-zero exit code.
 | Option | Description |
 |--------|-------------|
 | `-j`, `--json` | Output as JSON with `ok` boolean |
-|| `--password` | Password for verifying encrypted archives (ZIP AES-256, 7z AES-256, RAR). Use `--password-file` to read from a file, or `--password-stdin` to read from stdin. These three options are mutually exclusive |
+| `--password` | Password for verifying encrypted archives (ZIP AES-256, 7z AES-256, RAR). Use `--password-file` to read from a file, or `--password-stdin` to read from stdin. These three options are mutually exclusive |
 
 ### `completions` — Shell completion scripts
 
@@ -270,52 +270,61 @@ After installing, restart your shell or source the file for tab-completion on su
 
 ## Project Structure
 
-```
+```text
 geezipx/
 ├── AGENTS.md               # AI agent collaboration guide
 ├── CHANGELOG.md            # Release changelog
 ├── Cargo.toml              # Workspace root
 ├── crates/
-│   ├── core/               # Compression/decompression engine library
+│   ├── core/
 │   │   └── src/
-│   │       ├── archive/    # ZIP, TAR, TAR.GZ, TAR.ZST, TAR.XZ, GZIP, ZSTD, XZ, LZMA implementations
-│   │       ├── config.rs   # Compression options (CompressOptions, --jobs/--level)
+│   │       ├── archive/    # Archive/container implementations
+│   │       ├── config.rs   # Compression options (level/jobs/password)
 │   │       ├── detect.rs   # Format detection (magic bytes + extension)
 │   │       ├── error.rs    # Unified error types (GeeZipError)
-│   │       └── io.rs       # Streaming I/O wrappers (ProgressReader, etc.)
-│   └── cli/                # CLI binary (clap-based, thin shell over core)
-│       └── src/
-│           ├── commands/   # compress / decompress / list / test
-│           ├── render/     # Progress bar rendering
-│           └── signal.rs   # Ctrl+C cancellation
-├── docs/                   # Product & architecture documentation
-├── scripts/                # Build, CI, and interoperability test scripts
-├── crates/cli/tests/       # CLI integration and streaming smoke tests
-├── .github/workflows/      # CI, audit, and benchmark workflows
-├── deny.toml               # cargo-deny configuration
-└── .rust-toolchain.toml    # Rust toolchain pin
+│   │       ├── io.rs       # ProgressReader / ProgressWriter / ProgressEvent
+│   │       └── test.rs     # Archive integrity helpers
+│   ├── cli/
+│   │   ├── src/
+│   │   │   ├── commands/   # compress / decompress / list / test / completions
+│   │   │   ├── render/     # Terminal progress + output rendering
+│   │   │   └── signal.rs   # Ctrl+C cancellation token
+│   │   └── tests/          # CLI integration + streaming smoke tests
+│   └── gui-tauri/
+│       ├── src/
+│       │   ├── bridge.ts   # Frontend ↔ Tauri bridge types/helpers
+│       │   ├── main.ts     # Current Tauri frontend logic (TypeScript/Vite)
+│       │   └── style.css   # GUI styling
+│       └── src-tauri/
+│           ├── src/
+│           │   ├── commands/
+│           │   ├── lib.rs
+│           │   └── state.rs
+│           └── tauri.conf.json
+├── docs/                   # Product and architecture documentation
+├── scripts/                # Build, CI, benchmark, and interop helpers
+└── .github/workflows/      # CI, audit, coverage, benchmark, and release workflows
 ```
 
 ### Architecture
 
 GeeZipX follows a layered workspace architecture:
 
-```
-┌─────────────┐  ┌─────────────┐
-│  cli (bin)  │  │  gui-tauri  │  ← Frontend layers (CLI / future GUI)
-└──────┬──────┘  └──────┬──────┘
-       │                │
-       └───────┬────────┘
-               │  depends on
-       ┌───────▼────────┐
-       │  core (lib)     │  ← Core engine: all archive/compression logic
-       │  ─ pure data   │     - No I/O assumptions
-       │  ─ no terminal │     - Reusable by CLI and future Tauri GUI
-       └────────────────┘
+```text
+┌─────────────┐  ┌─────────────────┐
+│  cli (bin)  │  │  gui-tauri       │  ← Frontend layers (CLI / Tauri GUI)
+└──────┬──────┘  └────────┬─────────┘
+       │                  │
+       └────────┬─────────┘
+                │ depends on
+        ┌───────▼──────────┐
+        │  core (lib)       │  ← Core engine: archive/compression logic
+        │  ─ pure data flow │     - no terminal/UI behavior
+        │  ─ reusable API   │     - shared by CLI and GUI
+        └──────────────────┘
 ```
 
-The core library handles all format logic through unified `ArchiveReader` / `ArchiveWriter` traits. The CLI is a thin shell that handles argument parsing and progress display only. This design ensures the same compression engine will power the future Tauri desktop GUI without duplication.
-
+The core library owns the archive-format logic via unified `ArchiveReader` / `ArchiveWriter` traits plus single-stream helpers. The CLI and Tauri GUI only handle user interaction, parameter mapping, and progress presentation.
 ---
 
 ## Development
@@ -432,11 +441,12 @@ and the combined `SHA256SUMS` file.
 
 ### Phase 1 (CLI MVP) — Complete and Mature ✓
 
-All core features and enhancements are implemented and verified:
+All core features and the applicable format-specific subcommands are implemented and verified:
 
 - [x] ZIP / TAR / TAR.GZ / TAR.ZST / TAR.XZ / GZIP / ZSTD / XZ / LZMA read/write
+- [x] 7z / RAR read-only support via `list`, `decompress`, and `test`
 - [x] Streaming I/O with bounded memory usage
-- [x] Progress bars with indicatif
+- [x] Progress bars with `indicatif`
 - [x] Ctrl+C graceful cancellation
 - [x] Auto-format detection (magic bytes + extension)
 - [x] Clobber protection (`--no-clobber` / `--force`)
@@ -446,25 +456,29 @@ All core features and enhancements are implemented and verified:
 - [x] `test` archive integrity verification with JSON output
 - [x] 400+ tests (unit + integration + interop + streaming smoke)
 - [x] 3-platform CI (Linux/macOS/Windows)
-- [x] cargo-deny security audit
+- [x] `cargo-deny` security audit
 - [x] Criterion benchmarks (advisory, no hard gate)
-- [x] **crates.io release**
+- [x] crates.io releases
 - [x] Multi-threaded compression (`-j`/`--jobs` for tar.gz, zstd/tar.zst)
 - [x] ZIP AES-256 password encryption
-- [x] 7z read-only support
-- [x] RAR read-only support
-- [x] stdin/stdout pipeline (single-stream + tar-based formats)
+- [x] stdin/stdout pipelines for single-stream and tar-based formats
 
-### Phase 2 (Desktop GUI via Tauri) — Current Development 🚀
+### Phase 2 (Desktop GUI via Tauri) — Current Development (v0.5.0)
 
-- [ ] Tauri + frontend framework project skeleton
-- [ ] Core engine binding via Tauri command bridge
-- [ ] File browser / drag-and-drop interface
-- [ ] Compress / decompress task management
-- [ ] Live progress display (via Tauri event emit)
-- [ ] Cancel-safe task execution
-- [ ] Password prompt for encrypted archives
-- [ ] Platform-native packaging (AppImage, .dmg, .msi)
+- [x] Tauri v2 project skeleton + TypeScript/Vite frontend
+- [x] Core engine bridge via Tauri commands
+- [x] Archive browser with file associations
+- [x] Selective extraction from archives
+- [x] In-app text/hex preview
+- [x] Drag & drop into the app
+- [x] Drag-out archive entries to the filesystem
+- [x] Sidebar navigation and recent-path chips
+- [x] Password prompts for encrypted archives (ZIP AES-256, 7z, RAR)
+- [x] Live progress display with speed and remaining time
+- [x] Cancel-safe task execution
+- [x] GUI bundle CI is configured: standalone `gui-windows.yml` for Windows builds, plus `release.yml` for `.AppImage`, `.dmg`, and `.msi` artifacts
+- [ ] First end-to-end tag-release verification of GUI bundles
+- [ ] Window state persistence and additional polish
 
 See [`docs/GUI_MVP_PLAN.md`](docs/GUI_MVP_PLAN.md) for detailed planning and task breakdown.
 
