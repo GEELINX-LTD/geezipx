@@ -24,8 +24,9 @@ env:
 
 jobs:
   build:
-    name: Build ${{ matrix.artifact }}
+    name: Build CLI ${{ matrix.artifact }}
     strategy:
+      fail-fast: false
       matrix:
         include:
           - os: ubuntu-latest
@@ -74,7 +75,7 @@ jobs:
           $hash = (Get-FileHash -Algorithm SHA256 -Path "${{ matrix.artifact }}.${{ matrix.ext }}").Hash.ToLower()
           "$hash  ${{ matrix.artifact }}.${{ matrix.ext }}" | Out-File -Encoding ASCII "${{ matrix.artifact }}.${{ matrix.ext }}.sha256"
 
-      - name: Upload build artifacts
+      - name: Upload CLI build artifacts
         uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.artifact }}
@@ -84,9 +85,134 @@ jobs:
           if-no-files-found: error
           retention-days: 3
 
+  build_gui:
+    name: Build GUI ${{ matrix.artifact }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact: geezipx-gui-linux
+            bundle: appimage
+            bundle_dir: target/release/bundle/appimage
+            bundle_glob: '*.AppImage'
+          - os: macos-latest
+            artifact: geezipx-gui-macos
+            bundle: dmg
+            bundle_dir: target/release/bundle/dmg
+            bundle_glob: '*.dmg'
+          - os: windows-latest
+            artifact: geezipx-gui-windows
+            bundle: msi
+            bundle_dir: target/release/bundle/msi
+            bundle_glob: '*.msi'
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: crates/gui-tauri
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Linux system dependencies
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+
+          indicator_pkg="libayatana-appindicator3-dev"
+          if ! apt-cache show "$indicator_pkg" >/dev/null 2>&1; then
+            indicator_pkg="libappindicator3-dev"
+          fi
+
+          fuse_pkg="libfuse2"
+          if ! apt-cache show "$fuse_pkg" >/dev/null 2>&1; then
+            fuse_pkg="libfuse2t64"
+          fi
+
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            librsvg2-dev \
+            libssl-dev \
+            patchelf \
+            file \
+            "$indicator_pkg" \
+            "$fuse_pkg"
+
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+          cache: true
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v6
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: crates/gui-tauri/package-lock.json
+
+      - name: Install JS dependencies
+        run: npm ci
+
+      - name: Build Tauri GUI bundles
+        run: npm run tauri build -- --bundles ${{ matrix.bundle }}
+
+      - name: Stage GUI bundle artifacts
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release-assets
+          shopt -s nullglob
+          bundle_root="${{ github.workspace }}/${{ matrix.bundle_dir }}"
+          matches=( "$bundle_root"/${{ matrix.bundle_glob }} )
+          if [ "${#matches[@]}" -eq 0 ]; then
+            echo "::error::Missing required GUI bundle matching $bundle_root/${{ matrix.bundle_glob }}"
+            exit 1
+          fi
+
+          for file in "${matches[@]}"; do
+            base=$(basename "$file")
+            cp "$file" "release-assets/$base"
+            (
+              cd release-assets
+              shasum -a 256 "$base" > "$base.sha256"
+            )
+          done
+
+      - name: Stage GUI bundle artifacts
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path release-assets | Out-Null
+          $bundleRoot = Join-Path $env:GITHUB_WORKSPACE "${{ matrix.bundle_dir }}"
+          $bundlePattern = Join-Path $bundleRoot "${{ matrix.bundle_glob }}"
+          $files = @(Get-ChildItem -Path $bundlePattern -File -ErrorAction SilentlyContinue)
+          if ($files.Count -eq 0) {
+            throw "Missing required GUI bundle matching $bundlePattern"
+          }
+
+          foreach ($file in $files) {
+            $dest = Join-Path "release-assets" $file.Name
+            Copy-Item $file.FullName $dest
+            $hash = (Get-FileHash -Algorithm SHA256 -Path $dest).Hash.ToLower()
+            "$hash  $($file.Name)" | Out-File -Encoding ASCII "$dest.sha256"
+          }
+
+      - name: Upload GUI bundle artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.artifact }}
+          path: crates/gui-tauri/release-assets/*
+          if-no-files-found: error
+          retention-days: 3
+
   consolidate:
     name: Consolidate and Verify Artifacts
-    needs: build
+    needs:
+      - build
+      - build_gui
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
@@ -122,51 +248,81 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          shopt -s nullglob
           errors=0
           cd release-assets
 
-          expected_archives=(
+          required_patterns=(
             "geezipx-linux-x86_64.tar.gz"
             "geezipx-macos-x86_64.tar.gz"
             "geezipx-windows-x86_64.zip"
+            "*.AppImage"
+            "*.dmg"
+            "*.msi"
           )
 
           echo "### Artifact Check" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
 
-          for archive in "${expected_archives[@]}"; do
-            if [ ! -f "$archive" ]; then
-              echo "::error::Missing archive: $archive"
-              echo "- ❌ **$archive** — MISSING" >> "$GITHUB_STEP_SUMMARY"
-              errors=$((errors + 1))
-            else
-              size=$(stat --format=%s "$archive")
-              # Sanity warning only: release binaries are expected to be well above 100 KiB.
-              if [ "$size" -lt 102400 ]; then
-                echo "::warning::Archive $archive is only ${size} bytes (may be too small)"
-                echo "- ⚠️ **$archive** — ${size} bytes (below 100 KB threshold)" >> "$GITHUB_STEP_SUMMARY"
-              else
-                echo "- ✅ **$archive** — ${size} bytes" >> "$GITHUB_STEP_SUMMARY"
-              fi
+          verify_archive() {
+            local archive="$1"
+            local size
+            local sha256_file
+            local checksum_log
 
-              sha256_file="${archive}.sha256"
-              if [ -f "$sha256_file" ]; then
-                checksum_log="../${archive}.sha256.check.log"
-                if shasum -c "$sha256_file" > "$checksum_log" 2>&1; then
-                  echo "  - Checksum: ✅ verified" >> "$GITHUB_STEP_SUMMARY"
-                else
-                  echo "  - Checksum: ❌ MISMATCH" >> "$GITHUB_STEP_SUMMARY"
-                  echo "  - Checksum output:" >> "$GITHUB_STEP_SUMMARY"
-                  echo '    ```text' >> "$GITHUB_STEP_SUMMARY"
-                  sed 's/^/    /' "$checksum_log" >> "$GITHUB_STEP_SUMMARY"
-                  echo '    ```' >> "$GITHUB_STEP_SUMMARY"
-                  cat "$checksum_log"
-                  errors=$((errors + 1))
-                fi
+            size=$(stat --format=%s "$archive")
+            if [ "$size" -lt 102400 ]; then
+              echo "::warning::Archive $archive is only ${size} bytes (may be too small)"
+              echo "- ⚠️ **$archive** — ${size} bytes (below 100 KB threshold)" >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "- ✅ **$archive** — ${size} bytes" >> "$GITHUB_STEP_SUMMARY"
+            fi
+
+            sha256_file="${archive}.sha256"
+            if [ -f "$sha256_file" ]; then
+              checksum_log="../${archive}.sha256.check.log"
+              if shasum -c "$sha256_file" > "$checksum_log" 2>&1; then
+                echo "  - Checksum: ✅ verified" >> "$GITHUB_STEP_SUMMARY"
               else
-                echo "  - Checksum: ❌ missing .sha256 file" >> "$GITHUB_STEP_SUMMARY"
+                echo "  - Checksum: ❌ MISMATCH" >> "$GITHUB_STEP_SUMMARY"
+                echo "  - Checksum output:" >> "$GITHUB_STEP_SUMMARY"
+                echo '    ```text' >> "$GITHUB_STEP_SUMMARY"
+                sed 's/^/    /' "$checksum_log" >> "$GITHUB_STEP_SUMMARY"
+                echo '    ```' >> "$GITHUB_STEP_SUMMARY"
+                cat "$checksum_log"
                 errors=$((errors + 1))
               fi
+            else
+              echo "  - Checksum: ❌ missing .sha256 file" >> "$GITHUB_STEP_SUMMARY"
+              errors=$((errors + 1))
+            fi
+          }
+
+          declare -A seen=()
+
+          for pattern in "${required_patterns[@]}"; do
+            matches=( $pattern )
+            if [ "${#matches[@]}" -eq 0 ]; then
+              echo "::error::Missing artifact matching pattern: $pattern"
+              echo "- ❌ **$pattern** — MISSING" >> "$GITHUB_STEP_SUMMARY"
+              errors=$((errors + 1))
+              continue
+            fi
+
+            for archive in "${matches[@]}"; do
+              if [ -n "${seen[$archive]:-}" ]; then
+                continue
+              fi
+              verify_archive "$archive"
+              seen["$archive"]=1
+            done
+          done
+
+          for sha256_file in *.sha256; do
+            archive="${sha256_file%.sha256}"
+            if [ -f "$archive" ] && [ -z "${seen[$archive]:-}" ]; then
+              verify_archive "$archive"
+              seen["$archive"]=1
             fi
           done
 
@@ -213,6 +369,9 @@ jobs:
           files: |
             release-assets/*.tar.gz
             release-assets/*.zip
+            release-assets/*.AppImage
+            release-assets/*.dmg
+            release-assets/*.msi
             release-assets/*.sha256
             SHA256SUMS
           draft: false
