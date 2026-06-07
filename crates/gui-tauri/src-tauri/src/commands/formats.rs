@@ -7,7 +7,11 @@ use serde::Serialize;
 pub struct FormatInfo {
     /// Machine-readable format name (e.g. `"zip"`, `"tar.gz"`, `"7z"`).
     pub name: String,
-    /// Whether this format supports creating archives (compression).
+    /// Whether the current GUI compression command can create this format.
+    ///
+    /// In the current GUI release, single-stream `gzip`, `zstd`, `xz`, and
+    /// `lzma` entries remain decompress-only even though the engine can detect
+    /// and extract them.
     pub can_compress: bool,
     /// Whether this format supports extracting archives (decompression).
     pub can_decompress: bool,
