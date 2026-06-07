@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -7,12 +7,11 @@
     <link rel="stylesheet" href="/src/style.css" />
   </head>
   <body>
-    <!-- Drop zone overlay -->
     <div id="drop-overlay" style="display:none">
       <div class="drop-overlay-content">
         <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-        <p>Drop files or folders here</p>
-        <span class="drop-hint">Release to start — archives auto-open in Browse, files to Compress</span>
+        <p data-i18n="drop.title">将文件或文件夹拖放到这里</p>
+        <span class="drop-hint" data-i18n="drop.hint">松开即可开始——归档会自动在“浏览归档”中打开，普通文件会进入“压缩”</span>
       </div>
     </div>
 
@@ -22,69 +21,67 @@
           <h2>GeeZipX</h2>
         </div>
         <nav id="sidebar-nav">
-          <button class="nav-item active" data-mode="home">🏠 主页</button>
-          <button class="nav-item" data-mode="compress">📦 压缩</button>
-          <button class="nav-item" data-mode="extract">📂 解压缩</button>
-          <button class="nav-item" data-mode="settings">⚙️ 设置</button>
-          <button class="nav-item" data-mode="about">ℹ️ 关于</button>
+          <button class="nav-item active" data-mode="home" data-i18n="nav.home">🏠 主页</button>
+          <button class="nav-item" data-mode="compress" data-i18n="nav.compress">📦 压缩</button>
+          <button class="nav-item" data-mode="extract" data-i18n="nav.extract">📂 解压缩</button>
+          <button class="nav-item" data-mode="settings" data-i18n="nav.settings">⚙️ 设置</button>
+          <button class="nav-item" data-mode="about" data-i18n="nav.about">ℹ️ 关于</button>
         </nav>
       </aside>
 
       <div class="app-content">
         <header>
-          <h1 id="page-title">主页</h1>
+          <h1 id="page-title" data-i18n="page.home">主页</h1>
         </header>
 
         <main>
-          <!-- Recent files bar -->
           <div id="recent-bar" class="recent-bar" style="display:none">
-            <span class="recent-label">Recent</span>
+            <span class="recent-label" data-i18n="recent.label">最近</span>
             <div id="recent-chips" class="recent-chips"></div>
           </div>
 
-          <!-- ===================== COMPRESS PANEL ===================== -->
           <section id="panel-compress" class="panel" role="tabpanel">
             <div class="field">
-              <label>Source Files</label>
+              <label data-i18n="compress.sourceFiles">源文件</label>
               <div class="input-row">
-                <input type="text" id="compress-sources" readonly placeholder="Drop files here or click Browse..." />
-                <button id="compress-source-btn" class="btn-secondary">Browse</button>
+                <input type="text" id="compress-sources" readonly data-i18n-placeholder="compress.sourcePlaceholder" placeholder="将文件拖到这里或点击浏览..." />
+                <button id="compress-source-btn" class="btn-secondary" data-i18n="common.browse">浏览</button>
               </div>
               <div id="compress-source-chips" class="file-chips"></div>
             </div>
 
             <div class="field">
-              <label>Output Archive</label>
+              <label data-i18n="compress.outputArchive">输出归档</label>
               <div class="input-row">
-                <input type="text" id="compress-output" readonly placeholder="Auto-filled from source..." />
-                <button id="compress-output-btn" class="btn-secondary">Save As</button>
+                <input type="text" id="compress-output" readonly data-i18n-placeholder="compress.outputPlaceholder" placeholder="根据源路径自动填写..." />
+                <button id="compress-output-btn" class="btn-secondary" data-i18n="common.saveAs">另存为</button>
               </div>
             </div>
 
             <div class="field">
-              <label>Format</label>
+              <label data-i18n="compress.format">格式</label>
               <select id="compress-format"></select>
             </div>
 
             <div class="field-row">
               <div class="field">
-                <label>Compression Level</label>
-                <input type="number" id="compress-level" min="0" max="22" placeholder="Auto" />
+                <label data-i18n="compress.level">压缩级别</label>
+                <input type="number" id="compress-level" min="0" max="22" data-i18n-placeholder="compress.levelPlaceholder" placeholder="自动" />
               </div>
               <div class="field">
-                <label>Jobs (threads)</label>
-                <input type="number" id="compress-jobs" min="1" placeholder="Auto" />
+                <label data-i18n="compress.jobs">任务数（线程）</label>
+                <input type="number" id="compress-jobs" min="1" data-i18n-placeholder="compress.jobsPlaceholder" placeholder="自动" />
               </div>
             </div>
 
             <div class="field">
-              <label>Password (ZIP only)</label>
-              <input type="password" id="compress-password" placeholder="Optional — leave empty for no encryption" />
+              <label data-i18n="compress.password">密码（仅 ZIP）</label>
+              <input type="password" id="compress-password" data-i18n-placeholder="compress.passwordPlaceholder" placeholder="可选——留空表示不加密" />
             </div>
 
             <div class="actions">
-              <button id="compress-run" class="btn-primary">Compress</button>
-              <button id="compress-cancel" class="btn-cancel" style="visibility:hidden" aria-hidden="true">Cancel</button>
+              <button id="compress-run" class="btn-primary" data-i18n="compress.run">开始压缩</button>
+              <button id="compress-cancel" class="btn-cancel" style="visibility:hidden" aria-hidden="true" data-i18n="compress.cancel">取消</button>
             </div>
 
             <div id="compress-progress" class="task-progress" hidden>
@@ -92,50 +89,49 @@
                 <span id="compress-progress-stage" class="task-progress-stage"></span>
                 <span id="compress-progress-percent" class="task-progress-percent"></span>
               </div>
-              <progress id="compress-progress-bar" class="task-progress-bar" max="100"></progress>
               <div id="compress-progress-message" class="task-progress-message"></div>
               <div id="compress-progress-entry" class="task-progress-entry"></div>
               <div id="compress-progress-stats" class="task-progress-stats"></div>
+              <progress id="compress-progress-bar" class="task-progress-bar" max="100"></progress>
             </div>
 
             <div id="compress-result" class="result-panel">
-              <div class="result-empty">Configure sources above and click Compress</div>
+              <div class="result-empty" data-i18n="compress.result.empty">请先配置源文件，然后点击“开始压缩”</div>
             </div>
           </section>
 
-          <!-- ===================== EXTRACT PANEL ===================== -->
           <section id="panel-extract" class="panel" role="tabpanel">
             <div class="field">
-              <label>Archive File</label>
+              <label data-i18n="extract.archiveFile">归档文件</label>
               <div class="input-row">
-                <input type="text" id="extract-archive" readonly placeholder="Drop archive here or click Browse..." />
-                <button id="extract-archive-btn" class="btn-secondary">Browse</button>
+                <input type="text" id="extract-archive" readonly data-i18n-placeholder="extract.archivePlaceholder" placeholder="将归档拖到这里或点击浏览..." />
+                <button id="extract-archive-btn" class="btn-secondary" data-i18n="common.browse">浏览</button>
               </div>
             </div>
 
             <div class="field">
-              <label>Output Directory</label>
+              <label data-i18n="extract.outputDirectory">输出目录</label>
               <div class="input-row">
-                <input type="text" id="extract-output" readonly placeholder="Auto-filled from archive..." />
-                <button id="extract-output-btn" class="btn-secondary">Browse</button>
+                <input type="text" id="extract-output" readonly data-i18n-placeholder="extract.outputPlaceholder" placeholder="根据归档自动填写..." />
+                <button id="extract-output-btn" class="btn-secondary" data-i18n="common.browse">浏览</button>
               </div>
             </div>
 
             <div class="field">
               <label class="checkbox-label">
                 <input type="checkbox" id="extract-overwrite" checked />
-                Overwrite existing files
+                <span data-i18n="extract.overwrite">覆盖已存在文件</span>
               </label>
             </div>
 
             <div class="field">
-              <label>Password (for encrypted archives)</label>
-              <input type="password" id="extract-password" placeholder="Optional — leave empty for no password" />
+              <label data-i18n="extract.password">密码（用于加密归档）</label>
+              <input type="password" id="extract-password" data-i18n-placeholder="extract.passwordPlaceholder" placeholder="可选——留空表示无密码" />
             </div>
 
             <div class="actions">
-              <button id="extract-run" class="btn-primary">Extract</button>
-              <button id="extract-cancel" class="btn-cancel" style="visibility:hidden" aria-hidden="true">Cancel</button>
+              <button id="extract-run" class="btn-primary" data-i18n="extract.run">开始解压</button>
+              <button id="extract-cancel" class="btn-cancel" style="visibility:hidden" aria-hidden="true" data-i18n="extract.cancel">取消</button>
             </div>
 
             <div id="extract-progress" class="task-progress" hidden>
@@ -143,54 +139,52 @@
                 <span id="extract-progress-stage" class="task-progress-stage"></span>
                 <span id="extract-progress-percent" class="task-progress-percent"></span>
               </div>
-              <progress id="extract-progress-bar" class="task-progress-bar" max="100"></progress>
               <div id="extract-progress-message" class="task-progress-message"></div>
               <div id="extract-progress-entry" class="task-progress-entry"></div>
               <div id="extract-progress-stats" class="task-progress-stats"></div>
+              <progress id="extract-progress-bar" class="task-progress-bar" max="100"></progress>
             </div>
 
             <div id="extract-result" class="result-panel">
-              <div class="result-empty">Select an archive and output directory</div>
+              <div class="result-empty" data-i18n="extract.result.empty">请选择归档文件和输出目录</div>
             </div>
           </section>
 
-          <!-- ===================== LIST PANEL ===================== -->
           <section id="panel-list" class="panel" role="tabpanel">
             <div class="field">
-              <label>Archive File</label>
+              <label data-i18n="list.archiveFile">归档文件</label>
               <div class="input-row">
-                <input type="text" id="list-archive" readonly placeholder="Drop archive here or click Browse..." />
-                <button id="list-archive-btn" class="btn-secondary">Browse</button>
+                <input type="text" id="list-archive" readonly data-i18n-placeholder="list.archivePlaceholder" placeholder="将归档拖到这里或点击浏览..." />
+                <button id="list-archive-btn" class="btn-secondary" data-i18n="common.browse">浏览</button>
               </div>
             </div>
 
             <div class="field">
-              <label>Password (for encrypted archives)</label>
-              <input type="password" id="list-password" placeholder="Optional — leave empty for no password" />
+              <label data-i18n="list.password">密码（用于加密归档）</label>
+              <input type="password" id="list-password" data-i18n-placeholder="list.passwordPlaceholder" placeholder="可选——留空表示无密码" />
             </div>
 
             <div class="actions">
-              <button id="list-run" class="btn-primary">Open Archive</button>
+              <button id="list-run" class="btn-primary" data-i18n="list.run">打开归档</button>
             </div>
 
-            <!-- Archive browser bar (breadcrumb + actions) -->
             <div id="browser-bar" class="browser-bar" style="display:none">
               <div id="browser-breadcrumb" class="browser-breadcrumb"></div>
               <div class="browser-actions">
-                <button id="browser-extract-all" class="btn-primary" disabled>Extract All</button>
-                <button id="browser-extract-selected" class="btn-secondary" disabled>Extract Selected</button>
-                <span id="browser-drag-status" class="drag-status">Drag rows out to desktop</span>
+                <button id="browser-extract-all" class="btn-primary" disabled data-i18n="browser.extractAll">全部解压</button>
+                <button id="browser-extract-selected" class="btn-secondary" disabled data-i18n="browser.extractSelected">解压所选</button>
+                <span id="browser-drag-status" class="drag-status" data-i18n="browser.dragStatus.idle">将行拖到桌面即可导出</span>
                 <span id="browser-selection-count" class="browser-selection-count"></span>
                 <label class="checkbox-label browser-overwrite-label">
                   <input type="checkbox" id="browser-overwrite" />
-                  Overwrite existing files
+                  <span data-i18n="browser.overwrite">覆盖已存在文件</span>
                 </label>
               </div>
               <div class="browser-extract-target">
-                <label for="browser-extract-output">Extract All Output</label>
+                <label for="browser-extract-output" data-i18n="browser.extractAllOutput">全部解压输出目录</label>
                 <div class="input-row">
-                  <input type="text" id="browser-extract-output" placeholder="Auto-filled from archive..." />
-                  <button id="browser-extract-output-btn" class="btn-secondary">Browse</button>
+                  <input type="text" id="browser-extract-output" data-i18n-placeholder="browser.extractOutputPlaceholder" placeholder="根据归档自动填写..." />
+                  <button id="browser-extract-output-btn" class="btn-secondary" data-i18n="common.browse">浏览</button>
                 </div>
               </div>
             </div>
@@ -200,88 +194,110 @@
                 <span id="list-progress-stage" class="task-progress-stage"></span>
                 <span id="list-progress-percent" class="task-progress-percent"></span>
               </div>
-              <progress id="list-progress-bar" class="task-progress-bar" max="100"></progress>
               <div id="list-progress-message" class="task-progress-message"></div>
               <div id="list-progress-entry" class="task-progress-entry"></div>
               <div id="list-progress-stats" class="task-progress-stats"></div>
+              <progress id="list-progress-bar" class="task-progress-bar" max="100"></progress>
             </div>
 
             <div id="list-result" class="result-panel">
-              <div class="result-empty">Select an archive and click Open Archive</div>
+              <div class="result-empty" data-i18n="list.result.empty">请选择一个归档文件，然后点击“打开归档”</div>
             </div>
 
-            <!-- Preview panel -->
             <div id="browser-preview" class="browser-preview" style="display:none">
               <div class="preview-header">
                 <span id="preview-title" class="preview-title"></span>
                 <span id="preview-size" class="preview-size"></span>
-                <button id="preview-close" class="btn-secondary preview-close-btn">&times;</button>
+                <button id="preview-close" class="btn-secondary preview-close-btn" type="button">&times;</button>
               </div>
               <pre id="preview-content" class="preview-content"></pre>
             </div>
           </section>
 
-          <!-- ===================== TEST PANEL ===================== -->
           <section id="panel-test" class="panel" role="tabpanel">
             <div class="field">
-              <label>Archive File</label>
+              <label data-i18n="test.archiveFile">归档文件</label>
               <div class="input-row">
-                <input type="text" id="test-archive" readonly placeholder="Drop archive here or click Browse..." />
-                <button id="test-archive-btn" class="btn-secondary">Browse</button>
+                <input type="text" id="test-archive" readonly data-i18n-placeholder="test.archivePlaceholder" placeholder="将归档拖到这里或点击浏览..." />
+                <button id="test-archive-btn" class="btn-secondary" data-i18n="common.browse">浏览</button>
               </div>
             </div>
 
             <div class="field">
-              <label>Password (for encrypted archives)</label>
-              <input type="password" id="test-password" placeholder="Optional — leave empty for no password" />
+              <label data-i18n="test.password">密码（用于加密归档）</label>
+              <input type="password" id="test-password" data-i18n-placeholder="test.passwordPlaceholder" placeholder="可选——留空表示无密码" />
             </div>
 
             <div class="actions">
-              <button id="test-run" class="btn-primary">Test Integrity</button>
+              <button id="test-run" class="btn-primary" data-i18n="test.run">测试完整性</button>
             </div>
 
             <div id="test-result" class="result-panel">
-              <div class="result-empty">Select an archive and click Test Integrity</div>
+              <div class="result-empty" data-i18n="test.result.empty">请选择一个归档文件，然后点击“测试完整性”</div>
             </div>
           </section>
 
           <section id="panel-home" class="panel active" role="tabpanel">
             <div class="home-hero">
-              <h2>欢迎使用 GeeZipX</h2>
-              <p class="home-subtitle">高性能跨平台压缩/解压缩工具</p>
+              <h2 data-i18n="home.title">欢迎使用 GeeZipX</h2>
+              <p class="home-subtitle" data-i18n="home.subtitle">高性能跨平台压缩/解压缩工具</p>
             </div>
             <div class="home-features">
-              <div class="home-card">📦 <strong>压缩</strong><br>支持 ZIP / TAR / TAR.GZ / TAR.ZST / TAR.XZ</div>
-              <div class="home-card">📂 <strong>解压缩</strong><br>支持 ZIP / TAR / GZ / ZST / XZ / 7Z / RAR</div>
-              <div class="home-card">🔍 <strong>浏览</strong><br>无需解压即可查看归档内容</div>
-              <div class="home-card">✅ <strong>校验</strong><br>测试归档完整性</div>
+              <div class="home-card">
+                <span class="home-card-icon">📦</span>
+                <strong data-i18n="home.features.compress.title">压缩</strong>
+                <span class="home-card-desc" data-i18n="home.features.compress.desc">支持 ZIP / TAR / TAR.GZ / TAR.ZST / TAR.XZ</span>
+              </div>
+              <div class="home-card">
+                <span class="home-card-icon">📂</span>
+                <strong data-i18n="home.features.extract.title">解压缩</strong>
+                <span class="home-card-desc" data-i18n="home.features.extract.desc">支持 ZIP / TAR / GZ / ZST / XZ / 7Z / RAR</span>
+              </div>
+              <div class="home-card">
+                <span class="home-card-icon">🔍</span>
+                <strong data-i18n="home.features.browse.title">浏览</strong>
+                <span class="home-card-desc" data-i18n="home.features.browse.desc">无需解压即可查看归档内容</span>
+              </div>
+              <div class="home-card">
+                <span class="home-card-icon">✅</span>
+                <strong data-i18n="home.features.test.title">校验</strong>
+                <span class="home-card-desc" data-i18n="home.features.test.desc">测试归档完整性</span>
+              </div>
             </div>
           </section>
 
           <section id="panel-settings" class="panel" role="tabpanel">
             <div class="home-hero">
-              <h2>设置</h2>
-              <p class="home-subtitle">更多设置选项即将推出</p>
+              <h2 data-i18n="settings.title">设置</h2>
+              <p class="home-subtitle" data-i18n="settings.subtitle">更多设置选项即将推出</p>
             </div>
-            <div class="result-empty" style="margin-top:2rem">语言、主题、默认路径等设置将在后续版本中添加。</div>
+            <div class="settings-card">
+              <div class="field">
+                <label for="settings-locale" data-i18n="settings.locale.label">界面语言</label>
+                <select id="settings-locale">
+                  <option value="zh-CN">简体中文</option>
+                  <option value="en">English</option>
+                </select>
+                <p class="settings-help" data-i18n="settings.locale.help">语言偏好会保存到本地浏览器存储。</p>
+              </div>
+            </div>
+            <div class="result-empty" style="margin-top:2rem" data-i18n="settings.moreComing">主题、默认路径等设置将在后续版本中添加。</div>
           </section>
 
           <section id="panel-about" class="panel" role="tabpanel">
             <div class="home-hero">
-              <h2>关于 GeeZipX</h2>
+              <h2 data-i18n="about.title">关于 GeeZipX</h2>
               <p class="home-subtitle">v0.4.0</p>
             </div>
             <div class="result-panel" style="margin-top:1rem">
-              <p>GeeZipX 是一款使用 Rust 开发的跨平台压缩/解压缩工具。</p>
-              <p style="margin-top:0.5rem;color:var(--text-muted)">
-                技术栈：Rust + Tauri 2 + TypeScript
-              </p>
+              <p data-i18n="about.description">GeeZipX 是一款使用 Rust 开发的跨平台压缩/解压缩工具。</p>
+              <p style="margin-top:0.5rem;color:var(--text-muted)" data-i18n="about.stack">技术栈：Rust + Tauri 2 + TypeScript</p>
             </div>
           </section>
         </main>
 
         <footer>
-          <p>GeeZipX v0.4.0 &mdash; Desktop GUI</p>
+          <p data-i18n="footer.desktop">GeeZipX v0.4.0 — 桌面 GUI</p>
         </footer>
       </div>
     </div>
