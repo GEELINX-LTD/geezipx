@@ -9,6 +9,7 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
+use geezipx_core::archive::asar::AsarReader;
 #[cfg(feature = "rar")]
 use geezipx_core::archive::rar::RarReader;
 use geezipx_core::archive::seven_zip::SevenZipReader;
@@ -41,7 +42,7 @@ use geezipx_core::detect::{self, ArchiveFormat};
 /// Accepts: `zip`, ZIP-derived aliases (`jar`, `war`, `apk`, `ipa`, `xpi`),
 /// `tar`, `tar.gz`, `tgz`, `tar.bz2`, `tbz`, `tbz2`, `tar.br`, `gz`, `gzip`,
 /// `bz2`, `bzip2`, `br`, `brotli`, `lz4`, `tar.lz4`, `zst`, `zstd`, `tar.zst`,
-/// `tzst`, `tar.xz`, `txz`, `xz`, `lzma`, `7z`, `rar`.
+/// `tzst`, `tar.xz`, `txz`, `xz`, `lzma`, `7z`, `rar`, `asar`.
 pub fn parse_format(s: &str) -> Result<ArchiveFormat> {
     match s.to_ascii_lowercase().as_str() {
         "zip" | "jar" | "war" | "apk" | "ipa" | "xpi" => Ok(ArchiveFormat::Zip),
@@ -61,8 +62,9 @@ pub fn parse_format(s: &str) -> Result<ArchiveFormat> {
         "lzma" => Ok(ArchiveFormat::Lzma),
         "7z" => Ok(ArchiveFormat::SevenZip),
         "rar" => Ok(ArchiveFormat::Rar),
+        "asar" => Ok(ArchiveFormat::Asar),
         other => Err(anyhow::anyhow!(
-            "unsupported format '{other}'; expected: zip, jar, war, apk, ipa, xpi, tar, tar.gz, tgz, tar.bz2, tbz, tbz2, tar.br, gz, gzip, bz2, bzip2, br, brotli, lz4, tar.lz4, zst, zstd, tar.zst, tzst, tar.xz, txz, xz, lzma, 7z, rar"
+            "unsupported format '{other}'; expected: zip, jar, war, apk, ipa, xpi, tar, tar.gz, tgz, tar.bz2, tbz, tbz2, tar.br, gz, gzip, bz2, bzip2, br, brotli, lz4, tar.lz4, zst, zstd, tar.zst, tzst, tar.xz, txz, xz, lzma, 7z, rar, asar"
         )),
     }
 }
@@ -299,6 +301,7 @@ pub fn open_reader(
             }
             reader
         }
+        ArchiveFormat::Asar => Box::new(AsarReader::new(path)),
         ArchiveFormat::Tar => Box::new(TarReader::new(file)),
         ArchiveFormat::TarGz => Box::new(TarGzReader::new(file)),
         ArchiveFormat::TarBz2 => Box::new(TarBz2Reader::new(file)),
@@ -361,6 +364,9 @@ pub fn create_writer(
         ArchiveFormat::TarBr => Ok(Box::new(TarBrWriter::new_with_options(file, options)?)),
         ArchiveFormat::TarLz4 => Ok(Box::new(TarLz4Writer::new_with_options(file, options)?)),
         ArchiveFormat::TarZst => Ok(Box::new(TarZstWriter::new_with_options(file, options))),
+        ArchiveFormat::Asar => {
+            anyhow::bail!("'{format}' is a read-only archive format; writing is not supported")
+        }
         ArchiveFormat::Gzip
         | ArchiveFormat::Bzip2
         | ArchiveFormat::Brotli
@@ -510,4 +516,56 @@ pub fn resolve_password(
     }
 
     Ok(password)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn build_raw_asar(header_json: &str, payload: &[u8]) -> Vec<u8> {
+        let mut json = header_json.as_bytes().to_vec();
+        let json_size = json.len() as u32;
+        let aligned_json_size = json_size + (4 - (json_size % 4)) % 4;
+        json.resize(aligned_json_size as usize, 0);
+
+        let mut out = Vec::with_capacity(16 + json.len() + payload.len());
+        out.extend_from_slice(&4u32.to_le_bytes());
+        out.extend_from_slice(&(aligned_json_size + 8).to_le_bytes());
+        out.extend_from_slice(&(aligned_json_size + 4).to_le_bytes());
+        out.extend_from_slice(&json_size.to_le_bytes());
+        out.extend_from_slice(&json);
+        out.extend_from_slice(payload);
+        out
+    }
+
+    #[test]
+    fn parse_format_asar() {
+        assert_eq!(parse_format("asar").unwrap(), ArchiveFormat::Asar);
+    }
+
+    #[test]
+    fn detect_archive_format_asar_extension() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let archive = temp.path().join("app.asar");
+        let header = r#"{"files":{"hello.txt":{"size":5,"offset":"0"}}}"#;
+        std::fs::write(&archive, build_raw_asar(header, b"hello")).unwrap();
+
+        assert_eq!(
+            detect_archive_format(&archive).unwrap(),
+            ArchiveFormat::Asar
+        );
+    }
+
+    #[test]
+    fn open_reader_asar_lists_entries() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let archive = temp.path().join("app.asar");
+        let header = r#"{"files":{"hello.txt":{"size":5,"offset":"0"}}}"#;
+        std::fs::write(&archive, build_raw_asar(header, b"hello")).unwrap();
+
+        let mut reader = open_reader(&archive, ArchiveFormat::Asar, None).unwrap();
+        let entries = reader.entries().unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].path, "hello.txt");
+    }
 }

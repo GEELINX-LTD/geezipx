@@ -12,6 +12,7 @@
 //!   [`Write`] so large files never need to be fully buffered.
 //! - **Object-safe** — both traits use `&mut self` / `self: Box<Self>`
 //!   receivers so they can be used through `Box<dyn ArchiveReader>` etc.
+pub mod asar;
 pub mod brotli;
 pub mod bzip2;
 pub mod gzip;
@@ -471,6 +472,17 @@ pub(crate) fn normalize_path(path: &Path) -> std::path::PathBuf {
     result
 }
 
+fn looks_like_windows_absolute_or_unc(path: &str) -> bool {
+    let path = path.replace('/', "\\");
+    let bytes = path.as_bytes();
+
+    path.starts_with("\\\\")
+        || (bytes.len() >= 3
+            && bytes[0].is_ascii_alphabetic()
+            && bytes[1] == b':'
+            && bytes[2] == b'\\')
+}
+
 /// Check whether extracting `entry_path` under `dest` would escape the
 /// target directory (Zip Slip protection).
 ///
@@ -492,19 +504,16 @@ pub fn check_entry_path_safety(
         ));
     }
 
-    // On Windows, also reject UNC / device-prefixed paths.
-    #[cfg(windows)]
-    {
-        let path_os = entry_name.replace("/", "\\");
-        if path_os.starts_with("\\\\") {
-            return Err((
-                entry_name.to_owned(),
-                GeeZipError::PathTraversal {
-                    entry: entry_name.to_owned(),
-                    target: dest.display().to_string(),
-                },
-            ));
-        }
+    // Also reject Windows drive-prefixed / UNC / device-prefixed paths even
+    // when running on a non-Windows host.
+    if looks_like_windows_absolute_or_unc(entry_name) {
+        return Err((
+            entry_name.to_owned(),
+            GeeZipError::PathTraversal {
+                entry: entry_name.to_owned(),
+                target: dest.display().to_string(),
+            },
+        ));
     }
 
     // Resolve the target relative to dest, then normalise.
@@ -541,13 +550,10 @@ pub fn is_entry_path_dangerous(path: &Path) -> bool {
         return true;
     }
 
-    // On Windows, also reject UNC / device-prefixed paths.
-    #[cfg(windows)]
-    {
-        let path_os = path.to_string_lossy().replace("/", "\\");
-        if path_os.starts_with("\\\\") {
-            return true;
-        }
+    // Also reject Windows drive-prefixed / UNC / device-prefixed paths even
+    // when running on a non-Windows host.
+    if looks_like_windows_absolute_or_unc(&path.to_string_lossy()) {
+        return true;
     }
 
     // Normalise and check whether the result escapes above cwd.
@@ -807,6 +813,20 @@ mod tests {
     }
 
     #[test]
+    fn check_entry_path_safety_rejects_windows_absolute() {
+        let dest = Path::new("/tmp/out");
+        let result = check_entry_path_safety(
+            Path::new("C:/Windows/System32"),
+            "C:/Windows/System32",
+            dest,
+        );
+        assert!(result.is_err());
+        let (name, err) = result.unwrap_err();
+        assert_eq!(name, "C:/Windows/System32");
+        assert!(matches!(err, GeeZipError::PathTraversal { .. }));
+    }
+
+    #[test]
     fn check_entry_path_safety_accepts_normal() {
         // Normal relative paths should be accepted.
         let dest = Path::new("/tmp/out");
@@ -827,6 +847,16 @@ mod tests {
         // Multiple consecutive slashes (collapsed by path components)
         assert_eq!(normalize_path(Path::new("a//b")), Path::new("a/b"));
         assert!(!normalize_path(Path::new("a//b")).as_os_str().is_empty());
+    }
+
+    #[test]
+    fn is_entry_path_dangerous_rejects_windows_absolute() {
+        assert!(is_entry_path_dangerous(Path::new(
+            "C:/Windows/System32/drivers/etc/hosts"
+        )));
+        assert!(is_entry_path_dangerous(Path::new(
+            r"\\server\share\file.txt"
+        )));
     }
 
     #[test]

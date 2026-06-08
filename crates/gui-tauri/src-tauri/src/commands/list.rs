@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 use serde::Serialize;
 use tokio::task::spawn_blocking;
 
+use geezipx_core::archive::asar::AsarReader;
 #[cfg(feature = "rar")]
 use geezipx_core::archive::rar::RarReader;
 use geezipx_core::archive::seven_zip::SevenZipReader;
@@ -56,7 +57,7 @@ pub struct EntryInfo {
 /// - Zstd magic + `.tar.zst`/`.tzst` extension → `TarZst`
 /// - XZ magic + `.tar.xz`/`.txz` extension → `TarXz`
 /// - Pure magic match → format from magic
-/// - Fallback → extension-based detection
+/// - Fallback → extension-based detection (`.asar` is extension-only)
 pub(crate) fn detect_archive_format(path: &Path) -> Result<ArchiveFormat, String> {
     let mut file =
         fs::File::open(path).map_err(|e| format!("Cannot open '{}': {}", path.display(), e))?;
@@ -153,6 +154,7 @@ pub(crate) fn open_reader(
             }
             Ok(reader)
         }
+        ArchiveFormat::Asar => Ok(Box::new(AsarReader::new(path))),
         ArchiveFormat::Tar => {
             let file = fs::File::open(path)
                 .map_err(|e| format!("Cannot open '{}': {}", path.display(), e))?;

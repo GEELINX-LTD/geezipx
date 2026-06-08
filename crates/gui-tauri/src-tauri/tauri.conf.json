@@ -98,6 +98,11 @@
         "ext": [".rar"],
         "description": "RAR Archive",
         "mimeType": "application/vnd.rar"
+      },
+      {
+        "ext": [".asar"],
+        "description": "Electron ASAR Archive",
+        "mimeType": "application/octet-stream"
       }
     ]
   }

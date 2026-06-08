@@ -49,6 +49,8 @@ pub enum ArchiveFormat {
     SevenZip,
     /// RAR archive (`52 61 72 21 1A 07`).
     Rar,
+    /// Electron ASAR archive (extension-based — `.asar`; no stable magic header).
+    Asar,
     /// Unknown or unrecognised format.
     Unknown,
 }
@@ -73,6 +75,7 @@ impl fmt::Display for ArchiveFormat {
             ArchiveFormat::Lzma => write!(f, "lzma"),
             ArchiveFormat::SevenZip => write!(f, "7z"),
             ArchiveFormat::Rar => write!(f, "rar"),
+            ArchiveFormat::Asar => write!(f, "asar"),
             ArchiveFormat::Unknown => write!(f, "unknown"),
         }
     }
@@ -122,6 +125,7 @@ const EXTENSION_MAP: &[(&str, ArchiveFormat)] = &[
     (".gzip", ArchiveFormat::Gzip),
     (".7z", ArchiveFormat::SevenZip),
     (".rar", ArchiveFormat::Rar),
+    (".asar", ArchiveFormat::Asar),
 ];
 
 // ---------------------------------------------------------------------------
@@ -139,7 +143,8 @@ const EXTENSION_MAP: &[(&str, ArchiveFormat)] = &[
 /// outer stream format (`Gzip` / `Bzip2` / `Lz4`) because the compression
 /// magic header does not reveal whether the inner stream is a tar archive.
 /// Brotli streams have no stable magic header here, so `.br` / `.tar.br`
-/// rely on extension-based detection only.
+/// rely on extension-based detection only. ASAR similarly has no reliable fixed
+/// magic header and is handled only by explicit format / extension.
 pub fn detect_format(data: &[u8]) -> Option<ArchiveFormat> {
     if data.starts_with(MAGIC_ZIP) || data.starts_with(MAGIC_ZIP_EMPTY) {
         return Some(ArchiveFormat::Zip);
@@ -292,6 +297,16 @@ mod tests {
         assert_eq!(
             detect_from_extension(Path::new("archive.br")),
             Some(ArchiveFormat::Brotli)
+        );
+    }
+
+    #[test]
+    fn detect_asar_is_extension_only() {
+        let raw = br#"{"files":{"hello.txt":{"size":5,"offset":"0"}}}hello"#;
+        assert_eq!(detect_format(raw), None);
+        assert_eq!(
+            detect_from_extension(Path::new("archive.asar")),
+            Some(ArchiveFormat::Asar)
         );
     }
 
@@ -516,6 +531,14 @@ mod tests {
     }
 
     #[test]
+    fn ext_asar() {
+        assert_eq!(
+            detect_from_extension(Path::new("archive.asar")),
+            Some(ArchiveFormat::Asar)
+        );
+    }
+
+    #[test]
     fn ext_unknown() {
         assert_eq!(detect_from_extension(Path::new("readme.md")), None);
     }
@@ -599,6 +622,11 @@ mod tests {
     #[test]
     fn display_tarlz4() {
         assert_eq!(ArchiveFormat::TarLz4.to_string(), "tar.lz4");
+    }
+
+    #[test]
+    fn display_asar() {
+        assert_eq!(ArchiveFormat::Asar.to_string(), "asar");
     }
 
     #[test]
