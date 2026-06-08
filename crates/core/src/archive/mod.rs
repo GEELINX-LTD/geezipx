@@ -12,12 +12,18 @@
 //!   [`Write`] so large files never need to be fully buffered.
 //! - **Object-safe** — both traits use `&mut self` / `self: Box<Self>`
 //!   receivers so they can be used through `Box<dyn ArchiveReader>` etc.
+pub mod brotli;
+pub mod bzip2;
 pub mod gzip;
+pub mod lz4;
 #[cfg(feature = "rar")]
 pub mod rar;
 pub mod seven_zip;
 pub mod tar;
+pub mod tarbr;
+pub mod tarbz2;
 pub mod targz;
+pub mod tarlz4;
 pub mod tarxz;
 pub mod tarzst;
 pub mod xz;
@@ -553,8 +559,9 @@ pub fn is_entry_path_dangerous(path: &Path) -> bool {
 /// Counting writer wrapper that tracks total bytes written through a
 /// writer chain.
 ///
-/// Used internally by [`TarWriter`](crate::archive::tar::TarWriter) and
-/// [`TarGzWriter`](crate::archive::targz::TarGzWriter).
+/// Used internally by [`TarWriter`](crate::archive::tar::TarWriter),
+/// [`TarGzWriter`](crate::archive::targz::TarGzWriter),
+/// and [`TarBz2Writer`](crate::archive::tarbz2::TarBz2Writer).
 pub(crate) struct CountWriter<W> {
     pub(crate) inner: W,
     pub(crate) count: u64,

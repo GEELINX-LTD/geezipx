@@ -13,7 +13,10 @@ use tokio::task::spawn_blocking;
 use geezipx_core::archive::rar::RarReader;
 use geezipx_core::archive::seven_zip::SevenZipReader;
 use geezipx_core::archive::tar::TarReader;
+use geezipx_core::archive::tarbr::TarBrReader;
+use geezipx_core::archive::tarbz2::TarBz2Reader;
 use geezipx_core::archive::targz::TarGzReader;
+use geezipx_core::archive::tarlz4::TarLz4Reader;
 use geezipx_core::archive::tarxz::TarXzReader;
 use geezipx_core::archive::tarzst::TarZstReader;
 use geezipx_core::archive::zip::ZipReader;
@@ -48,6 +51,8 @@ pub struct EntryInfo {
 /// Detect archive format by combining magic-byte and extension heuristics.
 ///
 /// - Gzip magic + `.tar.gz`/`.tgz` extension → `TarGz`
+/// - Bzip2 magic + `.tar.bz2`/`.tbz`/`.tbz2` extension → `TarBz2`
+/// - LZ4 magic + `.tar.lz4` extension → `TarLz4`
 /// - Zstd magic + `.tar.zst`/`.tzst` extension → `TarZst`
 /// - XZ magic + `.tar.xz`/`.txz` extension → `TarXz`
 /// - Pure magic match → format from magic
@@ -67,6 +72,14 @@ pub(crate) fn detect_archive_format(path: &Path) -> Result<ArchiveFormat, String
                 _ => Ok(ArchiveFormat::Gzip),
             }
         }
+        Some(ArchiveFormat::Bzip2) => match detect::detect_from_extension(path) {
+            Some(ArchiveFormat::TarBz2) => Ok(ArchiveFormat::TarBz2),
+            _ => Ok(ArchiveFormat::Bzip2),
+        },
+        Some(ArchiveFormat::Lz4) => match detect::detect_from_extension(path) {
+            Some(ArchiveFormat::TarLz4) => Ok(ArchiveFormat::TarLz4),
+            _ => Ok(ArchiveFormat::Lz4),
+        },
         Some(ArchiveFormat::Zstd) => match detect::detect_from_extension(path) {
             Some(ArchiveFormat::TarZst) => Ok(ArchiveFormat::TarZst),
             _ => Ok(ArchiveFormat::Zstd),
@@ -86,7 +99,7 @@ pub(crate) fn detect_archive_format(path: &Path) -> Result<ArchiveFormat, String
 
 /// Open an archive reader for the given path and format.
 ///
-/// Returns an error for single-stream compression formats (gzip, zstd, xz, lzma)
+/// Returns an error for single-stream compression formats (gzip, bzip2, brotli, lz4, zstd, xz, lzma)
 /// that do not support listing entries.
 pub(crate) fn open_reader(
     path: &Path,
@@ -107,7 +120,13 @@ pub(crate) fn open_reader(
 
     // Single-stream formats cannot be read as archives.
     match format {
-        ArchiveFormat::Gzip | ArchiveFormat::Zstd | ArchiveFormat::Xz | ArchiveFormat::Lzma => {
+        ArchiveFormat::Gzip
+        | ArchiveFormat::Bzip2
+        | ArchiveFormat::Brotli
+        | ArchiveFormat::Lz4
+        | ArchiveFormat::Zstd
+        | ArchiveFormat::Xz
+        | ArchiveFormat::Lzma => {
             return Err(format!(
                 "'{}' is a single-stream compression format; it does not contain a directory listing",
                 format
@@ -144,6 +163,21 @@ pub(crate) fn open_reader(
                 .map_err(|e| format!("Cannot open '{}': {}", path.display(), e))?;
             Ok(Box::new(TarGzReader::new(file)))
         }
+        ArchiveFormat::TarBz2 => {
+            let file = fs::File::open(path)
+                .map_err(|e| format!("Cannot open '{}': {}", path.display(), e))?;
+            Ok(Box::new(TarBz2Reader::new(file)))
+        }
+        ArchiveFormat::TarBr => {
+            let file = fs::File::open(path)
+                .map_err(|e| format!("Cannot open '{}': {}", path.display(), e))?;
+            Ok(Box::new(TarBrReader::new(file)))
+        }
+        ArchiveFormat::TarLz4 => {
+            let file = fs::File::open(path)
+                .map_err(|e| format!("Cannot open '{}': {}", path.display(), e))?;
+            Ok(Box::new(TarLz4Reader::new(file)))
+        }
         ArchiveFormat::TarZst => {
             let file = fs::File::open(path)
                 .map_err(|e| format!("Cannot open '{}': {}", path.display(), e))?;
@@ -174,7 +208,7 @@ pub(crate) fn open_reader(
 
 /// List entries inside an archive.
 ///
-/// For single-stream formats (gzip, zstd, xz, lzma) this returns an error
+/// For single-stream formats (gzip, bzip2, brotli, lz4, zstd, xz, lzma) this returns an error
 /// because they do not contain a directory structure — use `test_archive` instead.
 #[tauri::command]
 pub async fn list_archive(

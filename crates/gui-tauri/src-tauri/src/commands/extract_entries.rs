@@ -79,6 +79,9 @@ pub async fn extract_entries(
                 let format = detect_archive_format(&path_buf)?;
                 match format {
                     ArchiveFormat::Gzip
+                    | ArchiveFormat::Bzip2
+                    | ArchiveFormat::Brotli
+                    | ArchiveFormat::Lz4
                     | ArchiveFormat::Zstd
                     | ArchiveFormat::Xz
                     | ArchiveFormat::Lzma => {

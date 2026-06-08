@@ -48,7 +48,13 @@ fn run_verify(archive: &Path, json: bool, password: Option<String>) -> Result<()
     if password.is_some()
         && matches!(
             format,
-            ArchiveFormat::Gzip | ArchiveFormat::Zstd | ArchiveFormat::Xz | ArchiveFormat::Lzma
+            ArchiveFormat::Gzip
+                | ArchiveFormat::Bzip2
+                | ArchiveFormat::Brotli
+                | ArchiveFormat::Lz4
+                | ArchiveFormat::Zstd
+                | ArchiveFormat::Xz
+                | ArchiveFormat::Lzma
         )
     {
         anyhow::bail!(
@@ -60,15 +66,22 @@ fn run_verify(archive: &Path, json: bool, password: Option<String>) -> Result<()
     let fs_metadata_len = fs::metadata(archive).map(|m| m.len()).unwrap_or(0);
 
     let report = match format {
-        ArchiveFormat::Gzip | ArchiveFormat::Zstd | ArchiveFormat::Xz | ArchiveFormat::Lzma => {
-            verify_single_stream(archive, format)
-                .with_context(|| format!("verifying '{}'", archive.display()))?
-        }
+        ArchiveFormat::Gzip
+        | ArchiveFormat::Bzip2
+        | ArchiveFormat::Brotli
+        | ArchiveFormat::Lz4
+        | ArchiveFormat::Zstd
+        | ArchiveFormat::Xz
+        | ArchiveFormat::Lzma => verify_single_stream(archive, format)
+            .with_context(|| format!("verifying '{}'", archive.display()))?,
         ArchiveFormat::Zip
         | ArchiveFormat::SevenZip
         | ArchiveFormat::Rar
         | ArchiveFormat::Tar
         | ArchiveFormat::TarGz
+        | ArchiveFormat::TarBz2
+        | ArchiveFormat::TarBr
+        | ArchiveFormat::TarLz4
         | ArchiveFormat::TarZst
         | ArchiveFormat::TarXz => {
             let mut reader = common::open_reader(archive, format, password.as_deref())?;

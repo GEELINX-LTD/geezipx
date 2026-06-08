@@ -14,12 +14,12 @@
 
 ## Features
 
-- **Multi-format** -- ZIP, TAR, TAR.GZ/TGZ, TAR.ZST/TZST, TAR.XZ/TXZ, GZIP/GZ, Zstandard/ZST, XZ, LZMA (read/write), 7Z (read-only), and RAR (read-only)
+- **Multi-format** -- ZIP (including ZIP-compatible aliases `.jar`, `.war`, `.apk`, `.ipa`, `.xpi`), TAR, TAR.GZ/TGZ, TAR.BZ2/TBZ/TBZ2, TAR.BR, TAR.LZ4, TAR.ZST/TZST, TAR.XZ/TXZ, GZIP/GZ, BZIP2/BZ2, Brotli/BR, LZ4, Zstandard/ZST, XZ, LZMA (read/write), 7Z (read-only), and RAR (read-only). *Planned: 7Z write, LZH, ISO, ZIPX, SFX, ZPAQ, CAB, WIM, and more — see [docs/PRD.md](docs/PRD.md) section 5.1*
 - **Streaming I/O** -- process large files with bounded memory usage
 - **Live progress bars** -- real-time speed, ETA, and per-file status on TTY
 - **Cancel-safe** -- graceful Ctrl+C with partial-file cleanup; double Ctrl+C force-kill
 - **Auto-format detection** -- magic-byte recognition with extension-based fallback
-- **Compression levels** -- `--level 0-9` for gzip/tar.gz/xz/lzma/tar.xz; `--level 0-22` for zstd/tar.zst
+- **Compression levels** -- `--level 0-9` for gzip/bzip2/tar.gz/tar.bz2/xz/lzma/tar.xz; `--level 0-11` for brotli/tar.br; `--level 0-22` for zstd/tar.zst; lz4/tar.lz4 accept `0` or omitted level only
 - **Clobber controls** -- `--no-clobber` to skip existing files, `--force` to overwrite
 - **Zip Slip protection** -- blocks path-traversal attacks in all archive formats
 - **JSON output** -- `list --json` for machine-readable inspection; `test --json` for programmatic integrity results
@@ -111,6 +111,9 @@ geezipx decompress hello.zip
 # Decompress gzip to stdout
 geezipx decompress hello.txt.gz --stdout > output.txt
 
+# Compress with Brotli
+geezipx compress hello.txt -f brotli -o hello.txt.br
+
 # Compress with zstandard
 geezipx compress hello.txt -f zst -o hello.txt.zst
 
@@ -119,6 +122,9 @@ geezipx decompress hello.txt.zst --stdout > output.txt
 
 # Multi-threaded zstd compression (4 workers)
 geezipx compress hello.txt -f zst -o hello.txt.zst -j 4
+
+# Compress directory into tar.lz4 archive
+geezipx compress mydir -r -f tar.lz4 -o mydir.tar.lz4
 
 # Compress directory into tar.zst archive
 geezipx compress mydir -r -f tar.zst -o mydir.tar.zst
@@ -161,7 +167,13 @@ geezipx compress hello.txt -f gz --stdout > hello.gz              # file to stdo
 # Tar-based pipeline examples (raw tar stdin/stdout)
 cat raw.tar | geezipx compress --stdin -f tar.gz -o archive.tar.gz
 tar cf - mydir/ | geezipx compress --stdin -f tar.zst -o mydir.tar.zst
+cat raw.tar | geezipx compress --stdin -f tar.bz2 -o archive.tar.bz2
+cat raw.tar | geezipx compress --stdin -f tar.br -o archive.tar.br
+cat raw.tar | geezipx compress --stdin -f tar.lz4 -o archive.tar.lz4
 geezipx decompress archive.tar.gz --stdout | tar tf -
+geezipx decompress archive.tar.bz2 --stdout > raw.tar
+geezipx decompress archive.tar.br --stdout > raw.tar
+geezipx decompress archive.tar.lz4 --stdout > raw.tar
 geezipx decompress archive.tar.xz --stdout > raw.tar
 ```
 
@@ -185,13 +197,13 @@ geezipx compress <inputs...> -o <output> [options]
 | Option | Description |
 |--------|-------------|
 | `-o`, `--output` | Output file path (required unless `--stdout` is used) |
-| `-f`, `--format` | Format: `zip`, `tar`, `tar.gz`, `tgz`, `gz`, `gzip`, `tar.zst`, `tzst`, `zst`, `zstd`, `tar.xz`, `txz`, `xz`, `lzma` (inferred from extension if omitted, defaults to zip) |
+| `-f`, `--format` | Format: `zip`, `jar`, `war`, `apk`, `ipa`, `xpi`, `tar`, `tar.gz`, `tgz`, `tar.bz2`, `tbz`, `tbz2`, `tar.br`, `gz`, `gzip`, `bz2`, `bzip2`, `br`, `brotli`, `lz4`, `tar.lz4`, `tar.zst`, `tzst`, `zst`, `zstd`, `tar.xz`, `txz`, `xz`, `lzma` (inferred from extension if omitted, defaults to zip) |
 | `-r`, `--recursive` | Recursively add directories |
-| `-L`, `--level` | Compression level 0-9 (gzip/tar.gz/xz/tar.xz, default: 6); 0-22 (zstd/zst/tar.zst/tzst, default: zstd default) |
+| `-L`, `--level` | Compression level 0-9 (gzip/bzip2/tar.gz/tar.bz2/xz/tar.xz, default: 6; bzip2 level 0 maps to default); 0-11 (brotli/tar.br); 0-22 (zstd/zst/tar.zst/tzst, default: zstd default); lz4/tar.lz4 accept `0` or omitted level only |
 | `-j`, `--jobs` | Worker threads: 1 (default, single-threaded), 0 (auto, use all CPUs), or N (explicit). Effective for tar.gz (gzp parallel gzip) and zstd/tar.zst (native zstdmt); tar.xz/zip/xz/lzma accept but ignore for forward compat. **Note**: tar.gz `--jobs` does not apply in `--stdin` single-stream mode, only in archive mode
 | `--password` | Encrypt ZIP with AES-256 (ZIP format only). Use `--password-file` to read the password from a file, or `--password-stdin` to read from stdin. These three options are mutually exclusive. For scripting, prefer `--password-file` or `--password-stdin` to avoid exposing the password in the process list |
-| `--stdin` | Read uncompressed data from stdin (gzip/zstd/xz/lzma single-stream and tar.gz/tar.zst/tar.xz raw tar; requires `--format`; mutually exclusive with input files)
-| `--stdout` | Write compressed data to stdout (gzip/zstd/xz/lzma single-stream and tar.gz/tar.zst/tar.xz raw tar; requires `--format`; mutually exclusive with `--output`)
+| `--stdin` | Read uncompressed data from stdin (gzip/bzip2/brotli/lz4/zstd/xz/lzma single-stream and tar.gz/tar.bz2/tar.br/tar.lz4/tar.zst/tar.xz raw tar; requires `--format`; mutually exclusive with input files)
+| `--stdout` | Write compressed data to stdout (gzip/bzip2/brotli/lz4/zstd/xz/lzma single-stream and tar.gz/tar.bz2/tar.br/tar.lz4/tar.zst/tar.xz raw tar; requires `--format`; mutually exclusive with `--output`)
 
 ### `decompress` — Extract archives
 
@@ -204,8 +216,8 @@ Auto-detects the format via magic bytes (with extension fallback).
 | Option | Description |
 |--------|-------------|
 | `-o`, `--output-dir` | Output directory (default: current directory) |
-| `--stdout` | Decompress to stdout. Single-stream (gzip/zstd/xz/lzma): outputs original content. Tar-based (tar.gz/tar.zst/tar.xz): outputs raw tar stream. Errors on multi-file archives (zip/tar/7z/rar)
-| `--stdin` | Read compressed data from stdin (gzip/zstd/xz/lzma and tar.gz/tar.zst/tar.xz; requires `--format`; mutually exclusive with archive file)
+| `--stdout` | Decompress to stdout. Single-stream (gzip/bzip2/brotli/lz4/zstd/xz/lzma): outputs original content. Tar-based (tar.gz/tar.bz2/tar.br/tar.lz4/tar.zst/tar.xz): outputs raw tar stream. Errors on multi-file archives (zip/tar/7z/rar)
+| `--stdin` | Read compressed data from stdin (gzip/bzip2/brotli/lz4/zstd/xz/lzma and tar.gz/tar.bz2/tar.br/tar.lz4/tar.zst/tar.xz; requires `--format`; mutually exclusive with archive file)
 | `-f`, `--format` | Archive/stream format (required with `--stdin`) |
 | `--no-clobber` | Skip files that already exist |
 | `--force` | Overwrite existing files (default; mutually exclusive with `--no-clobber`) |
@@ -443,7 +455,7 @@ and the combined `SHA256SUMS` file.
 
 All core features and the applicable format-specific subcommands are implemented and verified:
 
-- [x] ZIP / TAR / TAR.GZ / TAR.ZST / TAR.XZ / GZIP / ZSTD / XZ / LZMA read/write
+- [x] ZIP / TAR / TAR.GZ / TAR.BZ2 / TAR.BR / TAR.LZ4 / TAR.ZST / TAR.XZ / GZIP / BZIP2 / Brotli / LZ4 / ZSTD / XZ / LZMA read/write
 - [x] 7z / RAR read-only support via `list`, `decompress`, and `test`
 - [x] Streaming I/O with bounded memory usage
 - [x] Progress bars with `indicatif`
@@ -485,7 +497,13 @@ See [`docs/GUI_MVP_PLAN.md`](docs/GUI_MVP_PLAN.md) for detailed planning and tas
 ### Phase 3 (Future)
 
 - [ ] Platform-native installers (Homebrew, winget, APT)
-- [ ] Additional format support (as needed)
+- **Format expansion** — phased, see [docs/PRD.md](docs/PRD.md) section 5.1 for the full target list
+  - Compress: 7Z write, LZH, ISO, ZIPX, SFX, ZPAQ
+  - Decompress: CAB, WIM, DEB, ASAR
+  - Historical/legacy: ARJ, LHA, ACE, ARC, ALZ (via adapter/evaluation)
+  - Container/derived: JAR, WAR, APK, IPA, XPI (ZIP-reuse)
+  - Disk images: IMG, ISZ, UDF
+  - More formats driven by user requests and community feedback
 ---
 
 ## Configuration

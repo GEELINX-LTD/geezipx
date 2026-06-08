@@ -1,8 +1,8 @@
 //! Archive and compression stream integrity verification.
 //!
 //! Provides [`verify_archive_reader`] for archive-based formats (zip, tar,
-//! tar.gz, tar.zst, tar.xz) and [`verify_single_stream`] for single-stream
-//! compression formats (gzip, zstd, xz, lzma).
+//! tar.gz, tar.bz2, tar.zst, tar.xz, tar.br, tar.lz4) and [`verify_single_stream`]
+//! for single-stream compression formats (gzip, bzip2, brotli, lz4, zstd, xz, lzma).
 //!
 //! # Design
 //!
@@ -71,8 +71,8 @@ pub fn verify_archive_reader(reader: &mut dyn ArchiveReader) -> GeeZipResult<Tes
     })
 }
 
-/// Verify the integrity of a single-stream compressed file (gzip, zstd, xz,
-/// lzma).
+/// Verify the integrity of a single-stream compressed file (gzip, bzip2,
+/// brotli, lz4, zstd, xz, lzma).
 ///
 /// Opens the file, creates the appropriate decoder, and copies the entire
 /// decompressed stream to `std::io::sink()`.  Returns an error if the
@@ -85,6 +85,21 @@ pub fn verify_single_stream(path: &Path, format: ArchiveFormat) -> GeeZipResult<
             let mut decoder = flate2::read::GzDecoder::new(file);
             std::io::copy(&mut decoder, &mut std::io::sink())
                 .map_err(|e| GeeZipError::io(e, "gzip verification failed"))?
+        }
+        ArchiveFormat::Bzip2 => {
+            let mut decoder = ::bzip2::read::MultiBzDecoder::new(file);
+            std::io::copy(&mut decoder, &mut std::io::sink())
+                .map_err(|e| GeeZipError::io(e, "bzip2 verification failed"))?
+        }
+        ArchiveFormat::Brotli => {
+            let mut decoder = brotli::Decompressor::new(file, 64 * 1024);
+            std::io::copy(&mut decoder, &mut std::io::sink())
+                .map_err(|e| GeeZipError::io(e, "brotli verification failed"))?
+        }
+        ArchiveFormat::Lz4 => {
+            let mut decoder = lz4_flex::frame::FrameDecoder::new(file);
+            std::io::copy(&mut decoder, &mut std::io::sink())
+                .map_err(|e| GeeZipError::io(e, "lz4 verification failed"))?
         }
         ArchiveFormat::Zstd => {
             let mut decoder = zstd::stream::Decoder::new(file)
@@ -182,6 +197,37 @@ mod tests {
         assert_eq!(report.entry_count, 1);
         assert_eq!(report.bytes_read, content.len() as u64);
         assert!(!report.crc32_verified);
+    }
+
+    #[test]
+    fn verify_single_stream_valid_bzip2() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let path = tmp.path().join("test.bz2");
+
+        let content = b"hello bzip2 verification";
+        let mut out = std::fs::File::create(&path).unwrap();
+        let mut encoder = ::bzip2::write::BzEncoder::new(&mut out, ::bzip2::Compression::default());
+        encoder.write_all(content).unwrap();
+        encoder.finish().unwrap();
+        drop(out);
+
+        let report = verify_single_stream(&path, ArchiveFormat::Bzip2)
+            .expect("bzip2 verification should pass");
+        assert_eq!(report.format, ArchiveFormat::Bzip2);
+        assert_eq!(report.entry_count, 1);
+        assert_eq!(report.bytes_read, content.len() as u64);
+        assert!(!report.crc32_verified);
+    }
+
+    #[test]
+    fn verify_single_stream_truncated_bzip2_fails() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let path = tmp.path().join("truncated.bz2");
+
+        std::fs::write(&path, b"BZh").unwrap();
+
+        let result = verify_single_stream(&path, ArchiveFormat::Bzip2);
+        assert!(result.is_err(), "truncated bzip2 should fail verification");
     }
 
     #[test]

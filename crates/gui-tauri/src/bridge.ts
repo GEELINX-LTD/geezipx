@@ -236,8 +236,8 @@ export interface CompressArchiveResult {
 /**
  * Create an archive from source paths.
  *
- * Supported formats: zip, tar, tar.gz, tar.zst, tar.xz.
- * Single-stream formats (gzip, zstd, xz, lzma) will be rejected with
+ * Supported formats: zip, tar, tar.gz, tar.bz2, tar.br, tar.lz4, tar.zst, tar.xz.
+ * Single-stream formats (gzip, bzip2, brotli, lz4, zstd, xz, lzma) will be rejected with
  * a clear error message.
  */
 export async function compressArchive(

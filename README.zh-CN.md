@@ -14,7 +14,7 @@
 
 ## 特性
 
-- **多格式支持** -- ZIP、TAR、TAR.GZ/TGZ、TAR.ZST/TZST、TAR.XZ/TXZ、GZIP/GZ、Zstandard/ZST、XZ、LZMA（读写），7Z（只读）、RAR（只读）
+- **多格式支持** -- ZIP、TAR、TAR.GZ/TGZ、TAR.ZST/TZST、TAR.XZ/TXZ、GZIP/GZ、Zstandard/ZST、XZ、LZMA（读写），7Z（只读）、RAR（只读）。*规划扩展：7z 写入、LZH、ISO、ZIPX、SFX、ZPAQ、bzip2、Brotli、CAB、WIM 等（详见 [docs/PRD.md](docs/PRD.md) 第 5.1 节）*
 - **流式 I/O** -- 大文件处理内存可控
 - **实时进度条** -- 在 TTY 中显示速度、预计完成时间、逐文件状态
 - **取消安全** -- Ctrl+C 优雅退出，自动清理未完成文件；双击强制退出
@@ -469,11 +469,17 @@ cargo build --release --workspace
 ### 第三阶段（未来）
 
 - [ ] 平台原生安装渠道（Homebrew、winget、APT）
-- [ ] 按需扩展格式支持
+- **格式扩展** — 分阶段推进，详见 [docs/PRD.md](docs/PRD.md) 第 5.1 节完整目标清单
+  - 压缩扩展：7z 写入、LZH、ISO、ZIPX、SFX、ZPAQ
+  - 解压扩展：Brotli、bzip2、LZ4、CAB、WIM、DEB、ASAR
+  - 历史/专有格式：ARJ、LHA、ACE、ARC、ALZ（通过适配器评估）
+  - 容器/衍生格式：JAR、WAR、APK、IPA、XPI（复用 ZIP 引擎）
+  - 磁盘镜像：IMG、ISZ、UDF
+  - 更多格式由用户需求与社区反馈驱动
 
 ### 明确不做（当前阶段）
 
-右键菜单集成、自动更新、云同步、插件系统、分卷压缩、7z 写入、RAR 创建。
+右键菜单集成、自动更新、云同步、插件系统、分卷压缩、7z 写入（待后续阶段）、RAR 创建（受许可限制保持只读）。更多格式扩展详见 [docs/PRD.md](docs/PRD.md) 第 5.1 节及第 6.2 节交付策略。
 
 ## 配置
 

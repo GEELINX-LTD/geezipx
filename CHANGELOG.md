@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Format support — bzip2 / brotli / lz4 / ZIP aliases**:
+  - Added single-stream `.bz2` / `bzip2`, `.br` / `brotli`, and `.lz4` read-write support.
+  - Added tar-wrapped `.tar.bz2` / `.tbz` / `.tbz2`, `.tar.br`, and `.tar.lz4` archive support.
+  - Added CLI `--format br` / `brotli` / `lz4` / `tar.br` / `tar.lz4` plus raw tar `--stdin` / `--stdout` behavior for tar.br and tar.lz4.
+  - Added ZIP-compatible alias parsing/detection for `.jar`, `.war`, `.apk`, `.ipa`, and `.xpi` (all routed to the ZIP reader/writer).
+  - GUI format metadata, drag-out extension stripping, and compression validation now reflect the newly supported bzip2/tar.bz2/brotli/tar.br/lz4/tar.lz4 formats.
+
 - **Desktop GUI — task progress reporting**:
   - Real-time progress events emitted from the Rust backend to the Tauri frontend
   - Frontend progress indicator with speed and remaining time display
@@ -46,8 +53,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Overwrite existing files checkbox (default: off) for safe selective extraction
   - Drag-and-drop an archive onto the app auto-loads it in the Archive Browser
   - Recent archive chip click re-opens the archive in Browse mode
-  - File extension associations: `.zip`, `.tar`, `.tar.gz`/`.tgz`, `.tar.zst`/`.tzst`,
-    `.tar.xz`/`.txz`, `.gz`, `.zst`, `.xz`, `.7z`, `.rar`
+  - File extension associations: `.zip`, `.jar`, `.war`, `.apk`, `.ipa`, `.xpi`, `.tar`,
+    `.tar.gz`/`.tgz`, `.tar.bz2`/`.tbz`/`.tbz2`, `.tar.zst`/`.tzst`, `.tar.xz`/`.txz`,
+    `.gz`, `.bz2`, `.zst`, `.xz`, `.7z`, `.rar`
   - Single-instance support: double-clicking an associated file in the OS opens it in the
     already-running app via `tauri-plugin-single-instance`
   - `get_opened_archives`, `extract_entries`, `preview_entry` backend commands
@@ -109,17 +117,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - CLI integration tests: list/decompress encrypted 7z with `--password`/`--password-file`;
     list encrypted ZIP with `--password-file`/`--password-stdin`;
 - **stdin/stdout pipe mode (Phase 2.5)**:
-  - `compress --stdin` reads uncompressed data from stdin (gzip/zstd/xz/lzma and tar.gz/tar.zst/tar.xz — raw tar stream)
-  - `compress --stdout` writes compressed data to stdout (gzip/zstd/xz/lzma and tar.gz/tar.zst/tar.xz — raw tar stream)
+  - `compress --stdin` reads uncompressed data from stdin (gzip/bzip2/zstd/xz/lzma and tar.gz/tar.bz2/tar.zst/tar.xz — raw tar stream)
+  - `compress --stdout` writes compressed data to stdout (gzip/bzip2/zstd/xz/lzma and tar.gz/tar.bz2/tar.zst/tar.xz — raw tar stream)
   - `compress file --stdout -f gz` compresses a file to stdout
-  - `decompress --stdin` reads compressed data from stdin (gzip/zstd/xz/lzma and tar.gz/tar.zst/tar.xz)
+  - `decompress --stdin` reads compressed data from stdin (gzip/bzip2/zstd/xz/lzma and tar.gz/tar.bz2/tar.zst/tar.xz)
   - `decompress --stdin --stdout` full pipe mode: stdin to stdout
   - `decompress --stdin -o outdir` writes decompressed output as `{outdir}/output`
   - `--stdin` and `--stdout` require explicit `--format`
   - Archive formats (zip, tar, 7z, rar) are rejected with a clear error
   - `--stdin` is mutually exclusive with input file/archive arguments
   - `--stdout` is mutually exclusive with `--output`
-  - **tar-based formats now supported**: tar.gz/tar.zst/tar.xz `--stdin` reads raw tar from stdin, `--stdout` outputs raw tar stream; zip/tar/7z/rar still rejected
+  - **tar-based formats now supported**: tar.gz/tar.bz2/tar.zst/tar.xz `--stdin` reads raw tar from stdin, `--stdout` outputs raw tar stream; zip/tar/7z/rar still rejected
   - `compress --stdin -f tar.gz < raw.tar` pipes raw tar through outer compression only
   - `decompress archive.tar.gz --stdout` decompresses outer layer, outputs raw tar stream
   - `decompress --stdin -f tar.gz --stdout` full tar.gz pipe mode
@@ -152,7 +160,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`test` archive integrity command**:
   - `geezipx test <archive>` reads every entry to completion without writing to
     disk and reports whether the archive is structurally sound.
-  - Supported formats: zip, tar, tar.gz, tar.zst, tar.xz, gzip, zstd, xz, lzma.
+  - Supported formats: zip, tar, tar.gz, tar.bz2, tar.zst, tar.xz, gzip, bzip2, zstd, xz, lzma.
   - ZIP files get CRC-32 verification via the `zip` crate's internal checks.
   - `--json` output provides machine-readable results.
   - Exit code 0 on success, 1 on failure.

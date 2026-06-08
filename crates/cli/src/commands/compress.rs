@@ -5,7 +5,10 @@ use std::io::{BufReader, Read, Write};
 use std::path::Path;
 
 use anyhow::{Context, Result};
+use geezipx_core::archive::brotli;
+use geezipx_core::archive::bzip2;
 use geezipx_core::archive::gzip;
+use geezipx_core::archive::lz4;
 use geezipx_core::archive::xz;
 use geezipx_core::archive::zstd;
 use geezipx_core::config::CompressOptions;
@@ -15,6 +18,31 @@ use crate::render::progress::{ProgressBarWrapper, SharedCallback};
 use geezipx_core::ProgressReader;
 
 use super::common;
+
+fn is_single_stream_format(format: ArchiveFormat) -> bool {
+    matches!(
+        format,
+        ArchiveFormat::Gzip
+            | ArchiveFormat::Bzip2
+            | ArchiveFormat::Brotli
+            | ArchiveFormat::Lz4
+            | ArchiveFormat::Zstd
+            | ArchiveFormat::Xz
+            | ArchiveFormat::Lzma
+    )
+}
+
+fn is_tar_wrapped_format(format: ArchiveFormat) -> bool {
+    matches!(
+        format,
+        ArchiveFormat::TarGz
+            | ArchiveFormat::TarBz2
+            | ArchiveFormat::TarBr
+            | ArchiveFormat::TarLz4
+            | ArchiveFormat::TarZst
+            | ArchiveFormat::TarXz
+    )
+}
 
 /// Execute the `compress` subcommand.
 #[allow(clippy::too_many_arguments)]
@@ -46,72 +74,45 @@ pub fn execute(
         common::resolve_format(format, output.context("--output is required")?)?
     };
 
-    // Validate stdin/stdout is only for single-stream formats.
-    if use_stdin || use_stdout {
-        match format {
-            ArchiveFormat::Gzip
-            | ArchiveFormat::Zstd
-            | ArchiveFormat::Xz
-            | ArchiveFormat::Lzma
-            | ArchiveFormat::TarGz
-            | ArchiveFormat::TarZst
-            | ArchiveFormat::TarXz => {}
-            _ => anyhow::bail!(
-                "--stdin/--stdout is only supported for single-stream formats \
-                 (gzip, zstd, xz, lzma, tar.gz, tar.zst, tar.xz); got '{format}'"
-            ),
-        }
+    // Stdio compression is only supported for raw single-stream formats and
+    // tar-wrapped codecs operating on a raw tar stream from stdin.
+    if (use_stdin || use_stdout)
+        && !(is_single_stream_format(format) || is_tar_wrapped_format(format))
+    {
+        anyhow::bail!(
+            "--stdin/--stdout is only supported for single-stream formats \
+             (gzip, bzip2, brotli, lz4, zstd, xz, lzma, tar.gz, tar.bz2, tar.br, tar.lz4, tar.zst, tar.xz); got '{format}'"
+        );
     }
 
     let cancel_token = crate::signal::CancellationToken::new();
-    validate_compress_inputs(inputs, format, &compress_options, use_stdin)?;
+    validate_compress_inputs(inputs, format, &compress_options, use_stdin, use_stdout)?;
 
-    match format {
-        // Single-stream formats always use single-stream mode.
-        ArchiveFormat::Gzip | ArchiveFormat::Zstd | ArchiveFormat::Xz | ArchiveFormat::Lzma => {
-            compress_single_stream_mode(
-                inputs,
-                output,
-                format,
-                compress_options,
-                no_progress,
-                verbose,
-                cancel_token,
-                use_stdin,
-                use_stdout,
-            )
-        }
-        // Tar-based formats use single-stream mode only when reading/writing
-        // raw tar via stdin/stdout; otherwise they follow the archive path.
-        ArchiveFormat::TarGz | ArchiveFormat::TarZst | ArchiveFormat::TarXz
-            if use_stdin || use_stdout =>
-        {
-            compress_single_stream_mode(
-                inputs,
-                output,
-                format,
-                compress_options,
-                no_progress,
-                verbose,
-                cancel_token,
-                use_stdin,
-                use_stdout,
-            )
-        }
-        _ => {
-            // Archive formats: collect files, write entries, finalise.
-            compress_archive_mode(
-                inputs,
-                output,
-                format,
-                recursive,
-                compress_options,
-                no_progress,
-                verbose,
-                cancel_token,
-            )
-        }
+    if is_single_stream_format(format) || (is_tar_wrapped_format(format) && use_stdin) {
+        return compress_single_stream_mode(
+            inputs,
+            output,
+            format,
+            compress_options,
+            no_progress,
+            verbose,
+            cancel_token,
+            use_stdin,
+            use_stdout,
+        );
     }
+
+    // Archive formats: collect files, write entries, finalise.
+    compress_archive_mode(
+        inputs,
+        output,
+        format,
+        recursive,
+        compress_options,
+        no_progress,
+        verbose,
+        cancel_token,
+    )
 }
 
 /// Compress a single-stream format, handling stdin/stdout modes.
@@ -414,6 +415,7 @@ fn validate_compress_inputs(
     format: ArchiveFormat,
     options: &CompressOptions,
     use_stdin: bool,
+    use_stdout: bool,
 ) -> Result<()> {
     if inputs.is_empty() && !use_stdin {
         anyhow::bail!("at least one input file is required");
@@ -433,13 +435,15 @@ fn validate_compress_inputs(
         );
     }
 
-    // Single-stream formats (gzip, zstd, xz, lzma) only accept one input.
-    if (format == ArchiveFormat::Gzip
-        || format == ArchiveFormat::Zstd
-        || format == ArchiveFormat::Xz
-        || format == ArchiveFormat::Lzma)
-        && inputs.len() > 1
-    {
+    if is_tar_wrapped_format(format) && use_stdout && !use_stdin {
+        anyhow::bail!(
+            "--stdout for '{}' only supports raw tar input via --stdin; archiving file/directory inputs to stdout is not supported yet. Use -o/--output instead",
+            format
+        );
+    }
+
+    // Single-stream formats (gzip, bzip2, brotli, lz4, zstd, xz, lzma) only accept one input.
+    if is_single_stream_format(format) && inputs.len() > 1 {
         anyhow::bail!(
             "{} compression only supports a single input file (got {})",
             format,
@@ -447,11 +451,16 @@ fn validate_compress_inputs(
         );
     }
 
-    // Gzip/xz/lzma/tar.gz/tar.xz level is limited to 0..=9; zstd/tar.zst supports 0..=22.
+    // Gzip/bzip2/xz/lzma/tar.gz/tar.bz2/tar.xz levels are limited to 0..=9;
+    // brotli/tar.br supports 0..=11; zstd/tar.zst supports 0..=22; lz4/tar.lz4
+    // accepts only 0 or omitted. For bzip2/tar.bz2, level 0 maps to the default
+    // encoder level because libbz2 has no store-only mode.
     if format == ArchiveFormat::Gzip
+        || format == ArchiveFormat::Bzip2
         || format == ArchiveFormat::Xz
         || format == ArchiveFormat::Lzma
         || format == ArchiveFormat::TarGz
+        || format == ArchiveFormat::TarBz2
         || format == ArchiveFormat::TarXz
     {
         if let Some(l) = options.level {
@@ -461,17 +470,29 @@ fn validate_compress_inputs(
         }
     }
 
+    if format == ArchiveFormat::Brotli || format == ArchiveFormat::TarBr {
+        if let Some(l) = options.level {
+            if l > 11 {
+                anyhow::bail!("{} compression level must be 0..=11, got {}", format, l);
+            }
+        }
+    }
+
+    if (format == ArchiveFormat::Lz4 || format == ArchiveFormat::TarLz4)
+        && options.level.is_some_and(|l| l != 0)
+    {
+        anyhow::bail!(
+            "{} compression level is not configurable in the current encoder; use 0 or omit the level",
+            format
+        );
+    }
+
     // Resolve all paths and check they exist.
     for input in inputs {
         if !input.exists() {
             anyhow::bail!("input '{}' does not exist", input.display());
         }
-        if (format == ArchiveFormat::Gzip
-            || format == ArchiveFormat::Zstd
-            || format == ArchiveFormat::Xz
-            || format == ArchiveFormat::Lzma)
-            && input.is_dir()
-        {
+        if is_single_stream_format(format) && input.is_dir() {
             anyhow::bail!(
                 "{} compression does not support directories ('{}')",
                 format,
@@ -485,7 +506,13 @@ fn validate_compress_inputs(
     if options.password.is_some()
         && matches!(
             format,
-            ArchiveFormat::Gzip | ArchiveFormat::Zstd | ArchiveFormat::Xz | ArchiveFormat::Lzma
+            ArchiveFormat::Gzip
+                | ArchiveFormat::Bzip2
+                | ArchiveFormat::Brotli
+                | ArchiveFormat::Lz4
+                | ArchiveFormat::Zstd
+                | ArchiveFormat::Xz
+                | ArchiveFormat::Lzma
         )
     {
         anyhow::bail!(
@@ -513,11 +540,25 @@ fn compress_single_stream<R: Read, W: Write>(
 ) -> anyhow::Result<u64> {
     match format {
         // Note: single-stream compression (used for --stdin/--stdout) does
-        // NOT benefit from --jobs for tar.gz.  The gzp parallel gzip is
+        // NOT benefit from --jobs for tar.gz. The gzp parallel gzip is
         // only active in archive mode via TarGzWriter::new_with_options.
+        // Brotli and lz4 currently accept --jobs for forward compatibility,
+        // but the selected encoder paths are single-threaded.
         ArchiveFormat::Gzip | ArchiveFormat::TarGz => {
             gzip::gzip_compress_with_options(reader, writer, options)
                 .map_err(|e| anyhow::anyhow!("gzip compression error: {}", e))
+        }
+        ArchiveFormat::Bzip2 | ArchiveFormat::TarBz2 => {
+            bzip2::bzip2_compress_with_options(reader, writer, options)
+                .map_err(|e| anyhow::anyhow!("bzip2 compression error: {}", e))
+        }
+        ArchiveFormat::Brotli | ArchiveFormat::TarBr => {
+            brotli::brotli_compress_with_options(reader, writer, options)
+                .map_err(|e| anyhow::anyhow!("brotli compression error: {}", e))
+        }
+        ArchiveFormat::Lz4 | ArchiveFormat::TarLz4 => {
+            lz4::lz4_compress_with_options(reader, writer, options)
+                .map_err(|e| anyhow::anyhow!("lz4 compression error: {}", e))
         }
         ArchiveFormat::Zstd | ArchiveFormat::TarZst => {
             zstd::zstd_compress_with_options(reader, writer, options)

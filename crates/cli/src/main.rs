@@ -49,7 +49,7 @@ enum Commands {
         #[arg(short = 'o', long = "output")]
         output: Option<PathBuf>,
 
-        /// Archive format: zip, tar, tar.gz, tgz, gz, gzip, zst, zstd, tar.zst, tzst, tar.xz, txz, xz, lzma (default: derived from output extension or zip)
+        /// Archive format: zip, jar, war, apk, ipa, xpi, tar, tar.gz, tgz, tar.bz2, tbz, tbz2, tar.br, gz, gzip, bz2, bzip2, br, brotli, lz4, tar.lz4, zst, zstd, tar.zst, tzst, tar.xz, txz, xz, lzma (default: derived from output extension or zip)
         #[arg(short = 'f', long = "format")]
         format: Option<String>,
 
@@ -57,7 +57,7 @@ enum Commands {
         #[arg(short = 'r', long = "recursive")]
         recursive: bool,
 
-        /// Compression level (0-22, default: varies; gzip/tar.gz/xz/lzma/tar.xz: 0..=9, zstd/tar.zst: 0..=22)
+        /// Compression level (0-22, default: varies; gzip/bzip2/tar.gz/tar.bz2/xz/lzma/tar.xz: 0..=9, brotli/tar.br: 0..=11, zstd/tar.zst: 0..=22, lz4/tar.lz4: use 0 or omit; bzip2/tar.bz2 level 0 maps to default)
         #[arg(short = 'L', long = "level", value_parser = clap::value_parser!(u32).range(0..=22))]
         level: Option<u32>,
 
@@ -82,11 +82,11 @@ enum Commands {
         #[arg(long = "password-stdin")]
         password_stdin: bool,
 
-        /// Read uncompressed data from stdin (single-stream and tar-based formats: gzip, zstd, xz, lzma, tar.gz, tar.zst, tar.xz)
+        /// Read uncompressed data from stdin (single-stream and tar-based formats: gzip, bzip2, brotli, lz4, zstd, xz, lzma, tar.gz, tar.bz2, tar.br, tar.lz4, tar.zst, tar.xz)
         #[arg(long = "stdin")]
         stdin: bool,
 
-        /// Write compressed data to stdout (single-stream and tar-based formats: gzip, zstd, xz, lzma, tar.gz, tar.zst, tar.xz)
+        /// Write compressed data to stdout (single-stream and tar-based formats: gzip, bzip2, brotli, lz4, zstd, xz, lzma, tar.gz, tar.bz2, tar.br, tar.lz4, tar.zst, tar.xz)
         #[arg(long = "stdout")]
         stdout: bool,
     },
@@ -102,7 +102,7 @@ enum Commands {
         #[arg(short = 'o', long = "output-dir", default_value = ".")]
         output_dir: PathBuf,
 
-        /// Decompress to stdout (gzip/zstd/xz/lzma/tar.gz/tar.zst/tar.xz only; error for multi-file/archives)
+        /// Decompress to stdout (gzip/bzip2/brotli/lz4/zstd/xz/lzma/tar.gz/tar.bz2/tar.br/tar.lz4/tar.zst/tar.xz only; error for multi-file archives other than tar-wrapped raw-stream output)
         #[arg(long = "stdout")]
         stdout: bool,
 
@@ -128,7 +128,7 @@ enum Commands {
         #[arg(long = "password-stdin")]
         password_stdin: bool,
 
-        /// Read compressed data from stdin (single-stream and tar-based formats: gzip, zstd, xz, lzma, tar.gz, tar.zst, tar.xz)
+        /// Read compressed data from stdin (single-stream and tar-based formats: gzip, bzip2, brotli, lz4, zstd, xz, lzma, tar.gz, tar.bz2, tar.br, tar.lz4, tar.zst, tar.xz)
         #[arg(long = "stdin")]
         stdin: bool,
 

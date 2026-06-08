@@ -105,13 +105,22 @@ pub trait ArchiveWriter: Send {
 | `archive::zip` | ZIP 读写，支持 ZIP AES-256 创建与读取 |
 | `archive::tar` | 纯 TAR 读写 |
 | `archive::targz` | TAR.GZ / TGZ 读写；`--jobs > 1` 时启用并行 gzip |
+| `archive::tarbz2` | TAR.BZ2 / TBZ / TBZ2 读写 |
+| `archive::tarbr` | TAR.BR 读写 |
+| `archive::tarlz4` | TAR.LZ4 读写（LZ4 frame） |
 | `archive::tarzst` | TAR.ZST / TZST 读写 |
 | `archive::tarxz` | TAR.XZ / TXZ 读写 |
 | `archive::gzip` | GZIP/GZ 单流压缩/解压 helper |
+| `archive::bzip2` | BZIP2/BZ2 单流压缩/解压 helper |
+| `archive::brotli` | Brotli/BR 单流压缩/解压 helper |
+| `archive::lz4` | LZ4 单流压缩/解压 helper（frame only） |
 | `archive::zstd` | ZSTD/ZST 单流压缩/解压 helper |
 | `archive::xz` | XZ/LZMA 单流压缩/解压 helper |
 | `archive::seven_zip` | 7z 只读（`list` / `extract` / `test`） |
 | `archive::rar` | RAR 只读（`list` / `extract` / `test`，feature-gated） |
+
+> **注**：上表仅列出当前已实现的格式模块。项目长期规划支持更多格式（详见 `docs/PRD.md` 第 5.1 节），
+> 新增格式遵循相同的 `ArchiveReader` / `ArchiveWriter` trait 接口和 feature gate 策略，归档模块数量随阶段逐步扩展。
 
 ### 2.2 `core/io` — 流式进度与取消包装
 
@@ -163,7 +172,24 @@ pub struct ProgressWriter<W: Write> {
 
 ```rust
 pub enum ArchiveFormat {
-    Zip, Tar, Gzip, TarGz, Xz, Zstd, TarZst, Lzma, TarXz, SevenZip, Rar, Unknown,
+    Zip,
+    Tar,
+    Gzip,
+    Bzip2,
+    Brotli,
+    Lz4,
+    TarGz,
+    TarBz2,
+    TarBr,
+    TarLz4,
+    Xz,
+    Zstd,
+    TarZst,
+    Lzma,
+    TarXz,
+    SevenZip,
+    Rar,
+    Unknown,
 }
 
 pub fn detect_format(data: &[u8]) -> Option<ArchiveFormat>;
@@ -173,9 +199,11 @@ pub fn read_magic_bytes<R: Read>(reader: &mut R) -> io::Result<Vec<u8>>;
 
 检测策略：
 
-- ZIP / gzip / zstd / xz / 7z / RAR 优先用魔数字节；
-- `tar`、`tar.gz`、`tar.zst`、`tar.xz` 依赖扩展名回退；
+- ZIP / gzip / bzip2 / lz4 frame / zstd / xz / 7z / RAR 优先用魔数字节；
+- `tar`、`tar.gz`、`tar.bz2`、`tar.br`、`tar.lz4`、`tar.zst`、`tar.xz` 依赖扩展名回退；
 - `read_magic_bytes()` 仅读取前 `MAGIC_DETECT_SIZE` 字节，供调用方自行决定后续缓存与回放策略。
+
+> **格式扩展方向**：`ArchiveFormat` 枚举随新增格式逐步扩展。新格式检测优先使用魔数字节；若魔数无定义（如 lzma），依赖扩展名回退或用户显式指定。ZIP 兼容别名（`.jar`/`.war`/`.apk`/`.ipa`/`.xpi`）统一映射到 `ArchiveFormat::Zip`。新增格式枚举值需同步更新所有 `match` 分支的完整性检查。完整格式目标见 `docs/PRD.md` 第 5.1 节。
 
 ### 2.4 `core/error` — 统一错误模型
 
@@ -232,6 +260,9 @@ CLI 当前子命令为：
 | `zip` 2.x | ZIP 读写（启用 `deflate`、`aes-crypto`） |
 | `tar` 0.4 | TAR 容器读写 |
 | `flate2` 1.x | gzip/deflate（纯 Rust backend） |
+| `bzip2` 0.6 | bzip2 / tar.bz2 |
+| `brotli` 8 | brotli / tar.br |
+| `lz4_flex` 0.11 | lz4 frame / tar.lz4 |
 | `gzp` 0.11 | tar.gz 并行 gzip 压缩 |
 | `xz2` 0.1 | xz / lzma / tar.xz |
 | `zstd` 0.13 | zstd / tar.zst，多线程支持 `zstdmt` |
