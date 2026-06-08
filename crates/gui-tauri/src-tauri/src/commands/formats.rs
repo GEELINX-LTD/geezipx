@@ -109,6 +109,11 @@ pub fn get_formats() -> Vec<FormatInfo> {
             can_compress: false,
             can_decompress: true,
         },
+        FormatInfo {
+            name: "asar".into(),
+            can_compress: false,
+            can_decompress: true,
+        },
     ]
 }
 
@@ -119,7 +124,7 @@ mod tests {
     #[test]
     fn get_formats_returns_expected_count() {
         let formats = get_formats();
-        assert_eq!(formats.len(), 17, "expected 17 supported formats");
+        assert_eq!(formats.len(), 18, "expected 18 supported formats");
     }
 
     #[test]
@@ -192,5 +197,13 @@ mod tests {
         let rar = formats.iter().find(|f| f.name == "rar").unwrap();
         assert!(!rar.can_compress);
         assert!(rar.can_decompress);
+    }
+
+    #[test]
+    fn get_formats_asar_decompress_only() {
+        let formats = get_formats();
+        let asar = formats.iter().find(|f| f.name == "asar").unwrap();
+        assert!(!asar.can_compress);
+        assert!(asar.can_decompress);
     }
 }
