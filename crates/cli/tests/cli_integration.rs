@@ -7587,3 +7587,158 @@ fn zip_alias_formats_list_and_decompress() {
         );
     }
 }
+
+// ---------------------------------------------------------------------------
+// DEB read-only tests
+// ---------------------------------------------------------------------------
+
+fn append_tar_file(out: &mut Vec<u8>, path: &str, data: &[u8]) {
+    let path_bytes = path.as_bytes();
+    let mut header = [0u8; 512];
+    let name_len = path_bytes.len().min(99);
+    header[..name_len].copy_from_slice(&path_bytes[..name_len]);
+    header[100..108].copy_from_slice(b"0000644\0");
+    let size_oct = format!("{:011o}\0", data.len());
+    header[124..136].copy_from_slice(size_oct.as_bytes());
+    header[156] = b'0';
+    header[257..263].copy_from_slice(b"ustar\0");
+    header[263..265].copy_from_slice(b"00");
+    for b in header.iter_mut().take(156).skip(148) {
+        *b = b' ';
+    }
+    let cksum: u32 = header.iter().map(|&b| b as u32).sum();
+    let cksum_str = format!("{:06o}\0 ", cksum);
+    header[148..156].copy_from_slice(cksum_str.as_bytes());
+
+    out.extend_from_slice(&header);
+    out.extend_from_slice(data);
+    let padding = (512 - data.len() % 512) % 512;
+    out.extend(std::iter::repeat_n(0, padding));
+}
+
+fn append_ar_member(out: &mut Vec<u8>, name: &str, data: &[u8]) {
+    assert!(name.len() <= 16, "DEB ar member name too long: {name}");
+    let header = format!(
+        "{:<16}{:<12}{:<6}{:<6}{:<8o}{:<10}`\n",
+        name,
+        0,
+        0,
+        0,
+        0o100644,
+        data.len()
+    );
+    assert_eq!(header.len(), 60, "invalid ar header length for {name}");
+    out.extend_from_slice(header.as_bytes());
+    out.extend_from_slice(data);
+    if !data.len().is_multiple_of(2) {
+        out.push(b'\n');
+    }
+}
+
+fn build_test_deb() -> Vec<u8> {
+    let mut data_tar = Vec::new();
+    append_tar_file(&mut data_tar, "usr/bin/hello", b"hello");
+    append_tar_file(&mut data_tar, "usr/share/doc/readme.txt", b"docs");
+    data_tar.extend_from_slice(&[0u8; 1024]);
+
+    let mut out = Vec::new();
+    out.extend_from_slice(b"!<arch>\n");
+    append_ar_member(&mut out, "debian-binary", b"2.0\n");
+    append_ar_member(&mut out, "control.tar.gz", b"ignored control payload");
+    append_ar_member(&mut out, "data.tar", &data_tar);
+    out
+}
+
+#[test]
+fn deb_list_shows_only_data_payload_entries() {
+    let td = TestDir::new();
+    let archive = td.join("package.deb");
+    std::fs::write(&archive, build_test_deb()).unwrap();
+
+    geezipx()
+        .args(["list", archive.to_str().unwrap()])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("usr/bin/hello"))
+        .stdout(predicate::str::contains("usr/share/doc/readme.txt"))
+        .stdout(predicate::str::contains("control.tar.gz").not())
+        .stdout(predicate::str::contains("debian-binary").not());
+}
+
+#[test]
+fn deb_decompress_extracts_data_payload_only() {
+    let td = TestDir::new();
+    let archive = td.join("package.deb");
+    let output = td.join("out");
+    std::fs::write(&archive, build_test_deb()).unwrap();
+    std::fs::create_dir_all(&output).unwrap();
+
+    geezipx()
+        .args([
+            "decompress",
+            archive.to_str().unwrap(),
+            "-o",
+            output.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    assert_eq!(
+        std::fs::read_to_string(output.join("usr/bin/hello")).unwrap(),
+        "hello"
+    );
+    assert_eq!(
+        std::fs::read_to_string(output.join("usr/share/doc/readme.txt")).unwrap(),
+        "docs"
+    );
+    assert!(!output.join("control.tar.gz").exists());
+    assert!(!output.join("debian-binary").exists());
+}
+
+#[test]
+fn deb_test_valid() {
+    let td = TestDir::new();
+    let archive = td.join("package.deb");
+    std::fs::write(&archive, build_test_deb()).unwrap();
+
+    geezipx()
+        .args(["test", archive.to_str().unwrap()])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Format:  deb"))
+        .stdout(predicate::str::contains("result: OK"));
+}
+
+#[test]
+fn deb_compress_is_rejected() {
+    let td = TestDir::new();
+    td.write("payload.txt", "deb write should fail");
+
+    geezipx()
+        .args([
+            "compress",
+            td.join("payload.txt").to_str().unwrap(),
+            "-f",
+            "deb",
+            "-o",
+            td.join("out.deb").to_str().unwrap(),
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("deb writing is not supported"));
+}
+
+#[test]
+fn deb_password_is_rejected() {
+    let td = TestDir::new();
+    let archive = td.join("package.deb");
+    std::fs::write(&archive, build_test_deb()).unwrap();
+
+    geezipx()
+        .args(["list", archive.to_str().unwrap(), "--password", "secret"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "only supported for ZIP, 7z, and RAR",
+        ));
+}

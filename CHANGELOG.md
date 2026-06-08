@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Format support — DEB (read-only)**:
+  - Added `.deb` extension / explicit-format detection plus a read-only core reader that opens the package's `data.tar*` payload while intentionally ignoring `control.tar.*` scripts and metadata.
+  - Added CLI `list`, `decompress`, and `test` support for `.deb`; `compress`, package writing, control extraction, encryption, and password input remain unsupported.
+  - Added GUI archive-browser/list/extract routing, frontend `.deb` archive detection, drag-out extension stripping, and Tauri file associations so Debian packages open in the archive flow.
+
 - **Format support — ASAR (read-only)**:
   - Added `.asar` extension / explicit-format detection plus a read-only core reader with path-safety checks for packed entries, `.asar.unpacked` siblings, and symlink metadata.
   - Added CLI `list`, `decompress`, and `test` support for `.asar`; `compress`, archive writing, encryption, and password input remain unsupported.
