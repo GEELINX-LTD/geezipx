@@ -11,6 +11,7 @@ use tokio::task::spawn_blocking;
 
 use geezipx_core::archive::asar::AsarReader;
 use geezipx_core::archive::deb::DebReader;
+use geezipx_core::archive::lzh::LzhReader;
 #[cfg(feature = "rar")]
 use geezipx_core::archive::rar::RarReader;
 use geezipx_core::archive::seven_zip::SevenZipReader;
@@ -58,7 +59,7 @@ pub struct EntryInfo {
 /// - Zstd magic + `.tar.zst`/`.tzst` extension → `TarZst`
 /// - XZ magic + `.tar.xz`/`.txz` extension → `TarXz`
 /// - Pure magic match → format from magic
-/// - Fallback → extension-based detection (`.asar` / `.deb` are extension-only)
+/// - Fallback → extension-based detection (`.asar` / `.deb` / `.lzh` / `.lha` are extension-only)
 pub(crate) fn detect_archive_format(path: &Path) -> Result<ArchiveFormat, String> {
     let mut file =
         fs::File::open(path).map_err(|e| format!("Cannot open '{}': {}", path.display(), e))?;
@@ -161,6 +162,11 @@ pub(crate) fn open_reader(
                 .map_err(|e| format!("Cannot open '{}': {}", path.display(), e))?;
             Ok(Box::new(DebReader::new(file)))
         }
+        ArchiveFormat::Lzh => {
+            let file = fs::File::open(path)
+                .map_err(|e| format!("Cannot open '{}': {}", path.display(), e))?;
+            Ok(Box::new(LzhReader::new(file)))
+        }
         ArchiveFormat::Tar => {
             let file = fs::File::open(path)
                 .map_err(|e| format!("Cannot open '{}': {}", path.display(), e))?;
@@ -250,4 +256,87 @@ pub async fn list_archive(
     })
     .await
     .map_err(|e| format!("Internal error: {}", e))?
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn crc16(data: &[u8]) -> u16 {
+        let mut sum = 0u16;
+        for &byte in data {
+            sum ^= u16::from(byte);
+            for _ in 0..8 {
+                if sum & 1 == 1 {
+                    sum = (sum >> 1) ^ 0xA001;
+                } else {
+                    sum >>= 1;
+                }
+            }
+        }
+        sum
+    }
+
+    fn build_test_lzh() -> Vec<u8> {
+        let name = b"hello.txt";
+        let data = b"hello";
+        let mut header = Vec::new();
+        header.extend_from_slice(b"-lh0-");
+        header.extend_from_slice(&(data.len() as u32).to_le_bytes());
+        header.extend_from_slice(&(data.len() as u32).to_le_bytes());
+        header.extend_from_slice(&0u32.to_le_bytes());
+        header.push(0x20);
+        header.push(0);
+        header.push(name.len() as u8);
+        header.extend_from_slice(name);
+        header.extend_from_slice(&crc16(data).to_le_bytes());
+
+        let checksum = header.iter().fold(0u8, |acc, byte| acc.wrapping_add(*byte));
+        let mut archive = Vec::new();
+        archive.push((22 + name.len()) as u8);
+        archive.push(checksum);
+        archive.extend_from_slice(&header);
+        archive.extend_from_slice(data);
+        archive.push(0);
+        archive
+    }
+
+    fn unique_test_dir(prefix: &str) -> std::path::PathBuf {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!(
+            "geezipx-gui-list-test-{prefix}-{}-{nanos}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn detect_archive_format_lzh_extension() {
+        let temp = unique_test_dir("detect-lzh");
+        let archive = temp.join("archive.lzh");
+        std::fs::write(&archive, build_test_lzh()).unwrap();
+
+        assert_eq!(detect_archive_format(&archive).unwrap(), ArchiveFormat::Lzh);
+
+        let _ = std::fs::remove_dir_all(temp);
+    }
+
+    #[test]
+    fn open_reader_lzh_lists_entries() {
+        let temp = unique_test_dir("open-lzh");
+        let archive = temp.join("archive.lha");
+        std::fs::write(&archive, build_test_lzh()).unwrap();
+
+        let mut reader = open_reader(&archive, ArchiveFormat::Lzh, None).unwrap();
+        let entries = reader.entries().unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].path, "hello.txt");
+
+        let _ = std::fs::remove_dir_all(temp);
+    }
 }

@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Format support — LZH/LHA (read-only)**:
+  - Added `.lzh` / `.lha` extension / explicit-format detection plus a read-only core reader backed by `delharc`, with raw-path validation for `../`, absolute, UNC, and drive-relative names before extraction.
+  - Added CLI `list`, `decompress`, and `test` support for `.lzh` / `.lha`; `compress`, archive writing, encryption, and password input remain unsupported.
+  - Added GUI archive-browser/list/extract routing, frontend `.lzh` / `.lha` archive detection, drag-out extension stripping, and Tauri file associations for the read-only archive flow.
+
 - **Format support — DEB (read-only)**:
   - Added `.deb` extension / explicit-format detection plus a read-only core reader that opens the package's `data.tar*` payload while intentionally ignoring `control.tar.*` scripts and metadata.
   - Added CLI `list`, `decompress`, and `test` support for `.deb`; `compress`, package writing, control extraction, encryption, and password input remain unsupported.

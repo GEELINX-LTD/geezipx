@@ -217,7 +217,7 @@ fn strip_archive_extension(file_name: &str) -> &str {
     ];
     const SIMPLE_EXTENSIONS: &[&str] = &[
         ".zip", ".jar", ".war", ".apk", ".ipa", ".xpi", ".tar", ".gz", ".gzip", ".bz2", ".br",
-        ".lz4", ".xz", ".zst", ".zstd", ".lzma", ".7z", ".rar", ".asar", ".deb",
+        ".lz4", ".xz", ".zst", ".zstd", ".lzma", ".7z", ".rar", ".asar", ".deb", ".lzh", ".lha",
     ];
 
     let lower = file_name.to_ascii_lowercase();
@@ -360,6 +360,8 @@ mod tests {
             "archive.rar",
             "archive.asar",
             "archive.deb",
+            "archive.lzh",
+            "archive.lha",
         ] {
             assert_eq!(
                 derive_drag_directory_name(Path::new(archive_name)),
@@ -387,6 +389,8 @@ mod tests {
         assert_eq!(strip_archive_extension("archive.WAR"), "archive");
         assert_eq!(strip_archive_extension("archive.ASAR"), "archive");
         assert_eq!(strip_archive_extension("package.DEB"), "package");
+        assert_eq!(strip_archive_extension("archive.LZH"), "archive");
+        assert_eq!(strip_archive_extension("archive.LHA"), "archive");
     }
 
     #[test]

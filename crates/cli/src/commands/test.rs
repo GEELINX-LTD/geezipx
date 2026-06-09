@@ -79,6 +79,7 @@ fn run_verify(archive: &Path, json: bool, password: Option<String>) -> Result<()
         | ArchiveFormat::Rar
         | ArchiveFormat::Asar
         | ArchiveFormat::Deb
+        | ArchiveFormat::Lzh
         | ArchiveFormat::Tar
         | ArchiveFormat::TarGz
         | ArchiveFormat::TarBz2
@@ -113,14 +114,12 @@ fn print_text(report: &TestReport, archive: &Path, compressed_size: u64) -> Resu
         "Size:    {} bytes (compressed: {} bytes)",
         report.bytes_read, compressed_size
     );
-    println!(
-        "CRC-32:  {}",
-        if report.crc32_verified {
-            "verified"
-        } else {
-            "not available"
-        }
-    );
+    let (integrity_label, integrity_status) = match report.format {
+        ArchiveFormat::Zip if report.crc32_verified => ("CRC-32", "verified"),
+        ArchiveFormat::Lzh => ("Integrity", "verified (CRC-16)"),
+        _ => ("Integrity", "verified"),
+    };
+    println!("{integrity_label}:  {integrity_status}");
 
     // On failure the function would have returned Err above;
     // reaching here means the archive passed.

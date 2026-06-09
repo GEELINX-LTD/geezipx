@@ -14,7 +14,7 @@
 
 ## Features
 
-- **Multi-format** -- ZIP (including ZIP-compatible aliases `.jar`, `.war`, `.apk`, `.ipa`, `.xpi`), TAR, TAR.GZ/TGZ, TAR.BZ2/TBZ/TBZ2, TAR.BR, TAR.LZ4, TAR.ZST/TZST, TAR.XZ/TXZ, GZIP/GZ, BZIP2/BZ2, Brotli/BR, LZ4, Zstandard/ZST, XZ, LZMA (read/write), plus 7Z, RAR, ASAR, and DEB (read-only). *Planned: 7Z write, LZH, ISO, ZIPX, SFX, ZPAQ, CAB, WIM, and more — see [docs/PRD.md](docs/PRD.md) section 5.1*
+- **Multi-format** -- ZIP (including ZIP-compatible aliases `.jar`, `.war`, `.apk`, `.ipa`, `.xpi`), TAR, TAR.GZ/TGZ, TAR.BZ2/TBZ/TBZ2, TAR.BR, TAR.LZ4, TAR.ZST/TZST, TAR.XZ/TXZ, GZIP/GZ, BZIP2/BZ2, Brotli/BR, LZ4, Zstandard/ZST, XZ, LZMA (read/write), plus 7Z, RAR, ASAR, DEB, and LZH/LHA (read-only). *Planned: 7Z write, LZH write, ISO, ZIPX, SFX, ZPAQ, CAB, WIM, and more — see [docs/PRD.md](docs/PRD.md) section 5.1*
 - **Streaming I/O** -- process large files with bounded memory usage
 - **Live progress bars** -- real-time speed, ETA, and per-file status on TTY
 - **Cancel-safe** -- graceful Ctrl+C with partial-file cleanup; double Ctrl+C force-kill
@@ -28,6 +28,7 @@
 - **Encrypted 7z/RAR read support** -- read-only `list`, `decompress`, and `test` can handle password-protected 7z/RAR archives
 - **ASAR read-only support** -- `.asar` archives support CLI `list`, `decompress`, and `test`, plus GUI archive browsing and selective extraction. `compress`, archive writing, encryption, and password input are not supported.
 - **DEB read-only support** -- `.deb` packages support CLI `list`, `decompress`, and `test`, plus GUI archive browsing and extraction of the `data.tar*` payload. `compress`, package writing, control-script extraction, encryption, and password input are not supported.
+- **LZH/LHA read-only support** -- `.lzh` / `.lha` archives support CLI `list`, `decompress`, and `test`, plus GUI archive browsing and extraction. The current MVP is read-only, validates raw LZH path bytes before extraction, and does not support `compress`, archive writing, encryption, or password input.
 - **Cross-platform** -- Linux, macOS, Windows (3-platform CI)
 - **Single binary** -- no runtime dependencies, `cargo install` ready
 - **Multi-threaded compression** -- `-j`/`--jobs` for parallel compression (tar.gz via gzp/pigz-style, zstd/tar.zst via native zstdmt)
@@ -36,7 +37,7 @@
 
 ## Status
 
-Phase 1 (CLI MVP) is **complete and mature**. The applicable subcommands are fully implemented: read/write formats support `compress`, `decompress`, `list`, and `test`; read-only 7z/RAR/ASAR/DEB support `list`, `decompress`, and `test`. The `completions` command is also complete.
+Phase 1 (CLI MVP) is **complete and mature**. The applicable subcommands are fully implemented: read/write formats support `compress`, `decompress`, `list`, and `test`; read-only 7z/RAR/ASAR/DEB/LZH/LHA support `list`, `decompress`, and `test`. The `completions` command is also complete.
 Phase 2 (Desktop GUI via Tauri) is **now the active development focus**.
 
 | Phase | Theme | Status |
@@ -428,6 +429,23 @@ geezipx test package.deb
 geezipx decompress package.deb -o out/
 ```
 
+### LZH/LHA support
+
+LZH/LHA archive support is **read-only**. GeeZipX can `list`, `decompress`, and `test` `.lzh` / `.lha` archives in the CLI, and the Tauri GUI Archive Browser can browse and extract them. The current MVP validates raw LZH path bytes before `delharc` path normalization, so dangerous `../`, absolute, UNC, and drive-relative names are rejected during extraction.
+
+Unsupported LZH/LHA features:
+
+- `compress` / archive creation
+- archive writing or update-in-place
+- encryption / password-based access
+- broader legacy compatibility beyond the current read-only MVP
+
+```sh
+geezipx list archive.lzh
+geezipx test archive.lha
+geezipx decompress archive.lzh -o out/
+```
+
 ### Benchmarks
 
 Criterion benchmarks are configured and available for manual runs:
@@ -491,7 +509,7 @@ and the combined `SHA256SUMS` file.
 All core features and the applicable format-specific subcommands are implemented and verified:
 
 - [x] ZIP / TAR / TAR.GZ / TAR.BZ2 / TAR.BR / TAR.LZ4 / TAR.ZST / TAR.XZ / GZIP / BZIP2 / Brotli / LZ4 / ZSTD / XZ / LZMA read/write
-- [x] 7z / RAR / ASAR / DEB read-only support via `list`, `decompress`, and `test`
+- [x] 7z / RAR / ASAR / DEB / LZH / LHA read-only support via `list`, `decompress`, and `test`
 - [x] Streaming I/O with bounded memory usage
 - [x] Progress bars with `indicatif`
 - [x] Ctrl+C graceful cancellation
@@ -514,7 +532,7 @@ All core features and the applicable format-specific subcommands are implemented
 
 - [x] Tauri v2 project skeleton + TypeScript/Vite frontend
 - [x] Core engine bridge via Tauri commands
-- [x] Archive browser with file associations (including read-only `.asar` / `.deb` open/browse/extract flows)
+- [x] Archive browser with file associations (including read-only `.asar` / `.deb` / `.lzh` / `.lha` open/browse/extract flows)
 - [x] Selective extraction from archives
 - [x] In-app text/hex preview
 - [x] Drag & drop into the app
@@ -533,9 +551,9 @@ See [`docs/GUI_MVP_PLAN.md`](docs/GUI_MVP_PLAN.md) for detailed planning and tas
 
 - [ ] Platform-native installers (Homebrew, winget, APT)
 - **Format expansion** — phased, see [docs/PRD.md](docs/PRD.md) section 5.1 for the full target list
-  - Compress: 7Z write, LZH, ISO, ZIPX, SFX, ZPAQ
+  - Compress: 7Z write, LZH write, ISO, ZIPX, SFX, ZPAQ
   - Decompress: CAB, WIM
-  - Historical/legacy: ARJ, LHA, ACE, ARC, ALZ (via adapter/evaluation)
+  - Historical/legacy: ARJ, ACE, ARC, ALZ (via adapter/evaluation)
   - Container/derived: JAR, WAR, APK, IPA, XPI (ZIP-reuse)
   - Disk images: IMG, ISZ, UDF
   - More formats driven by user requests and community feedback
