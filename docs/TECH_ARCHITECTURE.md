@@ -60,7 +60,7 @@ geezipx/
 - core 只保留格式逻辑、I/O 包装、错误模型与安全检查；
 - CLI 负责参数解析、TTY 进度、stdout/stderr 呈现；
 - Tauri GUI 负责图形交互、任务管理、事件桥接；
-- 7z / RAR 在当前版本中保持只读语义（`list` / `decompress` / `test`）。
+- 7z / RAR / ASAR / DEB / LZH/LHA 在当前版本中保持只读语义（`list` / `decompress` / `test`）。
 
 ## 2. 模块设计
 
@@ -116,6 +116,9 @@ pub trait ArchiveWriter: Send {
 | `archive::lz4` | LZ4 单流压缩/解压 helper（frame only） |
 | `archive::zstd` | ZSTD/ZST 单流压缩/解压 helper |
 | `archive::xz` | XZ/LZMA 单流压缩/解压 helper |
+| `archive::asar` | ASAR 只读（`list` / `extract` / `test`） |
+| `archive::deb` | DEB 只读（`data.tar*` payload 视图） |
+| `archive::lzh` | LZH/LHA 只读（`list` / `extract` / `test`，含原始路径校验） |
 | `archive::seven_zip` | 7z 只读（`list` / `extract` / `test`） |
 | `archive::rar` | RAR 只读（`list` / `extract` / `test`，feature-gated） |
 
@@ -200,7 +203,7 @@ pub fn read_magic_bytes<R: Read>(reader: &mut R) -> io::Result<Vec<u8>>;
 检测策略：
 
 - ZIP / gzip / bzip2 / lz4 frame / zstd / xz / 7z / RAR 优先用魔数字节；
-- `tar`、`tar.gz`、`tar.bz2`、`tar.br`、`tar.lz4`、`tar.zst`、`tar.xz` 依赖扩展名回退；
+- ASAR / DEB / LZH / LHA 以及 `tar`、`tar.gz`、`tar.bz2`、`tar.br`、`tar.lz4`、`tar.zst`、`tar.xz` 依赖扩展名回退或显式格式；
 - `read_magic_bytes()` 仅读取前 `MAGIC_DETECT_SIZE` 字节，供调用方自行决定后续缓存与回放策略。
 
 > **格式扩展方向**：`ArchiveFormat` 枚举随新增格式逐步扩展。新格式检测优先使用魔数字节；若魔数无定义（如 lzma），依赖扩展名回退或用户显式指定。ZIP 兼容别名（`.jar`/`.war`/`.apk`/`.ipa`/`.xpi`）统一映射到 `ArchiveFormat::Zip`。新增格式枚举值需同步更新所有 `match` 分支的完整性检查。完整格式目标见 `docs/PRD.md` 第 5.1 节。
@@ -266,6 +269,7 @@ CLI 当前子命令为：
 | `gzp` 0.11 | tar.gz 并行 gzip 压缩 |
 | `xz2` 0.1 | xz / lzma / tar.xz |
 | `zstd` 0.13 | zstd / tar.zst，多线程支持 `zstdmt` |
+| `delharc` 0.6 | LZH/LHA 只读支持 |
 | `sevenz-rust2` 0.21 | 7z 只读支持 |
 | `unrar` 0.5.8 | RAR 只读支持（optional, default-enabled） |
 | `thiserror` 2 | 错误定义 |
@@ -401,7 +405,7 @@ crates/gui-tauri/
 | GUI bundle 发布尚未经历真实 tag release 演练 | 发布路径可能存在流程性缺口 | 保守表述为“已配置，待验证” |
 | 大文件压缩进度依赖预扫描总量 | 首次开始任务前会有扫描延迟 | UI 上明确扫描阶段 |
 | Windows 长路径/符号链接差异 | 个别归档场景行为与 Unix 不完全一致 | 持续测试 + 文档限制说明 |
-| 7z / RAR 仍为只读 | GUI 不能创建这些格式 | 在产品文档中明确范围 |
+| 7z / RAR / ASAR / DEB / LZH/LHA 仍为只读 | GUI 不能创建这些格式 | 在产品文档中明确范围 |
 ## 附录：Cargo Workspace 配置
 
 ```toml

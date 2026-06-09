@@ -7764,7 +7764,10 @@ fn lzh_crc16(data: &[u8]) -> u16 {
 
 fn append_lzh_member(out: &mut Vec<u8>, path: &str, data: &[u8]) {
     let name = path.as_bytes();
-    assert!(name.len() <= u8::MAX as usize, "LZH pathname too long: {path}");
+    assert!(
+        name.len() <= u8::MAX as usize,
+        "LZH pathname too long: {path}"
+    );
 
     let mut header = Vec::new();
     header.extend_from_slice(b"-lh0-");
@@ -7874,9 +7877,10 @@ fn lzh_decompress_rejects_dangerous_raw_paths() {
             output.to_str().unwrap(),
         ])
         .assert()
-        .failure()
+        .success()
         .stderr(predicate::str::contains("path traversal detected"))
-        .stderr(predicate::str::contains("../evil.txt"));
+        .stderr(predicate::str::contains("../evil.txt"))
+        .stderr(predicate::str::contains("0 files, 0 bytes, 0 skipped"));
 
     assert!(!output.join("evil.txt").exists());
 }

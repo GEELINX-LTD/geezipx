@@ -42,7 +42,7 @@ GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开�
 
 | 特性 | 说明 | 状态 |
 |------|------|------|
-| 格式支持 | `.tar.gz`/`.tgz`, `.tar.bz2`/`.tbz`/`.tbz2`, `.tar.br`, `.tar.lz4`, `.zip`（含 `.jar`/`.war`/`.apk`/`.ipa`/`.xpi` 别名）, `.tar`, `.gz`/`.gzip`, `.bz2`, `.br`, `.lz4`, `.tar.zst`/`.tzst`, `.zst`/`.zstd`, `.tar.xz`/`.txz`, `.xz`, `.lzma`（读/写）；7z/RAR/ASAR/DEB（只读） | **已完成** |
+| 格式支持 | `.tar.gz`/`.tgz`, `.tar.bz2`/`.tbz`/`.tbz2`, `.tar.br`, `.tar.lz4`, `.zip`（含 `.jar`/`.war`/`.apk`/`.ipa`/`.xpi` 别名）, `.tar`, `.gz`/`.gzip`, `.bz2`, `.br`, `.lz4`, `.tar.zst`/`.tzst`, `.zst`/`.zstd`, `.tar.xz`/`.txz`, `.xz`, `.lzma`（读/写）；7z/RAR/ASAR/DEB/LZH/LHA（只读） | **已完成** |
 | 流式处理 | 文件流读写，内存占用与文件大小解耦 | **已完成** |
 | 进度显示 | TTY 下默认显示进度，可用 `--no-progress` 禁用 | **已完成** |
 | 格式自动检测 | 根据文件魔数（magic bytes）自动检测归档格式 | **已完成** |
@@ -56,7 +56,7 @@ GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开�
 | 测试覆盖 | 400+ 测试，覆盖 core 单元/CLI 集成/格式 round-trip/流式冒烟。覆盖率 workflow 为 informational-only 观测模式，不设硬门禁 | **已完成** |
 | 三平台 CI | GitHub Actions：三平台矩阵（ubuntu/macos/windows），push/PR/tag/manual 触发 | **已完成** |
 
-> **扩展格式识别**：魔数检测已支持 bzip2（`BZh`）、lz4 frame（`04 22 4D 18`）、xz（`FD 37 7A 58 5A 00`）和 zstd（`28 B5 2F FD`）。bzip2 单流压缩/解压已支持（`geezipx-core` via `bzip2` crate）；`.tar.bz2`/`.tbz`/`.tbz2` 识别为 tar+bzip2 完整归档格式，与单流 `.bz2` 区分。brotli 单流压缩/解压已支持（扩展名/显式格式识别，无稳定 magic）；`.tar.br` 识别为 tar+brotli 完整归档格式，与单流 `.br` 区分。lz4 单流压缩/解压已支持（LZ4 frame）；`.tar.lz4` 识别为 tar+lz4 完整归档格式，与单流 `.lz4` 区分。xz 和 lzma 单流压缩/解压已支持（`geezipx-core` via `xz2` crate）；`.tar.xz`/`.txz` 识别为 tar+xz 完整归档格式，与单流 `.xz` 区分。zstd 单流压缩/解压已支持（`geezipx-core` via `zstd` crate）；`.tar.zst`/`.tzst` 识别为 tar+zstd 归档格式。lzma 无固定魔数，仅通过扩展名/显式格式识别。ASAR 与 DEB 也无可复用的专属 magic：ASAR 依赖扩展名/显式格式与 Pickle 结构启发，DEB 刻意不复用通用 `ar` magic，默认只读取包内 `data.tar*` payload。
+> **扩展格式识别**：魔数检测已支持 bzip2（`BZh`）、lz4 frame（`04 22 4D 18`）、xz（`FD 37 7A 58 5A 00`）和 zstd（`28 B5 2F FD`）。bzip2 单流压缩/解压已支持（`geezipx-core` via `bzip2` crate）；`.tar.bz2`/`.tbz`/`.tbz2` 识别为 tar+bzip2 完整归档格式，与单流 `.bz2` 区分。brotli 单流压缩/解压已支持（扩展名/显式格式识别，无稳定 magic）；`.tar.br` 识别为 tar+brotli 完整归档格式，与单流 `.br` 区分。lz4 单流压缩/解压已支持（LZ4 frame）；`.tar.lz4` 识别为 tar+lz4 完整归档格式，与单流 `.lz4` 区分。xz 和 lzma 单流压缩/解压已支持（`geezipx-core` via `xz2` crate）；`.tar.xz`/`.txz` 识别为 tar+xz 完整归档格式，与单流 `.xz` 区分。zstd 单流压缩/解压已支持（`geezipx-core` via `zstd` crate）；`.tar.zst`/`.tzst` 识别为 tar+zstd 归档格式。lzma 无固定魔数，仅通过扩展名/显式格式识别。ASAR、DEB、LZH/LHA 也无可复用的专属 magic：ASAR 依赖扩展名/显式格式与 Pickle 结构启发，DEB 刻意不复用通用 `ar` magic，LZH/LHA 依赖扩展名/显式格式并在提取前做原始路径安全校验。
 
 ### 5.1 格式支持目标扩展
 
@@ -83,7 +83,7 @@ GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开�
 | LZMA | .lzma | ✅ 已支持 | — |
 | 7Z | .7z | 🔄 只读 → 待写入 | 格式复杂，后续阶段 |
 | RAR | .rar | 📖 只读 | 受 UnRAR 许可限制，不规划写入 |
-| LZH | .lzh | 📋 规划中 | — |
+| LZH/LHA | .lzh, .lha | 📖 只读 → 待写入 | 当前支持 `list` / `decompress` / `test`；未来补写入与更完整兼容 |
 | ISO | .iso | 📋 规划中 | 仅数据 ISO |
 | ZIPX | .zipx | 📋 规划中 | WinZIP 扩展格式 |
 | SFX | .exe | 📋 规划中 | 自解压 ZIP/7z 模块 |
@@ -94,7 +94,7 @@ GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开�
 | 格式 | 当前状态 | 说明 |
 |------|---------|------|
 | CAB, WIM | 📋 规划中 | Microsoft 归档/映像格式 |
-| ARJ, LHA, ACE, ALZ, BH, PMA, PEA, EGG, ARC | 📋 规划中 | 历史/专有格式，通过适配器评估 |
+| ARJ, ACE, ALZ, BH, PMA, PEA, EGG, ARC | 📋 规划中 | 历史/专有格式，通过适配器评估 |
 | LZ (.lz) | 📋 规划中 | Lzip |
 | UU (.uu/.uue/.xxe), Z (.Z) | 📋 规划中 | 编码格式 / Unix compress |
 | AES | 📋 规划中 | AES 加密容器 |
@@ -135,7 +135,7 @@ GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开�
 - **Feature gate**：每种格式按独立 feature 引入，用户可按需编译。
 - **优先级**：由用户需求与社区反馈驱动，不做全格式一次性覆盖。
 - **读/写分离**：一种格式可先实现只读（如当前 7z/RAR），写入能力后续补充。
-- **历史格式**：ARJ、LHA、ACE、ARC、ALZ 等历史/专有格式通过适配器层外部库评估，不承诺当前版本实现。
+- **历史格式**：ARJ、ACE、ARC、ALZ 等历史/专有格式通过适配器层外部库评估；LZH/LHA 当前仅交付只读 MVP，写入与更完整兼容能力后续补充。
 
 ## 7. 功能需求（Feature Requirements）
 
@@ -232,7 +232,7 @@ Phase 3 (生态 + 格式扩展)
 ├── 压缩格式扩展
 │   ├── 7z 写入 — 完整 7z 写入支持
 │   ├── ZIPX — WinZIP 扩展格式（JPEG 预压缩等高级特性）
-│   ├── LZH — LHA/LZH 归档格式
+│   ├── LZH 写入 — 在现有 LZH/LHA 只读基础上补齐写入与更完整兼容
 │   ├── ISO — 数据 ISO 归档处理
 │   ├── SFX — 自解压 ZIP/7z 模块
 │   ├── ZPAQ — 高压缩比格式
@@ -241,7 +241,7 @@ Phase 3 (生态 + 格式扩展)
 │   ├── Brotli (.br)、bzip2 (.bz2)、LZ4 — 现代压缩格式
 │   ├── CAB、WIM — Microsoft 归档/映像格式
 │   ├── DEB、ASAR — 应用包格式
-│   ├── ARJ、LHA、ACE、ARC、ALZ — 历史格式适配器
+│   ├── ARJ、ACE、ARC、ALZ — 历史格式适配器
 │   ├── UU/UUE/XXE、.Z — 编码/早期压缩格式
 │   ├── PEA、PMA、AES、EGG — 专有格式按需评估
 │   ├── IMG、ISZ、UDF — 磁盘镜像格式

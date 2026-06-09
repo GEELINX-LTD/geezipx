@@ -79,6 +79,7 @@ fn run_verify(archive: &Path, json: bool, password: Option<String>) -> Result<()
         | ArchiveFormat::Rar
         | ArchiveFormat::Asar
         | ArchiveFormat::Deb
+        | ArchiveFormat::Lzh
         | ArchiveFormat::Tar
         | ArchiveFormat::TarGz
         | ArchiveFormat::TarBz2

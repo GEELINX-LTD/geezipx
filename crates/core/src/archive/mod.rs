@@ -17,8 +17,8 @@ pub mod brotli;
 pub mod bzip2;
 pub mod deb;
 pub mod gzip;
-pub mod lzh;
 pub mod lz4;
+pub mod lzh;
 #[cfg(feature = "rar")]
 pub mod rar;
 pub mod seven_zip;
@@ -239,7 +239,7 @@ pub trait ArchiveReader: Send {
                     let _ = std::fs::remove_file(&target);
                     report.errors.push((entry.path.clone(), e));
                 }
-        }
+            }
         }
 
         Ok(report)

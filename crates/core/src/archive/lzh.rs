@@ -18,8 +18,7 @@ use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::Path;
 
 use delharc::header::{ext::EXT_HEADER_FILENAME, ext::EXT_HEADER_PATH, LhaHeader, OsType};
-use delharc::stub_io::Read as DelharcRead;
-use delharc::{LhaDecodeError, LhaDecodeReader, LhaError};
+use delharc::{LhaDecodeReader, LhaError};
 
 use crate::archive::{is_entry_path_dangerous, ArchiveReader, Entry};
 use crate::detect::ArchiveFormat;
@@ -88,7 +87,10 @@ fn split_raw_lzh_path_components(data: &[u8], nilterm: bool) -> Vec<Vec<u8>> {
 }
 
 fn trim_trailing_empty_raw_components(components: &mut Vec<Vec<u8>>) {
-    while components.last().is_some_and(|component| component.is_empty()) {
+    while components
+        .last()
+        .is_some_and(|component| component.is_empty())
+    {
         components.pop();
     }
 }
@@ -173,7 +175,7 @@ fn raw_lzh_path_is_dangerous(components: &[Vec<u8>]) -> bool {
         }
 
         if index == 0
-            && component.len() == 2
+            && component.len() >= 2
             && component[0].is_ascii_alphabetic()
             && component[1] == b':'
         {
@@ -195,7 +197,8 @@ fn normalize_lzh_display_path(mut path: String, is_dir: bool) -> String {
 
 fn lzh_entry_path(header: &LhaHeader) -> GeeZipResult<String> {
     let raw_components = raw_lzh_path_components(header);
-    let raw_display = normalize_lzh_display_path(raw_lzh_display_path(&raw_components), header.is_directory());
+    let raw_display =
+        normalize_lzh_display_path(raw_lzh_display_path(&raw_components), header.is_directory());
     if raw_display.is_empty() {
         return Err(GeeZipError::format(
             "LZH entry is missing a pathname",
@@ -207,7 +210,10 @@ fn lzh_entry_path(header: &LhaHeader) -> GeeZipResult<String> {
         return Ok(raw_display);
     }
 
-    let path = normalize_lzh_display_path(header.parse_pathname_to_str().replace('\\', "/"), header.is_directory());
+    let path = normalize_lzh_display_path(
+        header.parse_pathname_to_str().replace('\\', "/"),
+        header.is_directory(),
+    );
     if path.is_empty() {
         return Err(GeeZipError::format(
             "LZH entry is missing a pathname",
@@ -244,9 +250,10 @@ fn convert_lha_error(err: LhaError<std::io::Error>, context: impl Into<String>) 
             }
             _ => GeeZipError::io(io_err, context),
         },
-        LhaError::HeaderParse(message) => {
-            GeeZipError::format(format!("invalid LZH archive: {message}"), ArchiveFormat::Lzh)
-        }
+        LhaError::HeaderParse(message) => GeeZipError::format(
+            format!("invalid LZH archive: {message}"),
+            ArchiveFormat::Lzh,
+        ),
         LhaError::Decompress(message) => GeeZipError::format(
             format!("failed to decompress LZH entry: {message}"),
             ArchiveFormat::Lzh,
@@ -255,15 +262,13 @@ fn convert_lha_error(err: LhaError<std::io::Error>, context: impl Into<String>) 
             format!("LZH CRC-16 verification failed: {message}"),
             ArchiveFormat::Lzh,
         ),
+        _ => GeeZipError::format("LZH decoder error", ArchiveFormat::Lzh),
     }
 }
 
-fn convert_lha_decode_error<R>(
-    err: LhaDecodeError<R>,
-    context: impl Into<String>,
-) -> GeeZipError
+fn convert_lha_decode_error<E>(err: E, context: impl Into<String>) -> GeeZipError
 where
-    R: DelharcRead<Error = std::io::Error>,
+    E: Into<LhaError<std::io::Error>>,
 {
     convert_lha_error(err.into(), context)
 }
@@ -322,7 +327,10 @@ impl<R: Read + Seek + Send> ArchiveReader for LzhReader<R> {
             let header = reader.header();
             let path = lzh_entry_path(header)?;
             if path == entry.path {
-                if is_entry_path_dangerous(Path::new(&path)) {
+                let raw_components = raw_lzh_path_components(header);
+                if raw_lzh_path_is_dangerous(&raw_components)
+                    || is_entry_path_dangerous(Path::new(&path))
+                {
                     return Err(dangerous_lzh_entry_error(&path));
                 }
                 if header.is_directory() {
@@ -363,6 +371,7 @@ mod tests {
     use super::*;
 
     use delharc::crc::Crc16;
+    use delharc::header::MsDosAttrs;
 
     struct FixtureEntry<'a> {
         path: &'a str,
@@ -420,7 +429,7 @@ mod tests {
         } else {
             file_crc16(entry.data)
         };
-        let header_len = 20usize + name.len();
+        let header_len = 22usize + name.len();
         assert!(header_len <= u8::MAX as usize, "LZH header too large");
 
         let mut header = Vec::with_capacity(header_len);
@@ -451,6 +460,75 @@ mod tests {
         }
         out.push(0);
         out
+    }
+
+    fn append_lzh_level1_extra_header(
+        out: &mut Vec<u8>,
+        kind: u8,
+        data: &[u8],
+        next_header_len: u16,
+    ) {
+        let header_len = 1usize + data.len() + 2;
+        assert!(
+            u16::try_from(header_len).is_ok(),
+            "LZH extra header too large"
+        );
+        out.push(kind);
+        out.extend_from_slice(data);
+        out.extend_from_slice(&next_header_len.to_le_bytes());
+    }
+
+    fn lzh_header_with_path_extra_headers(path_header: &[u8], filename_header: &[u8]) -> LhaHeader {
+        let path_header_len =
+            u16::try_from(1usize + path_header.len() + 2).expect("LZH path extra header too large");
+        let filename_header_len = u16::try_from(1usize + filename_header.len() + 2)
+            .expect("LZH filename extra header too large");
+
+        let mut extra_headers = Vec::new();
+        append_lzh_level1_extra_header(
+            &mut extra_headers,
+            EXT_HEADER_PATH,
+            path_header,
+            filename_header_len,
+        );
+        append_lzh_level1_extra_header(&mut extra_headers, EXT_HEADER_FILENAME, filename_header, 0);
+
+        LhaHeader {
+            level: 1,
+            compression: *b"-lh0-",
+            compressed_size: 0,
+            original_size: 0,
+            filename: Box::new([]),
+            msdos_attrs: MsDosAttrs::ARCHIVE,
+            last_modified: 0,
+            os_type: 0,
+            file_crc: 0,
+            extended_area: Box::new([]),
+            first_header_len: u32::from(path_header_len),
+            extra_headers: extra_headers.into_boxed_slice(),
+        }
+    }
+
+    fn assert_lzh_extra_header_path_rejected(
+        path_header: &[u8],
+        filename_header: &[u8],
+        expected_path: &str,
+    ) {
+        let header = lzh_header_with_path_extra_headers(path_header, filename_header);
+        let raw_components = raw_lzh_path_components(&header);
+        assert!(raw_lzh_path_is_dangerous(&raw_components));
+        assert_eq!(lzh_entry_path(&header).unwrap(), expected_path);
+    }
+
+    fn assert_lzh_extra_header_path_accepted(
+        path_header: &[u8],
+        filename_header: &[u8],
+        expected_path: &str,
+    ) {
+        let header = lzh_header_with_path_extra_headers(path_header, filename_header);
+        let raw_components = raw_lzh_path_components(&header);
+        assert!(!raw_lzh_path_is_dangerous(&raw_components));
+        assert_eq!(lzh_entry_path(&header).unwrap(), expected_path);
     }
 
     #[test]
@@ -508,7 +586,10 @@ mod tests {
         assert_eq!(report.files_extracted, 0);
         assert_eq!(report.errors.len(), 1);
         assert_eq!(report.errors[0].0, expected_path);
-        assert!(matches!(report.errors[0].1, GeeZipError::PathTraversal { .. }));
+        assert!(matches!(
+            report.errors[0].1,
+            GeeZipError::PathTraversal { .. }
+        ));
         assert!(!temp.path().join("evil.txt").exists());
     }
 
@@ -541,6 +622,26 @@ mod tests {
     }
 
     #[test]
+    fn lzh_extract_all_rejects_windows_drive_relative_paths_from_raw_header() {
+        assert_lzh_extract_all_rejects_dangerous_path("C:evil.txt", "C:evil.txt");
+    }
+
+    #[test]
+    fn lzh_extra_header_path_rejects_parent_dir_components() {
+        assert_lzh_extra_header_path_rejected(b"../", b"evil.txt", "../evil.txt");
+    }
+
+    #[test]
+    fn lzh_extra_header_path_rejects_absolute_components() {
+        assert_lzh_extra_header_path_rejected(b"/abs/", b"evil.txt", "/abs/evil.txt");
+    }
+
+    #[test]
+    fn lzh_extra_header_path_accepts_safe_components() {
+        assert_lzh_extra_header_path_accepted(b"safe/", b"evil.txt", "safe/evil.txt");
+    }
+
+    #[test]
     fn lzh_extract_all_removes_partial_file_after_crc_failure() {
         let mut archive = build_lzh(&[FixtureEntry::file("hello.txt", b"hello")]);
         let payload_index = archive.len() - 1 - b"hello".len();
@@ -564,7 +665,9 @@ mod tests {
         let err = reader
             .extract(&entry, &mut std::io::sink())
             .expect_err("unsupported decoder should fail extraction");
-        assert!(err.to_string().contains("unsupported LZH compression method"));
+        assert!(err
+            .to_string()
+            .contains("unsupported LZH compression method"));
         assert!(err.to_string().contains("-pm1-"));
     }
 
