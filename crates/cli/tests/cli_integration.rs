@@ -7742,3 +7742,160 @@ fn deb_password_is_rejected() {
             "only supported for ZIP, 7z, and RAR",
         ));
 }
+
+// ---------------------------------------------------------------------------
+// LZH read-only tests
+// ---------------------------------------------------------------------------
+
+fn lzh_crc16(data: &[u8]) -> u16 {
+    let mut sum = 0u16;
+    for &byte in data {
+        sum ^= u16::from(byte);
+        for _ in 0..8 {
+            if sum & 1 == 1 {
+                sum = (sum >> 1) ^ 0xA001;
+            } else {
+                sum >>= 1;
+            }
+        }
+    }
+    sum
+}
+
+fn append_lzh_member(out: &mut Vec<u8>, path: &str, data: &[u8]) {
+    let name = path.as_bytes();
+    assert!(name.len() <= u8::MAX as usize, "LZH pathname too long: {path}");
+
+    let mut header = Vec::new();
+    header.extend_from_slice(b"-lh0-");
+    header.extend_from_slice(&(data.len() as u32).to_le_bytes());
+    header.extend_from_slice(&(data.len() as u32).to_le_bytes());
+    header.extend_from_slice(&0u32.to_le_bytes());
+    header.push(0x20);
+    header.push(0);
+    header.push(name.len() as u8);
+    header.extend_from_slice(name);
+    header.extend_from_slice(&lzh_crc16(data).to_le_bytes());
+
+    let checksum = header.iter().fold(0u8, |acc, byte| acc.wrapping_add(*byte));
+    out.push(header.len() as u8);
+    out.push(checksum);
+    out.extend_from_slice(&header);
+    out.extend_from_slice(data);
+}
+
+fn build_test_lzh(entries: &[(&str, &[u8])]) -> Vec<u8> {
+    let mut out = Vec::new();
+    for (path, data) in entries {
+        append_lzh_member(&mut out, path, data);
+    }
+    out.push(0);
+    out
+}
+
+#[test]
+fn lzh_list_shows_entries() {
+    let td = TestDir::new();
+    let archive = td.join("archive.lzh");
+    std::fs::write(
+        &archive,
+        build_test_lzh(&[("docs/hello.txt", b"hello"), ("readme.txt", b"readme")]),
+    )
+    .unwrap();
+
+    geezipx()
+        .args(["list", archive.to_str().unwrap()])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("docs/hello.txt"))
+        .stdout(predicate::str::contains("readme.txt"));
+}
+
+#[test]
+fn lzh_decompress_extracts_files() {
+    let td = TestDir::new();
+    let archive = td.join("archive.lzh");
+    let output = td.join("out");
+    std::fs::write(
+        &archive,
+        build_test_lzh(&[("docs/hello.txt", b"hello"), ("readme.txt", b"readme")]),
+    )
+    .unwrap();
+    std::fs::create_dir_all(&output).unwrap();
+
+    geezipx()
+        .args([
+            "decompress",
+            archive.to_str().unwrap(),
+            "-o",
+            output.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    assert_eq!(
+        std::fs::read_to_string(output.join("docs/hello.txt")).unwrap(),
+        "hello"
+    );
+    assert_eq!(
+        std::fs::read_to_string(output.join("readme.txt")).unwrap(),
+        "readme"
+    );
+}
+
+#[test]
+fn lzh_test_reports_crc16_integrity() {
+    let td = TestDir::new();
+    let archive = td.join("archive.lha");
+    std::fs::write(&archive, build_test_lzh(&[("hello.txt", b"hello")])).unwrap();
+
+    geezipx()
+        .args(["test", archive.to_str().unwrap()])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Format:  lzh"))
+        .stdout(predicate::str::contains("Integrity:  verified (CRC-16)"))
+        .stdout(predicate::str::contains("result: OK"));
+}
+
+#[test]
+fn lzh_decompress_rejects_dangerous_raw_paths() {
+    let td = TestDir::new();
+    let archive = td.join("dangerous.lzh");
+    let output = td.join("out");
+    std::fs::write(&archive, build_test_lzh(&[("../evil.txt", b"bad")])).unwrap();
+    std::fs::create_dir_all(&output).unwrap();
+
+    geezipx()
+        .args([
+            "decompress",
+            archive.to_str().unwrap(),
+            "-o",
+            output.to_str().unwrap(),
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("path traversal detected"))
+        .stderr(predicate::str::contains("../evil.txt"));
+
+    assert!(!output.join("evil.txt").exists());
+}
+
+#[test]
+fn lzh_compress_is_rejected() {
+    let td = TestDir::new();
+    td.write("payload.txt", "lzh write should fail");
+
+    geezipx()
+        .args([
+            "compress",
+            td.join("payload.txt").to_str().unwrap(),
+            "-f",
+            "lzh",
+            "-o",
+            td.join("out.lzh").to_str().unwrap(),
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("read-only archive format"));
+}

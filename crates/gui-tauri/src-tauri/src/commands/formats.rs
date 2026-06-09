@@ -10,8 +10,8 @@ pub struct FormatInfo {
     /// Whether the current GUI compression command can create this format.
     ///
     /// In the current GUI release, single-stream `gzip`, `bzip2`, `brotli`,
-    /// `lz4`, `zstd`, `xz`, and `lzma` entries remain decompress-only even
-    /// though the engine can detect and extract them.
+    /// `lz4`, `zstd`, `xz`, and `lzma` entries, plus read-only archive formats
+    /// such as `7z`, `rar`, `asar`, `deb`, and `lzh`, remain decompress-only.
     pub can_compress: bool,
     /// Whether this format supports extracting archives (decompression).
     pub can_decompress: bool,
@@ -119,6 +119,11 @@ pub fn get_formats() -> Vec<FormatInfo> {
             can_compress: false,
             can_decompress: true,
         },
+        FormatInfo {
+            name: "lzh".into(),
+            can_compress: false,
+            can_decompress: true,
+        },
     ]
 }
 
@@ -129,7 +134,7 @@ mod tests {
     #[test]
     fn get_formats_returns_expected_count() {
         let formats = get_formats();
-        assert_eq!(formats.len(), 19, "expected 19 supported formats");
+        assert_eq!(formats.len(), 20, "expected 20 supported formats");
     }
 
     #[test]
@@ -218,5 +223,13 @@ mod tests {
         let deb = formats.iter().find(|f| f.name == "deb").unwrap();
         assert!(!deb.can_compress);
         assert!(deb.can_decompress);
+    }
+
+    #[test]
+    fn get_formats_lzh_decompress_only() {
+        let formats = get_formats();
+        let lzh = formats.iter().find(|f| f.name == "lzh").unwrap();
+        assert!(!lzh.can_compress);
+        assert!(lzh.can_decompress);
     }
 }

@@ -228,15 +228,18 @@ pub trait ArchiveReader: Send {
                 }
             };
 
-            match self.extract(entry, &mut output) {
+            let extract_result = self.extract(entry, &mut output);
+            drop(output);
+            match extract_result {
                 Ok(bytes) => {
                     report.files_extracted += 1;
                     report.bytes_extracted += bytes;
                 }
                 Err(e) => {
+                    let _ = std::fs::remove_file(&target);
                     report.errors.push((entry.path.clone(), e));
                 }
-            }
+        }
         }
 
         Ok(report)
@@ -352,15 +355,23 @@ pub trait ArchiveReader: Send {
 
             let mut output = CancellableWriter::new(output, is_cancelled);
 
-            match self.extract(entry, &mut output) {
+            let extract_result = self.extract(entry, &mut output);
+            let was_cancelled = output.was_cancelled();
+            drop(output);
+            match extract_result {
                 Ok(bytes) => {
-                    if output.was_cancelled() {
+                    if was_cancelled {
+                        let _ = std::fs::remove_file(&target);
                         return Err(GeeZipError::Cancelled);
                     }
                     report.files_extracted += 1;
                     report.bytes_extracted += bytes;
                 }
                 Err(e) => {
+                    let _ = std::fs::remove_file(&target);
+                    if was_cancelled {
+                        return Err(GeeZipError::Cancelled);
+                    }
                     report.errors.push((entry.path.clone(), e));
                 }
             }
@@ -1038,5 +1049,49 @@ mod tests {
             content2, "mock file content",
             "file should not be overwritten"
         );
+    }
+
+    /// Mock reader that writes partial content and then returns a format error.
+    struct MockPartialFailureReader {
+        entries: Vec<Entry>,
+    }
+
+    impl ArchiveReader for MockPartialFailureReader {
+        fn format(&self) -> ArchiveFormat {
+            ArchiveFormat::Lzh
+        }
+
+        fn entries(&mut self) -> GeeZipResult<Vec<Entry>> {
+            Ok(self.entries.clone())
+        }
+
+        fn extract(&mut self, _entry: &Entry, writer: &mut dyn Write) -> GeeZipResult<u64> {
+            writer.write_all(b"partial output")?;
+            Err(GeeZipError::format(
+                "mock integrity failure",
+                ArchiveFormat::Lzh,
+            ))
+        }
+    }
+
+    #[test]
+    fn extract_all_removes_partial_output_after_extract_error() {
+        let entries = vec![Entry {
+            path: "broken.txt".into(),
+            size: 32,
+            compressed_size: 0,
+            crc32: None,
+            modified: None,
+            is_dir: false,
+        }];
+
+        let mut reader = MockPartialFailureReader { entries };
+        let tmp = tempfile::tempdir().unwrap();
+        let report = reader.extract_all(tmp.path(), true).unwrap();
+
+        assert_eq!(report.files_extracted, 0);
+        assert_eq!(report.errors.len(), 1);
+        assert!(!tmp.path().join("broken.txt").exists());
+        assert!(matches!(report.errors[0].1, GeeZipError::Format { .. }));
     }
 }

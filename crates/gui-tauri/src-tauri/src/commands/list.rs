@@ -11,6 +11,7 @@ use tokio::task::spawn_blocking;
 
 use geezipx_core::archive::asar::AsarReader;
 use geezipx_core::archive::deb::DebReader;
+use geezipx_core::archive::lzh::LzhReader;
 #[cfg(feature = "rar")]
 use geezipx_core::archive::rar::RarReader;
 use geezipx_core::archive::seven_zip::SevenZipReader;
@@ -58,7 +59,7 @@ pub struct EntryInfo {
 /// - Zstd magic + `.tar.zst`/`.tzst` extension → `TarZst`
 /// - XZ magic + `.tar.xz`/`.txz` extension → `TarXz`
 /// - Pure magic match → format from magic
-/// - Fallback → extension-based detection (`.asar` / `.deb` are extension-only)
+/// - Fallback → extension-based detection (`.asar` / `.deb` / `.lzh` / `.lha` are extension-only)
 pub(crate) fn detect_archive_format(path: &Path) -> Result<ArchiveFormat, String> {
     let mut file =
         fs::File::open(path).map_err(|e| format!("Cannot open '{}': {}", path.display(), e))?;
@@ -160,6 +161,11 @@ pub(crate) fn open_reader(
             let file = fs::File::open(path)
                 .map_err(|e| format!("Cannot open '{}': {}", path.display(), e))?;
             Ok(Box::new(DebReader::new(file)))
+        }
+        ArchiveFormat::Lzh => {
+            let file = fs::File::open(path)
+                .map_err(|e| format!("Cannot open '{}': {}", path.display(), e))?;
+            Ok(Box::new(LzhReader::new(file)))
         }
         ArchiveFormat::Tar => {
             let file = fs::File::open(path)

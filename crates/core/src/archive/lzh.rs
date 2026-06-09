@@ -6,18 +6,22 @@
 //! feature set (notably `-lh0-`, `-lh1-`, and `-lh4-` through `-lh7-`).
 //!
 //! Path handling notes:
-//! - `delharc` already normalises path separators to `/` and strips `.` / `..`
-//!   path components while percent-encoding non-ASCII/control bytes.
-//! - GeeZipX still relies on the shared `extract_all` Zip-Slip guards for the
-//!   final destination safety checks, including Windows drive-prefixed paths.
+//! - `delharc`'s parsed pathname helpers intentionally normalise separators and
+//!   strip `.` / `..` / empty components. GeeZipX therefore inspects the raw
+//!   filename and extended path headers first so dangerous names are surfaced
+//!   as path-traversal errors instead of being silently renamed on extraction.
+//! - Safe paths still use `delharc`'s parsed pathname so non-ASCII and control
+//!   bytes are rendered consistently with the upstream decoder.
 
-use std::fmt;
+use std::fmt::{self, Write as _};
 use std::io::{Read, Seek, SeekFrom, Write};
+use std::path::Path;
 
+use delharc::header::{ext::EXT_HEADER_FILENAME, ext::EXT_HEADER_PATH, LhaHeader, OsType};
 use delharc::stub_io::Read as DelharcRead;
 use delharc::{LhaDecodeError, LhaDecodeReader, LhaError};
 
-use crate::archive::{ArchiveReader, Entry};
+use crate::archive::{is_entry_path_dangerous, ArchiveReader, Entry};
 use crate::detect::ArchiveFormat;
 use crate::error::{GeeZipError, GeeZipResult};
 
@@ -52,32 +56,176 @@ impl LzhReader<std::io::Cursor<Vec<u8>>> {
     }
 }
 
-fn lzh_modified_timestamp(header: &delharc::header::LhaHeader) -> Option<u64> {
+fn lzh_modified_timestamp(header: &LhaHeader) -> Option<u64> {
     header
         .parse_last_modified()
         .to_utc()
         .and_then(|dt| u64::try_from(dt.timestamp()).ok())
 }
 
-fn lzh_entry_path(header: &delharc::header::LhaHeader) -> GeeZipResult<String> {
-    let path = header.parse_pathname_to_str().replace('\\', "/");
+fn lzh_is_amiga_nilterm(header: &LhaHeader) -> bool {
+    header.parse_os_type() == Ok(OsType::Amiga)
+}
+
+fn split_raw_lzh_path_components(data: &[u8], nilterm: bool) -> Vec<Vec<u8>> {
+    let mut components = Vec::new();
+    let mut current = Vec::new();
+
+    for &byte in data {
+        if nilterm && byte == 0 {
+            break;
+        }
+
+        if matches!(byte, 0xFF | b'/' | b'\\') {
+            components.push(std::mem::take(&mut current));
+        } else {
+            current.push(byte);
+        }
+    }
+
+    components.push(current);
+    components
+}
+
+fn trim_trailing_empty_raw_components(components: &mut Vec<Vec<u8>>) {
+    while components.last().is_some_and(|component| component.is_empty()) {
+        components.pop();
+    }
+}
+
+fn append_raw_lzh_path_source(components: &mut Vec<Vec<u8>>, data: &[u8], nilterm: bool) {
+    if !components.is_empty() {
+        trim_trailing_empty_raw_components(components);
+    }
+    components.extend(split_raw_lzh_path_components(data, nilterm));
+}
+
+fn raw_lzh_path_components(header: &LhaHeader) -> Vec<Vec<u8>> {
+    let nilterm = lzh_is_amiga_nilterm(header);
+    let mut components = Vec::new();
+    let mut raw_path_headers = Vec::new();
+    let mut filename_header = None;
+
+    for extra in header.iter_extra() {
+        match extra {
+            [EXT_HEADER_FILENAME, data @ ..] => filename_header = Some(data),
+            [EXT_HEADER_PATH, data @ ..] => raw_path_headers.push(data),
+            _ => {}
+        }
+    }
+
+    for data in raw_path_headers {
+        append_raw_lzh_path_source(&mut components, data, false);
+    }
+
+    if let Some(data) = filename_header {
+        append_raw_lzh_path_source(&mut components, data, nilterm);
+    } else if !header.filename.is_empty() {
+        append_raw_lzh_path_source(&mut components, &header.filename, nilterm);
+    }
+
+    components
+}
+
+fn raw_lzh_component_display(component: &[u8]) -> String {
+    let mut out = String::with_capacity(component.len());
+    for &byte in component {
+        match byte {
+            0x20..=0x7E => out.push(byte as char),
+            _ => {
+                let _ = write!(out, "%{:02x}", byte);
+            }
+        }
+    }
+    out
+}
+
+fn raw_lzh_display_path(components: &[Vec<u8>]) -> String {
+    if components.is_empty() {
+        return String::new();
+    }
+
+    let mut display = String::new();
+    for (index, component) in components.iter().enumerate() {
+        if index > 0 {
+            display.push('/');
+        }
+        display.push_str(&raw_lzh_component_display(component));
+    }
+    display
+}
+
+fn raw_lzh_path_is_dangerous(components: &[Vec<u8>]) -> bool {
+    let Some(last_index) = components.len().checked_sub(1) else {
+        return true;
+    };
+
+    for (index, component) in components.iter().enumerate() {
+        if component.is_empty() {
+            if index == last_index {
+                continue;
+            }
+            return true;
+        }
+
+        if component.as_slice() == b"." || component.as_slice() == b".." {
+            return true;
+        }
+
+        if index == 0
+            && component.len() == 2
+            && component[0].is_ascii_alphabetic()
+            && component[1] == b':'
+        {
+            return true;
+        }
+    }
+
+    false
+}
+
+fn normalize_lzh_display_path(mut path: String, is_dir: bool) -> String {
+    if is_dir {
+        while path.len() > 1 && path.ends_with('/') {
+            path.pop();
+        }
+    }
+    path
+}
+
+fn lzh_entry_path(header: &LhaHeader) -> GeeZipResult<String> {
+    let raw_components = raw_lzh_path_components(header);
+    let raw_display = normalize_lzh_display_path(raw_lzh_display_path(&raw_components), header.is_directory());
+    if raw_display.is_empty() {
+        return Err(GeeZipError::format(
+            "LZH entry is missing a pathname",
+            ArchiveFormat::Lzh,
+        ));
+    }
+
+    if raw_lzh_path_is_dangerous(&raw_components) {
+        return Ok(raw_display);
+    }
+
+    let path = normalize_lzh_display_path(header.parse_pathname_to_str().replace('\\', "/"), header.is_directory());
     if path.is_empty() {
         return Err(GeeZipError::format(
             "LZH entry is missing a pathname",
             ArchiveFormat::Lzh,
         ));
     }
+
     Ok(path)
 }
 
-fn compression_label(header: &delharc::header::LhaHeader) -> String {
+fn compression_label(header: &LhaHeader) -> String {
     match header.compression_method() {
         Ok(method) => method.to_string(),
         Err(_) => String::from_utf8_lossy(&header.compression).into_owned(),
     }
 }
 
-fn unsupported_method_error(header: &delharc::header::LhaHeader, path: &str) -> GeeZipError {
+fn unsupported_method_error(header: &LhaHeader, path: &str) -> GeeZipError {
     GeeZipError::format(
         format!(
             "unsupported LZH compression method '{}' for entry '{}'",
@@ -118,6 +266,13 @@ where
     R: DelharcRead<Error = std::io::Error>,
 {
     convert_lha_error(err.into(), context)
+}
+
+fn dangerous_lzh_entry_error(path: &str) -> GeeZipError {
+    GeeZipError::PathTraversal {
+        entry: path.to_string(),
+        target: "requested extraction target".into(),
+    }
 }
 
 fn scan_lzh_entries<R: Read + Seek + Send>(inner: &mut R) -> GeeZipResult<Vec<Entry>> {
@@ -167,6 +322,9 @@ impl<R: Read + Seek + Send> ArchiveReader for LzhReader<R> {
             let header = reader.header();
             let path = lzh_entry_path(header)?;
             if path == entry.path {
+                if is_entry_path_dangerous(Path::new(&path)) {
+                    return Err(dangerous_lzh_entry_error(&path));
+                }
                 if header.is_directory() {
                     return Ok(0);
                 }
@@ -335,20 +493,67 @@ mod tests {
         assert!(err.to_string().contains("CRC-16"), "err: {err}");
     }
 
-    #[test]
-    fn lzh_extract_all_rejects_windows_absolute_paths() {
-        let archive = build_lzh(&[FixtureEntry::file("C:\\escape.txt", b"bad")]);
+    fn assert_lzh_extract_all_rejects_dangerous_path(raw_path: &str, expected_path: &str) {
+        let archive = build_lzh(&[FixtureEntry::file(raw_path, b"bad")]);
         let mut reader = LzhReader::from_buf(archive);
+        let entries = reader.entries().expect("entries should still be listable");
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].path, expected_path);
+
         let temp = tempfile::TempDir::new().unwrap();
         let report = reader
             .extract_all(temp.path(), true)
-            .expect("extract_all should complete with per-file errors");
+            .expect("extract_all should report per-file errors");
 
         assert_eq!(report.files_extracted, 0);
         assert_eq!(report.errors.len(), 1);
-        assert_eq!(report.errors[0].0, "C:/escape.txt");
+        assert_eq!(report.errors[0].0, expected_path);
         assert!(matches!(report.errors[0].1, GeeZipError::PathTraversal { .. }));
-        assert!(!temp.path().join("escape.txt").exists());
+        assert!(!temp.path().join("evil.txt").exists());
+    }
+
+    #[test]
+    fn lzh_extract_all_rejects_parent_dir_paths_from_raw_header() {
+        assert_lzh_extract_all_rejects_dangerous_path("../evil.txt", "../evil.txt");
+    }
+
+    #[test]
+    fn lzh_extract_all_rejects_unix_absolute_paths_from_raw_header() {
+        assert_lzh_extract_all_rejects_dangerous_path("/absolute.txt", "/absolute.txt");
+    }
+
+    #[test]
+    fn lzh_extract_all_rejects_windows_drive_paths_from_raw_header() {
+        assert_lzh_extract_all_rejects_dangerous_path("C:\\evil.txt", "C:/evil.txt");
+    }
+
+    #[test]
+    fn lzh_extract_all_rejects_backslash_traversal_from_raw_header() {
+        assert_lzh_extract_all_rejects_dangerous_path("..\\evil.txt", "../evil.txt");
+    }
+
+    #[test]
+    fn lzh_extract_all_rejects_unc_paths_from_raw_header() {
+        assert_lzh_extract_all_rejects_dangerous_path(
+            "\\\\server\\share\\evil.txt",
+            "//server/share/evil.txt",
+        );
+    }
+
+    #[test]
+    fn lzh_extract_all_removes_partial_file_after_crc_failure() {
+        let mut archive = build_lzh(&[FixtureEntry::file("hello.txt", b"hello")]);
+        let payload_index = archive.len() - 1 - b"hello".len();
+        archive[payload_index] ^= 0x01;
+
+        let mut reader = LzhReader::from_buf(archive);
+        let temp = tempfile::TempDir::new().unwrap();
+        let report = reader.extract_all(temp.path(), true).unwrap();
+
+        assert_eq!(report.files_extracted, 0);
+        assert_eq!(report.errors.len(), 1);
+        assert!(report.errors[0].1.to_string().contains("CRC-16"));
+        assert!(!temp.path().join("hello.txt").exists());
     }
 
     #[test]
