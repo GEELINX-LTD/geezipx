@@ -53,6 +53,8 @@ pub enum ArchiveFormat {
     Asar,
     /// Debian package archive (extension-based — `.deb`; deliberately no `ar` magic sniff).
     Deb,
+    /// LZH/LHA archive (extension-based — `.lzh`, `.lha`; deliberately no magic sniff).
+    Lzh,
     /// Unknown or unrecognised format.
     Unknown,
 }
@@ -79,6 +81,7 @@ impl fmt::Display for ArchiveFormat {
             ArchiveFormat::Rar => write!(f, "rar"),
             ArchiveFormat::Asar => write!(f, "asar"),
             ArchiveFormat::Deb => write!(f, "deb"),
+            ArchiveFormat::Lzh => write!(f, "lzh"),
             ArchiveFormat::Unknown => write!(f, "unknown"),
         }
     }
@@ -130,6 +133,8 @@ const EXTENSION_MAP: &[(&str, ArchiveFormat)] = &[
     (".rar", ArchiveFormat::Rar),
     (".asar", ArchiveFormat::Asar),
     (".deb", ArchiveFormat::Deb),
+    (".lzh", ArchiveFormat::Lzh),
+    (".lha", ArchiveFormat::Lzh),
 ];
 
 // ---------------------------------------------------------------------------
@@ -323,6 +328,20 @@ mod tests {
         assert_eq!(
             detect_from_extension(Path::new("package.deb")),
             Some(ArchiveFormat::Deb)
+        );
+    }
+
+    #[test]
+    fn detect_lzh_is_extension_only() {
+        let raw = b"-lh0-lzh";
+        assert_eq!(detect_format(raw), None);
+        assert_eq!(
+            detect_from_extension(Path::new("archive.lzh")),
+            Some(ArchiveFormat::Lzh)
+        );
+        assert_eq!(
+            detect_from_extension(Path::new("archive.lha")),
+            Some(ArchiveFormat::Lzh)
         );
     }
 
@@ -563,6 +582,22 @@ mod tests {
     }
 
     #[test]
+    fn ext_lzh() {
+        assert_eq!(
+            detect_from_extension(Path::new("archive.lzh")),
+            Some(ArchiveFormat::Lzh)
+        );
+    }
+
+    #[test]
+    fn ext_lha() {
+        assert_eq!(
+            detect_from_extension(Path::new("archive.lha")),
+            Some(ArchiveFormat::Lzh)
+        );
+    }
+
+    #[test]
     fn ext_unknown() {
         assert_eq!(detect_from_extension(Path::new("readme.md")), None);
     }
@@ -656,6 +691,11 @@ mod tests {
     #[test]
     fn display_deb() {
         assert_eq!(ArchiveFormat::Deb.to_string(), "deb");
+    }
+
+    #[test]
+    fn display_lzh() {
+        assert_eq!(ArchiveFormat::Lzh.to_string(), "lzh");
     }
 
     #[test]
