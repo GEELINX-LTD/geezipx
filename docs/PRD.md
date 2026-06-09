@@ -42,13 +42,13 @@ GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开�
 
 | 特性 | 说明 | 状态 |
 |------|------|------|
-| 格式支持 | `.tar.gz`/`.tgz`, `.tar.bz2`/`.tbz`/`.tbz2`, `.tar.br`, `.tar.lz4`, `.zip`（含 `.jar`/`.war`/`.apk`/`.ipa`/`.xpi` 别名）, `.tar`, `.gz`/`.gzip`, `.bz2`, `.br`, `.lz4`, `.tar.zst`/`.tzst`, `.zst`/`.zstd`, `.tar.xz`/`.txz`, `.xz`, `.lzma`（读/写）；7z/RAR（只读） | **已完成**（17 格式 + 5 ZIP 别名） |
+| 格式支持 | `.tar.gz`/`.tgz`, `.tar.bz2`/`.tbz`/`.tbz2`, `.tar.br`, `.tar.lz4`, `.zip`（含 `.jar`/`.war`/`.apk`/`.ipa`/`.xpi` 别名）, `.tar`, `.gz`/`.gzip`, `.bz2`, `.br`, `.lz4`, `.tar.zst`/`.tzst`, `.zst`/`.zstd`, `.tar.xz`/`.txz`, `.xz`, `.lzma`（读/写）；7z/RAR/ASAR/DEB（只读） | **已完成** |
 | 流式处理 | 文件流读写，内存占用与文件大小解耦 | **已完成** |
 | 进度显示 | TTY 下默认显示进度，可用 `--no-progress` 禁用 | **已完成** |
 | 格式自动检测 | 根据文件魔数（magic bytes）自动检测归档格式 | **已完成** |
 | 压缩级别 | `--level 0-9`（gzip/bzip2/tar.gz/tar.bz2/xz/lzma/tar.xz，bzip2 的 level 0 映射为默认级别）；`--level 0-11`（brotli/tar.br）；`--level 0-22`（zstd/tar.zst）；`lz4`/`tar.lz4` 仅接受 `0` 或省略 | **已完成** |
 | 多线程压缩 | tar.gz/tar.zst 支持 `-j`/`--jobs` 多线程并行（tar.gz: pigz-style via gzp；tar.zst: zstd native NbWorkers）；tar.xz 接受参数但暂不生效（xz2 未暴露多线程 API）；**注意**：tar.gz 的 `--jobs` 在 `--stdin` 单流模式下不生效（仅归档模式有效） | **已完成** |
-| 标准管道 | `--stdout` 支持 gzip/bzip2/brotli/lz4/zstd/xz/lzma 单流输出原文；tar.gz/tar.bz2/tar.br/tar.lz4/tar.zst/tar.xz 输出裸 tar 流；`--stdin` 支持从 stdin 读取（单流及 tar-based 格式）；zip/tar/7z/rar 等多文件归档使用 `--stdout`/`--stdin` 时报错 | **已完成** |
+| 标准管道 | `--stdout` 支持 gzip/bzip2/brotli/lz4/zstd/xz/lzma 单流输出原文；tar.gz/tar.bz2/tar.br/tar.lz4/tar.zst/tar.xz 输出裸 tar 流；`--stdin` 支持从 stdin 读取（单流及 tar-based 格式）；zip/tar/7z/rar/asar/deb 等多文件归档使用 `--stdout`/`--stdin` 时报错 | **已完成** |
 | 递归操作 | `-r` 递归添加目录，保持目录结构 | **已完成** |
 | 覆盖保护 | `--no-clobber` / `--force` 覆盖策略 | **已完成** |
 | 列表功能 | 表格 + JSON 输出，支持所有当前格式 | **已完成** |
@@ -56,7 +56,7 @@ GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开�
 | 测试覆盖 | 400+ 测试，覆盖 core 单元/CLI 集成/格式 round-trip/流式冒烟。覆盖率 workflow 为 informational-only 观测模式，不设硬门禁 | **已完成** |
 | 三平台 CI | GitHub Actions：三平台矩阵（ubuntu/macos/windows），push/PR/tag/manual 触发 | **已完成** |
 
-> **扩展格式识别**：魔数检测已支持 bzip2（`BZh`）、lz4 frame（`04 22 4D 18`）、xz（`FD 37 7A 58 5A 00`）和 zstd（`28 B5 2F FD`）。bzip2 单流压缩/解压已支持（`geezipx-core` via `bzip2` crate）；`.tar.bz2`/`.tbz`/`.tbz2` 识别为 tar+bzip2 完整归档格式，与单流 `.bz2` 区分。brotli 单流压缩/解压已支持（扩展名/显式格式识别，无稳定 magic）；`.tar.br` 识别为 tar+brotli 完整归档格式，与单流 `.br` 区分。lz4 单流压缩/解压已支持（LZ4 frame）；`.tar.lz4` 识别为 tar+lz4 完整归档格式，与单流 `.lz4` 区分。xz 和 lzma 单流压缩/解压已支持（`geezipx-core` via `xz2` crate）；`.tar.xz`/`.txz` 识别为 tar+xz 完整归档格式，与单流 `.xz` 区分。zstd 单流压缩/解压已支持（`geezipx-core` via `zstd` crate）；`.tar.zst`/`.tzst` 识别为 tar+zstd 归档格式。lzma 无固定魔数，仅通过扩展名/显式格式识别。
+> **扩展格式识别**：魔数检测已支持 bzip2（`BZh`）、lz4 frame（`04 22 4D 18`）、xz（`FD 37 7A 58 5A 00`）和 zstd（`28 B5 2F FD`）。bzip2 单流压缩/解压已支持（`geezipx-core` via `bzip2` crate）；`.tar.bz2`/`.tbz`/`.tbz2` 识别为 tar+bzip2 完整归档格式，与单流 `.bz2` 区分。brotli 单流压缩/解压已支持（扩展名/显式格式识别，无稳定 magic）；`.tar.br` 识别为 tar+brotli 完整归档格式，与单流 `.br` 区分。lz4 单流压缩/解压已支持（LZ4 frame）；`.tar.lz4` 识别为 tar+lz4 完整归档格式，与单流 `.lz4` 区分。xz 和 lzma 单流压缩/解压已支持（`geezipx-core` via `xz2` crate）；`.tar.xz`/`.txz` 识别为 tar+xz 完整归档格式，与单流 `.xz` 区分。zstd 单流压缩/解压已支持（`geezipx-core` via `zstd` crate）；`.tar.zst`/`.tzst` 识别为 tar+zstd 归档格式。lzma 无固定魔数，仅通过扩展名/显式格式识别。ASAR 与 DEB 也无可复用的专属 magic：ASAR 依赖扩展名/显式格式与 Pickle 结构启发，DEB 刻意不复用通用 `ar` magic，默认只读取包内 `data.tar*` payload。
 
 ### 5.1 格式支持目标扩展
 
@@ -98,9 +98,9 @@ GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开�
 | LZ (.lz) | 📋 规划中 | Lzip |
 | UU (.uu/.uue/.xxe), Z (.Z) | 📋 规划中 | 编码格式 / Unix compress |
 | AES | 📋 规划中 | AES 加密容器 |
-| JAR, WAR, APK, IPA, XPI | 📋 规划中 | 本质为 ZIP 容器，复用 ZIP 引擎 |
-| DEB | 📋 规划中 | Debian 包（ar + tar.xz/gz） |
-| ASAR | 📋 规划中 | Electron 归档 |
+| JAR, WAR, APK, IPA, XPI | ✅ 已支持 | 本质为 ZIP 容器，复用 ZIP 引擎 |
+| DEB | 📖 只读 | Debian 包（ar 容器 + `data.tar*` payload 视图；忽略 `control.tar.*`） |
+| ASAR | 📖 只读 | Electron 归档 |
 | IMG, ISZ, UDF | 📋 规划中 | 磁盘镜像格式 |
 | BIN, I00 | 📋 规划中 | 原始二进制 / 分卷索引 |
 | 001 | 📋 规划中 | 分卷文件（部分解压场景） |

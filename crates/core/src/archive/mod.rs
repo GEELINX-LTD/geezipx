@@ -15,6 +15,7 @@
 pub mod asar;
 pub mod brotli;
 pub mod bzip2;
+pub mod deb;
 pub mod gzip;
 pub mod lz4;
 #[cfg(feature = "rar")]

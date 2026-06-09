@@ -51,6 +51,8 @@ pub enum ArchiveFormat {
     Rar,
     /// Electron ASAR archive (extension-based — `.asar`; no stable magic header).
     Asar,
+    /// Debian package archive (extension-based — `.deb`; deliberately no `ar` magic sniff).
+    Deb,
     /// Unknown or unrecognised format.
     Unknown,
 }
@@ -76,6 +78,7 @@ impl fmt::Display for ArchiveFormat {
             ArchiveFormat::SevenZip => write!(f, "7z"),
             ArchiveFormat::Rar => write!(f, "rar"),
             ArchiveFormat::Asar => write!(f, "asar"),
+            ArchiveFormat::Deb => write!(f, "deb"),
             ArchiveFormat::Unknown => write!(f, "unknown"),
         }
     }
@@ -126,6 +129,7 @@ const EXTENSION_MAP: &[(&str, ArchiveFormat)] = &[
     (".7z", ArchiveFormat::SevenZip),
     (".rar", ArchiveFormat::Rar),
     (".asar", ArchiveFormat::Asar),
+    (".deb", ArchiveFormat::Deb),
 ];
 
 // ---------------------------------------------------------------------------
@@ -143,8 +147,10 @@ const EXTENSION_MAP: &[(&str, ArchiveFormat)] = &[
 /// outer stream format (`Gzip` / `Bzip2` / `Lz4`) because the compression
 /// magic header does not reveal whether the inner stream is a tar archive.
 /// Brotli streams have no stable magic header here, so `.br` / `.tar.br`
-/// rely on extension-based detection only. ASAR similarly has no reliable fixed
-/// magic header and is handled only by explicit format / extension.
+/// rely on extension-based detection only. DEB deliberately does not sniff the
+/// outer `ar` magic because many non-DEB archives share it; `.deb` relies on
+/// explicit format / extension. ASAR similarly has no reliable fixed magic
+/// header and is handled only by explicit format / extension.
 pub fn detect_format(data: &[u8]) -> Option<ArchiveFormat> {
     if data.starts_with(MAGIC_ZIP) || data.starts_with(MAGIC_ZIP_EMPTY) {
         return Some(ArchiveFormat::Zip);
@@ -307,6 +313,16 @@ mod tests {
         assert_eq!(
             detect_from_extension(Path::new("archive.asar")),
             Some(ArchiveFormat::Asar)
+        );
+    }
+
+    #[test]
+    fn detect_deb_is_extension_only() {
+        let raw = b"!<arch>\n";
+        assert_eq!(detect_format(raw), None);
+        assert_eq!(
+            detect_from_extension(Path::new("package.deb")),
+            Some(ArchiveFormat::Deb)
         );
     }
 
@@ -539,6 +555,14 @@ mod tests {
     }
 
     #[test]
+    fn ext_deb() {
+        assert_eq!(
+            detect_from_extension(Path::new("package.deb")),
+            Some(ArchiveFormat::Deb)
+        );
+    }
+
+    #[test]
     fn ext_unknown() {
         assert_eq!(detect_from_extension(Path::new("readme.md")), None);
     }
@@ -627,6 +651,11 @@ mod tests {
     #[test]
     fn display_asar() {
         assert_eq!(ArchiveFormat::Asar.to_string(), "asar");
+    }
+
+    #[test]
+    fn display_deb() {
+        assert_eq!(ArchiveFormat::Deb.to_string(), "deb");
     }
 
     #[test]

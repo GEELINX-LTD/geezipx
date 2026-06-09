@@ -124,7 +124,7 @@ let currentDragTempId = "";
 let currentDragTimeout: ReturnType<typeof setTimeout> | null = null;
 const DRAG_CLEANUP_TIMEOUT_MS = 60_000;
 
-const ARCHIVE_EXTS = /\.(zip|tar|tar\.gz|tar\.bz2|tar\.br|tar\.lz4|tar\.zst|tar\.xz|tgz|tbz|tbz2|tzst|txz|7z|rar|asar)$/i;
+const ARCHIVE_EXTS = /\.(zip|tar|tar\.gz|tar\.bz2|tar\.br|tar\.lz4|tar\.zst|tar\.xz|tgz|tbz|tbz2|tzst|txz|7z|rar|asar|deb)$/i;
 
 // Recent files storage
 const RECENT_KEY = "geezipx_recent_paths";
@@ -434,7 +434,7 @@ function getParentDir(p: string): string {
  *  Handles double extensions like .tar.gz, .tar.bz2, .tar.br, .tar.lz4, .tar.zst, .tar.xz. */
 function stripArchiveExt(name: string): string {
   const double = /\.(tar\.gz|tar\.bz2|tar\.br|tar\.lz4|tar\.zst|tar\.xz|tgz|tbz|tbz2|tzst|txz)$/i;
-  const single = /\.(zip|tar|7z|rar|asar)$/i;
+  const single = /\.(zip|tar|7z|rar|asar|deb)$/i;
   if (double.test(name)) {
     return name.replace(double, "");
   }

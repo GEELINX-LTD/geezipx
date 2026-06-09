@@ -22,6 +22,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
 use crate::commands::list::{detect_archive_format, open_reader};
+use geezipx_core::archive::check_entry_path_safety;
 
 /// Top‑level directory name for drag‑out temp files.
 const DRAG_TEMP_ROOT: &str = "geezipx-dragout";
@@ -67,6 +68,26 @@ pub async fn prepare_drag_entries(
             .entries()
             .map_err(|e| format!("Failed to read archive entries: {e}"))?;
 
+        // Collect the requested entries and validate their paths before
+        // creating any staged files.
+        let requested: std::collections::HashSet<&str> =
+            entry_paths.iter().map(|s| s.as_str()).collect();
+        let selected_entries: Vec<_> = all_entries
+            .iter()
+            .filter(|entry| {
+                requested.contains(entry.path.as_str())
+                    || entry_paths.iter().any(|req| {
+                        entry.path.starts_with(req)
+                            && (entry.path.len() == req.len()
+                                || entry.path[req.len()..].starts_with('/'))
+                    })
+            })
+            .collect();
+
+        for entry in &selected_entries {
+            validate_drag_entry_path(&dest, &entry.path)?;
+        }
+
         if dest.exists() {
             fs::remove_dir_all(&dest)
                 .map_err(|e| format!("Cannot replace temp directory '{}': {e}", dest.display()))?;
@@ -74,28 +95,12 @@ pub async fn prepare_drag_entries(
 
         fs::create_dir_all(&dest).map_err(|e| format!("Cannot create temp directory: {e}"))?;
 
-        // Collect the requested entries.
-        let requested: std::collections::HashSet<&str> =
-            entry_paths.iter().map(|s| s.as_str()).collect();
-
         // Track which directory entries we've already created so we don't
         // attempt to create the same directory twice.
         let mut created_dirs: std::collections::HashSet<String> = std::collections::HashSet::new();
 
-        for entry in &all_entries {
-            // If this entry path (or a prefix) was requested, extract it.
-            let should_extract = requested.contains(entry.path.as_str())
-                || entry_paths.iter().any(|req| {
-                    entry.path.starts_with(req)
-                        && (entry.path.len() == req.len()
-                            || entry.path[req.len()..].starts_with('/'))
-                });
-
-            if !should_extract {
-                continue;
-            }
-
-            let target = dest.join(entry.path.trim_start_matches('/'));
+        for entry in selected_entries {
+            let target = validate_drag_entry_path(&dest, &entry.path)?;
 
             if entry.is_dir {
                 if created_dirs.insert(entry.path.clone()) {
@@ -212,7 +217,7 @@ fn strip_archive_extension(file_name: &str) -> &str {
     ];
     const SIMPLE_EXTENSIONS: &[&str] = &[
         ".zip", ".jar", ".war", ".apk", ".ipa", ".xpi", ".tar", ".gz", ".gzip", ".bz2", ".br",
-        ".lz4", ".xz", ".zst", ".zstd", ".lzma", ".7z", ".rar", ".asar",
+        ".lz4", ".xz", ".zst", ".zstd", ".lzma", ".7z", ".rar", ".asar", ".deb",
     ];
 
     let lower = file_name.to_ascii_lowercase();
@@ -302,6 +307,15 @@ fn sanitize_dir_name(name: &str) -> String {
     result
 }
 
+fn validate_drag_entry_path(dest: &Path, entry_path: &str) -> Result<PathBuf, String> {
+    check_entry_path_safety(Path::new(entry_path), entry_path, dest).map_err(|_| {
+        format!(
+            "Refusing to drag unsafe entry path '{}' outside staging directory",
+            entry_path
+        )
+    })
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -309,6 +323,8 @@ fn sanitize_dir_name(name: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     #[test]
     fn derive_drag_directory_name_uses_archive_stem_for_supported_formats() {
@@ -343,6 +359,7 @@ mod tests {
             "archive.7z",
             "archive.rar",
             "archive.asar",
+            "archive.deb",
         ] {
             assert_eq!(
                 derive_drag_directory_name(Path::new(archive_name)),
@@ -369,6 +386,7 @@ mod tests {
         assert_eq!(strip_archive_extension("archive.JAR"), "archive");
         assert_eq!(strip_archive_extension("archive.WAR"), "archive");
         assert_eq!(strip_archive_extension("archive.ASAR"), "archive");
+        assert_eq!(strip_archive_extension("package.DEB"), "package");
     }
 
     #[test]
@@ -429,5 +447,84 @@ mod tests {
         let root = temp_dir_root();
         assert!(root.is_absolute());
         assert!(root.ends_with(DRAG_TEMP_ROOT));
+    }
+
+    fn unique_test_dir(prefix: &str) -> PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!(
+            "geezipx-drag-test-{prefix}-{}-{nanos}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn write_tar_archive(path: &Path, entry_path: &str, data: &[u8]) {
+        let entry_bytes = entry_path.as_bytes();
+        let name_len = entry_bytes.len().min(99);
+
+        let mut header = [0u8; 512];
+        header[..name_len].copy_from_slice(&entry_bytes[..name_len]);
+        header[100..108].copy_from_slice(b"0000644\0");
+
+        let size_oct = format!("{:011o}\0", data.len());
+        header[124..136].copy_from_slice(size_oct.as_bytes());
+        header[156] = b'0';
+        header[257..263].copy_from_slice(b"ustar\0");
+        header[263..265].copy_from_slice(b"00");
+
+        for byte in header.iter_mut().take(156).skip(148) {
+            *byte = b' ';
+        }
+        let checksum: u32 = header.iter().map(|&byte| byte as u32).sum();
+        let checksum_str = format!("{:06o}\0 ", checksum);
+        header[148..156].copy_from_slice(checksum_str.as_bytes());
+
+        let mut archive = header.to_vec();
+        archive.extend_from_slice(data);
+        let padding = (512 - data.len() % 512) % 512;
+        archive.extend(std::iter::repeat_n(0, padding));
+        archive.extend_from_slice(&[0u8; 1024]);
+
+        fs::write(path, archive).unwrap();
+    }
+
+    #[test]
+    fn validate_drag_entry_path_rejects_parent_dir_entries() {
+        let dest = temp_dir_root().join("drag-path-safety");
+        let err = validate_drag_entry_path(&dest, "../escape.txt").unwrap_err();
+        assert!(err.contains("unsafe entry path"));
+        assert!(err.contains("../escape.txt"));
+    }
+
+    #[tokio::test]
+    async fn prepare_drag_entries_rejects_dangerous_paths_before_writing_files() {
+        let root = unique_test_dir("unsafe");
+        let archive_path = root.join("unsafe.tar");
+        write_tar_archive(&archive_path, "../escape.txt", b"owned");
+
+        let drag_dir = temp_dir_root().join(derive_drag_directory_name(&archive_path));
+        let escaped_path = temp_dir_root().join("escape.txt");
+        let _ = fs::remove_dir_all(&drag_dir);
+        let _ = fs::remove_file(&escaped_path);
+
+        let err = prepare_drag_entries(
+            archive_path.to_string_lossy().to_string(),
+            vec!["../escape.txt".to_string()],
+            None,
+        )
+        .await
+        .unwrap_err();
+
+        assert!(err.contains("unsafe entry path"));
+        assert!(err.contains("../escape.txt"));
+        assert!(!drag_dir.exists());
+        assert!(!escaped_path.exists());
+
+        let _ = fs::remove_dir_all(&root);
     }
 }

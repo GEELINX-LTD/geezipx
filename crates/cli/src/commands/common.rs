@@ -10,6 +10,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use geezipx_core::archive::asar::AsarReader;
+use geezipx_core::archive::deb::DebReader;
 #[cfg(feature = "rar")]
 use geezipx_core::archive::rar::RarReader;
 use geezipx_core::archive::seven_zip::SevenZipReader;
@@ -42,7 +43,7 @@ use geezipx_core::detect::{self, ArchiveFormat};
 /// Accepts: `zip`, ZIP-derived aliases (`jar`, `war`, `apk`, `ipa`, `xpi`),
 /// `tar`, `tar.gz`, `tgz`, `tar.bz2`, `tbz`, `tbz2`, `tar.br`, `gz`, `gzip`,
 /// `bz2`, `bzip2`, `br`, `brotli`, `lz4`, `tar.lz4`, `zst`, `zstd`, `tar.zst`,
-/// `tzst`, `tar.xz`, `txz`, `xz`, `lzma`, `7z`, `rar`, `asar`.
+/// `tzst`, `tar.xz`, `txz`, `xz`, `lzma`, `7z`, `rar`, `asar`, `deb`.
 pub fn parse_format(s: &str) -> Result<ArchiveFormat> {
     match s.to_ascii_lowercase().as_str() {
         "zip" | "jar" | "war" | "apk" | "ipa" | "xpi" => Ok(ArchiveFormat::Zip),
@@ -63,8 +64,9 @@ pub fn parse_format(s: &str) -> Result<ArchiveFormat> {
         "7z" => Ok(ArchiveFormat::SevenZip),
         "rar" => Ok(ArchiveFormat::Rar),
         "asar" => Ok(ArchiveFormat::Asar),
+        "deb" => Ok(ArchiveFormat::Deb),
         other => Err(anyhow::anyhow!(
-            "unsupported format '{other}'; expected: zip, jar, war, apk, ipa, xpi, tar, tar.gz, tgz, tar.bz2, tbz, tbz2, tar.br, gz, gzip, bz2, bzip2, br, brotli, lz4, tar.lz4, zst, zstd, tar.zst, tzst, tar.xz, txz, xz, lzma, 7z, rar, asar"
+            "unsupported format '{other}'; expected: zip, jar, war, apk, ipa, xpi, tar, tar.gz, tgz, tar.bz2, tbz, tbz2, tar.br, gz, gzip, bz2, bzip2, br, brotli, lz4, tar.lz4, zst, zstd, tar.zst, tzst, tar.xz, txz, xz, lzma, 7z, rar, asar, deb"
         )),
     }
 }
@@ -302,6 +304,7 @@ pub fn open_reader(
             reader
         }
         ArchiveFormat::Asar => Box::new(AsarReader::new(path)),
+        ArchiveFormat::Deb => Box::new(DebReader::new(file)),
         ArchiveFormat::Tar => Box::new(TarReader::new(file)),
         ArchiveFormat::TarGz => Box::new(TarGzReader::new(file)),
         ArchiveFormat::TarBz2 => Box::new(TarBz2Reader::new(file)),
@@ -364,7 +367,7 @@ pub fn create_writer(
         ArchiveFormat::TarBr => Ok(Box::new(TarBrWriter::new_with_options(file, options)?)),
         ArchiveFormat::TarLz4 => Ok(Box::new(TarLz4Writer::new_with_options(file, options)?)),
         ArchiveFormat::TarZst => Ok(Box::new(TarZstWriter::new_with_options(file, options))),
-        ArchiveFormat::Asar => {
+        ArchiveFormat::Asar | ArchiveFormat::Deb => {
             anyhow::bail!("'{format}' is a read-only archive format; writing is not supported")
         }
         ArchiveFormat::Gzip
@@ -538,9 +541,66 @@ mod tests {
         out
     }
 
+    fn build_raw_tar(path: &[u8], data: &[u8]) -> Vec<u8> {
+        let mut header = [0u8; 512];
+        let name_len = path.len().min(99);
+        header[..name_len].copy_from_slice(&path[..name_len]);
+        header[100..108].copy_from_slice(b"0000644\0");
+        let size_oct = format!("{:011o}\0", data.len());
+        header[124..136].copy_from_slice(size_oct.as_bytes());
+        header[156] = b'0';
+        header[257..263].copy_from_slice(b"ustar\0");
+        header[263..265].copy_from_slice(b"00");
+        for b in header.iter_mut().take(156).skip(148) {
+            *b = b' ';
+        }
+        let cksum: u32 = header.iter().map(|&b| b as u32).sum();
+        let cksum_str = format!("{:06o}\0 ", cksum);
+        header[148..156].copy_from_slice(cksum_str.as_bytes());
+
+        let mut archive = header.to_vec();
+        archive.extend_from_slice(data);
+        let padding = (512 - data.len() % 512) % 512;
+        archive.extend(std::iter::repeat_n(0, padding));
+        archive.extend_from_slice(&[0u8; 1024]);
+        archive
+    }
+
+    fn append_ar_member(out: &mut Vec<u8>, name: &str, data: &[u8]) {
+        let header = format!(
+            "{:<16}{:<12}{:<6}{:<6}{:<8o}{:<10}`\n",
+            name,
+            0,
+            0,
+            0,
+            0o100644,
+            data.len()
+        );
+        assert_eq!(header.len(), 60);
+        out.extend_from_slice(header.as_bytes());
+        out.extend_from_slice(data);
+        if !data.len().is_multiple_of(2) {
+            out.push(b'\n');
+        }
+    }
+
+    fn build_test_deb() -> Vec<u8> {
+        let mut out = Vec::new();
+        out.extend_from_slice(b"!<arch>\n");
+        append_ar_member(&mut out, "debian-binary", b"2.0\n");
+        append_ar_member(&mut out, "control.tar.gz", b"ignored");
+        append_ar_member(&mut out, "data.tar", &build_raw_tar(b"hello.txt", b"hello"));
+        out
+    }
+
     #[test]
     fn parse_format_asar() {
         assert_eq!(parse_format("asar").unwrap(), ArchiveFormat::Asar);
+    }
+
+    #[test]
+    fn parse_format_deb() {
+        assert_eq!(parse_format("deb").unwrap(), ArchiveFormat::Deb);
     }
 
     #[test]
@@ -557,6 +617,15 @@ mod tests {
     }
 
     #[test]
+    fn detect_archive_format_deb_extension() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let archive = temp.path().join("package.deb");
+        std::fs::write(&archive, build_test_deb()).unwrap();
+
+        assert_eq!(detect_archive_format(&archive).unwrap(), ArchiveFormat::Deb);
+    }
+
+    #[test]
     fn open_reader_asar_lists_entries() {
         let temp = tempfile::TempDir::new().unwrap();
         let archive = temp.path().join("app.asar");
@@ -567,5 +636,28 @@ mod tests {
         let entries = reader.entries().unwrap();
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].path, "hello.txt");
+    }
+
+    #[test]
+    fn open_reader_deb_lists_entries() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let archive = temp.path().join("package.deb");
+        std::fs::write(&archive, build_test_deb()).unwrap();
+
+        let mut reader = open_reader(&archive, ArchiveFormat::Deb, None).unwrap();
+        let entries = reader.entries().unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].path, "hello.txt");
+    }
+
+    #[test]
+    fn create_writer_deb_is_read_only() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let output = temp.path().join("out.deb");
+        let file = fs::File::create(&output).unwrap();
+        match create_writer(file, ArchiveFormat::Deb, CompressOptions::default()) {
+            Ok(_) => panic!("deb writer should be rejected"),
+            Err(err) => assert!(err.to_string().contains("read-only archive format")),
+        }
     }
 }
