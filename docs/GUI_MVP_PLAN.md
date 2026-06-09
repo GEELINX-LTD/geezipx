@@ -41,12 +41,12 @@
 
 | 操作 | 当前格式 | 目标扩展 |
 |------|----------|----------|
-| 压缩 | ZIP、TAR、TAR.GZ、GZIP、ZSTD、TAR.ZST、XZ、TAR.XZ、LZMA | 7z 写入、LZH 写入、ISO、ZIPX、SFX、ZPAQ（后续阶段） |
-| 解压缩 | 上述所有格式 + 7z / RAR / ASAR / DEB / LZH/LHA 只读 | CAB、ARJ、ACE、BZ2、BR、LZ4、WIM 等（后续阶段，含历史格式适配器） |
+| 压缩 | ZIP、TAR、TAR.GZ、GZIP、ZSTD、TAR.ZST、XZ、TAR.XZ、LZMA | 7z 写入、LZH 写入、ISO 写入、ZIPX、SFX、ZPAQ（后续阶段） |
+| 解压缩 | 上述所有格式 + 7z / RAR / ASAR / DEB / LZH/LHA / ISO 只读 | CAB、ARJ、ACE、BZ2、BR、LZ4、WIM 等（后续阶段，含历史格式适配器） |
 
 > 完整格式目标清单见 `docs/PRD.md` 第 5.1 节。新增格式按 feature gate 引入，不要求当前版本一次性完成。
 
-GUI 中 7z/RAR/ASAR/DEB/LZH/LHA 保持只读语义：可浏览、测试、提取，不可创建。
+GUI 中 7z/RAR/ASAR/DEB/LZH/LHA/ISO 保持只读语义：可浏览、测试、提取，不可创建。
 
 
 ### 3.2 核心功能
@@ -115,7 +115,7 @@ GUI 中 7z/RAR/ASAR/DEB/LZH/LHA 保持只读语义：可浏览、测试、提取
 - `geezipx-gui`/`crates/gui-tauri/src-tauri` 依赖 `geezipx-core`，反向依赖不允许。
 - GUI Rust 后端只做参数映射、任务生命周期管理、进度桥接与前端数据整形。
 - 前端不直接处理压缩格式细节；所有实际归档操作都经由 Tauri command bridge。
-- 7z / RAR / ASAR / DEB / LZH / LHA 在 GUI 中仍然保持只读语义：可浏览、测试、提取，不可创建。
+- 7z / RAR / ASAR / DEB / LZH / LHA / ISO 在 GUI 中仍然保持只读语义：可浏览、测试、提取，不可创建。
 
 ## 5. Core API 复用策略
 
@@ -123,7 +123,7 @@ GUI 直接复用 core 的以下能力，不重复实现压缩/解压逻辑：
 
 | Core 模块 | GUI 复用方式 |
 |-----------|--------------|
-| `core::archive::*` | 复用 `ArchiveReader` / `ArchiveWriter` trait，以及 7z/RAR/ASAR/DEB/LZH/LHA 只读 reader |
+| `core::archive::*` | 复用 `ArchiveReader` / `ArchiveWriter` trait，以及 7z/RAR/ASAR/DEB/LZH/LHA/ISO 只读 reader |
 | `core::io::{ProgressReader, ProgressWriter, ProgressCallback, ProgressEvent}` | 进度计数与取消检查；由 GUI 后端转成 Tauri 事件 |
 | `core::detect::{detect_format, detect_from_extension, read_magic_bytes}` | 自动识别拖入文件与归档类型 |
 | `core::config::CompressOptions` | 统一传递 level、jobs、password 等参数 |

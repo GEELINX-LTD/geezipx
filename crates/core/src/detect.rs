@@ -55,6 +55,8 @@ pub enum ArchiveFormat {
     Deb,
     /// LZH/LHA archive (extension-based — `.lzh`, `.lha`; deliberately no magic sniff).
     Lzh,
+    /// ISO disc image (extension-based — `.iso`; no useful magic in the first 8 bytes).
+    Iso,
     /// Unknown or unrecognised format.
     Unknown,
 }
@@ -82,6 +84,7 @@ impl fmt::Display for ArchiveFormat {
             ArchiveFormat::Asar => write!(f, "asar"),
             ArchiveFormat::Deb => write!(f, "deb"),
             ArchiveFormat::Lzh => write!(f, "lzh"),
+            ArchiveFormat::Iso => write!(f, "iso"),
             ArchiveFormat::Unknown => write!(f, "unknown"),
         }
     }
@@ -135,6 +138,7 @@ const EXTENSION_MAP: &[(&str, ArchiveFormat)] = &[
     (".deb", ArchiveFormat::Deb),
     (".lzh", ArchiveFormat::Lzh),
     (".lha", ArchiveFormat::Lzh),
+    (".iso", ArchiveFormat::Iso),
 ];
 
 // ---------------------------------------------------------------------------
@@ -155,7 +159,9 @@ const EXTENSION_MAP: &[(&str, ArchiveFormat)] = &[
 /// rely on extension-based detection only. DEB deliberately does not sniff the
 /// outer `ar` magic because many non-DEB archives share it; `.deb` relies on
 /// explicit format / extension. ASAR similarly has no reliable fixed magic
-/// header and is handled only by explicit format / extension.
+/// header and is handled only by explicit format / extension. ISO volume
+/// descriptors live at sector 16, so `.iso` also relies on explicit format /
+/// extension here.
 pub fn detect_format(data: &[u8]) -> Option<ArchiveFormat> {
     if data.starts_with(MAGIC_ZIP) || data.starts_with(MAGIC_ZIP_EMPTY) {
         return Some(ArchiveFormat::Zip);
@@ -342,6 +348,16 @@ mod tests {
         assert_eq!(
             detect_from_extension(Path::new("archive.lha")),
             Some(ArchiveFormat::Lzh)
+        );
+    }
+
+    #[test]
+    fn detect_iso_is_extension_only() {
+        let raw = b"not-an-iso";
+        assert_eq!(detect_format(raw), None);
+        assert_eq!(
+            detect_from_extension(Path::new("disc.iso")),
+            Some(ArchiveFormat::Iso)
         );
     }
 
@@ -598,6 +614,14 @@ mod tests {
     }
 
     #[test]
+    fn ext_iso() {
+        assert_eq!(
+            detect_from_extension(Path::new("disc.iso")),
+            Some(ArchiveFormat::Iso)
+        );
+    }
+
+    #[test]
     fn ext_unknown() {
         assert_eq!(detect_from_extension(Path::new("readme.md")), None);
     }
@@ -696,6 +720,11 @@ mod tests {
     #[test]
     fn display_lzh() {
         assert_eq!(ArchiveFormat::Lzh.to_string(), "lzh");
+    }
+
+    #[test]
+    fn display_iso() {
+        assert_eq!(ArchiveFormat::Iso.to_string(), "iso");
     }
 
     #[test]

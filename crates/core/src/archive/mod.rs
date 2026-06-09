@@ -17,6 +17,7 @@ pub mod brotli;
 pub mod bzip2;
 pub mod deb;
 pub mod gzip;
+pub mod iso;
 pub mod lz4;
 pub mod lzh;
 #[cfg(feature = "rar")]

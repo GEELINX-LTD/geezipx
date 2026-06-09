@@ -60,7 +60,7 @@ geezipx/
 - core 只保留格式逻辑、I/O 包装、错误模型与安全检查；
 - CLI 负责参数解析、TTY 进度、stdout/stderr 呈现；
 - Tauri GUI 负责图形交互、任务管理、事件桥接；
-- 7z / RAR / ASAR / DEB / LZH/LHA 在当前版本中保持只读语义（`list` / `decompress` / `test`）。
+- 7z / RAR / ASAR / DEB / LZH/LHA / ISO 在当前版本中保持只读语义（`list` / `decompress` / `test`）。
 
 ## 2. 模块设计
 
@@ -119,6 +119,7 @@ pub trait ArchiveWriter: Send {
 | `archive::asar` | ASAR 只读（`list` / `extract` / `test`） |
 | `archive::deb` | DEB 只读（`data.tar*` payload 视图） |
 | `archive::lzh` | LZH/LHA 只读（`list` / `extract` / `test`，含原始路径校验） |
+| `archive::iso` | ISO 只读（`list` / `extract` / `test`，`isomage` 解析 ISO9660/Rock Ridge/Joliet） |
 | `archive::seven_zip` | 7z 只读（`list` / `extract` / `test`） |
 | `archive::rar` | RAR 只读（`list` / `extract` / `test`，feature-gated） |
 
@@ -192,6 +193,10 @@ pub enum ArchiveFormat {
     TarXz,
     SevenZip,
     Rar,
+    Asar,
+    Deb,
+    Lzh,
+    Iso,
     Unknown,
 }
 
@@ -203,7 +208,7 @@ pub fn read_magic_bytes<R: Read>(reader: &mut R) -> io::Result<Vec<u8>>;
 检测策略：
 
 - ZIP / gzip / bzip2 / lz4 frame / zstd / xz / 7z / RAR 优先用魔数字节；
-- ASAR / DEB / LZH / LHA 以及 `tar`、`tar.gz`、`tar.bz2`、`tar.br`、`tar.lz4`、`tar.zst`、`tar.xz` 依赖扩展名回退或显式格式；
+- ASAR / DEB / LZH / LHA / ISO 以及 `tar`、`tar.gz`、`tar.bz2`、`tar.br`、`tar.lz4`、`tar.zst`、`tar.xz` 依赖扩展名回退或显式格式；
 - `read_magic_bytes()` 仅读取前 `MAGIC_DETECT_SIZE` 字节，供调用方自行决定后续缓存与回放策略。
 
 > **格式扩展方向**：`ArchiveFormat` 枚举随新增格式逐步扩展。新格式检测优先使用魔数字节；若魔数无定义（如 lzma），依赖扩展名回退或用户显式指定。ZIP 兼容别名（`.jar`/`.war`/`.apk`/`.ipa`/`.xpi`）统一映射到 `ArchiveFormat::Zip`。新增格式枚举值需同步更新所有 `match` 分支的完整性检查。完整格式目标见 `docs/PRD.md` 第 5.1 节。
@@ -270,6 +275,7 @@ CLI 当前子命令为：
 | `xz2` 0.1 | xz / lzma / tar.xz |
 | `zstd` 0.13 | zstd / tar.zst，多线程支持 `zstdmt` |
 | `delharc` 0.6 | LZH/LHA 只读支持 |
+| `isomage` 2.1 | ISO 只读支持（ISO9660 / Rock Ridge / Joliet 解析与流式读取） |
 | `sevenz-rust2` 0.21 | 7z 只读支持 |
 | `unrar` 0.5.8 | RAR 只读支持（optional, default-enabled） |
 | `thiserror` 2 | 错误定义 |

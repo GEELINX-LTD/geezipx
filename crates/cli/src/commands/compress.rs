@@ -442,6 +442,13 @@ fn validate_compress_inputs(
         );
     }
 
+    // ISO writing is not supported; only list, test, and decompress for read-only.
+    if format == ArchiveFormat::Iso {
+        anyhow::bail!(
+            "iso writing is not supported; use list, test, or decompress for read-only iso support"
+        );
+    }
+
     if is_tar_wrapped_format(format) && use_stdout && !use_stdin {
         anyhow::bail!(
             "--stdout for '{}' only supports raw tar input via --stdin; archiving file/directory inputs to stdout is not supported yet. Use -o/--output instead",

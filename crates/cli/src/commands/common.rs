@@ -11,6 +11,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use geezipx_core::archive::asar::AsarReader;
 use geezipx_core::archive::deb::DebReader;
+use geezipx_core::archive::iso::IsoReader;
 use geezipx_core::archive::lzh::LzhReader;
 #[cfg(feature = "rar")]
 use geezipx_core::archive::rar::RarReader;
@@ -44,7 +45,7 @@ use geezipx_core::detect::{self, ArchiveFormat};
 /// Accepts: `zip`, ZIP-derived aliases (`jar`, `war`, `apk`, `ipa`, `xpi`),
 /// `tar`, `tar.gz`, `tgz`, `tar.bz2`, `tbz`, `tbz2`, `tar.br`, `gz`, `gzip`,
 /// `bz2`, `bzip2`, `br`, `brotli`, `lz4`, `tar.lz4`, `zst`, `zstd`, `tar.zst`,
-/// `tzst`, `tar.xz`, `txz`, `xz`, `lzma`, `7z`, `rar`, `asar`, `deb`, `lzh`, `lha`.
+/// `tzst`, `tar.xz`, `txz`, `xz`, `lzma`, `7z`, `rar`, `asar`, `deb`, `lzh`, `lha`, `iso`.
 pub fn parse_format(s: &str) -> Result<ArchiveFormat> {
     match s.to_ascii_lowercase().as_str() {
         "zip" | "jar" | "war" | "apk" | "ipa" | "xpi" => Ok(ArchiveFormat::Zip),
@@ -67,8 +68,9 @@ pub fn parse_format(s: &str) -> Result<ArchiveFormat> {
         "asar" => Ok(ArchiveFormat::Asar),
         "deb" => Ok(ArchiveFormat::Deb),
         "lzh" | "lha" => Ok(ArchiveFormat::Lzh),
+        "iso" => Ok(ArchiveFormat::Iso),
         other => Err(anyhow::anyhow!(
-            "unsupported format '{other}'; expected: zip, jar, war, apk, ipa, xpi, tar, tar.gz, tgz, tar.bz2, tbz, tbz2, tar.br, gz, gzip, bz2, bzip2, br, brotli, lz4, tar.lz4, zst, zstd, tar.zst, tzst, tar.xz, txz, xz, lzma, 7z, rar, asar, deb, lzh, lha"
+            "unsupported format '{other}'; expected: zip, jar, war, apk, ipa, xpi, tar, tar.gz, tgz, tar.bz2, tbz, tbz2, tar.br, gz, gzip, bz2, bzip2, br, brotli, lz4, tar.lz4, zst, zstd, tar.zst, tzst, tar.xz, txz, xz, lzma, 7z, rar, asar, deb, lzh, lha, iso"
         )),
     }
 }
@@ -308,6 +310,7 @@ pub fn open_reader(
         ArchiveFormat::Asar => Box::new(AsarReader::new(path)),
         ArchiveFormat::Deb => Box::new(DebReader::new(file)),
         ArchiveFormat::Lzh => Box::new(LzhReader::new(file)),
+        ArchiveFormat::Iso => Box::new(IsoReader::new(file)),
         ArchiveFormat::Tar => Box::new(TarReader::new(file)),
         ArchiveFormat::TarGz => Box::new(TarGzReader::new(file)),
         ArchiveFormat::TarBz2 => Box::new(TarBz2Reader::new(file)),
@@ -370,7 +373,7 @@ pub fn create_writer(
         ArchiveFormat::TarBr => Ok(Box::new(TarBrWriter::new_with_options(file, options)?)),
         ArchiveFormat::TarLz4 => Ok(Box::new(TarLz4Writer::new_with_options(file, options)?)),
         ArchiveFormat::TarZst => Ok(Box::new(TarZstWriter::new_with_options(file, options))),
-        ArchiveFormat::Asar | ArchiveFormat::Deb | ArchiveFormat::Lzh => {
+        ArchiveFormat::Asar | ArchiveFormat::Deb | ArchiveFormat::Lzh | ArchiveFormat::Iso => {
             anyhow::bail!("'{format}' is a read-only archive format; writing is not supported")
         }
         ArchiveFormat::Gzip
@@ -613,6 +616,11 @@ mod tests {
     }
 
     #[test]
+    fn parse_format_iso() {
+        assert_eq!(parse_format("iso").unwrap(), ArchiveFormat::Iso);
+    }
+
+    #[test]
     fn detect_archive_format_asar_extension() {
         let temp = tempfile::TempDir::new().unwrap();
         let archive = temp.path().join("app.asar");
@@ -683,6 +691,15 @@ mod tests {
     }
 
     #[test]
+    fn detect_archive_format_iso_extension() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let archive = temp.path().join("disc.iso");
+        std::fs::write(&archive, b"not an iso").unwrap();
+
+        assert_eq!(detect_archive_format(&archive).unwrap(), ArchiveFormat::Iso);
+    }
+
+    #[test]
     fn open_reader_asar_lists_entries() {
         let temp = tempfile::TempDir::new().unwrap();
         let archive = temp.path().join("app.asar");
@@ -737,6 +754,17 @@ mod tests {
         let file = fs::File::create(&output).unwrap();
         match create_writer(file, ArchiveFormat::Lzh, CompressOptions::default()) {
             Ok(_) => panic!("lzh writer should be rejected"),
+            Err(err) => assert!(err.to_string().contains("read-only archive format")),
+        }
+    }
+
+    #[test]
+    fn create_writer_iso_is_read_only() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let output = temp.path().join("out.iso");
+        let file = fs::File::create(&output).unwrap();
+        match create_writer(file, ArchiveFormat::Iso, CompressOptions::default()) {
+            Ok(_) => panic!("iso writer should be rejected"),
             Err(err) => assert!(err.to_string().contains("read-only archive format")),
         }
     }
