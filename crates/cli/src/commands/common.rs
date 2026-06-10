@@ -10,6 +10,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use geezipx_core::archive::asar::AsarReader;
+use geezipx_core::archive::cab::CabReader;
 use geezipx_core::archive::deb::DebReader;
 use geezipx_core::archive::iso::IsoReader;
 use geezipx_core::archive::lzh::LzhReader;
@@ -47,7 +48,8 @@ use geezipx_core::detect::{self, ArchiveFormat};
 /// Accepts: `zip`, ZIP-derived aliases (`zipx`, `jar`, `war`, `apk`, `ipa`, `xpi`),
 /// `tar`, `tar.gz`, `tgz`, `tar.bz2`, `tbz`, `tbz2`, `tar.br`, `gz`, `gzip`,
 /// `bz2`, `bzip2`, `br`, `brotli`, `lz4`, `tar.lz4`, `zst`, `zstd`, `tar.zst`,
-/// `tzst`, `tar.xz`, `txz`, `xz`, `lzma`, `7z`, `rar`, `asar`, `deb`, `lzh`, `lha`, `iso`, `zpaq`, `zpq`.
+/// `tzst`, `tar.xz`, `txz`, `xz`, `lzma`, `7z`, `rar`, `cab`, `asar`, `deb`,
+/// `lzh`, `lha`, `iso`, `zpaq`, `zpq`.
 pub fn parse_format(s: &str) -> Result<ArchiveFormat> {
     match s.to_ascii_lowercase().as_str() {
         "zip" | "zipx" | "jar" | "war" | "apk" | "ipa" | "xpi" => Ok(ArchiveFormat::Zip),
@@ -67,13 +69,14 @@ pub fn parse_format(s: &str) -> Result<ArchiveFormat> {
         "lzma" => Ok(ArchiveFormat::Lzma),
         "7z" => Ok(ArchiveFormat::SevenZip),
         "rar" => Ok(ArchiveFormat::Rar),
+        "cab" => Ok(ArchiveFormat::Cab),
         "asar" => Ok(ArchiveFormat::Asar),
         "deb" => Ok(ArchiveFormat::Deb),
         "lzh" | "lha" => Ok(ArchiveFormat::Lzh),
         "iso" => Ok(ArchiveFormat::Iso),
         "zpaq" | "zpq" => Ok(ArchiveFormat::Zpaq),
         other => Err(anyhow::anyhow!(
-            "unsupported format '{other}'; expected: zip, zipx, jar, war, apk, ipa, xpi, tar, tar.gz, tgz, tar.bz2, tbz, tbz2, tar.br, gz, gzip, bz2, bzip2, br, brotli, lz4, tar.lz4, zst, zstd, tar.zst, tzst, tar.xz, txz, xz, lzma, 7z, rar, asar, deb, lzh, lha, iso, zpaq, zpq"
+            "unsupported format '{other}'; expected: zip, zipx, jar, war, apk, ipa, xpi, tar, tar.gz, tgz, tar.bz2, tbz, tbz2, tar.br, gz, gzip, bz2, bzip2, br, brotli, lz4, tar.lz4, zst, zstd, tar.zst, tzst, tar.xz, txz, xz, lzma, 7z, rar, cab, asar, deb, lzh, lha, iso, zpaq, zpq"
         )),
     }
 }
@@ -311,6 +314,7 @@ pub fn open_reader(
             reader
         }
         ArchiveFormat::Asar => Box::new(AsarReader::new(path)),
+        ArchiveFormat::Cab => Box::new(CabReader::new(path)),
         ArchiveFormat::Deb => Box::new(DebReader::new(file)),
         ArchiveFormat::Lzh => Box::new(LzhReader::new(file)),
         ArchiveFormat::Iso => Box::new(IsoReader::new(file)),
@@ -384,6 +388,7 @@ pub fn create_writer(
         ArchiveFormat::TarLz4 => Ok(Box::new(TarLz4Writer::new_with_options(file, options)?)),
         ArchiveFormat::TarZst => Ok(Box::new(TarZstWriter::new_with_options(file, options))),
         ArchiveFormat::Asar
+        | ArchiveFormat::Cab
         | ArchiveFormat::Deb
         | ArchiveFormat::Lzh
         | ArchiveFormat::Iso
@@ -544,6 +549,7 @@ pub fn resolve_password(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Write as _;
 
     fn build_raw_asar(header_json: &str, payload: &[u8]) -> Vec<u8> {
         let mut json = header_json.as_bytes().to_vec();
@@ -613,6 +619,25 @@ mod tests {
         out
     }
 
+    fn build_test_cab(entries: &[(&str, &[u8])]) -> Vec<u8> {
+        let mut builder = cab::CabinetBuilder::new();
+        {
+            let folder = builder.add_folder(cab::CompressionType::MsZip);
+            for (path, _) in entries {
+                folder.add_file(*path);
+            }
+        }
+
+        let cursor = std::io::Cursor::new(Vec::new());
+        let mut writer = builder.build(cursor).unwrap();
+        let mut index = 0usize;
+        while let Some(mut file_writer) = writer.next_file().unwrap() {
+            file_writer.write_all(entries[index].1).unwrap();
+            index += 1;
+        }
+        writer.finish().unwrap().into_inner()
+    }
+
     #[cfg(feature = "zpaq")]
     fn build_test_zpaq() -> Vec<u8> {
         zpaq_rs::archive_from_entries(
@@ -639,6 +664,11 @@ mod tests {
     #[test]
     fn parse_format_deb() {
         assert_eq!(parse_format("deb").unwrap(), ArchiveFormat::Deb);
+    }
+
+    #[test]
+    fn parse_format_cab() {
+        assert_eq!(parse_format("cab").unwrap(), ArchiveFormat::Cab);
     }
 
     #[test]
@@ -678,6 +708,15 @@ mod tests {
         std::fs::write(&archive, build_test_deb()).unwrap();
 
         assert_eq!(detect_archive_format(&archive).unwrap(), ArchiveFormat::Deb);
+    }
+
+    #[test]
+    fn detect_archive_format_cab_magic() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let archive = temp.path().join("archive.cab");
+        std::fs::write(&archive, build_test_cab(&[("hello.txt", b"hello")])).unwrap();
+
+        assert_eq!(detect_archive_format(&archive).unwrap(), ArchiveFormat::Cab);
     }
 
     fn build_test_lzh() -> Vec<u8> {
@@ -775,6 +814,23 @@ mod tests {
     }
 
     #[test]
+    fn open_reader_cab_lists_entries() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let archive = temp.path().join("archive.cab");
+        std::fs::write(
+            &archive,
+            build_test_cab(&[("docs\\hello.txt", b"hello"), ("readme.txt", b"readme")]),
+        )
+        .unwrap();
+
+        let mut reader = open_reader(&archive, ArchiveFormat::Cab, None).unwrap();
+        let entries = reader.entries().unwrap();
+        assert_eq!(entries.len(), 2);
+        assert!(entries.iter().any(|entry| entry.path == "docs/hello.txt"));
+        assert!(entries.iter().any(|entry| entry.path == "readme.txt"));
+    }
+
+    #[test]
     fn open_reader_lzh_lists_entries() {
         let temp = tempfile::TempDir::new().unwrap();
         let archive = temp.path().join("archive.lzh");
@@ -806,6 +862,17 @@ mod tests {
         let file = fs::File::create(&output).unwrap();
         match create_writer(file, ArchiveFormat::Deb, CompressOptions::default()) {
             Ok(_) => panic!("deb writer should be rejected"),
+            Err(err) => assert!(err.to_string().contains("read-only archive format")),
+        }
+    }
+
+    #[test]
+    fn create_writer_cab_is_read_only() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let output = temp.path().join("out.cab");
+        let file = fs::File::create(&output).unwrap();
+        match create_writer(file, ArchiveFormat::Cab, CompressOptions::default()) {
+            Ok(_) => panic!("cab writer should be rejected"),
             Err(err) => assert!(err.to_string().contains("read-only archive format")),
         }
     }

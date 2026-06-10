@@ -49,6 +49,8 @@ pub enum ArchiveFormat {
     SevenZip,
     /// RAR archive (`52 61 72 21 1A 07`).
     Rar,
+    /// Microsoft Cabinet archive (`MSCF`).
+    Cab,
     /// Electron ASAR archive (extension-based — `.asar`; no stable magic header).
     Asar,
     /// Debian package archive (extension-based — `.deb`; deliberately no `ar` magic sniff).
@@ -83,6 +85,7 @@ impl fmt::Display for ArchiveFormat {
             ArchiveFormat::Lzma => write!(f, "lzma"),
             ArchiveFormat::SevenZip => write!(f, "7z"),
             ArchiveFormat::Rar => write!(f, "rar"),
+            ArchiveFormat::Cab => write!(f, "cab"),
             ArchiveFormat::Asar => write!(f, "asar"),
             ArchiveFormat::Deb => write!(f, "deb"),
             ArchiveFormat::Lzh => write!(f, "lzh"),
@@ -115,6 +118,8 @@ const MAGIC_XZ: &[u8] = &[0xFD, 0x37, 0x7A, 0x58, 0x5A, 0x00];
 pub const MAGIC_SEVENZIP: &[u8] = &[0x37, 0x7A, 0xBC, 0xAF, 0x27, 0x1C];
 /// RAR magic: `52 61 72 21 1A 07` (RAR4 and RAR5 share this prefix).
 pub const MAGIC_RAR: &[u8] = b"Rar!\x1A\x07";
+/// CAB magic: `MSCF`.
+pub const MAGIC_CAB: &[u8] = b"MSCF";
 
 /// Map of well-known single extensions to their archive format.
 const EXTENSION_MAP: &[(&str, ArchiveFormat)] = &[
@@ -138,6 +143,7 @@ const EXTENSION_MAP: &[(&str, ArchiveFormat)] = &[
     (".gzip", ArchiveFormat::Gzip),
     (".7z", ArchiveFormat::SevenZip),
     (".rar", ArchiveFormat::Rar),
+    (".cab", ArchiveFormat::Cab),
     (".asar", ArchiveFormat::Asar),
     (".deb", ArchiveFormat::Deb),
     (".lzh", ArchiveFormat::Lzh),
@@ -164,7 +170,8 @@ const EXTENSION_MAP: &[(&str, ArchiveFormat)] = &[
 /// Brotli streams have no stable magic header here, so `.br` / `.tar.br`
 /// rely on extension-based detection only. DEB deliberately does not sniff the
 /// outer `ar` magic because many non-DEB archives share it; `.deb` relies on
-/// explicit format / extension. ASAR similarly has no reliable fixed magic
+/// explicit format / extension. CAB archives do expose an `MSCF` magic header
+/// and are recognized here directly. ASAR similarly has no reliable fixed magic
 /// header and is handled only by explicit format / extension. ISO volume
 /// descriptors live at sector 16, so `.iso` also relies on explicit format /
 /// extension here. ZPAQ likewise stays extension-only because GeeZipX routes it
@@ -191,6 +198,9 @@ pub fn detect_format(data: &[u8]) -> Option<ArchiveFormat> {
     }
     if data.starts_with(MAGIC_RAR) {
         return Some(ArchiveFormat::Rar);
+    }
+    if data.starts_with(MAGIC_CAB) {
+        return Some(ArchiveFormat::Cab);
     }
     if data.starts_with(MAGIC_XZ) {
         return Some(ArchiveFormat::Xz);
@@ -775,6 +785,11 @@ mod tests {
     }
 
     #[test]
+    fn display_cab() {
+        assert_eq!(ArchiveFormat::Cab.to_string(), "cab");
+    }
+
+    #[test]
     fn display_zpaq() {
         assert_eq!(ArchiveFormat::Zpaq.to_string(), "zpaq");
     }
@@ -794,10 +809,23 @@ mod tests {
     }
 
     #[test]
+    fn detect_cab_magic() {
+        assert_eq!(detect_format(b"MSCF\0\0\0\0"), Some(ArchiveFormat::Cab));
+    }
+
+    #[test]
     fn detect_rar_extension() {
         assert_eq!(
             detect_from_extension(Path::new("archive.rar")),
             Some(ArchiveFormat::Rar)
+        );
+    }
+
+    #[test]
+    fn detect_cab_extension() {
+        assert_eq!(
+            detect_from_extension(Path::new("archive.cab")),
+            Some(ArchiveFormat::Cab)
         );
     }
 

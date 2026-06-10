@@ -328,6 +328,10 @@ fn parse_gui_compress_format(s: &str) -> Result<ArchiveFormat, String> {
             "rar writing is not supported; use list, test, or decompress for read-only rar support"
                 .to_string(),
         ),
+        "cab" => Err(
+            "cab writing is not supported; use list, test, or decompress for read-only cab support"
+                .to_string()
+        ),
         other => Err(format!(
             "Unsupported format '{other}'; expected: zip, zipx, tar, tar.gz, tgz, tar.bz2, tbz, tbz2, tar.br, tar.lz4, tar.zst, tzst, tar.xz, txz, 7z"
         )),
@@ -475,6 +479,10 @@ fn create_gui_writer(
                  single-stream compression is not yet supported in the GUI \
                  (will be added in a later update)"
         )),
+        ArchiveFormat::Cab => Err(
+            "cab writing is not supported; use list, test, or decompress for read-only cab support"
+                .to_string(),
+        ),
         _ => Err(format!("Unsupported format for writing in GUI: {format}")),
     }
 }
@@ -537,6 +545,12 @@ mod tests {
         let err = parse_gui_compress_format("bogus").unwrap_err();
         assert!(err.contains("7z"));
         assert!(err.contains("zipx"));
+    }
+
+    #[test]
+    fn parse_gui_compress_format_rejects_cab_as_read_only() {
+        let err = parse_gui_compress_format("cab").unwrap_err();
+        assert!(err.contains("read-only cab support"));
     }
     #[test]
     fn parse_gui_compress_format_rejects_single_stream_brotli_and_lz4() {

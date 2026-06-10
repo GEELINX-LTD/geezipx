@@ -4,10 +4,12 @@
 //! for temporary test directories.
 #![allow(dead_code)]
 
+use std::io::Write as _;
 use std::path::Path;
 use std::path::PathBuf;
 
 use assert_cmd::Command;
+use cab::{CabinetBuilder, CompressionType};
 use predicates::prelude::*;
 
 // ---------------------------------------------------------------------------
@@ -7842,6 +7844,25 @@ fn build_test_deb() -> Vec<u8> {
     out
 }
 
+fn build_test_cab(entries: &[(&str, &[u8])]) -> Vec<u8> {
+    let mut builder = CabinetBuilder::new();
+    {
+        let folder = builder.add_folder(CompressionType::MsZip);
+        for (path, _) in entries {
+            folder.add_file(*path);
+        }
+    }
+
+    let cursor = std::io::Cursor::new(Vec::new());
+    let mut writer = builder.build(cursor).unwrap();
+    let mut index = 0usize;
+    while let Some(mut file_writer) = writer.next_file().unwrap() {
+        file_writer.write_all(entries[index].1).unwrap();
+        index += 1;
+    }
+    writer.finish().unwrap().into_inner()
+}
+
 #[test]
 fn deb_list_shows_only_data_payload_entries() {
     let td = TestDir::new();
@@ -7926,6 +7947,110 @@ fn deb_password_is_rejected() {
     let td = TestDir::new();
     let archive = td.join("package.deb");
     std::fs::write(&archive, build_test_deb()).unwrap();
+
+    geezipx()
+        .args(["list", archive.to_str().unwrap(), "--password", "secret"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "only supported for ZIP, 7z, and RAR",
+        ));
+}
+
+#[test]
+fn cab_list_shows_entries() {
+    let td = TestDir::new();
+    let archive = td.join("archive.cab");
+    std::fs::write(
+        &archive,
+        build_test_cab(&[("docs\\hello.txt", b"hello"), ("readme.txt", b"readme")]),
+    )
+    .unwrap();
+
+    geezipx()
+        .args(["list", archive.to_str().unwrap()])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("docs/hello.txt"))
+        .stdout(predicate::str::contains("readme.txt"));
+}
+
+#[test]
+fn cab_decompress_extracts_files() {
+    let td = TestDir::new();
+    let archive = td.join("archive.cab");
+    let output = td.join("out");
+    std::fs::write(
+        &archive,
+        build_test_cab(&[("docs\\hello.txt", b"hello"), ("readme.txt", b"readme")]),
+    )
+    .unwrap();
+    std::fs::create_dir_all(&output).unwrap();
+
+    geezipx()
+        .args([
+            "decompress",
+            archive.to_str().unwrap(),
+            "-o",
+            output.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    assert_eq!(
+        std::fs::read_to_string(output.join("docs/hello.txt")).unwrap(),
+        "hello"
+    );
+    assert_eq!(
+        std::fs::read_to_string(output.join("readme.txt")).unwrap(),
+        "readme"
+    );
+}
+
+#[test]
+fn cab_test_valid() {
+    let td = TestDir::new();
+    let archive = td.join("archive.cab");
+    std::fs::write(&archive, build_test_cab(&[("hello.txt", b"hello")])).unwrap();
+
+    geezipx()
+        .args(["test", archive.to_str().unwrap()])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Format:  cab"))
+        .stdout(predicate::str::contains("result: OK"));
+}
+
+#[test]
+fn cab_compress_is_rejected() {
+    let td = TestDir::new();
+    td.write("payload.txt", "cab write should fail");
+    let output = td.join("out.cab");
+
+    geezipx()
+        .args([
+            "compress",
+            td.join("payload.txt").to_str().unwrap(),
+            "-f",
+            "cab",
+            "-o",
+            output.to_str().unwrap(),
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("cab writing is not supported"));
+
+    assert!(
+        !output.exists(),
+        "cab output should not be created on rejection"
+    );
+}
+
+#[test]
+fn cab_password_is_rejected() {
+    let td = TestDir::new();
+    let archive = td.join("archive.cab");
+    std::fs::write(&archive, build_test_cab(&[("hello.txt", b"hello")])).unwrap();
 
     geezipx()
         .args(["list", archive.to_str().unwrap(), "--password", "secret"])

@@ -10,6 +10,7 @@ use serde::Serialize;
 use tokio::task::spawn_blocking;
 
 use geezipx_core::archive::asar::AsarReader;
+use geezipx_core::archive::cab::CabReader;
 use geezipx_core::archive::deb::DebReader;
 use geezipx_core::archive::iso::IsoReader;
 use geezipx_core::archive::lzh::LzhReader;
@@ -160,6 +161,7 @@ pub(crate) fn open_reader(
             Ok(reader)
         }
         ArchiveFormat::Asar => Ok(Box::new(AsarReader::new(path))),
+        ArchiveFormat::Cab => Ok(Box::new(CabReader::new(path))),
         ArchiveFormat::Deb => {
             let file = fs::File::open(path)
                 .map_err(|e| format!("Cannot open '{}': {}", path.display(), e))?;

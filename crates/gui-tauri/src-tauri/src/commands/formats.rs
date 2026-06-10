@@ -11,8 +11,8 @@ pub struct FormatInfo {
     ///
     /// In the current GUI release, single-stream `gzip`, `bzip2`, `brotli`,
     /// `lz4`, `zstd`, `xz`, and `lzma` entries remain decompress-only.
-    /// Read-only archive formats still include `rar`, `asar`, `deb`, `lzh`,
-    /// `iso`, and `zpaq`.
+    /// Read-only archive formats still include `rar`, `cab`, `asar`, `deb`,
+    /// `lzh`, `iso`, and `zpaq`.
     pub can_compress: bool,
     /// Whether this format supports extracting archives (decompression).
     pub can_decompress: bool,
@@ -116,6 +116,11 @@ pub fn get_formats() -> Vec<FormatInfo> {
             can_decompress: true,
         },
         FormatInfo {
+            name: "cab".into(),
+            can_compress: false,
+            can_decompress: true,
+        },
+        FormatInfo {
             name: "asar".into(),
             can_compress: false,
             can_decompress: true,
@@ -158,7 +163,7 @@ mod tests {
     #[test]
     fn get_formats_returns_expected_count() {
         let formats = get_formats();
-        let expected = if cfg!(feature = "zpaq") { 23 } else { 22 };
+        let expected = if cfg!(feature = "zpaq") { 24 } else { 23 };
         assert_eq!(formats.len(), expected, "unexpected supported format count");
     }
 
@@ -240,6 +245,14 @@ mod tests {
         let rar = formats.iter().find(|f| f.name == "rar").unwrap();
         assert!(!rar.can_compress);
         assert!(rar.can_decompress);
+    }
+
+    #[test]
+    fn get_formats_cab_decompress_only() {
+        let formats = get_formats();
+        let cab = formats.iter().find(|f| f.name == "cab").unwrap();
+        assert!(!cab.can_compress);
+        assert!(cab.can_decompress);
     }
 
     #[test]

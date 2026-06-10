@@ -38,4 +38,5 @@ assert_cmd = "2"
 predicates = "3"
 tempfile = "3"
 sevenz-rust2 = { version = "0.21", default-features = false, features = ["compress", "util", "aes256", "bzip2", "ppmd", "deflate"] }
+cab = "0.6"
 zpaq_rs = "1.0"

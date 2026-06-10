@@ -15,6 +15,7 @@
 pub mod asar;
 pub mod brotli;
 pub mod bzip2;
+pub mod cab;
 pub mod deb;
 pub mod gzip;
 pub mod iso;

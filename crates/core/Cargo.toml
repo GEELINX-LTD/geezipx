@@ -25,6 +25,7 @@ zip = { version = "2", default-features = false, features = ["deflate", "aes-cry
 tar = "0.4"
 brotli = "8"
 bzip2 = "0.6"
+cab = "0.6"
 flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
 gzp = { version = "0.11", default-features = false, features = ["deflate_rust"] }
 lz4_flex = "0.13"
