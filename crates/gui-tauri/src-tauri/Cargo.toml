@@ -23,8 +23,12 @@ tokio = { version = "1", features = ["full"] }
 tauri-plugin-drag = "2.1.1"
 
 [features]
-default = ["rar"]
+default = ["rar", "zpaq"]
 rar = ["geezipx-core/rar"]
+zpaq = ["geezipx-core/zpaq"]
+
+[dev-dependencies]
+zpaq_rs = "1.0"
 
 [lib]
 name = "geezipx_gui_lib"

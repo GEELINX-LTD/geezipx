@@ -14,7 +14,8 @@ categories = ["compression"]
 
 [features]
 rar = ["dep:unrar"]
-default = ["rar"]
+zpaq = ["dep:zpaq_rs"]
+default = ["rar", "zpaq"]
 
 [dependencies]
 thiserror = "2"
@@ -36,6 +37,8 @@ isomage = "2.1"
 sevenz-rust2 = { version = "0.21", default-features = false, features = ["aes256", "bzip2", "ppmd", "deflate"] }
 # Optional: RAR read-only (feature-gated, requires C++ compiler)
 unrar = { version = "0.5.8", optional = true }
+# Optional: ZPAQ read-only (feature-gated, requires Rust 1.85+ and a C++17 compiler)
+zpaq_rs = { version = "1.0", optional = true }
 
 [dev-dependencies]
 tempfile = "3"

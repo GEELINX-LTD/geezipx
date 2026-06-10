@@ -57,6 +57,8 @@ pub enum ArchiveFormat {
     Lzh,
     /// ISO disc image (extension-based — `.iso`; no useful magic in the first 8 bytes).
     Iso,
+    /// ZPAQ archive (extension-based — `.zpaq`, `.zpq`; deliberately no shallow magic sniff).
+    Zpaq,
     /// Unknown or unrecognised format.
     Unknown,
 }
@@ -85,6 +87,7 @@ impl fmt::Display for ArchiveFormat {
             ArchiveFormat::Deb => write!(f, "deb"),
             ArchiveFormat::Lzh => write!(f, "lzh"),
             ArchiveFormat::Iso => write!(f, "iso"),
+            ArchiveFormat::Zpaq => write!(f, "zpaq"),
             ArchiveFormat::Unknown => write!(f, "unknown"),
         }
     }
@@ -139,6 +142,8 @@ const EXTENSION_MAP: &[(&str, ArchiveFormat)] = &[
     (".lzh", ArchiveFormat::Lzh),
     (".lha", ArchiveFormat::Lzh),
     (".iso", ArchiveFormat::Iso),
+    (".zpaq", ArchiveFormat::Zpaq),
+    (".zpq", ArchiveFormat::Zpaq),
 ];
 
 // ---------------------------------------------------------------------------
@@ -161,7 +166,9 @@ const EXTENSION_MAP: &[(&str, ArchiveFormat)] = &[
 /// explicit format / extension. ASAR similarly has no reliable fixed magic
 /// header and is handled only by explicit format / extension. ISO volume
 /// descriptors live at sector 16, so `.iso` also relies on explicit format /
-/// extension here.
+/// extension here. ZPAQ likewise stays extension-only because GeeZipX routes it
+/// through an optional parser integration rather than a shallow first-bytes
+/// recognizer.
 pub fn detect_format(data: &[u8]) -> Option<ArchiveFormat> {
     if data.starts_with(MAGIC_ZIP) || data.starts_with(MAGIC_ZIP_EMPTY) {
         return Some(ArchiveFormat::Zip);
@@ -358,6 +365,20 @@ mod tests {
         assert_eq!(
             detect_from_extension(Path::new("disc.iso")),
             Some(ArchiveFormat::Iso)
+        );
+    }
+
+    #[test]
+    fn detect_zpaq_is_extension_only() {
+        let raw = b"not-a-zpaq";
+        assert_eq!(detect_format(raw), None);
+        assert_eq!(
+            detect_from_extension(Path::new("archive.zpaq")),
+            Some(ArchiveFormat::Zpaq)
+        );
+        assert_eq!(
+            detect_from_extension(Path::new("archive.zpq")),
+            Some(ArchiveFormat::Zpaq)
         );
     }
 
@@ -622,6 +643,22 @@ mod tests {
     }
 
     #[test]
+    fn ext_zpaq() {
+        assert_eq!(
+            detect_from_extension(Path::new("backup.zpaq")),
+            Some(ArchiveFormat::Zpaq)
+        );
+    }
+
+    #[test]
+    fn ext_zpq() {
+        assert_eq!(
+            detect_from_extension(Path::new("backup.zpq")),
+            Some(ArchiveFormat::Zpaq)
+        );
+    }
+
+    #[test]
     fn ext_unknown() {
         assert_eq!(detect_from_extension(Path::new("readme.md")), None);
     }
@@ -725,6 +762,11 @@ mod tests {
     #[test]
     fn display_iso() {
         assert_eq!(ArchiveFormat::Iso.to_string(), "iso");
+    }
+
+    #[test]
+    fn display_zpaq() {
+        assert_eq!(ArchiveFormat::Zpaq.to_string(), "zpaq");
     }
 
     #[test]

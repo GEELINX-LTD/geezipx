@@ -14,7 +14,7 @@
 
 ## Features
 
-- **Multi-format** -- ZIP (including ZIP-compatible aliases `.jar`, `.war`, `.apk`, `.ipa`, `.xpi`), TAR, TAR.GZ/TGZ, TAR.BZ2/TBZ/TBZ2, TAR.BR, TAR.LZ4, TAR.ZST/TZST, TAR.XZ/TXZ, GZIP/GZ, BZIP2/BZ2, Brotli/BR, LZ4, Zstandard/ZST, XZ, LZMA (read/write), plus 7Z, RAR, ASAR, DEB, LZH/LHA, and ISO (read-only). *Planned: 7Z write, LZH write, ISO write, ZIPX, SFX, ZPAQ, CAB, WIM, and more — see [docs/PRD.md](docs/PRD.md) section 5.1*
+- **Multi-format** -- ZIP (including ZIP-compatible aliases `.jar`, `.war`, `.apk`, `.ipa`, `.xpi`), TAR, TAR.GZ/TGZ, TAR.BZ2/TBZ/TBZ2, TAR.BR, TAR.LZ4, TAR.ZST/TZST, TAR.XZ/TXZ, GZIP/GZ, BZIP2/BZ2, Brotli/BR, LZ4, Zstandard/ZST, XZ, LZMA (read/write), plus 7Z, RAR, ASAR, DEB, LZH/LHA, ISO, and ZPAQ (read-only). *Planned: 7Z write, LZH write, ISO write, ZPAQ write, ZIPX, SFX, CAB, WIM, and more — see [docs/PRD.md](docs/PRD.md) section 5.1*
 - **Streaming I/O** -- process large files with bounded memory usage
 - **Live progress bars** -- real-time speed, ETA, and per-file status on TTY
 - **Cancel-safe** -- graceful Ctrl+C with partial-file cleanup; double Ctrl+C force-kill
@@ -31,6 +31,7 @@
 - **LZH/LHA read-only support** -- `.lzh` / `.lha` archives support CLI `list`, `decompress`, and `test`, plus GUI archive browsing and extraction. The current MVP is read-only, validates raw LZH path bytes before extraction, and does not support `compress`, archive writing, encryption, or password input.
 - **Cross-platform** -- Linux, macOS, Windows (3-platform CI)
 - **ISO read-only support** -- `.iso` images support CLI `list`, `decompress`, and `test`, plus GUI archive browsing and extraction. The current MVP targets common ISO9660 / Rock Ridge / Joliet data images and does not support `compress`, image writing, encryption, or password input.
+- **ZPAQ read-only support** -- `.zpaq` / `.zpq` archives support CLI `list`, `decompress`, and `test`, plus GUI archive browsing and extraction. The current MVP is read-only, does not support archive creation or append/update workflows, and currently uses byte-buffer extraction helpers for individual entries.
 - **Single binary** -- no runtime dependencies, `cargo install` ready
 - **Multi-threaded compression** -- `-j`/`--jobs` for parallel compression (tar.gz via gzp/pigz-style, zstd/tar.zst via native zstdmt)
 
@@ -38,7 +39,7 @@
 
 ## Status
 
-Phase 1 (CLI MVP) is **complete and mature**. The applicable subcommands are fully implemented: read/write formats support `compress`, `decompress`, `list`, and `test`; read-only 7z/RAR/ASAR/DEB/LZH/LHA/ISO support `list`, `decompress`, and `test`. The `completions` command is also complete.
+Phase 1 (CLI MVP) is **complete and mature**. The applicable subcommands are fully implemented: read/write formats support `compress`, `decompress`, `list`, and `test`; read-only 7z/RAR/ASAR/DEB/LZH/LHA/ISO/ZPAQ support `list`, `decompress`, and `test`. The `completions` command is also complete.
 Phase 2 (Desktop GUI via Tauri) is **now the active development focus**.
 
 | Phase | Theme | Status |
@@ -348,7 +349,7 @@ The core library owns the archive-format logic via unified `ArchiveReader` / `Ar
 ### Prerequisites
 
 - Rust stable (install via [rustup](https://rustup.rs/))
-- C++ compiler toolchain (required for default RAR support; skip RAR with `--no-default-features`)
+- C++ compiler toolchain with C++17 support (required for default RAR and ZPAQ support; skip them with `--no-default-features`)
 
 ### Build & Test
 
@@ -386,16 +387,16 @@ cargo build --release
 cargo test --all-features
 ```
 
-If you want to build without RAR support (e.g., in an environment without a C++
-compiler):
+If you want to build without the default C++-backed read-only formats (e.g., in an
+environment without a suitable C++ toolchain):
 
 ```sh
 cargo build --release --no-default-features
 cargo test --no-default-features
 ```
 
-> **Note**: `cargo publish` and `cargo install` include RAR support by default.
-> If you cannot use the C++ compiler requirement, build with `--no-default-features`.
+> **Note**: `cargo publish` and `cargo install` include RAR and ZPAQ support by default.
+> If you cannot satisfy the C++ compiler requirement, build with `--no-default-features`.
 
 ### ASAR support
 
@@ -464,6 +465,29 @@ geezipx test image.iso
 geezipx decompress image.iso -o out/
 ```
 
+### ZPAQ support
+
+ZPAQ archive support is **read-only**. GeeZipX can `list`, `decompress`, and `test` `.zpaq` / `.zpq` archives in the CLI, and the Tauri GUI Archive Browser can browse and extract them. The current MVP intentionally does **not** implement archive creation, append/update semantics, password-based access, version selection, or other journaling-oriented workflows that need a separate write-path design.
+
+Implementation notes:
+
+- GeeZipX uses the `zpaq_rs` crate behind an optional `zpaq` feature that is enabled by default.
+- `zpaq_rs` requires a C++17-capable compiler and Rust 1.85+; GeeZipX's workspace toolchain already exceeds that minimum, but the C++ compiler is still required at build time.
+- Single-entry extraction currently goes through `zpaq_rs` byte-buffer helpers, so GeeZipX does not overpromise fully streaming per-entry extraction for ZPAQ yet.
+
+Unsupported ZPAQ features:
+
+- `compress` / archive creation
+- archive writing, append/update-in-place, or version selection
+- encryption / password-based access
+- broader ZPAQ journaling workflows beyond the current read-only MVP
+
+```sh
+geezipx list backup.zpaq
+geezipx test backup.zpq
+geezipx decompress backup.zpaq -o out/
+```
+
 ### Benchmarks
 
 Criterion benchmarks are configured and available for manual runs:
@@ -527,7 +551,7 @@ and the combined `SHA256SUMS` file.
 All core features and the applicable format-specific subcommands are implemented and verified:
 
 - [x] ZIP / TAR / TAR.GZ / TAR.BZ2 / TAR.BR / TAR.LZ4 / TAR.ZST / TAR.XZ / GZIP / BZIP2 / Brotli / LZ4 / ZSTD / XZ / LZMA read/write
-- [x] 7z / RAR / ASAR / DEB / LZH / LHA / ISO read-only support via `list`, `decompress`, and `test`
+- [x] 7z / RAR / ASAR / DEB / LZH / LHA / ISO / ZPAQ read-only support via `list`, `decompress`, and `test`
 - [x] Streaming I/O with bounded memory usage
 - [x] Progress bars with `indicatif`
 - [x] Ctrl+C graceful cancellation
@@ -550,7 +574,7 @@ All core features and the applicable format-specific subcommands are implemented
 
 - [x] Tauri v2 project skeleton + TypeScript/Vite frontend
 - [x] Core engine bridge via Tauri commands
-- [x] Archive browser with file associations (including read-only `.asar` / `.deb` / `.lzh` / `.lha` / `.iso` open/browse/extract flows)
+- [x] Archive browser with file associations (including read-only `.asar` / `.deb` / `.lzh` / `.lha` / `.iso` / `.zpaq` open/browse/extract flows)
 - [x] Selective extraction from archives
 - [x] In-app text/hex preview
 - [x] Drag & drop into the app
@@ -569,7 +593,7 @@ See [`docs/GUI_MVP_PLAN.md`](docs/GUI_MVP_PLAN.md) for detailed planning and tas
 
 - [ ] Platform-native installers (Homebrew, winget, APT)
 - **Format expansion** — phased, see [docs/PRD.md](docs/PRD.md) section 5.1 for the full target list
-  - Compress: 7Z write, LZH write, ISO write, ZIPX, SFX, ZPAQ
+  - Compress: 7Z write, LZH write, ISO write, ZPAQ write, ZIPX, SFX
   - Decompress: CAB, WIM
   - Historical/legacy: ARJ, ACE, ARC, ALZ (via adapter/evaluation)
   - Container/derived: JAR, WAR, APK, IPA, XPI (ZIP-reuse)

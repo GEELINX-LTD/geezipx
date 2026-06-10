@@ -32,6 +32,8 @@ pub mod tarxz;
 pub mod tarzst;
 pub mod xz;
 pub mod zip;
+#[cfg(feature = "zpaq")]
+pub mod zpaq;
 pub mod zstd;
 
 use std::io::{Read, Write};

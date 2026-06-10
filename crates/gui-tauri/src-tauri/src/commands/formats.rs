@@ -11,7 +11,7 @@ pub struct FormatInfo {
     ///
     /// In the current GUI release, single-stream `gzip`, `bzip2`, `brotli`,
     /// `lz4`, `zstd`, `xz`, and `lzma` entries, plus read-only archive formats
-    /// such as `7z`, `rar`, `asar`, `deb`, `lzh`, and `iso`, remain decompress-only.
+    /// such as `7z`, `rar`, `asar`, `deb`, `lzh`, `iso`, and `zpaq`, remain decompress-only.
     pub can_compress: bool,
     /// Whether this format supports extracting archives (decompression).
     pub can_decompress: bool,
@@ -23,7 +23,7 @@ pub struct FormatInfo {
 /// at startup to populate format selectors.
 #[tauri::command]
 pub fn get_formats() -> Vec<FormatInfo> {
-    vec![
+    let formats = vec![
         FormatInfo {
             name: "zip".into(),
             can_compress: true,
@@ -129,7 +129,20 @@ pub fn get_formats() -> Vec<FormatInfo> {
             can_compress: false,
             can_decompress: true,
         },
-    ]
+    ];
+
+    #[cfg(feature = "zpaq")]
+    let formats = {
+        let mut formats = formats;
+        formats.push(FormatInfo {
+            name: "zpaq".into(),
+            can_compress: false,
+            can_decompress: true,
+        });
+        formats
+    };
+
+    formats
 }
 
 #[cfg(test)]
@@ -139,7 +152,8 @@ mod tests {
     #[test]
     fn get_formats_returns_expected_count() {
         let formats = get_formats();
-        assert_eq!(formats.len(), 21, "expected 21 supported formats");
+        let expected = if cfg!(feature = "zpaq") { 22 } else { 21 };
+        assert_eq!(formats.len(), expected, "unexpected supported format count");
     }
 
     #[test]
@@ -244,5 +258,21 @@ mod tests {
         let iso = formats.iter().find(|f| f.name == "iso").unwrap();
         assert!(!iso.can_compress);
         assert!(iso.can_decompress);
+    }
+
+    #[cfg(feature = "zpaq")]
+    #[test]
+    fn get_formats_zpaq_decompress_only() {
+        let formats = get_formats();
+        let zpaq = formats.iter().find(|f| f.name == "zpaq").unwrap();
+        assert!(!zpaq.can_compress);
+        assert!(zpaq.can_decompress);
+    }
+
+    #[cfg(not(feature = "zpaq"))]
+    #[test]
+    fn get_formats_omits_zpaq_without_feature() {
+        let formats = get_formats();
+        assert!(formats.iter().all(|f| f.name != "zpaq"));
     }
 }

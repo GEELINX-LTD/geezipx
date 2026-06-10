@@ -41,12 +41,12 @@
 
 | 操作 | 当前格式 | 目标扩展 |
 |------|----------|----------|
-| 压缩 | ZIP、TAR、TAR.GZ、GZIP、ZSTD、TAR.ZST、XZ、TAR.XZ、LZMA | 7z 写入、LZH 写入、ISO 写入、ZIPX、SFX、ZPAQ（后续阶段） |
-| 解压缩 | 上述所有格式 + 7z / RAR / ASAR / DEB / LZH/LHA / ISO 只读 | CAB、ARJ、ACE、BZ2、BR、LZ4、WIM 等（后续阶段，含历史格式适配器） |
+| 压缩 | ZIP、TAR、TAR.GZ、GZIP、ZSTD、TAR.ZST、XZ、TAR.XZ、LZMA | 7z 写入、LZH 写入、ISO 写入、ZPAQ 写入、ZIPX、SFX（后续阶段） |
+| 解压缩 | 上述所有格式 + 7z / RAR / ASAR / DEB / LZH/LHA / ISO / ZPAQ 只读 | CAB、ARJ、ACE、BZ2、BR、LZ4、WIM 等（后续阶段，含历史格式适配器） |
 
 > 完整格式目标清单见 `docs/PRD.md` 第 5.1 节。新增格式按 feature gate 引入，不要求当前版本一次性完成。
 
-GUI 中 7z/RAR/ASAR/DEB/LZH/LHA/ISO 保持只读语义：可浏览、测试、提取，不可创建。
+GUI 中 7z/RAR/ASAR/DEB/LZH/LHA/ISO/ZPAQ 保持只读语义：可浏览、测试、提取，不可创建。
 
 
 ### 3.2 核心功能

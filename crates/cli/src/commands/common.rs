@@ -32,6 +32,8 @@ use geezipx_core::archive::tarzst::TarZstReader;
 use geezipx_core::archive::tarzst::TarZstWriter;
 use geezipx_core::archive::zip::ZipReader;
 use geezipx_core::archive::zip::ZipWriter;
+#[cfg(feature = "zpaq")]
+use geezipx_core::archive::zpaq::ZpaqReader;
 use geezipx_core::archive::{ArchiveReader, ArchiveWriter};
 use geezipx_core::config::CompressOptions;
 use geezipx_core::detect::{self, ArchiveFormat};
@@ -45,7 +47,7 @@ use geezipx_core::detect::{self, ArchiveFormat};
 /// Accepts: `zip`, ZIP-derived aliases (`jar`, `war`, `apk`, `ipa`, `xpi`),
 /// `tar`, `tar.gz`, `tgz`, `tar.bz2`, `tbz`, `tbz2`, `tar.br`, `gz`, `gzip`,
 /// `bz2`, `bzip2`, `br`, `brotli`, `lz4`, `tar.lz4`, `zst`, `zstd`, `tar.zst`,
-/// `tzst`, `tar.xz`, `txz`, `xz`, `lzma`, `7z`, `rar`, `asar`, `deb`, `lzh`, `lha`, `iso`.
+/// `tzst`, `tar.xz`, `txz`, `xz`, `lzma`, `7z`, `rar`, `asar`, `deb`, `lzh`, `lha`, `iso`, `zpaq`, `zpq`.
 pub fn parse_format(s: &str) -> Result<ArchiveFormat> {
     match s.to_ascii_lowercase().as_str() {
         "zip" | "jar" | "war" | "apk" | "ipa" | "xpi" => Ok(ArchiveFormat::Zip),
@@ -69,8 +71,9 @@ pub fn parse_format(s: &str) -> Result<ArchiveFormat> {
         "deb" => Ok(ArchiveFormat::Deb),
         "lzh" | "lha" => Ok(ArchiveFormat::Lzh),
         "iso" => Ok(ArchiveFormat::Iso),
+        "zpaq" | "zpq" => Ok(ArchiveFormat::Zpaq),
         other => Err(anyhow::anyhow!(
-            "unsupported format '{other}'; expected: zip, jar, war, apk, ipa, xpi, tar, tar.gz, tgz, tar.bz2, tbz, tbz2, tar.br, gz, gzip, bz2, bzip2, br, brotli, lz4, tar.lz4, zst, zstd, tar.zst, tzst, tar.xz, txz, xz, lzma, 7z, rar, asar, deb, lzh, lha, iso"
+            "unsupported format '{other}'; expected: zip, jar, war, apk, ipa, xpi, tar, tar.gz, tgz, tar.bz2, tbz, tbz2, tar.br, gz, gzip, bz2, bzip2, br, brotli, lz4, tar.lz4, zst, zstd, tar.zst, tzst, tar.xz, txz, xz, lzma, 7z, rar, asar, deb, lzh, lha, iso, zpaq, zpq"
         )),
     }
 }
@@ -311,6 +314,12 @@ pub fn open_reader(
         ArchiveFormat::Deb => Box::new(DebReader::new(file)),
         ArchiveFormat::Lzh => Box::new(LzhReader::new(file)),
         ArchiveFormat::Iso => Box::new(IsoReader::new(file)),
+        #[cfg(feature = "zpaq")]
+        ArchiveFormat::Zpaq => Box::new(ZpaqReader::new(path)),
+        #[cfg(not(feature = "zpaq"))]
+        ArchiveFormat::Zpaq => anyhow::bail!(
+            "'zpaq' support is disabled in this build; rebuild with --features zpaq"
+        ),
         ArchiveFormat::Tar => Box::new(TarReader::new(file)),
         ArchiveFormat::TarGz => Box::new(TarGzReader::new(file)),
         ArchiveFormat::TarBz2 => Box::new(TarBz2Reader::new(file)),
@@ -373,7 +382,11 @@ pub fn create_writer(
         ArchiveFormat::TarBr => Ok(Box::new(TarBrWriter::new_with_options(file, options)?)),
         ArchiveFormat::TarLz4 => Ok(Box::new(TarLz4Writer::new_with_options(file, options)?)),
         ArchiveFormat::TarZst => Ok(Box::new(TarZstWriter::new_with_options(file, options))),
-        ArchiveFormat::Asar | ArchiveFormat::Deb | ArchiveFormat::Lzh | ArchiveFormat::Iso => {
+        ArchiveFormat::Asar
+        | ArchiveFormat::Deb
+        | ArchiveFormat::Lzh
+        | ArchiveFormat::Iso
+        | ArchiveFormat::Zpaq => {
             anyhow::bail!("'{format}' is a read-only archive format; writing is not supported")
         }
         ArchiveFormat::Gzip
@@ -599,6 +612,19 @@ mod tests {
         out
     }
 
+    #[cfg(feature = "zpaq")]
+    fn build_test_zpaq() -> Vec<u8> {
+        zpaq_rs::archive_from_entries(
+            &[zpaq_rs::ArchiveEntry {
+                path: "hello.txt",
+                data: b"hello zpaq\n",
+                comment: None,
+            }],
+            "1",
+        )
+        .unwrap()
+    }
+
     #[test]
     fn parse_format_asar() {
         assert_eq!(parse_format("asar").unwrap(), ArchiveFormat::Asar);
@@ -618,6 +644,12 @@ mod tests {
     #[test]
     fn parse_format_iso() {
         assert_eq!(parse_format("iso").unwrap(), ArchiveFormat::Iso);
+    }
+
+    #[test]
+    fn parse_format_zpaq_aliases() {
+        assert_eq!(parse_format("zpaq").unwrap(), ArchiveFormat::Zpaq);
+        assert_eq!(parse_format("zpq").unwrap(), ArchiveFormat::Zpaq);
     }
 
     #[test]
@@ -700,6 +732,18 @@ mod tests {
     }
 
     #[test]
+    fn detect_archive_format_zpaq_extension() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let archive = temp.path().join("backup.zpaq");
+        std::fs::write(&archive, b"not a zpaq yet").unwrap();
+
+        assert_eq!(
+            detect_archive_format(&archive).unwrap(),
+            ArchiveFormat::Zpaq
+        );
+    }
+
+    #[test]
     fn open_reader_asar_lists_entries() {
         let temp = tempfile::TempDir::new().unwrap();
         let archive = temp.path().join("app.asar");
@@ -736,6 +780,19 @@ mod tests {
         assert_eq!(entries[0].path, "hello.txt");
     }
 
+    #[cfg(feature = "zpaq")]
+    #[test]
+    fn open_reader_zpaq_lists_entries() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let archive = temp.path().join("archive.zpaq");
+        std::fs::write(&archive, build_test_zpaq()).unwrap();
+
+        let mut reader = open_reader(&archive, ArchiveFormat::Zpaq, None).unwrap();
+        let entries = reader.entries().unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].path, "hello.txt");
+    }
+
     #[test]
     fn create_writer_deb_is_read_only() {
         let temp = tempfile::TempDir::new().unwrap();
@@ -765,6 +822,17 @@ mod tests {
         let file = fs::File::create(&output).unwrap();
         match create_writer(file, ArchiveFormat::Iso, CompressOptions::default()) {
             Ok(_) => panic!("iso writer should be rejected"),
+            Err(err) => assert!(err.to_string().contains("read-only archive format")),
+        }
+    }
+
+    #[test]
+    fn create_writer_zpaq_is_read_only() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let output = temp.path().join("out.zpaq");
+        let file = fs::File::create(&output).unwrap();
+        match create_writer(file, ArchiveFormat::Zpaq, CompressOptions::default()) {
+            Ok(_) => panic!("zpaq writer should be rejected"),
             Err(err) => assert!(err.to_string().contains("read-only archive format")),
         }
     }

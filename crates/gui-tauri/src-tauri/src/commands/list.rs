@@ -11,6 +11,7 @@ use tokio::task::spawn_blocking;
 
 use geezipx_core::archive::asar::AsarReader;
 use geezipx_core::archive::deb::DebReader;
+use geezipx_core::archive::iso::IsoReader;
 use geezipx_core::archive::lzh::LzhReader;
 #[cfg(feature = "rar")]
 use geezipx_core::archive::rar::RarReader;
@@ -23,6 +24,8 @@ use geezipx_core::archive::tarlz4::TarLz4Reader;
 use geezipx_core::archive::tarxz::TarXzReader;
 use geezipx_core::archive::tarzst::TarZstReader;
 use geezipx_core::archive::zip::ZipReader;
+#[cfg(feature = "zpaq")]
+use geezipx_core::archive::zpaq::ZpaqReader;
 use geezipx_core::archive::ArchiveReader;
 use geezipx_core::detect::{self, ArchiveFormat};
 
@@ -167,6 +170,15 @@ pub(crate) fn open_reader(
                 .map_err(|e| format!("Cannot open '{}': {}", path.display(), e))?;
             Ok(Box::new(LzhReader::new(file)))
         }
+        ArchiveFormat::Iso => {
+            let file = fs::File::open(path)
+                .map_err(|e| format!("Cannot open '{}': {}", path.display(), e))?;
+            Ok(Box::new(IsoReader::new(file)))
+        }
+        #[cfg(feature = "zpaq")]
+        ArchiveFormat::Zpaq => Ok(Box::new(ZpaqReader::new(path))),
+        #[cfg(not(feature = "zpaq"))]
+        ArchiveFormat::Zpaq => Err("'zpaq' support is disabled in this build".to_owned()),
         ArchiveFormat::Tar => {
             let file = fs::File::open(path)
                 .map_err(|e| format!("Cannot open '{}': {}", path.display(), e))?;
@@ -301,6 +313,19 @@ mod tests {
         archive
     }
 
+    #[cfg(feature = "zpaq")]
+    fn build_test_zpaq() -> Vec<u8> {
+        zpaq_rs::archive_from_entries(
+            &[zpaq_rs::ArchiveEntry {
+                path: "hello.txt",
+                data: b"hello zpaq\n",
+                comment: None,
+            }],
+            "1",
+        )
+        .expect("zpaq fixture should be created")
+    }
+
     fn unique_test_dir(prefix: &str) -> std::path::PathBuf {
         let nanos = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -333,6 +358,21 @@ mod tests {
         std::fs::write(&archive, build_test_lzh()).unwrap();
 
         let mut reader = open_reader(&archive, ArchiveFormat::Lzh, None).unwrap();
+        let entries = reader.entries().unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].path, "hello.txt");
+
+        let _ = std::fs::remove_dir_all(temp);
+    }
+
+    #[cfg(feature = "zpaq")]
+    #[test]
+    fn open_reader_zpaq_lists_entries() {
+        let temp = unique_test_dir("open-zpaq");
+        let archive = temp.join("archive.zpaq");
+        std::fs::write(&archive, build_test_zpaq()).unwrap();
+
+        let mut reader = open_reader(&archive, ArchiveFormat::Zpaq, None).unwrap();
         let entries = reader.entries().unwrap();
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].path, "hello.txt");

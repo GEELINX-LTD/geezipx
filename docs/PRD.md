@@ -87,7 +87,7 @@ GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开�
 | ISO | .iso | 📖 只读 → 待写入 | 当前支持 `list` / `decompress` / `test`；MVP 面向 ISO9660 / Rock Ridge / Joliet 数据 ISO |
 | ZIPX | .zipx | 📋 规划中 | WinZIP 扩展格式 |
 | SFX | .exe | 📋 规划中 | 自解压 ZIP/7z 模块 |
-| ZPAQ | .zpaq | 📋 规划中 | 高压缩比 |
+| ZPAQ | .zpaq, .zpq | 📖 只读 → 待写入 | 当前支持 `list` / `decompress` / `test`；写入、版本选择与增量/journaling 语义待单独设计 |
 
 **解压缩/读取目标格式（不含上表已列）：**
 
@@ -134,8 +134,9 @@ GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开�
 - **依赖策略**：按格式决定。优先 Rust 原生 crate（如 `zip`、`flate2`、`zstd`、`xz2`），仅在无合适实现时评估外部工具或系统库。
 - **Feature gate**：每种格式按独立 feature 引入，用户可按需编译。
 - **优先级**：由用户需求与社区反馈驱动，不做全格式一次性覆盖。
-- **读/写分离**：一种格式可先实现只读（如当前 7z/RAR），写入能力后续补充。
+- **读/写分离**：一种格式可先实现只读（如当前 7z/RAR/ZPAQ），写入能力后续补充。
 - **历史格式**：ARJ、ACE、ARC、ALZ 等历史/专有格式通过适配器层外部库评估；LZH/LHA 当前仅交付只读 MVP，写入与更完整兼容能力后续补充。
+- **Journaling 格式**：ZPAQ 当前仅交付只读 MVP；其追加/版本化写入路径与现有“从零创建归档”模型不同，需单独架构设计。
 
 ## 7. 功能需求（Feature Requirements）
 
@@ -235,7 +236,7 @@ Phase 3 (生态 + 格式扩展)
 │   ├── LZH 写入 — 在现有 LZH/LHA 只读基础上补齐写入与更完整兼容
 │   ├── ISO — 数据 ISO 归档处理
 │   ├── SFX — 自解压 ZIP/7z 模块
-│   ├── ZPAQ — 高压缩比格式
+│   ├── ZPAQ — 当前已具备只读 MVP；后续补齐 journaling/append 写入设计
 │   └── 其他按用户需求驱动的格式
 ├── 解压格式扩展
 │   ├── Brotli (.br)、bzip2 (.bz2)、LZ4 — 现代压缩格式
