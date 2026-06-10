@@ -1,22 +1,13 @@
 //! `compress_archive` command — create an archive from local files.
 //!
-//! Supported archive container formats: zip, tar, 7z, tar.gz, tar.bz2, tar.br,
+//! Supported archive container formats: zip, zipx, tar, 7z, tar.gz, tar.bz2, tar.br,
 //! tar.lz4, tar.zst, tar.xz. Single-stream formats are intentionally rejected
 //! for the current GUI MVP.
 //!
 //! All heavy work runs on `tokio::task::spawn_blocking` so the Tauri event loop
 //! is never blocked. Progress is emitted as `task:progress` events.
-
-use std::fs;
-use std::io::BufReader;
-use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
-
-use serde::Serialize;
-use tauri::AppHandle;
-use tokio::task::spawn_blocking;
-
+use crate::commands::progress::{is_cancelled_error, TaskKind, TaskProgressEmitter, TaskStage};
+use crate::state::AppState;
 use geezipx_core::archive::seven_zip::SevenZipWriter;
 use geezipx_core::archive::tar::TarWriter;
 use geezipx_core::archive::tarbr::TarBrWriter;
@@ -30,16 +21,18 @@ use geezipx_core::archive::ArchiveWriter;
 use geezipx_core::config::CompressOptions;
 use geezipx_core::detect::ArchiveFormat;
 use geezipx_core::ProgressReader;
-
-use crate::commands::progress::{is_cancelled_error, TaskKind, TaskProgressEmitter, TaskStage};
-use crate::state::AppState;
-
+use serde::Serialize;
+use std::fs;
+use std::io::BufReader;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+use tauri::AppHandle;
+use tokio::task::spawn_blocking;
 const CANCELLED_MESSAGE: &str = "Operation cancelled by user";
-
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
-
 /// Serializable result of a compression operation.
 #[derive(Debug, Serialize)]
 pub struct CompressArchiveResult {
@@ -56,7 +49,6 @@ pub struct CompressArchiveResult {
     /// Number of items skipped (e.g. symlinks, special files).
     pub skipped: u64,
 }
-
 /// A collected file entry ready to be added to an archive.
 struct FileEntry {
     /// Real path on the filesystem.
@@ -68,11 +60,9 @@ struct FileEntry {
     /// Input size in bytes for progress accounting (0 for directories).
     size: u64,
 }
-
 // ---------------------------------------------------------------------------
 // Tauri command
 // ---------------------------------------------------------------------------
-
 /// Create an archive from a list of source paths.
 #[allow(clippy::too_many_arguments)]
 #[tauri::command]
@@ -90,15 +80,12 @@ pub async fn compress_archive(
     if source_paths.is_empty() {
         return Err("At least one source path is required".to_string());
     }
-
     let af = parse_gui_compress_format(&format)?;
-
     if password.is_some() && af != ArchiveFormat::Zip {
         return Err(format!(
             "Password is only supported for ZIP format; '{af}' does not support encryption when writing"
         ));
     }
-
     let tid = task_id.unwrap_or_else(|| {
         format!(
             "compress-{}",
@@ -108,11 +95,9 @@ pub async fn compress_archive(
                 .as_nanos()
         )
     });
-
     let output = PathBuf::from(&output_path);
     let sources: Vec<PathBuf> = source_paths.iter().map(PathBuf::from).collect();
     let pwd = password;
-
     let cancel_token = {
         let mut tokens = state
             .cancel_tokens
@@ -122,10 +107,8 @@ pub async fn compress_archive(
         tokens.insert(tid.clone(), token.clone());
         token
     };
-
     let emitter = TaskProgressEmitter::new(app, tid.clone(), TaskKind::Compress);
     emitter.emit_started("Scanning input files...");
-
     let result = {
         let emitter = emitter.clone();
         let cancel_token = cancel_token.clone();
@@ -148,7 +131,6 @@ pub async fn compress_archive(
                         }
                     }
                 }
-
                 let mut skipped = 0u64;
                 let entries = collect_gui_inputs(&sources, &cancel_token, &mut skipped)?;
                 let total_input_bytes = entries
@@ -157,13 +139,10 @@ pub async fn compress_archive(
                     .map(|entry| entry.size)
                     .sum::<u64>();
                 let total_entries = entries.len() as u64;
-
                 emitter.set_totals(Some(total_input_bytes), Some(total_entries));
                 emitter.emit_progress(TaskStage::Compressing, None, 0, None, 0, true);
-
                 let output_file = fs::File::create(&out)
                     .map_err(|e| format!("Cannot create output '{}': {}", out.display(), e))?;
-
                 let options = CompressOptions {
                     level,
                     jobs,
@@ -171,17 +150,14 @@ pub async fn compress_archive(
                 };
                 let mut writer: Box<dyn ArchiveWriter> =
                     create_gui_writer(output_file, af, options)?;
-
                 let mut added_files = 0u64;
                 let mut added_dirs = 0u64;
                 let mut progress_bytes = 0u64;
                 let mut completed_entries = 0u64;
-
                 for entry in &entries {
                     if cancel_token.load(Ordering::SeqCst) {
                         return Err(CANCELLED_MESSAGE.to_string());
                     }
-
                     let entry_name = entry.archive_path.to_string_lossy().to_string();
                     if entry.is_dir {
                         writer.add_directory(&entry.archive_path).map_err(|e| {
@@ -202,7 +178,6 @@ pub async fn compress_archive(
                         );
                         continue;
                     }
-
                     let file = match fs::File::open(&entry.real_path) {
                         Ok(file) => file,
                         Err(_) => {
@@ -220,7 +195,6 @@ pub async fn compress_archive(
                             continue;
                         }
                     };
-
                     let callback = emitter.reader_callback(
                         cancel_token.clone(),
                         TaskStage::Compressing,
@@ -231,7 +205,6 @@ pub async fn compress_archive(
                     let mut reader = ProgressReader::new(BufReader::new(file))
                         .with_total(entry.size)
                         .with_callback(Box::new(callback));
-
                     match writer.add_entry_from_reader(&entry.archive_path, &mut reader) {
                         Ok(()) => {
                             added_files += 1;
@@ -257,13 +230,11 @@ pub async fn compress_archive(
                         }
                     }
                 }
-
                 emitter.emit_finalizing(progress_bytes, completed_entries);
                 let bytes_written = writer
                     .finish()
                     .map_err(|e| format!("Failed to finalize archive: {e}"))?;
                 emitter.emit_finished(progress_bytes, completed_entries);
-
                 Ok(CompressArchiveResult {
                     files_added: added_files,
                     directories_added: added_dirs,
@@ -273,7 +244,6 @@ pub async fn compress_archive(
                     skipped,
                 })
             })();
-
             match task_result {
                 Ok(result) => Ok(result),
                 Err(message) => {
@@ -292,25 +262,21 @@ pub async fn compress_archive(
         })
         .await
     };
-
     let mut tokens = state
         .cancel_tokens
         .lock()
         .map_err(|e| format!("Internal error: {e}"))?;
     tokens.remove(&tid);
     drop(tokens);
-
     result.map_err(|e| format!("Internal error: {e}"))?
 }
-
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
 /// Parse a format string accepted by the GUI compress command.
 fn parse_gui_compress_format(s: &str) -> Result<ArchiveFormat, String> {
     match s.to_ascii_lowercase().as_str() {
-        "zip" => Ok(ArchiveFormat::Zip),
+        "zip" | "zipx" => Ok(ArchiveFormat::Zip),
         "tar" => Ok(ArchiveFormat::Tar),
         "tar.gz" | "tgz" => Ok(ArchiveFormat::TarGz),
         "tar.bz2" | "tbz" | "tbz2" => Ok(ArchiveFormat::TarBz2),
@@ -363,11 +329,10 @@ fn parse_gui_compress_format(s: &str) -> Result<ArchiveFormat, String> {
                 .to_string(),
         ),
         other => Err(format!(
-            "Unsupported format '{other}'; expected: zip, tar, tar.gz, tgz, tar.bz2, tbz, tbz2, tar.br, tar.lz4, tar.zst, tzst, tar.xz, txz, 7z"
+            "Unsupported format '{other}'; expected: zip, zipx, tar, tar.gz, tgz, tar.bz2, tbz, tbz2, tar.br, tar.lz4, tar.zst, tzst, tar.xz, txz, 7z"
         )),
     }
 }
-
 /// Collect source paths into `FileEntry` items, recursing into directories.
 fn collect_gui_inputs(
     sources: &[PathBuf],
@@ -379,17 +344,14 @@ fn collect_gui_inputs(
         if cancel_token.load(Ordering::SeqCst) {
             return Err(CANCELLED_MESSAGE.to_string());
         }
-
         let meta = fs::symlink_metadata(source)
             .map_err(|e| format!("Cannot inspect path '{}': {}", source.display(), e))?;
         if meta.file_type().is_symlink() {
             *skipped += 1;
             continue;
         }
-
         let canonical = fs::canonicalize(source)
             .map_err(|e| format!("Cannot resolve path '{}': {}", source.display(), e))?;
-
         if meta.is_dir() {
             let dir_name = canonical
                 .file_name()
@@ -420,7 +382,6 @@ fn collect_gui_inputs(
     }
     Ok(entries)
 }
-
 /// Recursively walk `dir` and append entries, prepending `prefix`.
 fn collect_dir_contents(
     dir: &Path,
@@ -431,16 +392,13 @@ fn collect_dir_contents(
 ) -> Result<(), String> {
     let read_dir = fs::read_dir(dir)
         .map_err(|e| format!("Cannot read directory '{}': {}", dir.display(), e))?;
-
     for entry in read_dir {
         if cancel_token.load(Ordering::SeqCst) {
             return Err(CANCELLED_MESSAGE.to_string());
         }
-
         let entry = entry.map_err(|e| format!("Error reading directory entry: {e}"))?;
         let path = entry.path();
         let relative = prefix.join(entry.file_name());
-
         let meta = match fs::symlink_metadata(&path) {
             Ok(meta) => meta,
             Err(_) => {
@@ -448,12 +406,10 @@ fn collect_dir_contents(
                 continue;
             }
         };
-
         if meta.file_type().is_symlink() {
             *skipped += 1;
             continue;
         }
-
         if meta.is_dir() {
             entries.push(FileEntry {
                 real_path: path.clone(),
@@ -475,7 +431,6 @@ fn collect_dir_contents(
     }
     Ok(())
 }
-
 /// Create an `ArchiveWriter` for the given format and output file.
 fn create_gui_writer(
     file: fs::File,
@@ -487,7 +442,6 @@ fn create_gui_writer(
             "Password is only supported for ZIP format; '{format}' does not support encryption when writing"
         ));
     }
-
     match format {
         ArchiveFormat::Zip => {
             let mut writer = ZipWriter::new(file);
@@ -524,13 +478,11 @@ fn create_gui_writer(
         _ => Err(format!("Unsupported format for writing in GUI: {format}")),
     }
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use geezipx_core::archive::seven_zip::SevenZipReader;
     use geezipx_core::archive::ArchiveReader;
-
     #[test]
     fn parse_gui_compress_format_accepts_tarbz2_variants() {
         assert_eq!(
@@ -546,18 +498,22 @@ mod tests {
             ArchiveFormat::TarBz2
         );
     }
-
+    #[test]
+    fn parse_gui_compress_format_accepts_zipx_alias() {
+        assert_eq!(
+            parse_gui_compress_format("zipx").unwrap(),
+            ArchiveFormat::Zip
+        );
+    }
     #[test]
     fn parse_gui_compress_format_rejects_single_stream_bzip2() {
         let err = parse_gui_compress_format("bz2").unwrap_err();
         assert!(err.contains("single-stream"));
         assert!(err.contains("tar.bz2"));
-
         let err2 = parse_gui_compress_format("bzip2").unwrap_err();
         assert!(err2.contains("single-stream"));
         assert!(err2.contains("tar.bz2"));
     }
-
     #[test]
     fn parse_gui_compress_format_accepts_tarbr_and_tarlz4() {
         assert_eq!(
@@ -569,7 +525,6 @@ mod tests {
             ArchiveFormat::TarLz4
         );
     }
-
     #[test]
     fn parse_gui_compress_format_accepts_7z() {
         assert_eq!(
@@ -577,30 +532,26 @@ mod tests {
             ArchiveFormat::SevenZip
         );
     }
-
     #[test]
-    fn parse_gui_compress_format_invalid_error_lists_7z() {
+    fn parse_gui_compress_format_invalid_error_lists_7z_and_zipx() {
         let err = parse_gui_compress_format("bogus").unwrap_err();
         assert!(err.contains("7z"));
+        assert!(err.contains("zipx"));
     }
-
     #[test]
     fn parse_gui_compress_format_rejects_single_stream_brotli_and_lz4() {
         let br_err = parse_gui_compress_format("brotli").unwrap_err();
         assert!(br_err.contains("single-stream"));
         assert!(br_err.contains("tar.br"));
-
         let lz4_err = parse_gui_compress_format("lz4").unwrap_err();
         assert!(lz4_err.contains("single-stream"));
         assert!(lz4_err.contains("tar.lz4"));
     }
-
     #[test]
     fn create_gui_writer_sevenzip_roundtrip() {
         let temp = tempfile::tempdir().unwrap();
         let archive_path = temp.path().join("gui-output.7z");
         let file = fs::File::create(&archive_path).unwrap();
-
         let mut writer =
             create_gui_writer(file, ArchiveFormat::SevenZip, CompressOptions::default())
                 .expect("7z writer should be created");
@@ -615,7 +566,6 @@ mod tests {
             .expect("file should be added");
         let bytes_written = writer.finish().expect("writer should finish");
         assert!(bytes_written > 0);
-
         let mut reader = SevenZipReader::new(&archive_path);
         let entries = reader.entries().expect("entries should load");
         assert!(entries
@@ -624,7 +574,6 @@ mod tests {
         assert!(entries
             .iter()
             .any(|entry| entry.path == "docs/readme.txt" && !entry.is_dir));
-
         let dest = tempfile::tempdir().unwrap();
         let report = reader
             .extract_all(dest.path(), true)

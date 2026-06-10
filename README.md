@@ -14,7 +14,8 @@
 
 ## Features
 
-- **Multi-format** -- ZIP (including ZIP-compatible aliases `.jar`, `.war`, `.apk`, `.ipa`, `.xpi`), TAR, TAR.GZ/TGZ, TAR.BZ2/TBZ/TBZ2, TAR.BR, TAR.LZ4, TAR.ZST/TZST, TAR.XZ/TXZ, GZIP/GZ, BZIP2/BZ2, Brotli/BR, LZ4, Zstandard/ZST, XZ, LZMA, and 7Z (read/write), plus RAR, ASAR, DEB, LZH/LHA, ISO, and ZPAQ (read-only). *Planned: LZH write, ISO write, ZPAQ write, ZIPX, SFX, CAB, WIM, and more — see [docs/PRD.md](docs/PRD.md) section 5.1*
+- **Multi-format** -- ZIP (including ZIP-compatible aliases `.zipx`, `.jar`, `.war`, `.apk`, `.ipa`, `.xpi`), TAR, TAR.GZ/TGZ, TAR.BZ2/TBZ/TBZ2, TAR.BR, TAR.LZ4, TAR.ZST/TZST, TAR.XZ/TXZ, GZIP/GZ, BZIP2/BZ2, Brotli/BR, LZ4, Zstandard/ZST, XZ, LZMA, and 7Z (read/write), plus RAR, ASAR, DEB, LZH/LHA, ISO, and ZPAQ (read-only). *Planned: LZH write, ISO write, ZPAQ write, SFX, CAB, WIM, and more — see [docs/PRD.md](docs/PRD.md) section 5.1*
+- **ZIPX compatibility** -- `.zipx` is supported as a ZIP-compatible container/extension alias for `compress`, `list`, `test`, and `decompress`. GeeZipX does not currently implement WinZip-specific advanced compression methods, Deflate64 writing, or the full ZIPX method matrix.
 - **Streaming I/O** -- process large files with bounded memory usage
 - **Live progress bars** -- real-time speed, ETA, and per-file status on TTY
 - **Cancel-safe** -- graceful Ctrl+C with partial-file cleanup; double Ctrl+C force-kill
@@ -202,7 +203,7 @@ geezipx compress <inputs...> -o <output> [options]
 | Option | Description |
 |--------|-------------|
 | `-o`, `--output` | Output file path (required unless `--stdout` is used) |
-| `-f`, `--format` | Format: `zip`, `jar`, `war`, `apk`, `ipa`, `xpi`, `tar`, `tar.gz`, `tgz`, `tar.bz2`, `tbz`, `tbz2`, `tar.br`, `gz`, `gzip`, `bz2`, `bzip2`, `br`, `brotli`, `lz4`, `tar.lz4`, `tar.zst`, `tzst`, `zst`, `zstd`, `tar.xz`, `txz`, `xz`, `lzma` (inferred from extension if omitted, defaults to zip) |
+| `-f`, `--format` | Format: `zip`, `zipx`, `jar`, `war`, `apk`, `ipa`, `xpi`, `tar`, `tar.gz`, `tgz`, `tar.bz2`, `tbz`, `tbz2`, `tar.br`, `tar.lz4`, `tar.zst`, `tzst`, `tar.xz`, `txz`, `7z`, `gz`, `gzip`, `bz2`, `bzip2`, `br`, `brotli`, `lz4`, `zst`, `zstd`, `xz`, `lzma` (inferred from extension if omitted, defaults to zip) |
 | `-r`, `--recursive` | Recursively add directories |
 | `-L`, `--level` | Compression level 0-9 (gzip/bzip2/tar.gz/tar.bz2/xz/tar.xz, default: 6; bzip2 level 0 maps to default); 0-11 (brotli/tar.br); 0-22 (zstd/zst/tar.zst/tzst, default: zstd default); lz4/tar.lz4 accept `0` or omitted level only |
 | `-j`, `--jobs` | Worker threads: 1 (default, single-threaded), 0 (auto, use all CPUs), or N (explicit). Effective for tar.gz (gzp parallel gzip) and zstd/tar.zst (native zstdmt); tar.xz/zip/xz/lzma accept but ignore for forward compat. **Note**: tar.gz `--jobs` does not apply in `--stdin` single-stream mode, only in archive mode
@@ -593,7 +594,7 @@ See [`docs/GUI_MVP_PLAN.md`](docs/GUI_MVP_PLAN.md) for detailed planning and tas
 
 - [ ] Platform-native installers (Homebrew, winget, APT)
 - **Format expansion** — phased, see [docs/PRD.md](docs/PRD.md) section 5.1 for the full target list
-  - Compress: 7Z advanced write features (encryption/tuning), LZH write, ISO write, ZPAQ write, ZIPX, SFX
+  - Compress: 7Z advanced write features (encryption/tuning), LZH write, ISO write, ZPAQ write, advanced ZIPX method matrix evaluation, SFX
   - Decompress: CAB, WIM
   - Historical/legacy: ARJ, ACE, ARC, ALZ (via adapter/evaluation)
   - Container/derived: JAR, WAR, APK, IPA, XPI (ZIP-reuse)

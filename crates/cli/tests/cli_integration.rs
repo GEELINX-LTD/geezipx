@@ -92,6 +92,53 @@ fn assert_no_ansi_escape(output: &[u8]) {
     );
 }
 
+fn assert_zipx_roundtrip(explicit_format: bool) {
+    let tmp = TestDir::new();
+    tmp.write("input.txt", "ZIPX round-trip test data.");
+    let archive = tmp.join("output.zipx");
+    let output = if explicit_format {
+        tmp.join("extracted-explicit")
+    } else {
+        tmp.join("extracted-inferred")
+    };
+
+    let mut compress = geezipx();
+    compress.arg("compress").arg(tmp.join("input.txt"));
+    if explicit_format {
+        compress.args(["-f", "zipx"]);
+    }
+    compress.arg("-o").arg(&archive).assert().success();
+
+    assert!(archive.exists(), "ZIPX archive should exist");
+
+    geezipx()
+        .args(["list", archive.to_str().unwrap()])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("input.txt"));
+
+    geezipx()
+        .args(["test", archive.to_str().unwrap()])
+        .assert()
+        .success();
+
+    std::fs::create_dir_all(&output).unwrap();
+    geezipx()
+        .arg("decompress")
+        .arg(&archive)
+        .arg("-o")
+        .arg(&output)
+        .assert()
+        .success();
+
+    let extracted = output.join("input.txt");
+    assert!(extracted.exists(), "extracted ZIPX file should exist");
+    assert_eq!(
+        std::fs::read_to_string(&extracted).unwrap(),
+        "ZIPX round-trip test data."
+    );
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -114,9 +161,19 @@ fn compress_help_available() {
         .assert()
         .success()
         .stdout(predicate::str::contains("--format"))
+        .stdout(predicate::str::contains("zipx"))
         .stdout(predicate::str::contains("--recursive"))
         .stdout(predicate::str::contains("--level"))
         .stdout(predicate::str::contains("--jobs"));
+}
+
+#[test]
+fn compress_help_mentions_zipx() {
+    geezipx()
+        .args(["compress", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("zipx"));
 }
 
 #[test]
@@ -215,6 +272,16 @@ fn zip_compress_list_decompress() {
         std::fs::read_to_string(&extracted).unwrap(),
         "ZIP round-trip test data."
     );
+}
+
+#[test]
+fn zipx_roundtrip_infers_format_from_output_extension() {
+    assert_zipx_roundtrip(false);
+}
+
+#[test]
+fn zipx_roundtrip_accepts_explicit_format_flag() {
+    assert_zipx_roundtrip(true);
 }
 
 #[test]

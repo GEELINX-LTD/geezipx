@@ -31,6 +31,11 @@ pub fn get_formats() -> Vec<FormatInfo> {
             can_decompress: true,
         },
         FormatInfo {
+            name: "zipx".into(),
+            can_compress: true,
+            can_decompress: true,
+        },
+        FormatInfo {
             name: "tar".into(),
             can_compress: true,
             can_decompress: true,
@@ -153,7 +158,7 @@ mod tests {
     #[test]
     fn get_formats_returns_expected_count() {
         let formats = get_formats();
-        let expected = if cfg!(feature = "zpaq") { 22 } else { 21 };
+        let expected = if cfg!(feature = "zpaq") { 23 } else { 22 };
         assert_eq!(formats.len(), expected, "unexpected supported format count");
     }
 
@@ -163,6 +168,14 @@ mod tests {
         let zip = formats.iter().find(|f| f.name == "zip").unwrap();
         assert!(zip.can_compress);
         assert!(zip.can_decompress);
+    }
+
+    #[test]
+    fn get_formats_zipx_compress_decompress() {
+        let formats = get_formats();
+        let zipx = formats.iter().find(|f| f.name == "zipx").unwrap();
+        assert!(zipx.can_compress);
+        assert!(zipx.can_decompress);
     }
 
     #[test]

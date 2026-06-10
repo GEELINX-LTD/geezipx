@@ -124,7 +124,7 @@ let currentDragTempId = "";
 let currentDragTimeout: ReturnType<typeof setTimeout> | null = null;
 const DRAG_CLEANUP_TIMEOUT_MS = 60_000;
 
-const ARCHIVE_EXTS = /\.(zip|tar|tar\.gz|tar\.bz2|tar\.br|tar\.lz4|tar\.zst|tar\.xz|tgz|tbz|tbz2|tzst|txz|7z|rar|asar|deb)$/i;
+const ARCHIVE_EXTS = /\.(zip|zipx|tar|tar\.gz|tar\.bz2|tar\.br|tar\.lz4|tar\.zst|tar\.xz|tgz|tbz|tbz2|tzst|txz|7z|rar|asar|deb)$/i;
 
 // Recent files storage
 const RECENT_KEY = "geezipx_recent_paths";
@@ -434,7 +434,7 @@ function getParentDir(p: string): string {
  *  Handles double extensions like .tar.gz, .tar.bz2, .tar.br, .tar.lz4, .tar.zst, .tar.xz. */
 function stripArchiveExt(name: string): string {
   const double = /\.(tar\.gz|tar\.bz2|tar\.br|tar\.lz4|tar\.zst|tar\.xz|tgz|tbz|tbz2|tzst|txz)$/i;
-  const single = /\.(zip|tar|7z|rar|asar|deb)$/i;
+  const single = /\.(zip|zipx|tar|7z|rar|asar|deb)$/i;
   if (double.test(name)) {
     return name.replace(double, "");
   }
@@ -1840,6 +1840,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   // --- Load formats for Compress mode ---
   const fallbackFormats: FormatInfo[] = [
     { name: "zip", can_compress: true, can_decompress: true },
+    { name: "zipx", can_compress: true, can_decompress: true },
     { name: "tar", can_compress: true, can_decompress: true },
     { name: "7z", can_compress: true, can_decompress: true },
     { name: "tar.gz", can_compress: true, can_decompress: true },

@@ -236,7 +236,7 @@ export interface CompressArchiveResult {
 /**
  * Create an archive from source paths.
  *
- * Supported formats: zip, tar, 7z, tar.gz, tar.bz2, tar.br, tar.lz4, tar.zst, tar.xz.
+ * Supported formats: zip, zipx, tar, 7z, tar.gz, tar.bz2, tar.br, tar.lz4, tar.zst, tar.xz.
  * Single-stream formats (gzip, bzip2, brotli, lz4, zstd, xz, lzma) will be rejected with
  * a clear error message.
  */

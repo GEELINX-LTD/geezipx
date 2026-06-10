@@ -44,13 +44,13 @@ use geezipx_core::detect::{self, ArchiveFormat};
 
 /// Parse a user-supplied format string into an [`ArchiveFormat`].
 ///
-/// Accepts: `zip`, ZIP-derived aliases (`jar`, `war`, `apk`, `ipa`, `xpi`),
+/// Accepts: `zip`, ZIP-derived aliases (`zipx`, `jar`, `war`, `apk`, `ipa`, `xpi`),
 /// `tar`, `tar.gz`, `tgz`, `tar.bz2`, `tbz`, `tbz2`, `tar.br`, `gz`, `gzip`,
 /// `bz2`, `bzip2`, `br`, `brotli`, `lz4`, `tar.lz4`, `zst`, `zstd`, `tar.zst`,
 /// `tzst`, `tar.xz`, `txz`, `xz`, `lzma`, `7z`, `rar`, `asar`, `deb`, `lzh`, `lha`, `iso`, `zpaq`, `zpq`.
 pub fn parse_format(s: &str) -> Result<ArchiveFormat> {
     match s.to_ascii_lowercase().as_str() {
-        "zip" | "jar" | "war" | "apk" | "ipa" | "xpi" => Ok(ArchiveFormat::Zip),
+        "zip" | "zipx" | "jar" | "war" | "apk" | "ipa" | "xpi" => Ok(ArchiveFormat::Zip),
         "tar" => Ok(ArchiveFormat::Tar),
         "tar.gz" | "tgz" => Ok(ArchiveFormat::TarGz),
         "tar.bz2" | "tbz" | "tbz2" => Ok(ArchiveFormat::TarBz2),
@@ -73,7 +73,7 @@ pub fn parse_format(s: &str) -> Result<ArchiveFormat> {
         "iso" => Ok(ArchiveFormat::Iso),
         "zpaq" | "zpq" => Ok(ArchiveFormat::Zpaq),
         other => Err(anyhow::anyhow!(
-            "unsupported format '{other}'; expected: zip, jar, war, apk, ipa, xpi, tar, tar.gz, tgz, tar.bz2, tbz, tbz2, tar.br, gz, gzip, bz2, bzip2, br, brotli, lz4, tar.lz4, zst, zstd, tar.zst, tzst, tar.xz, txz, xz, lzma, 7z, rar, asar, deb, lzh, lha, iso, zpaq, zpq"
+            "unsupported format '{other}'; expected: zip, zipx, jar, war, apk, ipa, xpi, tar, tar.gz, tgz, tar.bz2, tbz, tbz2, tar.br, gz, gzip, bz2, bzip2, br, brotli, lz4, tar.lz4, zst, zstd, tar.zst, tzst, tar.xz, txz, xz, lzma, 7z, rar, asar, deb, lzh, lha, iso, zpaq, zpq"
         )),
     }
 }
@@ -629,6 +629,11 @@ mod tests {
     #[test]
     fn parse_format_asar() {
         assert_eq!(parse_format("asar").unwrap(), ArchiveFormat::Asar);
+    }
+
+    #[test]
+    fn parse_format_zipx_alias() {
+        assert_eq!(parse_format("zipx").unwrap(), ArchiveFormat::Zip);
     }
 
     #[test]

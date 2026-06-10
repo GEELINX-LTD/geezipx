@@ -41,12 +41,12 @@
 
 | 操作 | 当前格式 | 目标扩展 |
 |------|----------|----------|
-| 压缩 | ZIP、TAR、7z、TAR.GZ、GZIP、ZSTD、TAR.ZST、XZ、TAR.XZ、LZMA | LZH 写入、ISO 写入、ZPAQ 写入、ZIPX、SFX、7z 高级写入能力（后续阶段） |
+| 压缩 | ZIP、ZIPX（ZIP 兼容别名）、TAR、TAR.GZ、TAR.BZ2、TAR.BR、TAR.LZ4、TAR.ZST、TAR.XZ、7z | LZH 写入、ISO 写入、ZPAQ 写入、SFX、7z 高级写入能力（后续阶段） |
 | 解压缩 | 上述所有格式 + 7z / RAR / ASAR / DEB / LZH/LHA / ISO / ZPAQ 只读 | CAB、ARJ、ACE、BZ2、BR、LZ4、WIM 等（后续阶段，含历史格式适配器） |
 
 > 完整格式目标清单见 `docs/PRD.md` 第 5.1 节。新增格式按 feature gate 引入，不要求当前版本一次性完成。
 
-GUI 中 7z 已支持基础创建；RAR/ASAR/DEB/LZH/LHA/ISO/ZPAQ 仍保持只读语义：可浏览、测试、提取，不可创建。
+GUI 中 7z 已支持基础创建，ZIPX 作为 ZIP-compatible alias 可创建、浏览、测试与提取，但不承诺 WinZip 专有高级压缩方法、Deflate64 写入或完整 ZIPX method matrix。RAR/ASAR/DEB/LZH/LHA/ISO/ZPAQ 仍保持只读语义：可浏览、测试、提取，不可创建。
 
 
 ### 3.2 核心功能

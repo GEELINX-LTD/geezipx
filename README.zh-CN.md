@@ -14,7 +14,8 @@
 
 ## 特性
 
-- **多格式支持** -- ZIP（含 ZIP 兼容别名 `.jar`、`.war`、`.apk`、`.ipa`、`.xpi`）、TAR、TAR.GZ/TGZ、TAR.BZ2/TBZ/TBZ2、TAR.BR、TAR.LZ4、TAR.ZST/TZST、TAR.XZ/TXZ、GZIP/GZ、BZIP2/BZ2、Brotli/BR、LZ4、Zstandard/ZST、XZ、LZMA、7Z（读写），以及 RAR、ASAR、DEB、LZH/LHA、ISO、ZPAQ（只读）。*规划扩展：LZH 写入、ISO 写入、ZPAQ 写入、ZIPX、SFX、CAB、WIM 等（详见 [docs/PRD.md](docs/PRD.md) 第 5.1 节）*
+- **多格式支持** -- ZIP（含 ZIP 兼容别名 `.zipx`、`.jar`、`.war`、`.apk`、`.ipa`、`.xpi`）、TAR、TAR.GZ/TGZ、TAR.BZ2/TBZ/TBZ2、TAR.BR、TAR.LZ4、TAR.ZST/TZST、TAR.XZ/TXZ、GZIP/GZ、BZIP2/BZ2、Brotli/BR、LZ4、Zstandard/ZST、XZ、LZMA、7Z（读写），以及 RAR、ASAR、DEB、LZH/LHA、ISO、ZPAQ（只读）。*规划扩展：LZH 写入、ISO 写入、ZPAQ 写入、SFX、CAB、WIM 等（详见 [docs/PRD.md](docs/PRD.md) 第 5.1 节）*
+- **ZIPX 兼容支持** -- `.zipx` 已作为 ZIP 兼容容器/扩展名别名接入 `compress`、`list`、`test` 与 `decompress`。当前不承诺 WinZip 专有高级压缩方法、Deflate64 写入或完整 ZIPX method matrix。
 - **流式 I/O** -- 大文件处理内存可控
 - **实时进度条** -- 在 TTY 中显示速度、预计完成时间、逐文件状态
 - **取消安全** -- Ctrl+C 优雅退出，自动清理未完成文件；双击强制退出
@@ -194,13 +195,13 @@ geezipx compress <输入文件...> -o <输出文件> [选项]
 | 选项 | 说明 |
 |------|------|
 | `-o`, `--output` | 输出文件路径（除非使用 `--stdout`，否则必填） |
-| `-f`, `--format` | 格式：`zip`、`tar`、`tar.gz`、`tgz`、`gz`、`gzip`、`tar.zst`、`tzst`、`zst`、`zstd`、`tar.xz`、`txz`、`xz`、`lzma`（省略时从扩展名推断，默认 zip） |
+| `-f`, `--format` | 格式：`zip`、`zipx`、`jar`、`war`、`apk`、`ipa`、`xpi`、`tar`、`tar.gz`、`tgz`、`tar.bz2`、`tbz`、`tbz2`、`tar.br`、`tar.lz4`、`tar.zst`、`tzst`、`tar.xz`、`txz`、`7z`、`gz`、`gzip`、`bz2`、`bzip2`、`br`、`brotli`、`lz4`、`zst`、`zstd`、`xz`、`lzma`（省略时从扩展名推断，默认 zip） |
 | `-r`, `--recursive` | 递归添加目录 |
-| `-L`, `--level` | 压缩级别 0-9（gzip/tar.gz/xz/tar.xz，默认 6）；0-22（zstd/zst/tar.zst/tzst，默认使用 zstd 默认级别） |
+| `-L`, `--level` | 压缩级别 0-9（gzip/bzip2/tar.gz/tar.bz2/xz/tar.xz，默认 6）；0-11（brotli/tar.br）；0-22（zstd/zst/tar.zst/tzst，默认使用 zstd 默认级别）；`lz4`/`tar.lz4` 仅接受 `0` 或省略 |
 | `-j`, `--jobs` | Worker 线程数：1（默认，单线程）、0（自动使用全部 CPU）或 N（显式指定）。tar.gz（gzp 并行 gzip）和 zstd/tar.zst（zstd 原生 NbWorkers）实际启用多线程；tar.xz/zip/xz/lzma 接受但不生效（向前兼容）。**注意**：tar.gz 的 `--stdin` 单流模式下不生效（仅归档模式有效） |
 | `--password` | 使用 AES-256 加密 ZIP 归档（仅限 ZIP 格式）。使用 `--password-file` 从文件读取密码，或使用 `--password-stdin` 从标准输入读取。三者互斥。脚本中建议使用 `--password-file` 或 `--password-stdin` 以避免密码暴露在进程列表中 |
-| `--stdin` | 从 stdin 读取未压缩数据或裸 tar 流（gzip/zstd/xz/lzma 和 tar.gz/tar.zst/tar.xz；需配合 `--format`；与输入文件互斥） |
-| `--stdout` | 将压缩结果写入 stdout（gzip/zstd/xz/lzma 和 tar.gz/tar.zst/tar.xz 裸 tar 流；需配合 `--format`；与 `--output` 互斥） |
+| `--stdin` | 从 stdin 读取未压缩数据或裸 tar 流（gzip/bzip2/brotli/lz4/zstd/xz/lzma 和 tar.gz/tar.bz2/tar.br/tar.lz4/tar.zst/tar.xz；需配合 `--format`；与输入文件互斥） |
+| `--stdout` | 将压缩结果写入 stdout（gzip/bzip2/brotli/lz4/zstd/xz/lzma 和 tar.gz/tar.bz2/tar.br/tar.lz4/tar.zst/tar.xz 裸 tar 流；需配合 `--format`；与 `--output` 互斥） |
 
 ### `decompress` — 解压归档
 
@@ -565,7 +566,7 @@ cargo build --release --workspace
 
 - [ ] 平台原生安装渠道（Homebrew、winget、APT）
 - **格式扩展** — 分阶段推进，详见 [docs/PRD.md](docs/PRD.md) 第 5.1 节完整目标清单
-  - 压缩扩展：7z 高级写入能力（加密/调优）、LZH 写入、ISO 写入、ZPAQ 写入、ZIPX、SFX
+  - 压缩扩展：7z 高级写入能力（加密/调优）、LZH 写入、ISO 写入、ZPAQ 写入、ZIPX 高级方法矩阵评估、SFX
   - 解压扩展：CAB、WIM
   - 历史/专有格式：ARJ、ACE、ARC、ALZ（通过适配器评估）
   - 容器/衍生格式：JAR、WAR、APK、IPA、XPI（复用 ZIP 引擎）

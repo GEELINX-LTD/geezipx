@@ -97,7 +97,7 @@
 
 ```
 geezipx compress <inputs...>
-  -f, --format <FORMAT>          # zip | jar | war | apk | ipa | xpi | tar | tar.gz | tgz | tar.bz2 | tbz | tbz2 | tar.br | tar.lz4 | tar.zst | tzst | tar.xz | txz | gz | gzip | bz2 | bzip2 | br | brotli | lz4 | zst | zstd | xz | lzma (default: 从扩展名推断或者 zip)
+  -f, --format <FORMAT>          # zip | zipx | jar | war | apk | ipa | xpi | tar | tar.gz | tgz | tar.bz2 | tbz | tbz2 | tar.br | tar.lz4 | tar.zst | tzst | tar.xz | txz | gz | gzip | bz2 | bzip2 | br | brotli | lz4 | zst | zstd | xz | lzma (default: 从扩展名推断或者 zip)
   -o, --output <PATH>            # 输出文件（必填）
   -r, --recursive                # 递归添加目录
   -j, --jobs <JOBS>              # Worker 线程数: 1(默认单线程), 0(auto), N(指定); tar.gz/tar.zst 生效; tar.bz2/tar.br/tar.lz4/tar.xz 接受但暂不生效; --stdin 模式下的 tar.gz 不生效
@@ -121,12 +121,12 @@ geezipx list <archive>
 ### M2-2：compress 命令实现 ✅
 - **实际文件**：`crates/cli/src/commands/compress.rs`、`crates/cli/src/commands/common.rs`
 - **流程**：参数验证 → 格式解析 → 创建输出文件 → gzip 直接调用独立 API，其他格式用 ArchiveWriter 逐文件添加 → 报告统计
-- **支持的格式**：zip（含 jar/war/apk/ipa/xpi 别名）, tar, tar.gz/tgz, tar.bz2/tbz/tbz2, tar.br, tar.lz4, tar.zst/tzst, tar.xz/txz, gz/gzip, bz2/bzip2, br/brotli, lz4, zst/zstd, xz, lzma
+- **支持的格式**：zip（含 zipx/jar/war/apk/ipa/xpi ZIP 兼容别名）, tar, tar.gz/tgz, tar.bz2/tbz/tbz2, tar.br, tar.lz4, tar.zst/tzst, tar.xz/txz, gz/gzip, bz2/bzip2, br/brotli, lz4, zst/zstd, xz, lzma
 - **验证逻辑**：
   - gzip 仅接受单个文件输入
   - 目录需 `--recursive`（否则报错提示）
   - 输入路径不存在时报错
-- **格式推断**：`--format` 优先；否则从 `.zip`（或其他扩展名，包括 `.zst`/`.zstd`）推断；均不匹配时默认 ZIP
+- **格式推断**：`--format` 优先；否则从 `.zip` / `.zipx`（或其他扩展名，包括 `.zst`/`.zstd`）推断；均不匹配时默认 ZIP
 - **与原计划差异**：`--level` 压缩级别当时未实现，已在 M3-2 中补充；glob 通配符已在 post-Phase-1 增强中通过 glob crate 内建展开，不再依赖 shell 通配符展开
   - `--jobs` 多线程参数（`-j`）为 post-Phase-1 增强，在 `feat(cli): add jobs option for zstd compression`（`3dc668d`）中添加
 - **验收标准**：全部通过

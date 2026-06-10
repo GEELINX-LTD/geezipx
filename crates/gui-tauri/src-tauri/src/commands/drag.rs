@@ -216,8 +216,9 @@ fn strip_archive_extension(file_name: &str) -> &str {
         ".tbz2", ".txz", ".tzst",
     ];
     const SIMPLE_EXTENSIONS: &[&str] = &[
-        ".zip", ".jar", ".war", ".apk", ".ipa", ".xpi", ".tar", ".gz", ".gzip", ".bz2", ".br",
-        ".lz4", ".xz", ".zst", ".zstd", ".lzma", ".7z", ".rar", ".asar", ".deb", ".lzh", ".lha",
+        ".zip", ".zipx", ".jar", ".war", ".apk", ".ipa", ".xpi", ".tar", ".gz", ".gzip", ".bz2",
+        ".br", ".lz4", ".xz", ".zst", ".zstd", ".lzma", ".7z", ".rar", ".asar", ".deb", ".lzh",
+        ".lha",
     ];
 
     let lower = file_name.to_ascii_lowercase();
@@ -330,6 +331,7 @@ mod tests {
     fn derive_drag_directory_name_uses_archive_stem_for_supported_formats() {
         for archive_name in [
             "archive.zip",
+            "archive.zipx",
             "archive.jar",
             "archive.war",
             "archive.apk",
@@ -391,6 +393,12 @@ mod tests {
         assert_eq!(strip_archive_extension("package.DEB"), "package");
         assert_eq!(strip_archive_extension("archive.LZH"), "archive");
         assert_eq!(strip_archive_extension("archive.LHA"), "archive");
+    }
+
+    #[test]
+    fn strip_archive_extension_supports_zipx() {
+        assert_eq!(strip_archive_extension("archive.zipx"), "archive");
+        assert_eq!(strip_archive_extension("ARCHIVE.ZIPX"), "ARCHIVE");
     }
 
     #[test]

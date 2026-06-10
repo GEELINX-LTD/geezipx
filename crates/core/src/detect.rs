@@ -119,6 +119,7 @@ pub const MAGIC_RAR: &[u8] = b"Rar!\x1A\x07";
 /// Map of well-known single extensions to their archive format.
 const EXTENSION_MAP: &[(&str, ArchiveFormat)] = &[
     (".zip", ArchiveFormat::Zip),
+    (".zipx", ArchiveFormat::Zip),
     (".jar", ArchiveFormat::Zip),
     (".war", ArchiveFormat::Zip),
     (".apk", ArchiveFormat::Zip),
@@ -428,6 +429,7 @@ mod tests {
     #[test]
     fn ext_zip_aliases() {
         for path in [
+            "bundle.zipx",
             "plugin.jar",
             "webapp.war",
             "mobile.apk",
@@ -440,6 +442,14 @@ mod tests {
                 "{path}"
             );
         }
+    }
+
+    #[test]
+    fn ext_zipx() {
+        assert_eq!(
+            detect_from_extension(Path::new("archive.zipx")),
+            Some(ArchiveFormat::Zip)
+        );
     }
 
     #[test]

@@ -42,7 +42,7 @@ GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开�
 
 | 特性 | 说明 | 状态 |
 |------|------|------|
-| 格式支持 | `.tar.gz`/`.tgz`, `.tar.bz2`/`.tbz`/`.tbz2`, `.tar.br`, `.tar.lz4`, `.zip`（含 `.jar`/`.war`/`.apk`/`.ipa`/`.xpi` 别名）, `.tar`, `.gz`/`.gzip`, `.bz2`, `.br`, `.lz4`, `.tar.zst`/`.tzst`, `.zst`/`.zstd`, `.tar.xz`/`.txz`, `.xz`, `.lzma`, `.7z`（读/写）；RAR/ASAR/DEB/LZH/LHA/ISO（只读） | **已完成** |
+| 格式支持 | `.tar.gz`/`.tgz`, `.tar.bz2`/`.tbz`/`.tbz2`, `.tar.br`, `.tar.lz4`, `.zip`（含 `.zipx`/`.jar`/`.war`/`.apk`/`.ipa`/`.xpi` ZIP 兼容别名）, `.tar`, `.gz`/`.gzip`, `.bz2`, `.br`, `.lz4`, `.tar.zst`/`.tzst`, `.zst`/`.zstd`, `.tar.xz`/`.txz`, `.xz`, `.lzma`, `.7z`（读/写）；RAR/ASAR/DEB/LZH/LHA/ISO（只读） | **已完成** |
 | 流式处理 | 文件流读写，内存占用与文件大小解耦 | **已完成** |
 | 进度显示 | TTY 下默认显示进度，可用 `--no-progress` 禁用 | **已完成** |
 | 格式自动检测 | 根据文件魔数（magic bytes）自动检测归档格式 | **已完成** |
@@ -85,9 +85,11 @@ GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开�
 | RAR | .rar | 📖 只读 | 受 UnRAR 许可限制，不规划写入 |
 | LZH/LHA | .lzh, .lha | 📖 只读 → 待写入 | 当前支持 `list` / `decompress` / `test`；未来补写入与更完整兼容 |
 | ISO | .iso | 📖 只读 → 待写入 | 当前支持 `list` / `decompress` / `test`；MVP 面向 ISO9660 / Rock Ridge / Joliet 数据 ISO |
-| ZIPX | .zipx | 📋 规划中 | WinZIP 扩展格式 |
+| ZIPX | .zipx | ✅ 已支持 | ZIP 兼容容器/扩展名别名；不承诺 WinZip 专有高级压缩方法、Deflate64 写入或完整 ZIPX method matrix |
 | SFX | .exe | 📋 规划中 | 自解压 ZIP/7z 模块 |
 | ZPAQ | .zpaq, .zpq | 📖 只读 → 待写入 | 当前支持 `list` / `decompress` / `test`；写入、版本选择与增量/journaling 语义待单独设计 |
+
+> 说明：当前 ZIPX 支持限定为 ZIP-compatible `.zipx` container/extension alias，`compress` / `list` / `test` / `decompress` 全部复用 ZIP 引擎；WinZip 专有高级压缩方法、Deflate64 写入以及完整 ZIPX method matrix 仍不在当前承诺范围内。
 
 **解压缩/读取目标格式（不含上表已列）：**
 
@@ -232,7 +234,7 @@ Phase 3 (生态 + 格式扩展)
 ├── Homebrew / winget / APT 仓库
 ├── 压缩格式扩展
 │   ├── 7z 高级写入能力 — 密码/高级编码器/进一步性能优化
-│   ├── ZIPX — WinZIP 扩展格式（JPEG 预压缩等高级特性）
+│   ├── ZIPX 高级方法矩阵评估 — `.zipx` alias 已支持；JPEG 预压缩等 WinZip 专有高级方法另行评估
 │   ├── LZH 写入 — 在现有 LZH/LHA 只读基础上补齐写入与更完整兼容
 │   ├── ISO — 数据 ISO 归档处理
 │   ├── SFX — 自解压 ZIP/7z 模块
