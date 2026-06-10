@@ -421,13 +421,6 @@ fn validate_compress_inputs(
         anyhow::bail!("at least one input file is required");
     }
 
-    // 7z writing is not supported; only list, test, and decompress for read-only.
-    if format == ArchiveFormat::SevenZip {
-        anyhow::bail!(
-            "7z writing is not supported; use list, test, or decompress for read-only 7z support"
-        );
-    }
-
     // RAR writing is not supported; only list, test, and decompress for read-only.
     if format == ArchiveFormat::Rar {
         anyhow::bail!(
@@ -522,24 +515,17 @@ fn validate_compress_inputs(
         }
     }
 
-    // Password is only supported for ZIP format in compress; single-stream
-    // formats have no encryption capability.
-    if options.password.is_some()
-        && matches!(
-            format,
-            ArchiveFormat::Gzip
-                | ArchiveFormat::Bzip2
-                | ArchiveFormat::Brotli
-                | ArchiveFormat::Lz4
-                | ArchiveFormat::Zstd
-                | ArchiveFormat::Xz
-                | ArchiveFormat::Lzma
-        )
-    {
-        anyhow::bail!(
-            "--password is only supported for ZIP format; '{}' does not support encryption",
-            format
-        );
+    // Password-protected archive creation is currently only supported for ZIP.
+    if let Some(password) = options.password.as_deref() {
+        if format != ArchiveFormat::Zip {
+            anyhow::bail!(
+                "--password is only supported for ZIP format; '{}' does not support encryption",
+                format
+            );
+        }
+        if password.is_empty() {
+            anyhow::bail!("--password cannot be empty");
+        }
     }
 
     Ok(())

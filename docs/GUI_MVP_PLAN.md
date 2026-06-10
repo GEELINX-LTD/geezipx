@@ -28,7 +28,7 @@
 - 云同步
 - 插件系统
 - 分卷压缩
-- 7z 写入 — 7z 格式复杂，待后续阶段评估
+- 7z 高级写入能力（密码写入、多线程、tar.7z 等）— 当前仅交付基础 7z 创建 MVP
 - RAR 创建 — 受 UnRAR 许可限制，仅保持只读
 - 文件管理器集成（双面板、标签页等）
 - 批量任务队列（仅单次任务，后续可扩展）
@@ -41,12 +41,12 @@
 
 | 操作 | 当前格式 | 目标扩展 |
 |------|----------|----------|
-| 压缩 | ZIP、TAR、TAR.GZ、GZIP、ZSTD、TAR.ZST、XZ、TAR.XZ、LZMA | 7z 写入、LZH 写入、ISO 写入、ZPAQ 写入、ZIPX、SFX（后续阶段） |
+| 压缩 | ZIP、TAR、7z、TAR.GZ、GZIP、ZSTD、TAR.ZST、XZ、TAR.XZ、LZMA | LZH 写入、ISO 写入、ZPAQ 写入、ZIPX、SFX、7z 高级写入能力（后续阶段） |
 | 解压缩 | 上述所有格式 + 7z / RAR / ASAR / DEB / LZH/LHA / ISO / ZPAQ 只读 | CAB、ARJ、ACE、BZ2、BR、LZ4、WIM 等（后续阶段，含历史格式适配器） |
 
 > 完整格式目标清单见 `docs/PRD.md` 第 5.1 节。新增格式按 feature gate 引入，不要求当前版本一次性完成。
 
-GUI 中 7z/RAR/ASAR/DEB/LZH/LHA/ISO/ZPAQ 保持只读语义：可浏览、测试、提取，不可创建。
+GUI 中 7z 已支持基础创建；RAR/ASAR/DEB/LZH/LHA/ISO/ZPAQ 仍保持只读语义：可浏览、测试、提取，不可创建。
 
 
 ### 3.2 核心功能
@@ -115,7 +115,7 @@ GUI 中 7z/RAR/ASAR/DEB/LZH/LHA/ISO/ZPAQ 保持只读语义：可浏览、测试
 - `geezipx-gui`/`crates/gui-tauri/src-tauri` 依赖 `geezipx-core`，反向依赖不允许。
 - GUI Rust 后端只做参数映射、任务生命周期管理、进度桥接与前端数据整形。
 - 前端不直接处理压缩格式细节；所有实际归档操作都经由 Tauri command bridge。
-- 7z / RAR / ASAR / DEB / LZH / LHA / ISO 在 GUI 中仍然保持只读语义：可浏览、测试、提取，不可创建。
+- 7z 在 GUI 中已支持基础创建；RAR / ASAR / DEB / LZH / LHA / ISO 仍保持只读语义：可浏览、测试、提取，不可创建。
 
 ## 5. Core API 复用策略
 
@@ -123,7 +123,7 @@ GUI 直接复用 core 的以下能力，不重复实现压缩/解压逻辑：
 
 | Core 模块 | GUI 复用方式 |
 |-----------|--------------|
-| `core::archive::*` | 复用 `ArchiveReader` / `ArchiveWriter` trait，以及 7z/RAR/ASAR/DEB/LZH/LHA/ISO 只读 reader |
+| `core::archive::*` | 复用 `ArchiveReader` / `ArchiveWriter` trait；其中 7z 已支持基础 reader/writer，RAR/ASAR/DEB/LZH/LHA/ISO 保持只读 reader |
 | `core::io::{ProgressReader, ProgressWriter, ProgressCallback, ProgressEvent}` | 进度计数与取消检查；由 GUI 后端转成 Tauri 事件 |
 | `core::detect::{detect_format, detect_from_extension, read_magic_bytes}` | 自动识别拖入文件与归档类型 |
 | `core::config::CompressOptions` | 统一传递 level、jobs、password 等参数 |
@@ -207,7 +207,7 @@ listen<TaskProgressPayload>('task:progress', (event) => {
 ## 7. 密码处理
 
 - ZIP：支持创建 AES-256 加密归档，也支持浏览/测试/提取已加密 ZIP。
-- 7z / RAR：仅支持只读路径下的密码输入（`list` / `test` / `extract`）。
+- 7z / RAR：密码仅支持读取路径（`list` / `test` / `extract`）。当前 7z 创建 MVP 不支持密码写入。
 - 密码仅作为任务参数传递，不做持久化。
 - 前端提供显隐切换，但不保存默认密码。
 

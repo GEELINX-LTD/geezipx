@@ -15,7 +15,7 @@ use geezipx_core::archive::iso::IsoReader;
 use geezipx_core::archive::lzh::LzhReader;
 #[cfg(feature = "rar")]
 use geezipx_core::archive::rar::RarReader;
-use geezipx_core::archive::seven_zip::SevenZipReader;
+use geezipx_core::archive::seven_zip::{SevenZipReader, SevenZipWriter};
 use geezipx_core::archive::tar::TarReader;
 use geezipx_core::archive::tar::TarWriter;
 use geezipx_core::archive::tarbr::TarBrReader;
@@ -377,6 +377,7 @@ pub fn create_writer(
             Ok(Box::new(writer))
         }
         ArchiveFormat::Tar => Ok(Box::new(TarWriter::new(file))),
+        ArchiveFormat::SevenZip => Ok(Box::new(SevenZipWriter::new(file)?)),
         ArchiveFormat::TarGz => Ok(Box::new(TarGzWriter::new_with_options(file, options))),
         ArchiveFormat::TarBz2 => Ok(Box::new(TarBz2Writer::new_with_options(file, options))),
         ArchiveFormat::TarBr => Ok(Box::new(TarBrWriter::new_with_options(file, options)?)),

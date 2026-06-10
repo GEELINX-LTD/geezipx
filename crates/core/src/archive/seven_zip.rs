@@ -1,13 +1,15 @@
 //! 7z archive reader implementation.
 //!
-//! Built on top of the [`sevenz_rust2`] crate.  This module provides
-//! read-only support for 7z archives, including AES-256 encrypted
-//! archives, LZMA/LZMA2/BZIP2/PPMD/DEFLATE compressed entries,
-//! and solid archives.
+//! Built on top of the [`sevenz_rust2`] crate. This module provides
+//! read and write support for 7z archives, including AES-256 encrypted
+//! archives on the reader path, LZMA/LZMA2/BZIP2/PPMD/DEFLATE compressed
+//! entries, and solid archives.
 //!
 //! # Design notes
 //!
-//! - **Read-only** — 7z writing is not supported (Phase 2.3 scope).
+//! - **Writer scope** — GeeZipX's current writer is an MVP: it creates standard
+//!   `.7z` archives with the upstream crate's default non-solid LZMA2 encoder.
+//!   Password-protected creation and advanced encoder selection are not yet exposed.
 //! - **Single-entry extract** re-opens the archive and uses
 //!   `sevenz_rust2::ArchiveReader::read_file()`, which is O(n) for
 //!   solid archives (decodes all preceding data).  Callers that need
@@ -21,13 +23,16 @@
 use std::borrow::Cow;
 use std::fmt;
 use std::fs::File;
-use std::io::Write;
+use std::io::{Read, Seek, Write};
 use std::path::{Path, PathBuf};
 
-use sevenz_rust2::Password;
+use sevenz_rust2::{
+    ArchiveEntry as SevenZArchiveEntry, ArchiveWriter as SevenZArchiveWriter, Password,
+};
 
 use crate::archive::{
-    check_entry_path_safety, normalize_path, ArchiveReader, CancellableWriter, Entry, ExtractReport,
+    check_entry_path_safety, normalize_path, ArchiveReader, ArchiveWriter, CancellableWriter,
+    Entry, ExtractReport,
 };
 use crate::detect::ArchiveFormat;
 use crate::error::{GeeZipError, GeeZipResult};
@@ -101,6 +106,103 @@ impl SevenZipReader {
             modified,
             is_dir: entry.is_directory,
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// SevenZipWriter
+// ---------------------------------------------------------------------------
+
+/// 7z archive writer.
+///
+/// Uses `sevenz_rust2`'s archive writer with its default non-solid LZMA2
+/// encoder. The current GeeZipX MVP intentionally does not expose password
+/// creation or advanced writer tuning.
+pub struct SevenZipWriter<W: Write + Seek> {
+    inner: Option<SevenZArchiveWriter<W>>,
+    start_pos: u64,
+    format: ArchiveFormat,
+}
+
+impl<W: Write + Seek> fmt::Debug for SevenZipWriter<W> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SevenZipWriter")
+            .field("format", &self.format)
+            .finish_non_exhaustive()
+    }
+}
+
+impl<W: Write + Seek> SevenZipWriter<W> {
+    /// Create a new 7z writer targeting the given output.
+    pub fn new(mut writer: W) -> GeeZipResult<Self> {
+        let start_pos = writer.stream_position().unwrap_or(0);
+        let inner = SevenZArchiveWriter::new(writer).map_err(convert_7z_error)?;
+        Ok(Self {
+            inner: Some(inner),
+            start_pos,
+            format: ArchiveFormat::SevenZip,
+        })
+    }
+
+    /// Finalise the 7z archive and return the inner writer alongside the
+    /// total number of bytes written.
+    pub fn finalize(mut self) -> GeeZipResult<(u64, W)> {
+        let writer = self.inner.take().ok_or_else(|| GeeZipError::Format {
+            message: "7z writer already finalised".into(),
+            format: ArchiveFormat::SevenZip,
+        })?;
+        let mut writer = writer
+            .finish()
+            .map_err(|e| GeeZipError::io(e, "finalising 7z archive"))?;
+        let end_pos = writer
+            .stream_position()
+            .map_err(|e| GeeZipError::io(e, "getting final archive size"))?;
+        Ok((end_pos - self.start_pos, writer))
+    }
+}
+
+impl<W: Write + Seek + Send> ArchiveWriter for SevenZipWriter<W> {
+    fn format(&self) -> ArchiveFormat {
+        self.format
+    }
+
+    fn add_entry_from_reader(&mut self, path: &Path, reader: &mut dyn Read) -> GeeZipResult<()> {
+        let name = path.to_str().ok_or_else(|| GeeZipError::Format {
+            message: format!("non-UTF-8 path: {}", path.display()),
+            format: ArchiveFormat::SevenZip,
+        })?;
+
+        let writer = self.inner.as_mut().ok_or_else(|| GeeZipError::Format {
+            message: "7z writer not initialised (already consumed)".into(),
+            format: ArchiveFormat::SevenZip,
+        })?;
+
+        writer
+            .push_archive_entry(SevenZArchiveEntry::new_file(name), Some(reader))
+            .map_err(convert_7z_error)?;
+        Ok(())
+    }
+
+    fn add_directory(&mut self, path: &Path) -> GeeZipResult<()> {
+        let name = path.to_str().ok_or_else(|| GeeZipError::Format {
+            message: format!("non-UTF-8 path: {}", path.display()),
+            format: ArchiveFormat::SevenZip,
+        })?;
+
+        let writer = self.inner.as_mut().ok_or_else(|| GeeZipError::Format {
+            message: "7z writer not initialised (already consumed)".into(),
+            format: ArchiveFormat::SevenZip,
+        })?;
+
+        writer
+            .push_archive_entry::<&[u8]>(SevenZArchiveEntry::new_directory(name), None)
+            .map_err(convert_7z_error)?;
+        Ok(())
+    }
+
+    fn finish(self: Box<Self>) -> GeeZipResult<u64> {
+        let (bytes, _writer) = (*self).finalize()?;
+        Ok(bytes)
     }
 }
 
@@ -749,6 +851,92 @@ mod tests {
         );
     }
 
+    #[test]
+    fn sevenzip_writer_roundtrip() {
+        let mut writer = SevenZipWriter::new(std::io::Cursor::new(Vec::new())).unwrap();
+        writer
+            .add_entry_from_reader(
+                Path::new("hello.txt"),
+                &mut std::io::Cursor::new(b"hello from writer".to_vec()),
+            )
+            .unwrap();
+
+        let (bytes_written, cursor) = writer.finalize().unwrap();
+        assert!(bytes_written > 0);
+
+        let (mut reader, _dir) = buf_reader(cursor.into_inner());
+        let entries = reader.entries().unwrap();
+        let file = entries
+            .iter()
+            .find(|entry| entry.path == "hello.txt")
+            .unwrap();
+        assert!(!file.is_dir);
+        assert_eq!(file.size, 17);
+
+        let report = crate::test::verify_archive_reader(&mut reader).unwrap();
+        assert_eq!(report.format, ArchiveFormat::SevenZip);
+        assert_eq!(report.entry_count, entries.len() as u64);
+        assert!(report.bytes_read >= 17);
+
+        let dest = tempfile::tempdir().unwrap();
+        let extract_report = reader.extract_all(dest.path(), true).unwrap();
+        assert!(
+            extract_report.errors.is_empty(),
+            "errors: {:?}",
+            extract_report.errors
+        );
+        assert_eq!(
+            std::fs::read_to_string(dest.path().join("hello.txt")).unwrap(),
+            "hello from writer"
+        );
+    }
+
+    #[test]
+    fn sevenzip_writer_multiple_files_and_directories_roundtrip() {
+        let mut writer = SevenZipWriter::new(std::io::Cursor::new(Vec::new())).unwrap();
+        writer.add_directory(Path::new("empty-dir")).unwrap();
+        writer
+            .add_entry_from_reader(
+                Path::new("nested/data.txt"),
+                &mut std::io::Cursor::new(b"nested payload".to_vec()),
+            )
+            .unwrap();
+        writer
+            .add_entry_from_reader(
+                Path::new("top.bin"),
+                &mut std::io::Cursor::new(vec![0_u8, 1, 2, 3]),
+            )
+            .unwrap();
+
+        let (bytes_written, cursor) = writer.finalize().unwrap();
+        assert!(bytes_written > 0);
+
+        let (mut reader, _dir) = buf_reader(cursor.into_inner());
+        let entries = reader.entries().unwrap();
+        assert!(entries
+            .iter()
+            .any(|entry| entry.path == "empty-dir" && entry.is_dir));
+        assert!(entries
+            .iter()
+            .any(|entry| entry.path == "nested/data.txt" && !entry.is_dir));
+        assert!(entries
+            .iter()
+            .any(|entry| entry.path == "top.bin" && !entry.is_dir));
+
+        let dest = tempfile::tempdir().unwrap();
+        let report = reader.extract_all(dest.path(), true).unwrap();
+        assert!(report.errors.is_empty(), "errors: {:?}", report.errors);
+        assert!(dest.path().join("empty-dir").is_dir());
+        assert_eq!(
+            std::fs::read_to_string(dest.path().join("nested/data.txt")).unwrap(),
+            "nested payload"
+        );
+        assert_eq!(
+            std::fs::read(dest.path().join("top.bin")).unwrap(),
+            vec![0_u8, 1, 2, 3]
+        );
+    }
+
     // -------------------------------------------------------------------
     // Trait object safety
     // -------------------------------------------------------------------
@@ -759,6 +947,13 @@ mod tests {
         let data = create_test_7z(&[("dummy.txt", b"x")]);
         let (mut reader, _dir) = buf_reader(data);
         use_reader(&mut reader);
+    }
+
+    #[test]
+    fn archive_writer_trait_object() {
+        fn use_writer(_w: &mut dyn ArchiveWriter) {}
+        let mut writer = SevenZipWriter::new(std::io::Cursor::new(Vec::new())).unwrap();
+        use_writer(&mut writer);
     }
 
     // -------------------------------------------------------------------

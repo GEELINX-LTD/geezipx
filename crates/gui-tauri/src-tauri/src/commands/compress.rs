@@ -1,6 +1,6 @@
 //! `compress_archive` command — create an archive from local files.
 //!
-//! Supported archive container formats: zip, tar, tar.gz, tar.bz2, tar.br,
+//! Supported archive container formats: zip, tar, 7z, tar.gz, tar.bz2, tar.br,
 //! tar.lz4, tar.zst, tar.xz. Single-stream formats are intentionally rejected
 //! for the current GUI MVP.
 //!
@@ -17,6 +17,7 @@ use serde::Serialize;
 use tauri::AppHandle;
 use tokio::task::spawn_blocking;
 
+use geezipx_core::archive::seven_zip::SevenZipWriter;
 use geezipx_core::archive::tar::TarWriter;
 use geezipx_core::archive::tarbr::TarBrWriter;
 use geezipx_core::archive::tarbz2::TarBz2Writer;
@@ -356,16 +357,13 @@ fn parse_gui_compress_format(s: &str) -> Result<ArchiveFormat, String> {
              (will be added in a later update)"
                 .to_string(),
         ),
-        "7z" => Err(
-            "7z writing is not supported; use list, test, or decompress for read-only 7z support"
-                .to_string(),
-        ),
+        "7z" => Ok(ArchiveFormat::SevenZip),
         "rar" => Err(
             "rar writing is not supported; use list, test, or decompress for read-only rar support"
                 .to_string(),
         ),
         other => Err(format!(
-            "Unsupported format '{other}'; expected: zip, tar, tar.gz, tgz, tar.bz2, tbz, tbz2, tar.br, tar.lz4, tar.zst, tzst, tar.xz, txz"
+            "Unsupported format '{other}'; expected: zip, tar, tar.gz, tgz, tar.bz2, tbz, tbz2, tar.br, tar.lz4, tar.zst, tzst, tar.xz, txz, 7z"
         )),
     }
 }
@@ -499,6 +497,9 @@ fn create_gui_writer(
             Ok(Box::new(writer))
         }
         ArchiveFormat::Tar => Ok(Box::new(TarWriter::new(file))),
+        ArchiveFormat::SevenZip => Ok(Box::new(
+            SevenZipWriter::new(file).map_err(|e| e.to_string())?,
+        )),
         ArchiveFormat::TarGz => Ok(Box::new(TarGzWriter::new_with_options(file, options))),
         ArchiveFormat::TarBz2 => Ok(Box::new(TarBz2Writer::new_with_options(file, options))),
         ArchiveFormat::TarBr => Ok(Box::new(
@@ -527,6 +528,8 @@ fn create_gui_writer(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use geezipx_core::archive::seven_zip::SevenZipReader;
+    use geezipx_core::archive::ArchiveReader;
 
     #[test]
     fn parse_gui_compress_format_accepts_tarbz2_variants() {
@@ -568,6 +571,20 @@ mod tests {
     }
 
     #[test]
+    fn parse_gui_compress_format_accepts_7z() {
+        assert_eq!(
+            parse_gui_compress_format("7z").unwrap(),
+            ArchiveFormat::SevenZip
+        );
+    }
+
+    #[test]
+    fn parse_gui_compress_format_invalid_error_lists_7z() {
+        let err = parse_gui_compress_format("bogus").unwrap_err();
+        assert!(err.contains("7z"));
+    }
+
+    #[test]
     fn parse_gui_compress_format_rejects_single_stream_brotli_and_lz4() {
         let br_err = parse_gui_compress_format("brotli").unwrap_err();
         assert!(br_err.contains("single-stream"));
@@ -576,5 +593,47 @@ mod tests {
         let lz4_err = parse_gui_compress_format("lz4").unwrap_err();
         assert!(lz4_err.contains("single-stream"));
         assert!(lz4_err.contains("tar.lz4"));
+    }
+
+    #[test]
+    fn create_gui_writer_sevenzip_roundtrip() {
+        let temp = tempfile::tempdir().unwrap();
+        let archive_path = temp.path().join("gui-output.7z");
+        let file = fs::File::create(&archive_path).unwrap();
+
+        let mut writer =
+            create_gui_writer(file, ArchiveFormat::SevenZip, CompressOptions::default())
+                .expect("7z writer should be created");
+        writer
+            .add_directory(std::path::Path::new("empty"))
+            .expect("directory should be added");
+        writer
+            .add_entry_from_reader(
+                std::path::Path::new("docs/readme.txt"),
+                &mut std::io::Cursor::new(b"gui seven zip".to_vec()),
+            )
+            .expect("file should be added");
+        let bytes_written = writer.finish().expect("writer should finish");
+        assert!(bytes_written > 0);
+
+        let mut reader = SevenZipReader::new(&archive_path);
+        let entries = reader.entries().expect("entries should load");
+        assert!(entries
+            .iter()
+            .any(|entry| entry.path == "empty" && entry.is_dir));
+        assert!(entries
+            .iter()
+            .any(|entry| entry.path == "docs/readme.txt" && !entry.is_dir));
+
+        let dest = tempfile::tempdir().unwrap();
+        let report = reader
+            .extract_all(dest.path(), true)
+            .expect("archive should extract");
+        assert!(report.errors.is_empty(), "errors: {:?}", report.errors);
+        assert!(dest.path().join("empty").is_dir());
+        assert_eq!(
+            std::fs::read_to_string(dest.path().join("docs/readme.txt")).unwrap(),
+            "gui seven zip"
+        );
     }
 }

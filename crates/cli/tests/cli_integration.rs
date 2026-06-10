@@ -5782,7 +5782,7 @@ fn test_gzip_with_password_fails() {
 }
 
 // ---------------------------------------------------------------------------
-// 7z read-only tests
+// 7z tests
 // ---------------------------------------------------------------------------
 
 /// Create a test .7z archive with the given files.
@@ -5805,6 +5805,132 @@ fn create_7z_archive(files: &[(&str, &[u8])]) -> (tempfile::TempDir, std::path::
     compress_to_path(src_path, &archive_path).expect("create 7z archive");
 
     (out_dir, archive_path)
+}
+
+#[test]
+fn compress_7z_roundtrip() {
+    let td = TestDir::new();
+    td.write("hello.txt", "hello from geezipx 7z");
+    let archive = td.join("hello.7z");
+    let out_dir = td.join("out");
+
+    geezipx()
+        .args([
+            "compress",
+            td.path().join("hello.txt").to_str().unwrap(),
+            "-f",
+            "7z",
+            "-o",
+            archive.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    geezipx()
+        .args(["list", archive.to_str().unwrap()])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("hello.txt"));
+
+    geezipx()
+        .args(["test", archive.to_str().unwrap()])
+        .assert()
+        .success();
+
+    geezipx()
+        .args([
+            "decompress",
+            archive.to_str().unwrap(),
+            "-o",
+            out_dir.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    assert_eq!(
+        std::fs::read_to_string(out_dir.join("hello.txt")).unwrap(),
+        "hello from geezipx 7z"
+    );
+}
+
+#[test]
+fn compress_7z_multiple_inputs_recursive_roundtrip() {
+    let td = TestDir::new();
+    td.write("top.txt", "top-level");
+    std::fs::create_dir_all(td.path().join("src/empty")).unwrap();
+    std::fs::create_dir_all(td.path().join("src/nested")).unwrap();
+    std::fs::write(td.path().join("src/nested/file.txt"), "nested file").unwrap();
+
+    let archive = td.join("bundle.7z");
+    let out_dir = td.join("out");
+
+    geezipx()
+        .args([
+            "compress",
+            td.path().join("top.txt").to_str().unwrap(),
+            td.path().join("src").to_str().unwrap(),
+            "-r",
+            "-f",
+            "7z",
+            "-o",
+            archive.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    geezipx()
+        .args(["test", archive.to_str().unwrap()])
+        .assert()
+        .success();
+
+    geezipx()
+        .args([
+            "decompress",
+            archive.to_str().unwrap(),
+            "-o",
+            out_dir.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    assert_eq!(
+        std::fs::read_to_string(out_dir.join("top.txt")).unwrap(),
+        "top-level"
+    );
+    assert_eq!(
+        std::fs::read_to_string(out_dir.join("src/nested/file.txt")).unwrap(),
+        "nested file"
+    );
+    assert!(out_dir.join("src/empty").is_dir());
+}
+
+#[test]
+fn compress_7z_with_password_preserves_existing_output_on_failure() {
+    let td = TestDir::new();
+    td.write("input.txt", "hello world");
+
+    let archive = td.join("existing.7z");
+    std::fs::write(&archive, "original archive bytes").unwrap();
+
+    geezipx()
+        .args([
+            "compress",
+            td.path().join("input.txt").to_str().unwrap(),
+            "-f",
+            "7z",
+            "-o",
+            archive.to_str().unwrap(),
+            "--password",
+            "pw",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("only supported for ZIP"));
+
+    assert_eq!(
+        std::fs::read_to_string(&archive).unwrap(),
+        "original archive bytes"
+    );
 }
 
 #[test]

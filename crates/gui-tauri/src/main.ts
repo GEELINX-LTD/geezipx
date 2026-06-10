@@ -1841,6 +1841,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   const fallbackFormats: FormatInfo[] = [
     { name: "zip", can_compress: true, can_decompress: true },
     { name: "tar", can_compress: true, can_decompress: true },
+    { name: "7z", can_compress: true, can_decompress: true },
     { name: "tar.gz", can_compress: true, can_decompress: true },
     { name: "tar.bz2", can_compress: true, can_decompress: true },
     { name: "tar.br", can_compress: true, can_decompress: true },

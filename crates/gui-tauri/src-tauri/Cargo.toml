@@ -29,6 +29,7 @@ zpaq = ["geezipx-core/zpaq"]
 
 [dev-dependencies]
 zpaq_rs = "1.0"
+tempfile = "3"
 
 [lib]
 name = "geezipx_gui_lib"

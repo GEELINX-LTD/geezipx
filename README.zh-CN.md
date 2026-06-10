@@ -14,7 +14,7 @@
 
 ## 特性
 
-- **多格式支持** -- ZIP（含 ZIP 兼容别名 `.jar`、`.war`、`.apk`、`.ipa`、`.xpi`）、TAR、TAR.GZ/TGZ、TAR.BZ2/TBZ/TBZ2、TAR.BR、TAR.LZ4、TAR.ZST/TZST、TAR.XZ/TXZ、GZIP/GZ、BZIP2/BZ2、Brotli/BR、LZ4、Zstandard/ZST、XZ、LZMA（读写），以及 7Z、RAR、ASAR、DEB、LZH/LHA、ISO、ZPAQ（只读）。*规划扩展：7z 写入、LZH 写入、ISO 写入、ZPAQ 写入、ZIPX、SFX、CAB、WIM 等（详见 [docs/PRD.md](docs/PRD.md) 第 5.1 节）*
+- **多格式支持** -- ZIP（含 ZIP 兼容别名 `.jar`、`.war`、`.apk`、`.ipa`、`.xpi`）、TAR、TAR.GZ/TGZ、TAR.BZ2/TBZ/TBZ2、TAR.BR、TAR.LZ4、TAR.ZST/TZST、TAR.XZ/TXZ、GZIP/GZ、BZIP2/BZ2、Brotli/BR、LZ4、Zstandard/ZST、XZ、LZMA、7Z（读写），以及 RAR、ASAR、DEB、LZH/LHA、ISO、ZPAQ（只读）。*规划扩展：LZH 写入、ISO 写入、ZPAQ 写入、ZIPX、SFX、CAB、WIM 等（详见 [docs/PRD.md](docs/PRD.md) 第 5.1 节）*
 - **流式 I/O** -- 大文件处理内存可控
 - **实时进度条** -- 在 TTY 中显示速度、预计完成时间、逐文件状态
 - **取消安全** -- Ctrl+C 优雅退出，自动清理未完成文件；双击强制退出
@@ -39,7 +39,7 @@
 
 ## 项目状态
 
-第一阶段（CLI MVP）已经**全部完成并进入成熟阶段**。适用的子命令均已落地：读写格式支持 `compress`、`decompress`、`list`、`test`；只读 7z/RAR/ASAR/DEB/LZH/LHA/ISO/ZPAQ 支持 `list`、`decompress`、`test`。`completions` 子命令也已完成。crates.io 上已发布 `geezipx` 和 `geezipx-core` 包。
+第一阶段（CLI MVP）已经**全部完成并进入成熟阶段**。适用的子命令均已落地：读写格式（含 7z）支持 `compress`、`decompress`、`list`、`test`；只读 RAR/ASAR/DEB/LZH/LHA/ISO/ZPAQ 支持 `list`、`decompress`、`test`。`completions` 子命令也已完成。crates.io 上已发布 `geezipx` 和 `geezipx-core` 包。
 第二阶段（桌面 GUI via Tauri）**是当前开发重心**。
 
 | 阶段 | 主题 | 状态 |
@@ -523,8 +523,8 @@ cargo build --release --workspace
 
 所有核心能力与适用格式的子命令均已实现并验证：
 
-- [x] ZIP / TAR / TAR.GZ / TAR.ZST / TAR.XZ / GZIP / ZSTD / XZ / LZMA 读写
-- [x] 7z / RAR / ASAR / DEB / LZH / LHA / ISO / ZPAQ 只读支持（`list`、`decompress`、`test`）
+- [x] ZIP / TAR / 7Z / TAR.GZ / TAR.BZ2 / TAR.BR / TAR.LZ4 / TAR.ZST / TAR.XZ / GZIP / BZIP2 / Brotli / LZ4 / ZSTD / XZ / LZMA 读写
+- [x] RAR / ASAR / DEB / LZH / LHA / ISO / ZPAQ 只读支持（`list`、`decompress`、`test`）
 - [x] 流式 I/O，内存占用可控
 - [x] `indicatif` 进度条
 - [x] Ctrl+C 优雅取消
@@ -565,7 +565,7 @@ cargo build --release --workspace
 
 - [ ] 平台原生安装渠道（Homebrew、winget、APT）
 - **格式扩展** — 分阶段推进，详见 [docs/PRD.md](docs/PRD.md) 第 5.1 节完整目标清单
-  - 压缩扩展：7z 写入、LZH 写入、ISO 写入、ZPAQ 写入、ZIPX、SFX
+  - 压缩扩展：7z 高级写入能力（加密/调优）、LZH 写入、ISO 写入、ZPAQ 写入、ZIPX、SFX
   - 解压扩展：CAB、WIM
   - 历史/专有格式：ARJ、ACE、ARC、ALZ（通过适配器评估）
   - 容器/衍生格式：JAR、WAR、APK、IPA、XPI（复用 ZIP 引擎）
@@ -574,7 +574,7 @@ cargo build --release --workspace
 
 ### 明确不做（当前阶段）
 
-右键菜单集成、自动更新、云同步、插件系统、分卷压缩、7z 写入（待后续阶段）、RAR 创建（受许可限制保持只读）。更多格式扩展详见 [docs/PRD.md](docs/PRD.md) 第 5.1 节及第 6.2 节交付策略。
+右键菜单集成、自动更新、云同步、插件系统、分卷压缩、7z 高级写入能力（密码/高级编码器/更深优化待后续阶段）、RAR 创建（受许可限制保持只读）。更多格式扩展详见 [docs/PRD.md](docs/PRD.md) 第 5.1 节及第 6.2 节交付策略。
 
 ## 配置
 

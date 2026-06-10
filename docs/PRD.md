@@ -42,7 +42,7 @@ GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开�
 
 | 特性 | 说明 | 状态 |
 |------|------|------|
-| 格式支持 | `.tar.gz`/`.tgz`, `.tar.bz2`/`.tbz`/`.tbz2`, `.tar.br`, `.tar.lz4`, `.zip`（含 `.jar`/`.war`/`.apk`/`.ipa`/`.xpi` 别名）, `.tar`, `.gz`/`.gzip`, `.bz2`, `.br`, `.lz4`, `.tar.zst`/`.tzst`, `.zst`/`.zstd`, `.tar.xz`/`.txz`, `.xz`, `.lzma`（读/写）；7z/RAR/ASAR/DEB/LZH/LHA/ISO（只读） | **已完成** |
+| 格式支持 | `.tar.gz`/`.tgz`, `.tar.bz2`/`.tbz`/`.tbz2`, `.tar.br`, `.tar.lz4`, `.zip`（含 `.jar`/`.war`/`.apk`/`.ipa`/`.xpi` 别名）, `.tar`, `.gz`/`.gzip`, `.bz2`, `.br`, `.lz4`, `.tar.zst`/`.tzst`, `.zst`/`.zstd`, `.tar.xz`/`.txz`, `.xz`, `.lzma`, `.7z`（读/写）；RAR/ASAR/DEB/LZH/LHA/ISO（只读） | **已完成** |
 | 流式处理 | 文件流读写，内存占用与文件大小解耦 | **已完成** |
 | 进度显示 | TTY 下默认显示进度，可用 `--no-progress` 禁用 | **已完成** |
 | 格式自动检测 | 根据文件魔数（magic bytes）自动检测归档格式 | **已完成** |
@@ -81,7 +81,7 @@ GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开�
 | XZ | .xz | ✅ 已支持 | — |
 | TAR.XZ | .tar.xz, .txz | ✅ 已支持 | — |
 | LZMA | .lzma | ✅ 已支持 | — |
-| 7Z | .7z | 🔄 只读 → 待写入 | 格式复杂，后续阶段 |
+| 7Z | .7z | ✅ 已支持（MVP） | 支持文件/多文件/目录压缩；当前不含密码写入、多线程或 tar.7z |
 | RAR | .rar | 📖 只读 | 受 UnRAR 许可限制，不规划写入 |
 | LZH/LHA | .lzh, .lha | 📖 只读 → 待写入 | 当前支持 `list` / `decompress` / `test`；未来补写入与更完整兼容 |
 | ISO | .iso | 📖 只读 → 待写入 | 当前支持 `list` / `decompress` / `test`；MVP 面向 ISO9660 / Rock Ridge / Joliet 数据 ISO |
@@ -118,7 +118,7 @@ GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开�
 
 以下能力在 Phase 1（CLI MVP）和 Phase 2（桌面 GUI）阶段明确不做：
 
-- 7z 写入 — 7z 格式复杂，待后续阶段评估
+- 7z 高级写入能力（密码写入、多线程、tar.7z）— 当前仅交付基础 7z 创建 MVP
 - RAR 创建 — 受 UnRAR 许可限制，仅保持只读
 - 分卷压缩
 - 右键菜单集成
@@ -134,7 +134,7 @@ GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开�
 - **依赖策略**：按格式决定。优先 Rust 原生 crate（如 `zip`、`flate2`、`zstd`、`xz2`），仅在无合适实现时评估外部工具或系统库。
 - **Feature gate**：每种格式按独立 feature 引入，用户可按需编译。
 - **优先级**：由用户需求与社区反馈驱动，不做全格式一次性覆盖。
-- **读/写分离**：一种格式可先实现只读（如当前 7z/RAR/ZPAQ），写入能力后续补充。
+- **读/写分离**：一种格式可先实现只读（如当前 RAR/ZPAQ），写入能力后续补充。7z 当前已交付基础写入 MVP。
 - **历史格式**：ARJ、ACE、ARC、ALZ 等历史/专有格式通过适配器层外部库评估；LZH/LHA 当前仅交付只读 MVP，写入与更完整兼容能力后续补充。
 - **Journaling 格式**：ZPAQ 当前仅交付只读 MVP；其追加/版本化写入路径与现有“从零创建归档”模型不同，需单独架构设计。
 
@@ -209,7 +209,7 @@ Phase 1 (MVP — CLI)              ← ✅ 已完成并成熟
 └── CLI 增强特性                 ── ✅ 已完成
     ├── 多线程压缩 (-j/--jobs)
     ├── 加密 ZIP (AES-256)
-    ├── 7z 只读 / RAR 只读
+    ├── 7z 读写 MVP / RAR 只读
     └── stdin/stdout 管道
 
 Phase 2 (Desktop GUI via Tauri)  ← 🚀 当前阶段（v0.5.0）
@@ -231,7 +231,7 @@ Phase 2 (Desktop GUI via Tauri)  ← 🚀 当前阶段（v0.5.0）
 Phase 3 (生态 + 格式扩展)
 ├── Homebrew / winget / APT 仓库
 ├── 压缩格式扩展
-│   ├── 7z 写入 — 完整 7z 写入支持
+│   ├── 7z 高级写入能力 — 密码/高级编码器/进一步性能优化
 │   ├── ZIPX — WinZIP 扩展格式（JPEG 预压缩等高级特性）
 │   ├── LZH 写入 — 在现有 LZH/LHA 只读基础上补齐写入与更完整兼容
 │   ├── ISO — 数据 ISO 归档处理

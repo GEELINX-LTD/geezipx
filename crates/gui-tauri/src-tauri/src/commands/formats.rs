@@ -10,8 +10,9 @@ pub struct FormatInfo {
     /// Whether the current GUI compression command can create this format.
     ///
     /// In the current GUI release, single-stream `gzip`, `bzip2`, `brotli`,
-    /// `lz4`, `zstd`, `xz`, and `lzma` entries, plus read-only archive formats
-    /// such as `7z`, `rar`, `asar`, `deb`, `lzh`, `iso`, and `zpaq`, remain decompress-only.
+    /// `lz4`, `zstd`, `xz`, and `lzma` entries remain decompress-only.
+    /// Read-only archive formats still include `rar`, `asar`, `deb`, `lzh`,
+    /// `iso`, and `zpaq`.
     pub can_compress: bool,
     /// Whether this format supports extracting archives (decompression).
     pub can_decompress: bool,
@@ -101,7 +102,7 @@ pub fn get_formats() -> Vec<FormatInfo> {
         },
         FormatInfo {
             name: "7z".into(),
-            can_compress: false,
+            can_compress: true,
             can_decompress: true,
         },
         FormatInfo {
@@ -165,10 +166,10 @@ mod tests {
     }
 
     #[test]
-    fn get_formats_seven_zip_decompress_only() {
+    fn get_formats_seven_zip_compress_decompress() {
         let formats = get_formats();
         let sz = formats.iter().find(|f| f.name == "7z").unwrap();
-        assert!(!sz.can_compress);
+        assert!(sz.can_compress);
         assert!(sz.can_decompress);
     }
 

@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Format support — 7z write MVP**:
+  - Added core `SevenZipWriter` support backed by `sevenz-rust2`, enabling GeeZipX to create standard `.7z` archives for files, multiple inputs, and recursive directories.
+  - Added CLI `compress -f 7z -o output.7z` round-trip support alongside existing `list`, `decompress`, and `test` flows.
+  - Updated GUI format metadata and compression routing so `7z` is createable from the Tauri app; current scope is a basic writer MVP without password creation, multi-thread tuning, or `tar.7z` packaging.
+  - Added targeted core / CLI / GUI tests covering 7z writer round-trip behavior.
+
 - **Format support — LZH/LHA (read-only)**:
   - Added `.lzh` / `.lha` extension / explicit-format detection plus a read-only core reader backed by `delharc`, with raw-path validation for `../`, absolute, UNC, and drive-relative names before extraction.
   - Added CLI `list`, `decompress`, and `test` support for `.lzh` / `.lha`; `compress`, archive writing, encryption, and password input remain unsupported.

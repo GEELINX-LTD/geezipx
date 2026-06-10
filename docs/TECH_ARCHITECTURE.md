@@ -60,7 +60,7 @@ geezipx/
 - core 只保留格式逻辑、I/O 包装、错误模型与安全检查；
 - CLI 负责参数解析、TTY 进度、stdout/stderr 呈现；
 - Tauri GUI 负责图形交互、任务管理、事件桥接；
-- 7z / RAR / ASAR / DEB / LZH/LHA / ISO / ZPAQ 在当前版本中保持只读语义（`list` / `decompress` / `test`）。
+- RAR / ASAR / DEB / LZH/LHA / ISO / ZPAQ 在当前版本中保持只读语义（`list` / `decompress` / `test`）；7z 已支持基础读写。
 
 ## 2. 模块设计
 
@@ -121,7 +121,7 @@ pub trait ArchiveWriter: Send {
 | `archive::lzh` | LZH/LHA 只读（`list` / `extract` / `test`，含原始路径校验） |
 | `archive::iso` | ISO 只读（`list` / `extract` / `test`，`isomage` 解析 ISO9660/Rock Ridge/Joliet） |
 | `archive::zpaq` | ZPAQ 只读（`list` / `extract` / `test`，`zpaq_rs` 提供列表/条目读取；单条目提取当前可能经字节缓冲） |
-| `archive::seven_zip` | 7z 只读（`list` / `extract` / `test`） |
+| `archive::seven_zip` | 7z 读写（`list` / `extract` / `test` / `compress`）；当前 writer 为基础 MVP（默认 LZMA2、无密码写入） |
 | `archive::rar` | RAR 只读（`list` / `extract` / `test`，feature-gated） |
 
 > **注**：上表仅列出当前已实现的格式模块。项目长期规划支持更多格式（详见 `docs/PRD.md` 第 5.1 节），
@@ -250,7 +250,7 @@ CLI 当前子命令为：
 - 全局 `--no-progress` 用于关闭 TTY 进度条；
 - `--verbose` 输出逐文件日志；
 - ZIP AES-256 创建仅在 `compress` + ZIP 路径可用；
-- 7z / RAR 密码只服务于只读命令（`list` / `decompress` / `test`）。
+- 7z / RAR 密码当前只服务于读取路径（`list` / `decompress` / `test`）；7z 写入 MVP 不支持密码创建。
 
 ### 2.6 `cli/render` — 输出渲染
 
@@ -279,7 +279,7 @@ CLI 当前子命令为：
 | `delharc` 0.6 | LZH/LHA 只读支持 |
 | `isomage` 2.1 | ISO 只读支持（ISO9660 / Rock Ridge / Joliet 解析与流式读取） |
 | `zpaq_rs` 1.0 | ZPAQ 只读支持（optional, default-enabled；需 Rust 1.85+ 与 C++17 编译器） |
-| `sevenz-rust2` 0.21 | 7z 只读支持 |
+| `sevenz-rust2` 0.21 | 7z 读写支持（当前 writer 走默认 non-solid LZMA2，密码写入未开放） |
 | `unrar` 0.5.8 | RAR 只读支持（optional, default-enabled） |
 | `thiserror` 2 | 错误定义 |
 | `log` 0.4 | 日志门面 |
@@ -414,7 +414,7 @@ crates/gui-tauri/
 | GUI bundle 发布尚未经历真实 tag release 演练 | 发布路径可能存在流程性缺口 | 保守表述为“已配置，待验证” |
 | 大文件压缩进度依赖预扫描总量 | 首次开始任务前会有扫描延迟 | UI 上明确扫描阶段 |
 | Windows 长路径/符号链接差异 | 个别归档场景行为与 Unix 不完全一致 | 持续测试 + 文档限制说明 |
-| 7z / RAR / ASAR / DEB / LZH/LHA 仍为只读 | GUI 不能创建这些格式 | 在产品文档中明确范围 |
+| RAR / ASAR / DEB / LZH/LHA 仍为只读 | GUI 不能创建这些格式 | 在产品文档中明确范围 |
 ## 附录：Cargo Workspace 配置
 
 ```toml

@@ -1936,6 +1936,7 @@ dependencies = [
  "tauri-plugin-drag",
  "tauri-plugin-opener",
  "tauri-plugin-single-instance",
+ "tempfile",
  "tokio",
  "zpaq_rs",
 ]
