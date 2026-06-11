@@ -49,7 +49,7 @@ enum Commands {
         #[arg(short = 'o', long = "output")]
         output: Option<PathBuf>,
 
-        /// Archive format: zip, zipx, jar, war, apk, ipa, xpi, tar, tar.gz, tgz, tar.bz2, tbz, tbz2, tar.br, gz, gzip, bz2, bzip2, br, brotli, lz4, tar.lz4, zst, zstd, tar.zst, tzst, tar.xz, txz, xz, lzma (default: derived from output extension or zip)
+        /// Archive format: zip, zipx, jar, war, apk, ipa, xpi, tar, tar.gz, tgz, tar.bz2, tbz, tbz2, tar.br, gz, gzip, bz2, bzip2, br, brotli, lz4, tar.lz4, zst, zstd, tar.zst, tzst, tar.xz, txz, xz, lzma, cpio (read-only; writing rejected) (default: derived from output extension or zip)
         #[arg(short = 'f', long = "format")]
         format: Option<String>,
 

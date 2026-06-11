@@ -7863,6 +7863,45 @@ fn build_test_cab(entries: &[(&str, &[u8])]) -> Vec<u8> {
     writer.finish().unwrap().into_inner()
 }
 
+fn push_newc_hex(out: &mut Vec<u8>, value: u64, width: usize) {
+    out.extend_from_slice(format!("{value:0width$X}", width = width).as_bytes());
+}
+
+fn build_test_cpio(entries: &[(&str, &[u8])]) -> Vec<u8> {
+    fn append_newc_entry(out: &mut Vec<u8>, inode: u32, path: &str, data: &[u8]) {
+        out.extend_from_slice(b"070701");
+        push_newc_hex(out, u64::from(inode), 8);
+        push_newc_hex(out, 0o100644, 8);
+        push_newc_hex(out, 0, 8);
+        push_newc_hex(out, 0, 8);
+        push_newc_hex(out, 1, 8);
+        push_newc_hex(out, 0, 8);
+        push_newc_hex(out, data.len() as u64, 8);
+        push_newc_hex(out, 0, 8);
+        push_newc_hex(out, 0, 8);
+        push_newc_hex(out, 0, 8);
+        push_newc_hex(out, 0, 8);
+        push_newc_hex(out, (path.len() + 1) as u64, 8);
+        push_newc_hex(out, 0, 8);
+        out.extend_from_slice(path.as_bytes());
+        out.push(0);
+        while !out.len().is_multiple_of(4) {
+            out.push(0);
+        }
+        out.extend_from_slice(data);
+        while !out.len().is_multiple_of(4) {
+            out.push(0);
+        }
+    }
+
+    let mut out = Vec::new();
+    for (index, (path, data)) in entries.iter().enumerate() {
+        append_newc_entry(&mut out, (index + 1) as u32, path, data);
+    }
+    append_newc_entry(&mut out, 0, "TRAILER!!!", b"");
+    out
+}
+
 #[test]
 fn deb_list_shows_only_data_payload_entries() {
     let td = TestDir::new();
@@ -8054,6 +8093,125 @@ fn cab_password_is_rejected() {
 
     geezipx()
         .args(["list", archive.to_str().unwrap(), "--password", "secret"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "only supported for ZIP, 7z, and RAR",
+        ));
+}
+
+#[test]
+fn cpio_list_shows_entries() {
+    let td = TestDir::new();
+    let archive = td.join("archive.cpio");
+    std::fs::write(
+        &archive,
+        build_test_cpio(&[("docs/hello.txt", b"hello"), ("readme.txt", b"readme")]),
+    )
+    .unwrap();
+
+    geezipx()
+        .args(["list", archive.to_str().unwrap()])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("docs/hello.txt"))
+        .stdout(predicate::str::contains("readme.txt"));
+}
+
+#[test]
+fn cpio_decompress_extracts_files() {
+    let td = TestDir::new();
+    let archive = td.join("archive.cpio");
+    let output = td.join("out");
+    std::fs::write(
+        &archive,
+        build_test_cpio(&[("docs/hello.txt", b"hello"), ("readme.txt", b"readme")]),
+    )
+    .unwrap();
+    std::fs::create_dir_all(&output).unwrap();
+
+    geezipx()
+        .args([
+            "decompress",
+            archive.to_str().unwrap(),
+            "-o",
+            output.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    assert_eq!(
+        std::fs::read_to_string(output.join("docs/hello.txt")).unwrap(),
+        "hello"
+    );
+    assert_eq!(
+        std::fs::read_to_string(output.join("readme.txt")).unwrap(),
+        "readme"
+    );
+}
+
+#[test]
+fn cpio_test_valid() {
+    let td = TestDir::new();
+    let archive = td.join("archive.cpio");
+    std::fs::write(&archive, build_test_cpio(&[("hello.txt", b"hello")])).unwrap();
+
+    geezipx()
+        .args(["test", archive.to_str().unwrap()])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Format:  cpio"))
+        .stdout(predicate::str::contains("result: OK"));
+}
+
+#[test]
+fn cpio_compress_is_rejected_and_does_not_create_output() {
+    let td = TestDir::new();
+    td.write("payload.txt", "cpio write should fail");
+    let output = td.join("out.cpio");
+
+    geezipx()
+        .args([
+            "compress",
+            td.join("payload.txt").to_str().unwrap(),
+            "-f",
+            "cpio",
+            "-o",
+            output.to_str().unwrap(),
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("cpio writing is not supported"));
+
+    assert!(
+        !output.exists(),
+        "cpio output should not be created on rejection"
+    );
+}
+
+#[test]
+fn cpio_password_is_rejected() {
+    let td = TestDir::new();
+    let archive = td.join("archive.cpio");
+    std::fs::write(&archive, build_test_cpio(&[("hello.txt", b"hello")])).unwrap();
+
+    geezipx()
+        .args(["list", archive.to_str().unwrap(), "--password", "secret"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "only supported for ZIP, 7z, and RAR",
+        ));
+}
+
+#[test]
+fn cpio_test_password_is_rejected() {
+    let td = TestDir::new();
+    let archive = td.join("archive.cpio");
+    std::fs::write(&archive, build_test_cpio(&[("hello.txt", b"hello")])).unwrap();
+
+    geezipx()
+        .args(["test", archive.to_str().unwrap(), "--password", "secret"])
         .assert()
         .failure()
         .stderr(predicate::str::contains(

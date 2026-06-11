@@ -11,6 +11,7 @@ use tokio::task::spawn_blocking;
 
 use geezipx_core::archive::asar::AsarReader;
 use geezipx_core::archive::cab::CabReader;
+use geezipx_core::archive::cpio::CpioReader;
 use geezipx_core::archive::deb::DebReader;
 use geezipx_core::archive::iso::IsoReader;
 use geezipx_core::archive::lzh::LzhReader;
@@ -63,7 +64,7 @@ pub struct EntryInfo {
 /// - Zstd magic + `.tar.zst`/`.tzst` extension → `TarZst`
 /// - XZ magic + `.tar.xz`/`.txz` extension → `TarXz`
 /// - Pure magic match → format from magic
-/// - Fallback → extension-based detection (`.asar` / `.deb` / `.lzh` / `.lha` are extension-only)
+/// - Fallback → extension-based detection (`.asar` / `.deb` / `.lzh` / `.lha` / `.cpio` are extension-only)
 pub(crate) fn detect_archive_format(path: &Path) -> Result<ArchiveFormat, String> {
     let mut file =
         fs::File::open(path).map_err(|e| format!("Cannot open '{}': {}", path.display(), e))?;
@@ -104,16 +105,10 @@ pub(crate) fn detect_archive_format(path: &Path) -> Result<ArchiveFormat, String
     }
 }
 
-/// Open an archive reader for the given path and format.
-///
-/// Returns an error for single-stream compression formats (gzip, bzip2, brotli, lz4, zstd, xz, lzma)
-/// that do not support listing entries.
-pub(crate) fn open_reader(
-    path: &Path,
+pub(crate) fn validate_read_password_support(
     format: ArchiveFormat,
     password: Option<&str>,
-) -> Result<Box<dyn ArchiveReader>, String> {
-    // Password validation: only ZIP, 7z, and RAR support encryption.
+) -> Result<(), String> {
     if password.is_some()
         && format != ArchiveFormat::Zip
         && format != ArchiveFormat::SevenZip
@@ -124,6 +119,20 @@ pub(crate) fn open_reader(
             format
         ));
     }
+
+    Ok(())
+}
+
+/// Open an archive reader for the given path and format.
+///
+/// Returns an error for single-stream compression formats (gzip, bzip2, brotli, lz4, zstd, xz, lzma)
+/// that do not support listing entries.
+pub(crate) fn open_reader(
+    path: &Path,
+    format: ArchiveFormat,
+    password: Option<&str>,
+) -> Result<Box<dyn ArchiveReader>, String> {
+    validate_read_password_support(format, password)?;
 
     // Single-stream formats cannot be read as archives.
     match format {
@@ -162,6 +171,7 @@ pub(crate) fn open_reader(
         }
         ArchiveFormat::Asar => Ok(Box::new(AsarReader::new(path))),
         ArchiveFormat::Cab => Ok(Box::new(CabReader::new(path))),
+        ArchiveFormat::Cpio => Ok(Box::new(CpioReader::new(path))),
         ArchiveFormat::Deb => {
             let file = fs::File::open(path)
                 .map_err(|e| format!("Cannot open '{}': {}", path.display(), e))?;
@@ -315,6 +325,43 @@ mod tests {
         archive
     }
 
+    fn push_newc_hex(out: &mut Vec<u8>, value: u64, width: usize) {
+        out.extend_from_slice(format!("{value:0width$X}", width = width).as_bytes());
+    }
+
+    fn build_test_cpio() -> Vec<u8> {
+        fn append_newc_entry(out: &mut Vec<u8>, inode: u32, path: &str, data: &[u8]) {
+            out.extend_from_slice(b"070701");
+            push_newc_hex(out, u64::from(inode), 8);
+            push_newc_hex(out, 0o100644, 8);
+            push_newc_hex(out, 0, 8);
+            push_newc_hex(out, 0, 8);
+            push_newc_hex(out, 1, 8);
+            push_newc_hex(out, 0, 8);
+            push_newc_hex(out, data.len() as u64, 8);
+            push_newc_hex(out, 0, 8);
+            push_newc_hex(out, 0, 8);
+            push_newc_hex(out, 0, 8);
+            push_newc_hex(out, 0, 8);
+            push_newc_hex(out, (path.len() + 1) as u64, 8);
+            push_newc_hex(out, 0, 8);
+            out.extend_from_slice(path.as_bytes());
+            out.push(0);
+            while out.len() % 4 != 0 {
+                out.push(0);
+            }
+            out.extend_from_slice(data);
+            while out.len() % 4 != 0 {
+                out.push(0);
+            }
+        }
+
+        let mut archive = Vec::new();
+        append_newc_entry(&mut archive, 1, "hello.txt", b"hello");
+        append_newc_entry(&mut archive, 0, "TRAILER!!!", b"");
+        archive
+    }
+
     #[cfg(feature = "zpaq")]
     fn build_test_zpaq() -> Vec<u8> {
         zpaq_rs::archive_from_entries(
@@ -360,6 +407,34 @@ mod tests {
         std::fs::write(&archive, build_test_lzh()).unwrap();
 
         let mut reader = open_reader(&archive, ArchiveFormat::Lzh, None).unwrap();
+        let entries = reader.entries().unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].path, "hello.txt");
+
+        let _ = std::fs::remove_dir_all(temp);
+    }
+
+    #[test]
+    fn detect_archive_format_cpio_extension() {
+        let temp = unique_test_dir("detect-cpio");
+        let archive = temp.join("archive.cpio");
+        std::fs::write(&archive, build_test_cpio()).unwrap();
+
+        assert_eq!(
+            detect_archive_format(&archive).unwrap(),
+            ArchiveFormat::Cpio
+        );
+
+        let _ = std::fs::remove_dir_all(temp);
+    }
+
+    #[test]
+    fn open_reader_cpio_lists_entries() {
+        let temp = unique_test_dir("open-cpio");
+        let archive = temp.join("archive.cpio");
+        std::fs::write(&archive, build_test_cpio()).unwrap();
+
+        let mut reader = open_reader(&archive, ArchiveFormat::Cpio, None).unwrap();
         let entries = reader.entries().unwrap();
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].path, "hello.txt");

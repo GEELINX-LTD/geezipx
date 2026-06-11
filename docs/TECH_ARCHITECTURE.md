@@ -60,7 +60,7 @@ geezipx/
 - core 只保留格式逻辑、I/O 包装、错误模型与安全检查；
 - CLI 负责参数解析、TTY 进度、stdout/stderr 呈现；
 - Tauri GUI 负责图形交互、任务管理、事件桥接；
-- RAR / CAB / ASAR / DEB / LZH/LHA / ISO / ZPAQ 在当前版本中保持只读语义（`list` / `decompress` / `test`）；7z 已支持基础读写。
+- RAR / CAB / ASAR / DEB / LZH/LHA / ISO / CPIO / ZPAQ 在当前版本中保持只读语义（`list` / `decompress` / `test`）；7z 已支持基础读写。
 
 ## 2. 模块设计
 
@@ -119,6 +119,7 @@ pub trait ArchiveWriter: Send {
 | `archive::asar` | ASAR 只读（`list` / `extract` / `test`） |
 | `archive::deb` | DEB 只读（`data.tar*` payload 视图） |
 | `archive::cab` | CAB 只读（`list` / `extract` / `test`；path-based 读取，当前面向单卷 cabinet） |
+| `archive::cpio` | CPIO 只读（`list` / `extract` / `test`；path-based 读取，MVP 支持 `newc` / `odc`，不创建宿主 symlink/device/FIFO/socket） |
 | `archive::lzh` | LZH/LHA 只读（`list` / `extract` / `test`，含原始路径校验） |
 | `archive::iso` | ISO 只读（`list` / `extract` / `test`，`isomage` 解析 ISO9660/Rock Ridge/Joliet） |
 | `archive::zpaq` | ZPAQ 只读（`list` / `extract` / `test`，`zpaq_rs` 提供列表/条目读取；单条目提取当前可能经字节缓冲） |
@@ -211,7 +212,7 @@ pub fn read_magic_bytes<R: Read>(reader: &mut R) -> io::Result<Vec<u8>>;
 检测策略：
 
 - ZIP / gzip / bzip2 / lz4 frame / zstd / xz / 7z / RAR / CAB 优先用魔数字节；
-- ASAR / DEB / LZH / LHA / ISO / ZPAQ 以及 `tar`、`tar.gz`、`tar.bz2`、`tar.br`、`tar.lz4`、`tar.zst`、`tar.xz` 依赖扩展名回退或显式格式；CAB 还支持 `MSCF` magic。
+- ASAR / DEB / LZH / LHA / ISO / CPIO / ZPAQ 以及 `tar`、`tar.gz`、`tar.bz2`、`tar.br`、`tar.lz4`、`tar.zst`、`tar.xz` 依赖扩展名回退或显式格式；CAB 还支持 `MSCF` magic，CPIO 刻意不做文件级 magic sniff。
 - `read_magic_bytes()` 仅读取前 `MAGIC_DETECT_SIZE` 字节，供调用方自行决定后续缓存与回放策略。
 - ZPAQ 当前不做浅层 magic sniff，避免把可选解析器耦合到前 8 字节的启发式判断中。
 
@@ -280,6 +281,7 @@ CLI 当前子命令为：
 | `zstd` 0.13 | zstd / tar.zst，多线程支持 `zstdmt` |
 | `delharc` 0.6 | LZH/LHA 只读支持 |
 | `isomage` 2.1 | ISO 只读支持（ISO9660 / Rock Ridge / Joliet 解析与流式读取） |
+| `cpio-archive` 0.10 | CPIO 只读支持（`newc` / `odc` 读取；MPL-2.0，作为未修改 Cargo 依赖使用） |
 | `zpaq_rs` 1.0 | ZPAQ 只读支持（optional, default-enabled；需 Rust 1.85+ 与 C++17 编译器） |
 | `sevenz-rust2` 0.21 | 7z 读写支持（当前 writer 走默认 non-solid LZMA2，密码写入未开放） |
 | `unrar` 0.5.8 | RAR 只读支持（optional, default-enabled） |
@@ -416,7 +418,7 @@ crates/gui-tauri/
 | GUI bundle 发布尚未经历真实 tag release 演练 | 发布路径可能存在流程性缺口 | 保守表述为“已配置，待验证” |
 | 大文件压缩进度依赖预扫描总量 | 首次开始任务前会有扫描延迟 | UI 上明确扫描阶段 |
 | Windows 长路径/符号链接差异 | 个别归档场景行为与 Unix 不完全一致 | 持续测试 + 文档限制说明 |
-| RAR / CAB / ASAR / DEB / LZH/LHA 仍为只读 | GUI 不能创建这些格式 | 在产品文档中明确范围 |
+| RAR / CAB / ASAR / DEB / LZH/LHA / ISO / CPIO / ZPAQ 仍为只读 | GUI 不能创建这些格式 | 在产品文档中明确范围 |
 ## 附录：Cargo Workspace 配置
 
 ```toml

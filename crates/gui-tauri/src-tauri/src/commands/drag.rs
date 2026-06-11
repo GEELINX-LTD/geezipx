@@ -218,7 +218,7 @@ fn strip_archive_extension(file_name: &str) -> &str {
     const SIMPLE_EXTENSIONS: &[&str] = &[
         ".zip", ".zipx", ".jar", ".war", ".apk", ".ipa", ".xpi", ".tar", ".gz", ".gzip", ".bz2",
         ".br", ".lz4", ".xz", ".zst", ".zstd", ".lzma", ".7z", ".rar", ".cab", ".asar", ".deb",
-        ".lzh", ".lha",
+        ".lzh", ".lha", ".cpio",
     ];
 
     let lower = file_name.to_ascii_lowercase();
@@ -401,6 +401,12 @@ mod tests {
     fn strip_archive_extension_supports_zipx() {
         assert_eq!(strip_archive_extension("archive.zipx"), "archive");
         assert_eq!(strip_archive_extension("ARCHIVE.ZIPX"), "ARCHIVE");
+    }
+
+    #[test]
+    fn strip_archive_extension_supports_cpio() {
+        assert_eq!(strip_archive_extension("archive.cpio"), "archive");
+        assert_eq!(strip_archive_extension("ARCHIVE.CPIO"), "ARCHIVE");
     }
 
     #[test]

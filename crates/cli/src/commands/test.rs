@@ -7,6 +7,7 @@ use std::fs;
 use std::path::Path;
 
 use anyhow::{Context, Result};
+use geezipx_core::archive::cpio::verify_cpio_archive;
 use geezipx_core::detect::ArchiveFormat;
 
 use super::common;
@@ -43,25 +44,7 @@ fn run_verify(archive: &Path, json: bool, password: Option<String>) -> Result<()
     }
 
     let format = common::detect_archive_format(archive)?;
-
-    // Validate password: single-stream formats do not support encryption.
-    if password.is_some()
-        && matches!(
-            format,
-            ArchiveFormat::Gzip
-                | ArchiveFormat::Bzip2
-                | ArchiveFormat::Brotli
-                | ArchiveFormat::Lz4
-                | ArchiveFormat::Zstd
-                | ArchiveFormat::Xz
-                | ArchiveFormat::Lzma
-        )
-    {
-        anyhow::bail!(
-            "--password is only supported for ZIP, 7z, and RAR formats; '{}' does not support encryption",
-            format
-        );
-    }
+    common::validate_read_password_support(format, password.as_deref())?;
 
     let fs_metadata_len = fs::metadata(archive).map(|m| m.len()).unwrap_or(0);
 
@@ -73,6 +56,8 @@ fn run_verify(archive: &Path, json: bool, password: Option<String>) -> Result<()
         | ArchiveFormat::Zstd
         | ArchiveFormat::Xz
         | ArchiveFormat::Lzma => verify_single_stream(archive, format)
+            .with_context(|| format!("verifying '{}'", archive.display()))?,
+        ArchiveFormat::Cpio => verify_cpio_archive(archive)
             .with_context(|| format!("verifying '{}'", archive.display()))?,
         ArchiveFormat::Zip
         | ArchiveFormat::SevenZip

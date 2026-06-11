@@ -12,7 +12,7 @@ pub struct FormatInfo {
     /// In the current GUI release, single-stream `gzip`, `bzip2`, `brotli`,
     /// `lz4`, `zstd`, `xz`, and `lzma` entries remain decompress-only.
     /// Read-only archive formats still include `rar`, `cab`, `asar`, `deb`,
-    /// `lzh`, `iso`, and `zpaq`.
+    /// `lzh`, `iso`, `cpio`, and `zpaq`.
     pub can_compress: bool,
     /// Whether this format supports extracting archives (decompression).
     pub can_decompress: bool,
@@ -140,6 +140,11 @@ pub fn get_formats() -> Vec<FormatInfo> {
             can_compress: false,
             can_decompress: true,
         },
+        FormatInfo {
+            name: "cpio".into(),
+            can_compress: false,
+            can_decompress: true,
+        },
     ];
 
     #[cfg(feature = "zpaq")]
@@ -163,7 +168,7 @@ mod tests {
     #[test]
     fn get_formats_returns_expected_count() {
         let formats = get_formats();
-        let expected = if cfg!(feature = "zpaq") { 24 } else { 23 };
+        let expected = if cfg!(feature = "zpaq") { 25 } else { 24 };
         assert_eq!(formats.len(), expected, "unexpected supported format count");
     }
 
@@ -285,6 +290,14 @@ mod tests {
         let iso = formats.iter().find(|f| f.name == "iso").unwrap();
         assert!(!iso.can_compress);
         assert!(iso.can_decompress);
+    }
+
+    #[test]
+    fn get_formats_cpio_decompress_only() {
+        let formats = get_formats();
+        let cpio = formats.iter().find(|f| f.name == "cpio").unwrap();
+        assert!(!cpio.can_compress);
+        assert!(cpio.can_decompress);
     }
 
     #[cfg(feature = "zpaq")]

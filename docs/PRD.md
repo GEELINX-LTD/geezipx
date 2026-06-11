@@ -42,7 +42,7 @@ GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开�
 
 | 特性 | 说明 | 状态 |
 |------|------|------|
-| 格式支持 | `.tar.gz`/`.tgz`, `.tar.bz2`/`.tbz`/`.tbz2`, `.tar.br`, `.tar.lz4`, `.zip`（含 `.zipx`/`.jar`/`.war`/`.apk`/`.ipa`/`.xpi` ZIP 兼容别名）, `.tar`, `.gz`/`.gzip`, `.bz2`, `.br`, `.lz4`, `.tar.zst`/`.tzst`, `.zst`/`.zstd`, `.tar.xz`/`.txz`, `.xz`, `.lzma`, `.7z`（读/写）；RAR/CAB/ASAR/DEB/LZH/LHA/ISO（只读） | **已完成** |
+| 格式支持 | `.tar.gz`/`.tgz`, `.tar.bz2`/`.tbz`/`.tbz2`, `.tar.br`, `.tar.lz4`, `.zip`（含 `.zipx`/`.jar`/`.war`/`.apk`/`.ipa`/`.xpi` ZIP 兼容别名）, `.tar`, `.gz`/`.gzip`, `.bz2`, `.br`, `.lz4`, `.tar.zst`/`.tzst`, `.zst`/`.zstd`, `.tar.xz`/`.txz`, `.xz`, `.lzma`, `.7z`（读/写）；RAR/CAB/ASAR/DEB/LZH/LHA/ISO/CPIO（只读） | **已完成** |
 | 流式处理 | 文件流读写，内存占用与文件大小解耦 | **已完成** |
 | 进度显示 | TTY 下默认显示进度，可用 `--no-progress` 禁用 | **已完成** |
 | 格式自动检测 | 根据文件魔数（magic bytes）自动检测归档格式 | **已完成** |
@@ -56,7 +56,7 @@ GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开�
 | 测试覆盖 | 400+ 测试，覆盖 core 单元/CLI 集成/格式 round-trip/流式冒烟。覆盖率 workflow 为 informational-only 观测模式，不设硬门禁 | **已完成** |
 | 三平台 CI | GitHub Actions：三平台矩阵（ubuntu/macos/windows），push/PR/tag/manual 触发 | **已完成** |
 
-> **扩展格式识别**：魔数检测已支持 bzip2（`BZh`）、lz4 frame（`04 22 4D 18`）、xz（`FD 37 7A 58 5A 00`）、zstd（`28 B5 2F FD`）以及 CAB（`MSCF`）。bzip2 单流压缩/解压已支持（`geezipx-core` via `bzip2` crate）；`.tar.bz2`/`.tbz`/`.tbz2` 识别为 tar+bzip2 完整归档格式，与单流 `.bz2` 区分。brotli 单流压缩/解压已支持（扩展名/显式格式识别，无稳定 magic）；`.tar.br` 识别为 tar+brotli 完整归档格式，与单流 `.br` 区分。lz4 单流压缩/解压已支持（LZ4 frame）；`.tar.lz4` 识别为 tar+lz4 完整归档格式，与单流 `.lz4` 区分。xz 和 lzma 单流压缩/解压已支持（`geezipx-core` via `xz2` crate）；`.tar.xz`/`.txz` 识别为 tar+xz 完整归档格式，与单流 `.xz` 区分。zstd 单流压缩/解压已支持（`geezipx-core` via `zstd` crate）；`.tar.zst`/`.tzst` 识别为 tar+zstd 归档格式。lzma 无固定魔数，仅通过扩展名/显式格式识别。ASAR、DEB、LZH/LHA、ISO 也无可复用的前 8 字节专属 magic：ASAR 依赖扩展名/显式格式与 Pickle 结构启发，DEB 刻意不复用通用 `ar` magic，LZH/LHA 依赖扩展名/显式格式并在提取前做原始路径安全校验，ISO 因卷描述符位于第 16 个 sector 而依赖扩展名/显式格式回退。
+> **扩展格式识别**：魔数检测已支持 bzip2（`BZh`）、lz4 frame（`04 22 4D 18`）、xz（`FD 37 7A 58 5A 00`）、zstd（`28 B5 2F FD`）以及 CAB（`MSCF`）。bzip2 单流压缩/解压已支持（`geezipx-core` via `bzip2` crate）；`.tar.bz2`/`.tbz`/`.tbz2` 识别为 tar+bzip2 完整归档格式，与单流 `.bz2` 区分。brotli 单流压缩/解压已支持（扩展名/显式格式识别，无稳定 magic）；`.tar.br` 识别为 tar+brotli 完整归档格式，与单流 `.br` 区分。lz4 单流压缩/解压已支持（LZ4 frame）；`.tar.lz4` 识别为 tar+lz4 完整归档格式，与单流 `.lz4` 区分。xz 和 lzma 单流压缩/解压已支持（`geezipx-core` via `xz2` crate）；`.tar.xz`/`.txz` 识别为 tar+xz 完整归档格式，与单流 `.xz` 区分。zstd 单流压缩/解压已支持（`geezipx-core` via `zstd` crate）；`.tar.zst`/`.tzst` 识别为 tar+zstd 归档格式。lzma 无固定魔数，仅通过扩展名/显式格式识别。ASAR、DEB、LZH/LHA、ISO、CPIO 也无可复用的前 8 字节专属 magic：ASAR 依赖扩展名/显式格式与 Pickle 结构启发，DEB 刻意不复用通用 `ar` magic，LZH/LHA 依赖扩展名/显式格式并在提取前做原始路径安全校验，ISO 因卷描述符位于第 16 个 sector 而依赖扩展名/显式格式回退，CPIO 则因 `newc` / `odc` header magic 存在于每个 entry 而非稳定文件前导而保持扩展名识别。
 
 ### 5.1 格式支持目标扩展
 
@@ -86,6 +86,7 @@ GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开�
 | CAB | .cab | 📖 只读 | 当前支持 `list` / `decompress` / `test`；MVP 面向单卷 cabinet，不做写入、密码或 multi-volume cabinet set |
 | LZH/LHA | .lzh, .lha | 📖 只读 → 待写入 | 当前支持 `list` / `decompress` / `test`；未来补写入与更完整兼容 |
 | ISO | .iso | 📖 只读 → 待写入 | 当前支持 `list` / `decompress` / `test`；MVP 面向 ISO9660 / Rock Ridge / Joliet 数据 ISO |
+| CPIO | .cpio | 📖 只读 | 当前支持 `list` / `decompress` / `test`；MVP 支持 `newc` / `odc`，不做写入、`bin` / `crc`、宿主 symlink/device/FIFO/socket 创建 |
 | ZIPX | .zipx | ✅ 已支持 | ZIP 兼容容器/扩展名别名；不承诺 WinZip 专有高级压缩方法、Deflate64 写入或完整 ZIPX method matrix |
 | SFX | .exe | 📋 规划中 | 自解压 ZIP/7z 模块 |
 | ZPAQ | .zpaq, .zpq | 📖 只读 → 待写入 | 当前支持 `list` / `decompress` / `test`；写入、版本选择与增量/journaling 语义待单独设计 |

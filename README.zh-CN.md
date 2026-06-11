@@ -14,7 +14,7 @@
 
 ## 特性
 
-- **多格式支持** -- ZIP（含 ZIP 兼容别名 `.zipx`、`.jar`、`.war`、`.apk`、`.ipa`、`.xpi`）、TAR、TAR.GZ/TGZ、TAR.BZ2/TBZ/TBZ2、TAR.BR、TAR.LZ4、TAR.ZST/TZST、TAR.XZ/TXZ、GZIP/GZ、BZIP2/BZ2、Brotli/BR、LZ4、Zstandard/ZST、XZ、LZMA、7Z（读写），以及 RAR、CAB、ASAR、DEB、LZH/LHA、ISO、ZPAQ（只读）。*规划扩展：LZH 写入、ISO 写入、ZPAQ 写入、SFX、WIM 等（详见 [docs/PRD.md](docs/PRD.md) 第 5.1 节）*
+- **多格式支持** -- ZIP（含 ZIP 兼容别名 `.zipx`、`.jar`、`.war`、`.apk`、`.ipa`、`.xpi`）、TAR、TAR.GZ/TGZ、TAR.BZ2/TBZ/TBZ2、TAR.BR、TAR.LZ4、TAR.ZST/TZST、TAR.XZ/TXZ、GZIP/GZ、BZIP2/BZ2、Brotli/BR、LZ4、Zstandard/ZST、XZ、LZMA、7Z（读写），以及 RAR、CAB、ASAR、DEB、LZH/LHA、ISO、CPIO、ZPAQ（只读）。*规划扩展：LZH 写入、ISO 写入、ZPAQ 写入、SFX、WIM 等（详见 [docs/PRD.md](docs/PRD.md) 第 5.1 节）*
 - **ZIPX 兼容支持** -- `.zipx` 已作为 ZIP 兼容容器/扩展名别名接入 `compress`、`list`、`test` 与 `decompress`。当前不承诺 WinZip 专有高级压缩方法、Deflate64 写入或完整 ZIPX method matrix。
 - **流式 I/O** -- 大文件处理内存可控
 - **实时进度条** -- 在 TTY 中显示速度、预计完成时间、逐文件状态
@@ -32,6 +32,7 @@
 - **CAB 只读支持** -- `.cab` 支持 CLI `list`、`decompress`、`test`，也支持 GUI 归档浏览与提取。当前 MVP 面向单卷 cabinet，不支持 `compress`、cabinet 写入、加密/密码输入或多卷 cabinet set。
 - **LZH/LHA 只读支持** -- `.lzh` / `.lha` 支持 CLI `list`、`decompress`、`test`，也支持 GUI 归档浏览与提取。当前 MVP 为只读实现，解压前会校验原始 LZH 路径字节，不支持 `compress`、归档写入、加密或密码输入。
 - **ISO 只读支持** -- `.iso` 支持 CLI `list`、`decompress`、`test`，也支持 GUI 归档浏览与提取。当前 MVP 面向常见 ISO9660 / Rock Ridge / Joliet 数据 ISO，不支持 `compress`、镜像写入、加密或密码输入。
+- **CPIO 只读支持** -- `.cpio` 支持 CLI `list`、`decompress`、`test`，也支持 GUI 归档浏览与提取。当前 MVP 支持 `newc` / `odc`，仅通过扩展名识别，不支持 `compress`、`bin` / `crc` 变体、宿主 symlink/device 创建、加密或密码输入。 
 - **ZPAQ 只读支持** -- `.zpaq` / `.zpq` 支持 CLI `list`、`decompress`、`test`，也支持 GUI 归档浏览与提取。当前 MVP 为只读实现，不支持归档创建或追加/更新工作流，单条目提取目前通过字节缓冲 helper 完成。
 - **跨平台** -- Linux、macOS、Windows（三平台 CI）
 - **单一二进制** -- 无运行时依赖，`cargo install` 即装即用
@@ -41,7 +42,7 @@
 
 ## 项目状态
 
-第一阶段（CLI MVP）已经**全部完成并进入成熟阶段**。适用的子命令均已落地：读写格式（含 7z）支持 `compress`、`decompress`、`list`、`test`；只读 RAR/CAB/ASAR/DEB/LZH/LHA/ISO/ZPAQ 支持 `list`、`decompress`、`test`。`completions` 子命令也已完成。crates.io 上已发布 `geezipx` 和 `geezipx-core` 包。
+第一阶段（CLI MVP）已经**全部完成并进入成熟阶段**。适用的子命令均已落地：读写格式（含 7z）支持 `compress`、`decompress`、`list`、`test`；只读 RAR/CAB/ASAR/DEB/LZH/LHA/ISO/CPIO/ZPAQ 支持 `list`、`decompress`、`test`。`completions` 子命令也已完成。crates.io 上已发布 `geezipx` 和 `geezipx-core` 包。
 第二阶段（桌面 GUI via Tauri）**是当前开发重心**。
 
 | 阶段 | 主题 | 状态 |
@@ -434,6 +435,23 @@ geezipx test image.iso
 geezipx decompress image.iso -o out/
 ```
 
+### CPIO 支持
+
+CPIO 归档当前为**只读**支持。GeeZipX 在 CLI 中可对 `.cpio` 执行 `list`、`decompress`、`test`，Tauri GUI Archive Browser 也可浏览并提取这类归档。当前 MVP 支持 `newc` 与 `odc`，并刻意保持为仅扩展名识别（不做浅层文件级 magic 自动判断）；提取时不会在宿主文件系统上创建 symlink、硬链接、device、FIFO、socket 等特殊对象。
+
+当前不支持：
+
+- `compress` / 创建 CPIO 归档
+- 超出当前 MVP 的 `bin` / `crc` 变体
+- 在宿主文件系统上创建 symlink、硬链接、device、FIFO、socket 等特殊对象
+- 加密 / 密码访问
+
+```sh
+geezipx list archive.cpio
+geezipx test archive.cpio
+geezipx decompress archive.cpio -o out/
+```
+
 ### ZPAQ 支持
 
 ZPAQ 归档当前为**只读**支持。GeeZipX 在 CLI 中可对 `.zpaq` / `.zpq` 执行 `list`、`decompress`、`test`，Tauri GUI Archive Browser 也可浏览并提取这类归档。当前 MVP 明确**不**实现归档创建、追加/更新语义、密码访问、版本选择等需要单独写路径设计的 journaling 工作流。
@@ -526,7 +544,7 @@ cargo build --release --workspace
 所有核心能力与适用格式的子命令均已实现并验证：
 
 - [x] ZIP / TAR / 7Z / TAR.GZ / TAR.BZ2 / TAR.BR / TAR.LZ4 / TAR.ZST / TAR.XZ / GZIP / BZIP2 / Brotli / LZ4 / ZSTD / XZ / LZMA 读写
-- [x] RAR / CAB / ASAR / DEB / LZH / LHA / ISO / ZPAQ 只读支持（`list`、`decompress`、`test`）
+- [x] RAR / CAB / ASAR / DEB / LZH / LHA / ISO / CPIO / ZPAQ 只读支持（`list`、`decompress`、`test`）
 - [x] 流式 I/O，内存占用可控
 - [x] `indicatif` 进度条
 - [x] Ctrl+C 优雅取消
@@ -549,7 +567,7 @@ cargo build --release --workspace
 
 - [x] Tauri v2 项目骨架 + TypeScript/Vite 前端
 - [x] Core 引擎桥接（Tauri commands）
-- [x] 归档浏览器 + 文件关联（含只读 `.asar` / `.deb` / `.lzh` / `.lha` / `.iso` / `.zpaq` 打开、浏览、提取流程）
+- [x] 归档浏览器 + 文件关联（含只读 `.cab` / `.asar` / `.deb` / `.lzh` / `.lha` / `.iso` / `.cpio` / `.zpaq` 打开、浏览、提取流程）
 - [x] 选择性提取
 - [x] 内联预览（文本 + 十六进制）
 - [x] 拖入应用与拖出条目

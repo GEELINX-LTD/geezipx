@@ -113,6 +113,11 @@
         "ext": [".deb"],
         "description": "Debian Package",
         "mimeType": "application/vnd.debian.binary-package"
+      },
+      {
+        "ext": [".cpio"],
+        "description": "CPIO Archive",
+        "mimeType": "application/x-cpio"
       }
     ]
   }

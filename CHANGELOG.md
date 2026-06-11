@@ -20,6 +20,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Added CLI `list`, `decompress`, and `test` support for `.cab`, while `compress -f cab` now fails early with a read-only error before creating or truncating the output path.
   - Added GUI format metadata, archive-browser/list/extract routing, frontend `.cab` archive detection, drag-out extension stripping, and Tauri file associations for the read-only archive flow.
 
+- **Format support — CPIO (read-only)**:
+  - Added `.cpio` extension / explicit-format detection plus a path-based core `CpioReader` backed by `cpio-archive` for `newc` / `odc` listing, extraction, and integrity verification.
+  - Added CLI `list`, `decompress`, and `test` support for `.cpio`; `compress -f cpio` now fails early with a read-only error before creating or truncating the output path.
+  - Added GUI format metadata, archive-browser/list/test routing, frontend `.cpio` archive detection, drag-out extension stripping, and Tauri file associations for the read-only archive flow.
+  - Extraction intentionally does not create host symlinks, device nodes, FIFOs, sockets, or other special filesystem objects; `bin` / `crc` variants remain out of scope for the current MVP.
+
 - **Format support — LZH/LHA (read-only)**:
   - Added `.lzh` / `.lha` extension / explicit-format detection plus a read-only core reader backed by `delharc`, with raw-path validation for `../`, absolute, UNC, and drive-relative names before extraction.
   - Added CLI `list`, `decompress`, and `test` support for `.lzh` / `.lha`; `compress`, archive writing, encryption, and password input remain unsupported.

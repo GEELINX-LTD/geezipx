@@ -27,6 +27,17 @@ GeeZipX includes **read-only** support for RAR archives via the
   The UnRAR license explicitly prohibits using its code to build a
   RAR-compatible compression engine.
 
+## cpio-archive
+
+GeeZipX includes **read-only** support for CPIO archives via the
+[`cpio-archive`](https://crates.io/crates/cpio-archive) crate (`0.10.0`).
+
+- **License**: MPL-2.0
+- **License URL**: <https://www.mozilla.org/MPL/2.0/>
+- **Source URL**: <https://github.com/indygreg/apple-platform-rs/tree/main/cpio-archive>
+- **Modification notice**: GeeZipX uses `cpio-archive` as an **unmodified Cargo dependency**
+  and does **not** modify or copy its source code into this repository.
+
 ## Other Dependencies
 
 For licenses of other third-party dependencies, please refer to the

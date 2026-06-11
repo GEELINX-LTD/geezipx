@@ -11,6 +11,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use geezipx_core::archive::asar::AsarReader;
 use geezipx_core::archive::cab::CabReader;
+use geezipx_core::archive::cpio::CpioReader;
 use geezipx_core::archive::deb::DebReader;
 use geezipx_core::archive::iso::IsoReader;
 use geezipx_core::archive::lzh::LzhReader;
@@ -49,7 +50,7 @@ use geezipx_core::detect::{self, ArchiveFormat};
 /// `tar`, `tar.gz`, `tgz`, `tar.bz2`, `tbz`, `tbz2`, `tar.br`, `gz`, `gzip`,
 /// `bz2`, `bzip2`, `br`, `brotli`, `lz4`, `tar.lz4`, `zst`, `zstd`, `tar.zst`,
 /// `tzst`, `tar.xz`, `txz`, `xz`, `lzma`, `7z`, `rar`, `cab`, `asar`, `deb`,
-/// `lzh`, `lha`, `iso`, `zpaq`, `zpq`.
+/// `lzh`, `lha`, `iso`, `cpio`, `zpaq`, `zpq`.
 pub fn parse_format(s: &str) -> Result<ArchiveFormat> {
     match s.to_ascii_lowercase().as_str() {
         "zip" | "zipx" | "jar" | "war" | "apk" | "ipa" | "xpi" => Ok(ArchiveFormat::Zip),
@@ -74,9 +75,10 @@ pub fn parse_format(s: &str) -> Result<ArchiveFormat> {
         "deb" => Ok(ArchiveFormat::Deb),
         "lzh" | "lha" => Ok(ArchiveFormat::Lzh),
         "iso" => Ok(ArchiveFormat::Iso),
+        "cpio" => Ok(ArchiveFormat::Cpio),
         "zpaq" | "zpq" => Ok(ArchiveFormat::Zpaq),
         other => Err(anyhow::anyhow!(
-            "unsupported format '{other}'; expected: zip, zipx, jar, war, apk, ipa, xpi, tar, tar.gz, tgz, tar.bz2, tbz, tbz2, tar.br, gz, gzip, bz2, bzip2, br, brotli, lz4, tar.lz4, zst, zstd, tar.zst, tzst, tar.xz, txz, xz, lzma, 7z, rar, cab, asar, deb, lzh, lha, iso, zpaq, zpq"
+            "unsupported format '{other}'; expected: zip, zipx, jar, war, apk, ipa, xpi, tar, tar.gz, tgz, tar.bz2, tbz, tbz2, tar.br, gz, gzip, bz2, bzip2, br, brotli, lz4, tar.lz4, zst, zstd, tar.zst, tzst, tar.xz, txz, xz, lzma, 7z, rar, cab, asar, deb, lzh, lha, iso, cpio, zpaq, zpq"
         )),
     }
 }
@@ -279,14 +281,7 @@ fn collect_dir_contents(
 // Reader / writer factories
 // ---------------------------------------------------------------------------
 
-pub fn open_reader(
-    path: &Path,
-    format: ArchiveFormat,
-    password: Option<&str>,
-) -> Result<Box<dyn ArchiveReader>> {
-    let file = fs::File::open(path).with_context(|| format!("opening '{}'", path.display()))?;
-
-    // Validate password: only ZIP, 7z, and RAR support it.
+pub fn validate_read_password_support(format: ArchiveFormat, password: Option<&str>) -> Result<()> {
     if password.is_some()
         && format != ArchiveFormat::Zip
         && format != ArchiveFormat::SevenZip
@@ -297,6 +292,18 @@ pub fn open_reader(
             format
         );
     }
+
+    Ok(())
+}
+
+pub fn open_reader(
+    path: &Path,
+    format: ArchiveFormat,
+    password: Option<&str>,
+) -> Result<Box<dyn ArchiveReader>> {
+    let file = fs::File::open(path).with_context(|| format!("opening '{}'", path.display()))?;
+
+    validate_read_password_support(format, password)?;
 
     Ok(match format {
         ArchiveFormat::Zip => {
@@ -316,6 +323,7 @@ pub fn open_reader(
         ArchiveFormat::Asar => Box::new(AsarReader::new(path)),
         ArchiveFormat::Cab => Box::new(CabReader::new(path)),
         ArchiveFormat::Deb => Box::new(DebReader::new(file)),
+        ArchiveFormat::Cpio => Box::new(CpioReader::new(path)),
         ArchiveFormat::Lzh => Box::new(LzhReader::new(file)),
         ArchiveFormat::Iso => Box::new(IsoReader::new(file)),
         #[cfg(feature = "zpaq")]
@@ -390,6 +398,7 @@ pub fn create_writer(
         ArchiveFormat::Asar
         | ArchiveFormat::Cab
         | ArchiveFormat::Deb
+        | ArchiveFormat::Cpio
         | ArchiveFormat::Lzh
         | ArchiveFormat::Iso
         | ArchiveFormat::Zpaq => {
@@ -638,6 +647,45 @@ mod tests {
         writer.finish().unwrap().into_inner()
     }
 
+    fn push_newc_hex(out: &mut Vec<u8>, value: u64, width: usize) {
+        out.extend_from_slice(format!("{value:0width$X}", width = width).as_bytes());
+    }
+
+    fn build_test_cpio(entries: &[(&str, &[u8])]) -> Vec<u8> {
+        fn append_newc_entry(out: &mut Vec<u8>, inode: u32, path: &str, data: &[u8]) {
+            out.extend_from_slice(b"070701");
+            push_newc_hex(out, u64::from(inode), 8);
+            push_newc_hex(out, 0o100644, 8);
+            push_newc_hex(out, 0, 8);
+            push_newc_hex(out, 0, 8);
+            push_newc_hex(out, 1, 8);
+            push_newc_hex(out, 0, 8);
+            push_newc_hex(out, data.len() as u64, 8);
+            push_newc_hex(out, 0, 8);
+            push_newc_hex(out, 0, 8);
+            push_newc_hex(out, 0, 8);
+            push_newc_hex(out, 0, 8);
+            push_newc_hex(out, (path.len() + 1) as u64, 8);
+            push_newc_hex(out, 0, 8);
+            out.extend_from_slice(path.as_bytes());
+            out.push(0);
+            while !out.len().is_multiple_of(4) {
+                out.push(0);
+            }
+            out.extend_from_slice(data);
+            while !out.len().is_multiple_of(4) {
+                out.push(0);
+            }
+        }
+
+        let mut out = Vec::new();
+        for (index, (path, data)) in entries.iter().enumerate() {
+            append_newc_entry(&mut out, (index + 1) as u32, path, data);
+        }
+        append_newc_entry(&mut out, 0, "TRAILER!!!", b"");
+        out
+    }
+
     #[cfg(feature = "zpaq")]
     fn build_test_zpaq() -> Vec<u8> {
         zpaq_rs::archive_from_entries(
@@ -680,6 +728,11 @@ mod tests {
     #[test]
     fn parse_format_iso() {
         assert_eq!(parse_format("iso").unwrap(), ArchiveFormat::Iso);
+    }
+
+    #[test]
+    fn parse_format_cpio() {
+        assert_eq!(parse_format("cpio").unwrap(), ArchiveFormat::Cpio);
     }
 
     #[test]
@@ -777,6 +830,18 @@ mod tests {
     }
 
     #[test]
+    fn detect_archive_format_cpio_extension() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let archive = temp.path().join("archive.cpio");
+        std::fs::write(&archive, build_test_cpio(&[("hello.txt", b"hello")])).unwrap();
+
+        assert_eq!(
+            detect_archive_format(&archive).unwrap(),
+            ArchiveFormat::Cpio
+        );
+    }
+
+    #[test]
     fn detect_archive_format_zpaq_extension() {
         let temp = tempfile::TempDir::new().unwrap();
         let archive = temp.path().join("backup.zpaq");
@@ -842,6 +907,23 @@ mod tests {
         assert_eq!(entries[0].path, "hello.txt");
     }
 
+    #[test]
+    fn open_reader_cpio_lists_entries() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let archive = temp.path().join("archive.cpio");
+        std::fs::write(
+            &archive,
+            build_test_cpio(&[("docs/hello.txt", b"hello"), ("readme.txt", b"readme")]),
+        )
+        .unwrap();
+
+        let mut reader = open_reader(&archive, ArchiveFormat::Cpio, None).unwrap();
+        let entries = reader.entries().unwrap();
+        assert_eq!(entries.len(), 2);
+        assert!(entries.iter().any(|entry| entry.path == "docs/hello.txt"));
+        assert!(entries.iter().any(|entry| entry.path == "readme.txt"));
+    }
+
     #[cfg(feature = "zpaq")]
     #[test]
     fn open_reader_zpaq_lists_entries() {
@@ -895,6 +977,17 @@ mod tests {
         let file = fs::File::create(&output).unwrap();
         match create_writer(file, ArchiveFormat::Iso, CompressOptions::default()) {
             Ok(_) => panic!("iso writer should be rejected"),
+            Err(err) => assert!(err.to_string().contains("read-only archive format")),
+        }
+    }
+
+    #[test]
+    fn create_writer_cpio_is_read_only() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let output = temp.path().join("out.cpio");
+        let file = fs::File::create(&output).unwrap();
+        match create_writer(file, ArchiveFormat::Cpio, CompressOptions::default()) {
+            Ok(_) => panic!("cpio writer should be rejected"),
             Err(err) => assert!(err.to_string().contains("read-only archive format")),
         }
     }

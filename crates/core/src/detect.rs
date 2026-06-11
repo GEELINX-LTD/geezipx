@@ -59,6 +59,8 @@ pub enum ArchiveFormat {
     Lzh,
     /// ISO disc image (extension-based — `.iso`; no useful magic in the first 8 bytes).
     Iso,
+    /// CPIO archive (extension-based — `.cpio`; deliberately no file-level magic sniff).
+    Cpio,
     /// ZPAQ archive (extension-based — `.zpaq`, `.zpq`; deliberately no shallow magic sniff).
     Zpaq,
     /// Unknown or unrecognised format.
@@ -90,6 +92,7 @@ impl fmt::Display for ArchiveFormat {
             ArchiveFormat::Deb => write!(f, "deb"),
             ArchiveFormat::Lzh => write!(f, "lzh"),
             ArchiveFormat::Iso => write!(f, "iso"),
+            ArchiveFormat::Cpio => write!(f, "cpio"),
             ArchiveFormat::Zpaq => write!(f, "zpaq"),
             ArchiveFormat::Unknown => write!(f, "unknown"),
         }
@@ -149,6 +152,7 @@ const EXTENSION_MAP: &[(&str, ArchiveFormat)] = &[
     (".lzh", ArchiveFormat::Lzh),
     (".lha", ArchiveFormat::Lzh),
     (".iso", ArchiveFormat::Iso),
+    (".cpio", ArchiveFormat::Cpio),
     (".zpaq", ArchiveFormat::Zpaq),
     (".zpq", ArchiveFormat::Zpaq),
 ];
@@ -174,9 +178,11 @@ const EXTENSION_MAP: &[(&str, ArchiveFormat)] = &[
 /// and are recognized here directly. ASAR similarly has no reliable fixed magic
 /// header and is handled only by explicit format / extension. ISO volume
 /// descriptors live at sector 16, so `.iso` also relies on explicit format /
-/// extension here. ZPAQ likewise stays extension-only because GeeZipX routes it
-/// through an optional parser integration rather than a shallow first-bytes
-/// recognizer.
+/// extension here. CPIO deliberately stays extension-only because `newc` / `odc`
+/// header magic appears on every entry rather than in a stable file-wide magic
+/// prelude, making shallow first-bytes sniffing too eager. ZPAQ likewise stays
+/// extension-only because GeeZipX routes it through an optional parser
+/// integration rather than a shallow first-bytes recognizer.
 pub fn detect_format(data: &[u8]) -> Option<ArchiveFormat> {
     if data.starts_with(MAGIC_ZIP) || data.starts_with(MAGIC_ZIP_EMPTY) {
         return Some(ArchiveFormat::Zip);
@@ -376,6 +382,16 @@ mod tests {
         assert_eq!(
             detect_from_extension(Path::new("disc.iso")),
             Some(ArchiveFormat::Iso)
+        );
+    }
+
+    #[test]
+    fn detect_cpio_is_extension_only() {
+        let raw = b"070701";
+        assert_eq!(detect_format(raw), None);
+        assert_eq!(
+            detect_from_extension(Path::new("archive.cpio")),
+            Some(ArchiveFormat::Cpio)
         );
     }
 
@@ -663,6 +679,14 @@ mod tests {
     }
 
     #[test]
+    fn ext_cpio() {
+        assert_eq!(
+            detect_from_extension(Path::new("archive.cpio")),
+            Some(ArchiveFormat::Cpio)
+        );
+    }
+
+    #[test]
     fn ext_zpaq() {
         assert_eq!(
             detect_from_extension(Path::new("backup.zpaq")),
@@ -782,6 +806,11 @@ mod tests {
     #[test]
     fn display_iso() {
         assert_eq!(ArchiveFormat::Iso.to_string(), "iso");
+    }
+
+    #[test]
+    fn display_cpio() {
+        assert_eq!(ArchiveFormat::Cpio.to_string(), "cpio");
     }
 
     #[test]

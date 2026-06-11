@@ -1,8 +1,9 @@
 //! `compress_archive` command — create an archive from local files.
 //!
 //! Supported archive container formats: zip, zipx, tar, 7z, tar.gz, tar.bz2, tar.br,
-//! tar.lz4, tar.zst, tar.xz. Single-stream formats are intentionally rejected
-//! for the current GUI MVP.
+//! tar.lz4, tar.zst, tar.xz. Read-only formats such as cpio are rejected for
+//! creation, and single-stream formats are intentionally rejected for the
+//! current GUI MVP.
 //!
 //! All heavy work runs on `tokio::task::spawn_blocking` so the Tauri event loop
 //! is never blocked. Progress is emitted as `task:progress` events.
@@ -332,6 +333,10 @@ fn parse_gui_compress_format(s: &str) -> Result<ArchiveFormat, String> {
             "cab writing is not supported; use list, test, or decompress for read-only cab support"
                 .to_string()
         ),
+        "cpio" => Err(
+            "cpio writing is not supported; use list, test, or decompress for read-only cpio support"
+                .to_string()
+        ),
         other => Err(format!(
             "Unsupported format '{other}'; expected: zip, zipx, tar, tar.gz, tgz, tar.bz2, tbz, tbz2, tar.br, tar.lz4, tar.zst, tzst, tar.xz, txz, 7z"
         )),
@@ -483,6 +488,10 @@ fn create_gui_writer(
             "cab writing is not supported; use list, test, or decompress for read-only cab support"
                 .to_string(),
         ),
+        ArchiveFormat::Cpio => Err(
+            "cpio writing is not supported; use list, test, or decompress for read-only cpio support"
+                .to_string(),
+        ),
         _ => Err(format!("Unsupported format for writing in GUI: {format}")),
     }
 }
@@ -552,6 +561,13 @@ mod tests {
         let err = parse_gui_compress_format("cab").unwrap_err();
         assert!(err.contains("read-only cab support"));
     }
+
+    #[test]
+    fn parse_gui_compress_format_rejects_cpio_as_read_only() {
+        let err = parse_gui_compress_format("cpio").unwrap_err();
+        assert!(err.contains("read-only cpio support"));
+    }
+
     #[test]
     fn parse_gui_compress_format_rejects_single_stream_brotli_and_lz4() {
         let br_err = parse_gui_compress_format("brotli").unwrap_err();
@@ -561,6 +577,17 @@ mod tests {
         assert!(lz4_err.contains("single-stream"));
         assert!(lz4_err.contains("tar.lz4"));
     }
+    #[test]
+    fn create_gui_writer_rejects_cpio() {
+        let temp = tempfile::tempdir().unwrap();
+        let archive_path = temp.path().join("gui-output.cpio");
+        let file = fs::File::create(&archive_path).unwrap();
+        match create_gui_writer(file, ArchiveFormat::Cpio, CompressOptions::default()) {
+            Ok(_) => panic!("cpio writer should be rejected"),
+            Err(err) => assert!(err.contains("read-only cpio support")),
+        }
+    }
+
     #[test]
     fn create_gui_writer_sevenzip_roundtrip() {
         let temp = tempfile::tempdir().unwrap();
