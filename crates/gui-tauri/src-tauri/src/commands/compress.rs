@@ -273,6 +273,10 @@ pub async fn compress_archive(
 }
 // ---------------------------------------------------------------------------
 // Helpers
+
+fn lzh_write_unsupported_message() -> &'static str {
+    "lzh/lha writing is not supported (read-only format). Use list, test, or decompress for read-only LZH/LHA support. Tip: use zip, 7z, tar.gz, or another writable format instead."
+}
 // ---------------------------------------------------------------------------
 /// Parse a format string accepted by the GUI compress command.
 fn parse_gui_compress_format(s: &str) -> Result<ArchiveFormat, String> {
@@ -325,6 +329,7 @@ fn parse_gui_compress_format(s: &str) -> Result<ArchiveFormat, String> {
                 .to_string(),
         ),
         "7z" => Ok(ArchiveFormat::SevenZip),
+        "lzh" | "lha" => Err(lzh_write_unsupported_message().to_string()),
         "rar" => Err(
             "rar writing is not supported; use list, test, or decompress for read-only rar support"
                 .to_string(),
@@ -484,6 +489,7 @@ fn create_gui_writer(
                  single-stream compression is not yet supported in the GUI \
                  (will be added in a later update)"
         )),
+        ArchiveFormat::Lzh => Err(lzh_write_unsupported_message().to_string()),
         ArchiveFormat::Cab => Err(
             "cab writing is not supported; use list, test, or decompress for read-only cab support"
                 .to_string(),
@@ -569,6 +575,17 @@ mod tests {
     }
 
     #[test]
+    fn parse_gui_compress_format_rejects_lzh_lha_as_read_only() {
+        let lzh_err = parse_gui_compress_format("lzh").unwrap_err();
+        assert!(lzh_err.contains("lzh/lha writing is not supported"));
+        assert!(lzh_err.contains("read-only LZH/LHA support"));
+
+        let lha_err = parse_gui_compress_format("lha").unwrap_err();
+        assert!(lha_err.contains("lzh/lha writing is not supported"));
+        assert!(lha_err.contains("read-only LZH/LHA support"));
+    }
+
+    #[test]
     fn parse_gui_compress_format_rejects_single_stream_brotli_and_lz4() {
         let br_err = parse_gui_compress_format("brotli").unwrap_err();
         assert!(br_err.contains("single-stream"));
@@ -585,6 +602,17 @@ mod tests {
         match create_gui_writer(file, ArchiveFormat::Cpio, CompressOptions::default()) {
             Ok(_) => panic!("cpio writer should be rejected"),
             Err(err) => assert!(err.contains("read-only cpio support")),
+        }
+    }
+
+    #[test]
+    fn create_gui_writer_rejects_lzh() {
+        let temp = tempfile::tempdir().unwrap();
+        let archive_path = temp.path().join("gui-output.lzh");
+        let file = fs::File::create(&archive_path).unwrap();
+        match create_gui_writer(file, ArchiveFormat::Lzh, CompressOptions::default()) {
+            Ok(_) => panic!("lzh writer should be rejected"),
+            Err(err) => assert!(err.contains("lzh/lha writing is not supported")),
         }
     }
 

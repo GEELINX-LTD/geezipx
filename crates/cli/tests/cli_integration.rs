@@ -8362,8 +8362,9 @@ fn lzh_decompress_rejects_dangerous_raw_paths() {
 }
 
 #[test]
-fn lzh_compress_is_rejected() {
+fn lzh_compress_format_flag_is_rejected_before_output_creation() {
     let td = TestDir::new();
+    let output = td.join("out.lzh");
     td.write("payload.txt", "lzh write should fail");
 
     geezipx()
@@ -8373,9 +8374,91 @@ fn lzh_compress_is_rejected() {
             "-f",
             "lzh",
             "-o",
-            td.join("out.lzh").to_str().unwrap(),
+            output.to_str().unwrap(),
         ])
         .assert()
         .failure()
-        .stderr(predicate::str::contains("read-only archive format"));
+        .stderr(predicate::str::contains("lzh/lha writing is not supported"))
+        .stderr(predicate::str::contains("Use list, test, or decompress"));
+
+    assert!(
+        !output.exists(),
+        "unsupported lzh write should not create output"
+    );
+}
+
+#[test]
+fn lha_compress_format_flag_is_rejected_before_output_creation() {
+    let td = TestDir::new();
+    let output = td.join("out.lha");
+    td.write("payload.txt", "lha write should fail");
+
+    geezipx()
+        .args([
+            "compress",
+            td.join("payload.txt").to_str().unwrap(),
+            "-f",
+            "lha",
+            "-o",
+            output.to_str().unwrap(),
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("lzh/lha writing is not supported"))
+        .stderr(predicate::str::contains("Use list, test, or decompress"));
+
+    assert!(
+        !output.exists(),
+        "unsupported lha write should not create output"
+    );
+}
+
+#[test]
+fn lzh_compress_output_inference_is_rejected_without_truncating_existing_output() {
+    let td = TestDir::new();
+    let output = td.join("out.lzh");
+    td.write("payload.txt", "lzh inferred write should fail");
+    std::fs::write(&output, "keep existing lzh output").unwrap();
+
+    geezipx()
+        .args([
+            "compress",
+            td.join("payload.txt").to_str().unwrap(),
+            "-o",
+            output.to_str().unwrap(),
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("lzh/lha writing is not supported"))
+        .stderr(predicate::str::contains("Use list, test, or decompress"));
+
+    assert_eq!(
+        std::fs::read_to_string(&output).unwrap(),
+        "keep existing lzh output"
+    );
+}
+
+#[test]
+fn lha_compress_output_inference_is_rejected_without_truncating_existing_output() {
+    let td = TestDir::new();
+    let output = td.join("out.lha");
+    td.write("payload.txt", "lha inferred write should fail");
+    std::fs::write(&output, "keep existing lha output").unwrap();
+
+    geezipx()
+        .args([
+            "compress",
+            td.join("payload.txt").to_str().unwrap(),
+            "-o",
+            output.to_str().unwrap(),
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("lzh/lha writing is not supported"))
+        .stderr(predicate::str::contains("Use list, test, or decompress"));
+
+    assert_eq!(
+        std::fs::read_to_string(&output).unwrap(),
+        "keep existing lha output"
+    );
 }
