@@ -42,7 +42,7 @@ GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开�
 
 | 特性 | 说明 | 状态 |
 |------|------|------|
-| 格式支持 | `.tar.gz`/`.tgz`, `.tar.bz2`/`.tbz`/`.tbz2`, `.tar.br`, `.tar.lz4`, `.zip`（含 `.zipx`/`.jar`/`.war`/`.apk`/`.ipa`/`.xpi` ZIP 兼容别名）, `.tar`, `.gz`/`.gzip`, `.bz2`, `.br`, `.lz4`, `.tar.zst`/`.tzst`, `.zst`/`.zstd`, `.tar.xz`/`.txz`, `.xz`, `.lzma`, `.7z`（读/写）；RAR/CAB/ASAR/DEB/LZH/LHA/ISO/CPIO（只读） | **已完成** |
+| 格式支持 | `.tar.gz`/`.tgz`, `.tar.bz2`/`.tbz`/`.tbz2`, `.tar.br`, `.tar.lz4`, `.zip`（含 `.zipx`/`.jar`/`.war`/`.apk`/`.ipa`/`.xpi` ZIP 兼容别名）, `.tar`, `.gz`/`.gzip`, `.bz2`, `.br`, `.lz4`, `.tar.zst`/`.tzst`, `.zst`/`.zstd`, `.tar.xz`/`.txz`, `.xz`, `.lzma`, `.7z`（读/写）；LZH/LHA（store-only 写入 MVP）；RAR/CAB/ASAR/DEB/ISO/CPIO（只读） | **已完成** |
 | 流式处理 | 文件流读写，内存占用与文件大小解耦 | **已完成** |
 | 进度显示 | TTY 下默认显示进度，可用 `--no-progress` 禁用 | **已完成** |
 | 格式自动检测 | 根据文件魔数（magic bytes）自动检测归档格式 | **已完成** |
@@ -84,7 +84,7 @@ GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开�
 | 7Z | .7z | ✅ 已支持（MVP） | 支持文件/多文件/目录压缩；当前不含密码写入、多线程或 tar.7z |
 | RAR | .rar | 📖 只读 | 受 UnRAR 许可限制，不规划写入 |
 | CAB | .cab | 📖 只读 | 当前支持 `list` / `decompress` / `test`；MVP 面向单卷 cabinet，不做写入、密码或 multi-volume cabinet set |
-| LZH/LHA | .lzh, .lha | 📖 只读 → 待写入 | 当前支持 `list` / `decompress` / `test`；未来补写入与更完整兼容 |
+| LZH/LHA | .lzh, .lha | ✅ 已支持（store-only 写入 MVP） | 已支持 `compress` / `list` / `decompress` / `test`；文件 entry 为 level-0 `-lh0-`，目录 entry 为 `-lhd-`。不包含 lh5/lh6/lh7 压缩写入、密码/加密、多卷、扩展属性、长路径/level 1/2/3 extended header |
 | ISO | .iso | 📖 只读 → 待写入 | 当前支持 `list` / `decompress` / `test`；MVP 面向 ISO9660 / Rock Ridge / Joliet 数据 ISO |
 | CPIO | .cpio | 📖 只读 | 当前支持 `list` / `decompress` / `test`；MVP 支持 `newc` / `odc`，不做写入、`bin` / `crc`、宿主 symlink/device/FIFO/socket 创建 |
 | ZIPX | .zipx | ✅ 已支持 | ZIP 兼容容器/扩展名别名；不承诺 WinZip 专有高级压缩方法、Deflate64 写入或完整 ZIPX method matrix |
@@ -139,7 +139,7 @@ GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开�
 - **Feature gate**：每种格式按独立 feature 引入，用户可按需编译。
 - **优先级**：由用户需求与社区反馈驱动，不做全格式一次性覆盖。
 - **读/写分离**：一种格式可先实现只读（如当前 RAR/ZPAQ），写入能力后续补充。7z 当前已交付基础写入 MVP。
-- **历史格式**：ARJ、ACE、ARC、ALZ 等历史/专有格式通过适配器层外部库评估；LZH/LHA 当前仅交付只读 MVP，写入与更完整兼容能力后续补充。
+- **历史格式**：ARJ、ACE、ARC、ALZ 等历史/专有格式通过适配器层外部库评估；LZH/LHA 已交付 store-only 写入 MVP，更完整兼容能力后续补充（如 lh5/lh6/lh7 压缩写入、扩展 header、metadata）。
 - **Journaling 格式**：ZPAQ 当前仅交付只读 MVP；其追加/版本化写入路径与现有“从零创建归档”模型不同，需单独架构设计。
 
 ## 7. 功能需求（Feature Requirements）
@@ -237,7 +237,7 @@ Phase 3 (生态 + 格式扩展)
 ├── 压缩格式扩展
 │   ├── 7z 高级写入能力 — 密码/高级编码器/进一步性能优化
 │   ├── ZIPX 高级方法矩阵评估 — `.zipx` alias 已支持；JPEG 预压缩等 WinZip 专有高级方法另行评估
-│   ├── LZH 写入 — 在现有 LZH/LHA 只读基础上补齐写入与更完整兼容
+│   ├── LZH/LHA 更完整兼容 — 在现有 store-only 写入基础上补齐 lh5/lh6/lh7 压缩写入、扩展 header、metadata
 │   ├── ISO — 数据 ISO 归档处理
 │   ├── SFX — 自解压 ZIP/7z 模块
 │   ├── ZPAQ — 当前已具备只读 MVP；后续补齐 journaling/append 写入设计

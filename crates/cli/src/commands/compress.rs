@@ -324,9 +324,14 @@ fn compress_archive_mode(
 
     for entry in &files {
         if entry.is_dir {
-            writer.add_directory(&entry.archive_path).with_context(|| {
-                format!("failed to add directory '{}'", entry.archive_path.display())
-            })?;
+            if let Err(err) = writer.add_directory(&entry.archive_path) {
+                let _ = std::fs::remove_file(output_path);
+                return Err(anyhow::anyhow!(
+                    "failed to add directory {}: {}",
+                    entry.archive_path.display(),
+                    err
+                ));
+            }
             processed_files += 1;
             continue;
         }
@@ -364,6 +369,7 @@ fn compress_archive_mode(
                     eprintln!("Cancelled after {}/{} files", processed_files, files.len());
                     std::process::exit(130);
                 }
+                let _ = std::fs::remove_file(output_path);
                 return Err(anyhow::anyhow!(
                     "failed to add {}: {}",
                     entry.archive_path.display(),
@@ -388,6 +394,7 @@ fn compress_archive_mode(
                 eprintln!("Cancelled after {}/{} files", processed_files, files.len());
                 std::process::exit(130);
             }
+            let _ = std::fs::remove_file(output_path);
             return Err(anyhow::anyhow!("failed to finalize archive: {}", e));
         }
     };
@@ -432,13 +439,6 @@ fn validate_compress_inputs(
     if format == ArchiveFormat::Cab {
         anyhow::bail!(
             "cab writing is not supported; use list, test, or decompress for read-only cab support"
-        );
-    }
-
-    // LZH/LHA writing is not supported; only list, test, and decompress for read-only.
-    if format == ArchiveFormat::Lzh {
-        anyhow::bail!(
-            "lzh/lha writing is not supported (read-only format). Use list, test, or decompress for read-only LZH/LHA support. Tip: use zip, 7z, tar.gz, or another writable format instead."
         );
     }
 

@@ -1,14 +1,15 @@
 //! `compress_archive` command — create an archive from local files.
 //!
 //! Supported archive container formats: zip, zipx, tar, 7z, tar.gz, tar.bz2, tar.br,
-//! tar.lz4, tar.zst, tar.xz. Read-only formats such as cpio are rejected for
-//! creation, and single-stream formats are intentionally rejected for the
-//! current GUI MVP.
+//! tar.lz4, tar.zst, tar.xz, and lzh/lha (store-only writer MVP). Read-only
+//! formats such as cpio are rejected for creation, and single-stream formats
+//! are intentionally rejected for the current GUI MVP.
 //!
 //! All heavy work runs on `tokio::task::spawn_blocking` so the Tauri event loop
 //! is never blocked. Progress is emitted as `task:progress` events.
 use crate::commands::progress::{is_cancelled_error, TaskKind, TaskProgressEmitter, TaskStage};
 use crate::state::AppState;
+use geezipx_core::archive::lzh::LzhWriter;
 use geezipx_core::archive::seven_zip::SevenZipWriter;
 use geezipx_core::archive::tar::TarWriter;
 use geezipx_core::archive::tarbr::TarBrWriter;
@@ -274,9 +275,6 @@ pub async fn compress_archive(
 // ---------------------------------------------------------------------------
 // Helpers
 
-fn lzh_write_unsupported_message() -> &'static str {
-    "lzh/lha writing is not supported (read-only format). Use list, test, or decompress for read-only LZH/LHA support. Tip: use zip, 7z, tar.gz, or another writable format instead."
-}
 // ---------------------------------------------------------------------------
 /// Parse a format string accepted by the GUI compress command.
 fn parse_gui_compress_format(s: &str) -> Result<ArchiveFormat, String> {
@@ -329,7 +327,7 @@ fn parse_gui_compress_format(s: &str) -> Result<ArchiveFormat, String> {
                 .to_string(),
         ),
         "7z" => Ok(ArchiveFormat::SevenZip),
-        "lzh" | "lha" => Err(lzh_write_unsupported_message().to_string()),
+        "lzh" | "lha" => Ok(ArchiveFormat::Lzh),
         "rar" => Err(
             "rar writing is not supported; use list, test, or decompress for read-only rar support"
                 .to_string(),
@@ -343,7 +341,7 @@ fn parse_gui_compress_format(s: &str) -> Result<ArchiveFormat, String> {
                 .to_string()
         ),
         other => Err(format!(
-            "Unsupported format '{other}'; expected: zip, zipx, tar, tar.gz, tgz, tar.bz2, tbz, tbz2, tar.br, tar.lz4, tar.zst, tzst, tar.xz, txz, 7z"
+            "Unsupported format '{other}'; expected: zip, zipx, tar, tar.gz, tgz, tar.bz2, tbz, tbz2, tar.br, tar.lz4, tar.zst, tzst, tar.xz, txz, 7z, lzh, lha"
         )),
     }
 }
@@ -489,7 +487,7 @@ fn create_gui_writer(
                  single-stream compression is not yet supported in the GUI \
                  (will be added in a later update)"
         )),
-        ArchiveFormat::Lzh => Err(lzh_write_unsupported_message().to_string()),
+        ArchiveFormat::Lzh => Ok(Box::new(LzhWriter::new(file))),
         ArchiveFormat::Cab => Err(
             "cab writing is not supported; use list, test, or decompress for read-only cab support"
                 .to_string(),
@@ -504,6 +502,7 @@ fn create_gui_writer(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use geezipx_core::archive::lzh::LzhReader;
     use geezipx_core::archive::seven_zip::SevenZipReader;
     use geezipx_core::archive::ArchiveReader;
     #[test]
@@ -575,14 +574,15 @@ mod tests {
     }
 
     #[test]
-    fn parse_gui_compress_format_rejects_lzh_lha_as_read_only() {
-        let lzh_err = parse_gui_compress_format("lzh").unwrap_err();
-        assert!(lzh_err.contains("lzh/lha writing is not supported"));
-        assert!(lzh_err.contains("read-only LZH/LHA support"));
-
-        let lha_err = parse_gui_compress_format("lha").unwrap_err();
-        assert!(lha_err.contains("lzh/lha writing is not supported"));
-        assert!(lha_err.contains("read-only LZH/LHA support"));
+    fn parse_gui_compress_format_accepts_lzh_lha() {
+        assert_eq!(
+            parse_gui_compress_format("lzh").unwrap(),
+            ArchiveFormat::Lzh
+        );
+        assert_eq!(
+            parse_gui_compress_format("lha").unwrap(),
+            ArchiveFormat::Lzh
+        );
     }
 
     #[test]
@@ -606,14 +606,42 @@ mod tests {
     }
 
     #[test]
-    fn create_gui_writer_rejects_lzh() {
+    fn create_gui_writer_lzh_roundtrip() {
         let temp = tempfile::tempdir().unwrap();
         let archive_path = temp.path().join("gui-output.lzh");
         let file = fs::File::create(&archive_path).unwrap();
-        match create_gui_writer(file, ArchiveFormat::Lzh, CompressOptions::default()) {
-            Ok(_) => panic!("lzh writer should be rejected"),
-            Err(err) => assert!(err.contains("lzh/lha writing is not supported")),
-        }
+        let mut writer = create_gui_writer(file, ArchiveFormat::Lzh, CompressOptions::default())
+            .expect("lzh writer should be created");
+        writer
+            .add_directory(std::path::Path::new("empty"))
+            .expect("directory should be added");
+        writer
+            .add_entry_from_reader(
+                std::path::Path::new("docs/readme.txt"),
+                &mut std::io::Cursor::new(b"gui lzh".to_vec()),
+            )
+            .expect("file should be added");
+        let bytes_written = writer.finish().expect("writer should finish");
+        assert!(bytes_written > 0);
+
+        let mut reader = LzhReader::new(fs::File::open(&archive_path).unwrap());
+        let entries = reader.entries().expect("entries should load");
+        assert!(entries
+            .iter()
+            .any(|entry| entry.path == "empty" && entry.is_dir));
+        assert!(entries
+            .iter()
+            .any(|entry| entry.path == "docs/readme.txt" && !entry.is_dir));
+        let dest = tempfile::tempdir().unwrap();
+        let report = reader
+            .extract_all(dest.path(), true)
+            .expect("archive should extract");
+        assert!(report.errors.is_empty(), "errors: {:?}", report.errors);
+        assert!(dest.path().join("empty").is_dir());
+        assert_eq!(
+            std::fs::read_to_string(dest.path().join("docs/readme.txt")).unwrap(),
+            "gui lzh"
+        );
     }
 
     #[test]

@@ -1,9 +1,9 @@
-//! LZH/LHA (`.lzh`, `.lha`) archive reader.
+//! LZH/LHA (`.lzh`, `.lha`) archive reader and store-only writer.
 //!
-//! GeeZipX exposes LZH as a read-only archive format backed by the `delharc`
-//! decoder. The current MVP supports listing, extraction, and integrity
-//! verification for the compression methods handled by `delharc`'s default
-//! feature set (notably `-lh0-`, `-lh1-`, and `-lh4-` through `-lh7-`).
+//! GeeZipX exposes LZH/LHA reading via the `delharc` decoder and now also
+//! supports a minimal writer MVP that emits standard level-0 `-lh0-` entries
+//! plus `-lhd-` directory records. The current write path is intentionally
+//! limited to store/no-compression output.
 //!
 //! Path handling notes:
 //! - `delharc`'s parsed pathname helpers intentionally normalise separators and
@@ -17,10 +17,11 @@ use std::fmt::{self, Write as _};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::Path;
 
+use delharc::crc::Crc16;
 use delharc::header::{ext::EXT_HEADER_FILENAME, ext::EXT_HEADER_PATH, LhaHeader, OsType};
 use delharc::{LhaDecodeReader, LhaError};
 
-use crate::archive::{is_entry_path_dangerous, ArchiveReader, Entry};
+use crate::archive::{is_entry_path_dangerous, ArchiveReader, ArchiveWriter, Entry};
 use crate::detect::ArchiveFormat;
 use crate::error::{GeeZipError, GeeZipResult};
 
@@ -52,6 +53,273 @@ impl LzhReader<std::io::Cursor<Vec<u8>>> {
     /// Create an LZH reader from an already-loaded byte buffer.
     pub fn from_buf(buf: Vec<u8>) -> Self {
         Self::new(std::io::Cursor::new(buf))
+    }
+}
+
+const LZH_LEVEL0_FIXED_HEADER_LEN: usize = 22;
+const LZH_LEVEL0_MAX_HEADER_LEN: usize = u8::MAX as usize;
+const LZH_LEVEL0_MAX_PATH_LEN: usize = LZH_LEVEL0_MAX_HEADER_LEN - LZH_LEVEL0_FIXED_HEADER_LEN;
+const LZH_LEVEL0_MAX_ENTRY_SIZE: u64 = u32::MAX as u64;
+const LZH_METHOD_STORE: [u8; 5] = *b"-lh0-";
+const LZH_METHOD_DIRECTORY: [u8; 5] = *b"-lhd-";
+const LZH_ATTR_FILE: u8 = 0x20;
+const LZH_ATTR_DIRECTORY: u8 = 0x10;
+const LZH_READ_CHUNK_SIZE: usize = 65_536;
+
+fn lzh_crc16(data: &[u8]) -> u16 {
+    let mut crc = Crc16::default();
+    crc.digest(data);
+    crc.sum16()
+}
+
+fn lzh_header_checksum(header: &[u8]) -> u8 {
+    header.iter().fold(0u8, |acc, byte| acc.wrapping_add(*byte))
+}
+
+fn lzh_raw_text_path_is_dangerous(path: &str) -> bool {
+    raw_lzh_path_is_dangerous(&split_raw_lzh_path_components(path.as_bytes(), false))
+}
+
+fn invalid_lzh_writer_path_error(path: &str) -> GeeZipError {
+    GeeZipError::format(
+        format!(
+            "invalid LZH entry path '{}': absolute paths, UNC paths, drive-prefixed names, and '.'/'..' components are not allowed",
+            path
+        ),
+        ArchiveFormat::Lzh,
+    )
+}
+
+fn lzh_entry_size_limit_error(path: &Path, max_size: u64) -> GeeZipError {
+    let limit = if max_size == LZH_LEVEL0_MAX_ENTRY_SIZE {
+        String::from("4 GiB")
+    } else {
+        format!("{max_size} bytes")
+    };
+
+    GeeZipError::format(
+        format!(
+            "LZH writer does not support entries larger than {limit}: {}",
+            path.display()
+        ),
+        ArchiveFormat::Lzh,
+    )
+}
+
+fn normalize_lzh_writer_path(path: &Path, is_dir: bool) -> GeeZipResult<Vec<u8>> {
+    let raw = path.to_str().ok_or_else(|| {
+        GeeZipError::format(
+            format!("non-UTF-8 path: {}", path.display()),
+            ArchiveFormat::Lzh,
+        )
+    })?;
+
+    let mut normalized = raw.replace('\\', "/");
+    while normalized.len() > 1 && normalized.ends_with('/') {
+        normalized.pop();
+    }
+
+    if normalized.is_empty() {
+        return Err(GeeZipError::format(
+            "LZH entry path cannot be empty",
+            ArchiveFormat::Lzh,
+        ));
+    }
+
+    if lzh_raw_text_path_is_dangerous(&normalized)
+        || is_entry_path_dangerous(Path::new(&normalized))
+    {
+        return Err(invalid_lzh_writer_path_error(&normalized));
+    }
+
+    if is_dir {
+        normalized.push('/');
+    }
+
+    let path_bytes = normalized.into_bytes();
+    if path_bytes.len() > LZH_LEVEL0_MAX_PATH_LEN {
+        return Err(GeeZipError::format(
+            format!(
+                "LZH level-0 pathname too long ({} bytes, max {} bytes): {}",
+                path_bytes.len(),
+                LZH_LEVEL0_MAX_PATH_LEN,
+                path.display()
+            ),
+            ArchiveFormat::Lzh,
+        ));
+    }
+
+    Ok(path_bytes)
+}
+
+fn build_lzh_level0_header(
+    path_bytes: &[u8],
+    method: [u8; 5],
+    compressed_size: u32,
+    original_size: u32,
+    file_crc: u16,
+    attrs: u8,
+) -> GeeZipResult<Vec<u8>> {
+    let header_len = LZH_LEVEL0_FIXED_HEADER_LEN + path_bytes.len();
+    if header_len > LZH_LEVEL0_MAX_HEADER_LEN {
+        return Err(GeeZipError::format(
+            format!(
+                "LZH level-0 header too large ({} bytes, max {} bytes)",
+                header_len, LZH_LEVEL0_MAX_HEADER_LEN
+            ),
+            ArchiveFormat::Lzh,
+        ));
+    }
+
+    let mut header = Vec::with_capacity(header_len);
+    header.extend_from_slice(&method);
+    header.extend_from_slice(&compressed_size.to_le_bytes());
+    header.extend_from_slice(&original_size.to_le_bytes());
+    header.extend_from_slice(&0u32.to_le_bytes());
+    header.push(attrs);
+    header.push(0);
+    header.push(u8::try_from(path_bytes.len()).map_err(|_| {
+        GeeZipError::format(
+            format!(
+                "LZH level-0 pathname too long ({} bytes, max {} bytes)",
+                path_bytes.len(),
+                LZH_LEVEL0_MAX_PATH_LEN
+            ),
+            ArchiveFormat::Lzh,
+        )
+    })?);
+    header.extend_from_slice(path_bytes);
+    header.extend_from_slice(&file_crc.to_le_bytes());
+
+    Ok(header)
+}
+
+fn write_lzh_level0_entry<W: Write>(
+    writer: &mut W,
+    path: &Path,
+    path_bytes: &[u8],
+    data: &[u8],
+    is_dir: bool,
+) -> GeeZipResult<()> {
+    let stored_len = if is_dir {
+        0
+    } else {
+        u32::try_from(data.len())
+            .map_err(|_| lzh_entry_size_limit_error(path, LZH_LEVEL0_MAX_ENTRY_SIZE))?
+    };
+    let header = build_lzh_level0_header(
+        path_bytes,
+        if is_dir {
+            LZH_METHOD_DIRECTORY
+        } else {
+            LZH_METHOD_STORE
+        },
+        stored_len,
+        stored_len,
+        if is_dir { 0 } else { lzh_crc16(data) },
+        if is_dir {
+            LZH_ATTR_DIRECTORY
+        } else {
+            LZH_ATTR_FILE
+        },
+    )?;
+    let header_len = u8::try_from(header.len()).map_err(|_| {
+        GeeZipError::format(
+            format!(
+                "LZH level-0 header too large ({} bytes, max {} bytes)",
+                header.len(),
+                LZH_LEVEL0_MAX_HEADER_LEN
+            ),
+            ArchiveFormat::Lzh,
+        )
+    })?;
+
+    writer
+        .write_all(&[header_len, lzh_header_checksum(&header)])
+        .map_err(|err| {
+            GeeZipError::io(err, format!("writing LZH header for '{}'", path.display()))
+        })?;
+    writer.write_all(&header).map_err(|err| {
+        GeeZipError::io(err, format!("writing LZH header for '{}'", path.display()))
+    })?;
+    if !is_dir {
+        writer.write_all(data).map_err(|err| {
+            GeeZipError::io(err, format!("writing LZH payload for '{}'", path.display()))
+        })?;
+    }
+
+    Ok(())
+}
+
+fn read_lzh_entry_data(path: &Path, reader: &mut dyn Read, max_size: u64) -> GeeZipResult<Vec<u8>> {
+    let mut data = Vec::new();
+    let mut chunk = [0u8; LZH_READ_CHUNK_SIZE];
+
+    loop {
+        let n = reader.read(&mut chunk).map_err(|err| {
+            GeeZipError::io(
+                err,
+                format!("reading data for LZH entry '{}'", path.display()),
+            )
+        })?;
+        if n == 0 {
+            break;
+        }
+
+        let next_len = data
+            .len()
+            .checked_add(n)
+            .ok_or_else(|| lzh_entry_size_limit_error(path, max_size))?;
+        let next_len =
+            u64::try_from(next_len).map_err(|_| lzh_entry_size_limit_error(path, max_size))?;
+        if next_len > max_size {
+            return Err(lzh_entry_size_limit_error(path, max_size));
+        }
+
+        data.extend_from_slice(&chunk[..n]);
+    }
+
+    Ok(data)
+}
+
+pub struct LzhWriter<W: Write + Seek + Send> {
+    inner: Option<W>,
+    start_pos: u64,
+    format: ArchiveFormat,
+}
+
+impl<W: Write + Seek + Send> fmt::Debug for LzhWriter<W> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("LzhWriter")
+            .field("format", &self.format)
+            .finish_non_exhaustive()
+    }
+}
+
+impl<W: Write + Seek + Send> LzhWriter<W> {
+    pub fn new(mut writer: W) -> Self {
+        let start_pos = writer.stream_position().unwrap_or(0);
+        Self {
+            inner: Some(writer),
+            start_pos,
+            format: ArchiveFormat::Lzh,
+        }
+    }
+
+    pub fn finalize(mut self) -> GeeZipResult<(u64, W)> {
+        let mut writer = self.inner.take().ok_or_else(|| {
+            GeeZipError::format("LZH writer already finalised", ArchiveFormat::Lzh)
+        })?;
+        writer
+            .write_all(&[0])
+            .map_err(|err| GeeZipError::io(err, "writing LZH end marker"))?;
+        writer
+            .flush()
+            .map_err(|err| GeeZipError::io(err, "flushing LZH archive"))?;
+        let end_pos = writer
+            .stream_position()
+            .map_err(|err| GeeZipError::io(err, "getting final LZH archive size"))?;
+        Ok((end_pos - self.start_pos, writer))
     }
 }
 
@@ -366,11 +634,45 @@ impl<R: Read + Seek + Send> ArchiveReader for LzhReader<R> {
     }
 }
 
+impl<W: Write + Seek + Send> ArchiveWriter for LzhWriter<W> {
+    fn format(&self) -> ArchiveFormat {
+        self.format
+    }
+
+    fn add_entry_from_reader(&mut self, path: &Path, reader: &mut dyn Read) -> GeeZipResult<()> {
+        let writer = self.inner.as_mut().ok_or_else(|| {
+            GeeZipError::format(
+                "LZH writer not initialised (already consumed)",
+                ArchiveFormat::Lzh,
+            )
+        })?;
+
+        let path_bytes = normalize_lzh_writer_path(path, false)?;
+        let data = read_lzh_entry_data(path, reader, LZH_LEVEL0_MAX_ENTRY_SIZE)?;
+        write_lzh_level0_entry(writer, path, &path_bytes, &data, false)
+    }
+
+    fn add_directory(&mut self, path: &Path) -> GeeZipResult<()> {
+        let writer = self.inner.as_mut().ok_or_else(|| {
+            GeeZipError::format(
+                "LZH writer not initialised (already consumed)",
+                ArchiveFormat::Lzh,
+            )
+        })?;
+        let path_bytes = normalize_lzh_writer_path(path, true)?;
+        write_lzh_level0_entry(writer, path, &path_bytes, &[], true)
+    }
+
+    fn finish(self: Box<Self>) -> GeeZipResult<u64> {
+        let (bytes, _writer) = (*self).finalize()?;
+        Ok(bytes)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    use delharc::crc::Crc16;
     use delharc::header::MsDosAttrs;
 
     struct FixtureEntry<'a> {
@@ -406,9 +708,7 @@ mod tests {
     }
 
     fn file_crc16(data: &[u8]) -> u16 {
-        let mut crc = Crc16::default();
-        crc.digest(data);
-        crc.sum16()
+        lzh_crc16(data)
     }
 
     fn append_lzh_entry(out: &mut Vec<u8>, entry: &FixtureEntry<'_>) {
@@ -529,6 +829,52 @@ mod tests {
         let raw_components = raw_lzh_path_components(&header);
         assert!(!raw_lzh_path_is_dangerous(&raw_components));
         assert_eq!(lzh_entry_path(&header).unwrap(), expected_path);
+    }
+
+    fn assert_lzh_writer_rejects_path(path: &Path) {
+        let mut writer = LzhWriter::new(std::io::Cursor::new(Vec::new()));
+        let err = writer
+            .add_entry_from_reader(path, &mut std::io::Cursor::new(b"payload".to_vec()))
+            .expect_err("dangerous path should be rejected");
+        assert!(matches!(
+            err,
+            GeeZipError::Format {
+                format: ArchiveFormat::Lzh,
+                ..
+            }
+        ));
+        assert!(
+            err.to_string().contains("invalid LZH entry path"),
+            "err: {err}"
+        );
+    }
+
+    struct PanicReader;
+
+    impl Read for PanicReader {
+        fn read(&mut self, _buf: &mut [u8]) -> std::io::Result<usize> {
+            panic!("invalid LZH paths should fail before reading payload");
+        }
+    }
+
+    struct FixedChunkReader {
+        chunk: Vec<u8>,
+        remaining: u64,
+        read_calls: usize,
+    }
+
+    impl Read for FixedChunkReader {
+        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+            self.read_calls += 1;
+            if self.remaining == 0 {
+                return Ok(0);
+            }
+
+            let n = buf.len().min(self.chunk.len()).min(self.remaining as usize);
+            buf[..n].copy_from_slice(&self.chunk[..n]);
+            self.remaining -= n as u64;
+            Ok(n)
+        }
     }
 
     #[test]
@@ -669,6 +1015,249 @@ mod tests {
             .to_string()
             .contains("unsupported LZH compression method"));
         assert!(err.to_string().contains("-pm1-"));
+    }
+
+    #[test]
+    fn lzh_writer_single_file_roundtrip() {
+        let content = b"hello lzh writer";
+        let mut writer = LzhWriter::new(std::io::Cursor::new(Vec::new()));
+        writer
+            .add_entry_from_reader(
+                std::path::Path::new("hello.txt"),
+                &mut std::io::Cursor::new(content.to_vec()),
+            )
+            .expect("writer should accept file entry");
+
+        let (bytes_written, cursor) = writer.finalize().expect("writer should finalize");
+        let archive = cursor.into_inner();
+        assert_eq!(bytes_written, archive.len() as u64);
+
+        let mut reader = LzhReader::from_buf(archive);
+        let entries = reader.entries().expect("entries should load");
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].path, "hello.txt");
+        assert_eq!(entries[0].size, content.len() as u64);
+
+        let mut out = Vec::new();
+        let bytes = reader
+            .extract(&entries[0], &mut out)
+            .expect("file extraction should succeed");
+        assert_eq!(bytes, content.len() as u64);
+        assert_eq!(out, content);
+    }
+
+    #[test]
+    fn lzh_writer_roundtrip_directories_empty_files_and_normalized_paths() {
+        let mut writer = LzhWriter::new(std::io::Cursor::new(Vec::new()));
+        writer
+            .add_directory(std::path::Path::new("docs"))
+            .expect("docs directory should be added");
+        writer
+            .add_directory(std::path::Path::new("docs\\nested"))
+            .expect("nested directory should be added");
+        writer
+            .add_directory(std::path::Path::new("empty-dir"))
+            .expect("empty directory should be added");
+        writer
+            .add_entry_from_reader(
+                std::path::Path::new("docs\\hello.txt"),
+                &mut std::io::Cursor::new(b"hello".to_vec()),
+            )
+            .expect("non-empty file should be added");
+        writer
+            .add_entry_from_reader(
+                std::path::Path::new("docs\\nested\\empty.txt"),
+                &mut std::io::Cursor::new(Vec::new()),
+            )
+            .expect("empty file should be added");
+
+        let (_bytes_written, cursor) = writer.finalize().expect("writer should finalize");
+        let mut reader = LzhReader::from_buf(cursor.into_inner());
+        let entries = reader.entries().expect("entries should load");
+        assert!(entries
+            .iter()
+            .any(|entry| entry.path == "docs" && entry.is_dir));
+        assert!(entries
+            .iter()
+            .any(|entry| entry.path == "docs/nested" && entry.is_dir));
+        assert!(entries
+            .iter()
+            .any(|entry| entry.path == "empty-dir" && entry.is_dir));
+        assert!(entries
+            .iter()
+            .any(|entry| entry.path == "docs/hello.txt" && !entry.is_dir && entry.size == 5));
+        assert!(entries
+            .iter()
+            .any(|entry| entry.path == "docs/nested/empty.txt"
+                && !entry.is_dir
+                && entry.size == 0));
+
+        let temp = tempfile::TempDir::new().unwrap();
+        let report = reader
+            .extract_all(temp.path(), true)
+            .expect("archive should extract");
+        assert!(report.errors.is_empty(), "errors: {:?}", report.errors);
+        assert!(temp.path().join("docs").is_dir());
+        assert!(temp.path().join("docs").join("nested").is_dir());
+        assert!(temp.path().join("empty-dir").is_dir());
+        assert_eq!(
+            std::fs::read(temp.path().join("docs").join("hello.txt")).unwrap(),
+            b"hello"
+        );
+        assert_eq!(
+            std::fs::metadata(temp.path().join("docs").join("nested").join("empty.txt"))
+                .unwrap()
+                .len(),
+            0
+        );
+    }
+
+    #[test]
+    fn lzh_writer_unicode_path_is_encoded_consistently() {
+        let archive_path = "资料/你好.txt";
+        let expected_path = format!(
+            "{}/{}",
+            raw_lzh_component_display("资料".as_bytes()),
+            raw_lzh_component_display("你好.txt".as_bytes())
+        );
+
+        let mut writer = LzhWriter::new(std::io::Cursor::new(Vec::new()));
+        writer
+            .add_entry_from_reader(
+                std::path::Path::new(archive_path),
+                &mut std::io::Cursor::new(b"unicode content".to_vec()),
+            )
+            .expect("writer should accept UTF-8 input paths");
+
+        let (_bytes_written, cursor) = writer.finalize().expect("writer should finalize");
+        let mut reader = LzhReader::from_buf(cursor.into_inner());
+        let entries = reader.entries().expect("entries should load");
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].path, expected_path);
+
+        let mut out = Vec::new();
+        reader
+            .extract(&entries[0], &mut out)
+            .expect("unicode entry extraction should succeed");
+        assert_eq!(out, b"unicode content");
+    }
+
+    #[test]
+    fn lzh_writer_rejects_overlong_level0_pathnames() {
+        let long_name = "a".repeat(LZH_LEVEL0_MAX_PATH_LEN + 1);
+        let mut writer = LzhWriter::new(std::io::Cursor::new(Vec::new()));
+        let err = writer
+            .add_entry_from_reader(
+                std::path::Path::new(&long_name),
+                &mut std::io::Cursor::new(b"payload".to_vec()),
+            )
+            .expect_err("overlong path should be rejected");
+        assert!(matches!(
+            err,
+            GeeZipError::Format {
+                format: ArchiveFormat::Lzh,
+                ..
+            }
+        ));
+        assert!(err.to_string().contains("pathname too long"), "err: {err}");
+    }
+
+    #[test]
+    fn lzh_writer_rejects_windows_drive_relative_paths() {
+        assert_lzh_writer_rejects_path(std::path::Path::new("C:evil.txt"));
+    }
+
+    #[test]
+    fn lzh_writer_rejects_windows_drive_paths() {
+        assert_lzh_writer_rejects_path(std::path::Path::new("C:/evil.txt"));
+        assert_lzh_writer_rejects_path(std::path::Path::new(r"C:\evil.txt"));
+    }
+
+    #[test]
+    fn lzh_writer_rejects_parent_dir_paths() {
+        assert_lzh_writer_rejects_path(std::path::Path::new("../evil.txt"));
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn lzh_writer_rejects_unix_absolute_paths() {
+        assert_lzh_writer_rejects_path(std::path::Path::new("/absolute.txt"));
+    }
+
+    #[test]
+    fn lzh_writer_rejects_unc_paths() {
+        assert_lzh_writer_rejects_path(std::path::Path::new(r"\\server\share\evil.txt"));
+    }
+
+    #[test]
+    fn lzh_writer_rejects_invalid_path_before_reading_payload() {
+        let mut writer = LzhWriter::new(std::io::Cursor::new(Vec::new()));
+        let err = writer
+            .add_entry_from_reader(std::path::Path::new("../evil.txt"), &mut PanicReader)
+            .expect_err("invalid path should fail before reading payload");
+        assert!(
+            err.to_string().contains("invalid LZH entry path"),
+            "err: {err}"
+        );
+    }
+
+    #[test]
+    fn lzh_writer_size_limit_fails_without_large_allocation() {
+        let mut reader = FixedChunkReader {
+            chunk: vec![b'a'; 5],
+            remaining: 10,
+            read_calls: 0,
+        };
+        let err = read_lzh_entry_data(std::path::Path::new("too-large.bin"), &mut reader, 8)
+            .expect_err("size limit should fail early");
+        assert!(matches!(
+            err,
+            GeeZipError::Format {
+                format: ArchiveFormat::Lzh,
+                ..
+            }
+        ));
+        assert!(
+            err.to_string().contains("larger than 8 bytes"),
+            "err: {err}"
+        );
+        assert_eq!(
+            reader.read_calls, 2,
+            "reader should fail on the first over-limit chunk"
+        );
+    }
+
+    #[test]
+    fn lzh_writer_trait_object_finish_returns_byte_count() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let archive_path = temp.path().join("writer.lzh");
+        let file = std::fs::File::create(&archive_path).unwrap();
+        let mut writer: Box<dyn ArchiveWriter> = Box::new(LzhWriter::new(file));
+        writer
+            .add_directory(std::path::Path::new("empty"))
+            .expect("directory should be added");
+        writer
+            .add_entry_from_reader(
+                std::path::Path::new("hello.txt"),
+                &mut std::io::Cursor::new(b"hello".to_vec()),
+            )
+            .expect("file should be added");
+
+        let bytes_written = writer.finish().expect("trait writer should finish");
+        assert_eq!(
+            bytes_written,
+            std::fs::metadata(&archive_path).unwrap().len(),
+            "finish() should report the final archive size"
+        );
+
+        let mut reader = LzhReader::new(std::fs::File::open(&archive_path).unwrap());
+        let entries = reader.entries().expect("entries should load");
+        assert!(entries
+            .iter()
+            .any(|entry| entry.path == "empty" && entry.is_dir));
+        assert!(entries
+            .iter()
+            .any(|entry| entry.path == "hello.txt" && !entry.is_dir));
     }
 
     #[test]

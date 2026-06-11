@@ -26,10 +26,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Added GUI format metadata, archive-browser/list/test routing, frontend `.cpio` archive detection, drag-out extension stripping, and Tauri file associations for the read-only archive flow.
   - Extraction intentionally does not create host symlinks, device nodes, FIFOs, sockets, or other special filesystem objects; `bin` / `crc` variants remain out of scope for the current MVP.
 
-- **Format support — LZH/LHA (read-only)**:
-  - Added `.lzh` / `.lha` extension / explicit-format detection plus a read-only core reader backed by `delharc`, with raw-path validation for `../`, absolute, UNC, and drive-relative names before extraction.
-  - Added CLI `list`, `decompress`, and `test` support for `.lzh` / `.lha`; `compress`, archive writing, encryption, and password input remain unsupported.
-  - Added GUI archive-browser/list/extract routing, frontend `.lzh` / `.lha` archive detection, drag-out extension stripping, and Tauri file associations for the read-only archive flow.
+- **Format support — LZH/LHA (write MVP)**:
+  - Added core `LzhWriter` (in-tree, store-only level-0): file entries use `-lh0-` method, directory entries use `-lhd-`; writer buffers individual entry payloads in memory.
+  - Added CLI `compress -f lzh` / `-f lha` for creating archives alongside existing `list`, `decompress`, `test` flows.
+  - Added GUI format metadata, compression routing, frontend `.lzh` / `.lha` archive detection, and drag-out extension stripping so LZH/LHA archives are creatable from the Tauri app.
+  - Write MVP limitations: no lh5/lh6/lh7 compressed entries, no encryption/password support, no multi-volume, no extended attributes, no level-1/2/3 extended headers, and single entry payload is limited to 4 GiB.
 
 - **Format support — DEB (read-only)**:
   - Added `.deb` extension / explicit-format detection plus a read-only core reader that opens the package's `data.tar*` payload while intentionally ignoring `control.tar.*` scripts and metadata.

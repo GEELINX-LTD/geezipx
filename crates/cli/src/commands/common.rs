@@ -14,7 +14,7 @@ use geezipx_core::archive::cab::CabReader;
 use geezipx_core::archive::cpio::CpioReader;
 use geezipx_core::archive::deb::DebReader;
 use geezipx_core::archive::iso::IsoReader;
-use geezipx_core::archive::lzh::LzhReader;
+use geezipx_core::archive::lzh::{LzhReader, LzhWriter};
 #[cfg(feature = "rar")]
 use geezipx_core::archive::rar::RarReader;
 use geezipx_core::archive::seven_zip::{SevenZipReader, SevenZipWriter};
@@ -395,11 +395,11 @@ pub fn create_writer(
         ArchiveFormat::TarBr => Ok(Box::new(TarBrWriter::new_with_options(file, options)?)),
         ArchiveFormat::TarLz4 => Ok(Box::new(TarLz4Writer::new_with_options(file, options)?)),
         ArchiveFormat::TarZst => Ok(Box::new(TarZstWriter::new_with_options(file, options))),
+        ArchiveFormat::Lzh => Ok(Box::new(LzhWriter::new(file))),
         ArchiveFormat::Asar
         | ArchiveFormat::Cab
         | ArchiveFormat::Deb
         | ArchiveFormat::Cpio
-        | ArchiveFormat::Lzh
         | ArchiveFormat::Iso
         | ArchiveFormat::Zpaq => {
             anyhow::bail!("'{format}' is a read-only archive format; writing is not supported")
@@ -960,14 +960,25 @@ mod tests {
     }
 
     #[test]
-    fn create_writer_lzh_is_read_only() {
+    fn create_writer_lzh_is_writable() {
         let temp = tempfile::TempDir::new().unwrap();
         let output = temp.path().join("out.lzh");
         let file = fs::File::create(&output).unwrap();
-        match create_writer(file, ArchiveFormat::Lzh, CompressOptions::default()) {
-            Ok(_) => panic!("lzh writer should be rejected"),
-            Err(err) => assert!(err.to_string().contains("read-only archive format")),
-        }
+        let mut writer =
+            create_writer(file, ArchiveFormat::Lzh, CompressOptions::default()).unwrap();
+        writer
+            .add_entry_from_reader(
+                std::path::Path::new("hello.txt"),
+                &mut std::io::Cursor::new(b"hello from cli".to_vec()),
+            )
+            .unwrap();
+        let bytes_written = writer.finish().unwrap();
+        assert_eq!(bytes_written, fs::metadata(&output).unwrap().len());
+
+        let mut reader = open_reader(&output, ArchiveFormat::Lzh, None).unwrap();
+        let entries = reader.entries().unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].path, "hello.txt");
     }
 
     #[test]

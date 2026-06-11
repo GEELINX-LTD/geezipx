@@ -12,7 +12,7 @@ pub struct FormatInfo {
     /// In the current GUI release, single-stream `gzip`, `bzip2`, `brotli`,
     /// `lz4`, `zstd`, `xz`, and `lzma` entries remain decompress-only.
     /// Read-only archive formats still include `rar`, `cab`, `asar`, `deb`,
-    /// `lzh`, `iso`, `cpio`, and `zpaq`.
+    /// `iso`, `cpio`, and `zpaq`; `lzh` is createable via a store-only MVP.
     pub can_compress: bool,
     /// Whether this format supports extracting archives (decompression).
     pub can_decompress: bool,
@@ -132,7 +132,7 @@ pub fn get_formats() -> Vec<FormatInfo> {
         },
         FormatInfo {
             name: "lzh".into(),
-            can_compress: false,
+            can_compress: true,
             can_decompress: true,
         },
         FormatInfo {
@@ -277,10 +277,10 @@ mod tests {
     }
 
     #[test]
-    fn get_formats_lzh_decompress_only() {
+    fn get_formats_lzh_compress_decompress() {
         let formats = get_formats();
         let lzh = formats.iter().find(|f| f.name == "lzh").unwrap();
-        assert!(!lzh.can_compress);
+        assert!(lzh.can_compress);
         assert!(lzh.can_decompress);
     }
 
