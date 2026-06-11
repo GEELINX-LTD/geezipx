@@ -194,6 +194,7 @@ pub fn collect_inputs(inputs: &[PathBuf], recursive: bool) -> Result<Vec<FileEnt
     }
 
     let mut result = Vec::new();
+    let mut deferred_empty_dirs = Vec::new();
 
     for input in inputs {
         let input = fs::canonicalize(input)
@@ -212,10 +213,11 @@ pub fn collect_inputs(inputs: &[PathBuf], recursive: bool) -> Result<Vec<FileEnt
                 .unwrap_or(input.as_os_str())
                 .to_os_string();
             let prefix = PathBuf::from(&dir_name);
-            let has_children = collect_dir_contents(&input, &prefix, &mut result)
-                .with_context(|| format!("reading directory '{}'", input.display()))?;
+            let has_children =
+                collect_dir_contents(&input, &prefix, &mut result, &mut deferred_empty_dirs)
+                    .with_context(|| format!("reading directory '{}'", input.display()))?;
             if !has_children {
-                result.push(FileEntry {
+                deferred_empty_dirs.push(FileEntry {
                     real_path: input.clone(),
                     archive_path: prefix.clone(),
                     is_dir: true,
@@ -237,6 +239,7 @@ pub fn collect_inputs(inputs: &[PathBuf], recursive: bool) -> Result<Vec<FileEnt
         }
     }
 
+    result.extend(deferred_empty_dirs);
     Ok(result)
 }
 
@@ -246,27 +249,29 @@ fn collect_dir_contents(
     dir: &Path,
     prefix: &Path,
     entries: &mut Vec<FileEntry>,
+    deferred_empty_dirs: &mut Vec<FileEntry>,
 ) -> io::Result<bool> {
     let mut has_children = false;
     let mut dir_entries = fs::read_dir(dir)?.collect::<io::Result<Vec<_>>>()?;
     dir_entries.sort_by(|a, b| a.file_name().cmp(&b.file_name()));
 
-    let mut deferred_empty_dirs = Vec::new();
     for entry in dir_entries {
         let path = entry.path();
         let relative = prefix.join(entry.file_name());
         if path.is_dir() {
-            let child_has_children = collect_dir_contents(&path, &relative, entries)?;
+            let child_has_children =
+                collect_dir_contents(&path, &relative, entries, deferred_empty_dirs)?;
             if child_has_children {
                 has_children = true;
             } else {
-                // Empty directories must still be archived, but defer them until
-                // after data-bearing entries to keep 7z extraction stable.
+                // Empty directories must still be archived, but defer all of them
+                // until after data-bearing entries to keep 7z extraction stable.
                 deferred_empty_dirs.push(FileEntry {
                     real_path: path,
                     archive_path: relative,
                     is_dir: true,
                 });
+                has_children = true;
             }
         } else if path.is_file() {
             entries.push(FileEntry {
@@ -276,11 +281,6 @@ fn collect_dir_contents(
             });
             has_children = true;
         }
-    }
-
-    if !deferred_empty_dirs.is_empty() {
-        has_children = true;
-        entries.extend(deferred_empty_dirs);
     }
 
     Ok(has_children)
@@ -718,20 +718,68 @@ mod tests {
     }
 
     #[test]
-    fn collect_inputs_sorts_recursive_directory_entries() {
+    fn collect_inputs_defers_empty_directories_until_after_files() {
         let temp = tempfile::TempDir::new().unwrap();
         let src = temp.path().join("src");
-        std::fs::create_dir_all(src.join("b_empty")).unwrap();
-        std::fs::create_dir_all(src.join("a_nested")).unwrap();
-        std::fs::write(src.join("a_nested/file.txt"), "nested file").unwrap();
+        std::fs::create_dir_all(src.join("a_empty")).unwrap();
+        std::fs::create_dir_all(src.join("b_nested")).unwrap();
+        std::fs::write(src.join("b_nested/file.txt"), "nested file").unwrap();
 
         let entries = collect_inputs(&[src.clone()], true).unwrap();
         let archive_paths: Vec<_> = entries
             .iter()
-            .map(|entry| entry.archive_path.to_string_lossy().into_owned())
+            .map(|entry| entry.archive_path.clone())
             .collect();
 
-        assert_eq!(archive_paths, vec!["src/a_nested/file.txt", "src/b_empty"]);
+        assert_eq!(
+            archive_paths,
+            vec![
+                PathBuf::from("src").join("b_nested").join("file.txt"),
+                PathBuf::from("src").join("a_empty"),
+            ]
+        );
+    }
+
+    #[test]
+    fn collect_inputs_defers_nested_empty_directories_globally() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let src = temp.path().join("src");
+        std::fs::create_dir_all(src.join("a_parent/empty")).unwrap();
+        std::fs::write(src.join("z.txt"), "later file").unwrap();
+
+        let entries = collect_inputs(&[src.clone()], true).unwrap();
+        let archive_paths: Vec<_> = entries
+            .iter()
+            .map(|entry| entry.archive_path.clone())
+            .collect();
+
+        assert_eq!(
+            archive_paths,
+            vec![
+                PathBuf::from("src").join("z.txt"),
+                PathBuf::from("src").join("a_parent").join("empty"),
+            ]
+        );
+    }
+
+    #[test]
+    fn collect_inputs_defers_top_level_empty_directory_inputs() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let empty_dir = temp.path().join("a_empty");
+        std::fs::create_dir_all(&empty_dir).unwrap();
+        let file = temp.path().join("b.txt");
+        std::fs::write(&file, "top-level").unwrap();
+
+        let entries = collect_inputs(&[empty_dir.clone(), file.clone()], true).unwrap();
+        let archive_paths: Vec<_> = entries
+            .iter()
+            .map(|entry| entry.archive_path.clone())
+            .collect();
+
+        assert_eq!(
+            archive_paths,
+            vec![PathBuf::from("b.txt"), PathBuf::from("a_empty")]
+        );
     }
 
     #[test]

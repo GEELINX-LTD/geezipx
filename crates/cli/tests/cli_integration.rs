@@ -5929,10 +5929,11 @@ fn compress_7z_roundtrip() {
 #[test]
 fn compress_7z_multiple_inputs_recursive_roundtrip() {
     let td = TestDir::new();
+    std::fs::create_dir_all(td.path().join("a_empty_input")).unwrap();
     td.write("top.txt", "top-level");
-    std::fs::create_dir_all(td.path().join("src/empty")).unwrap();
-    std::fs::create_dir_all(td.path().join("src/nested")).unwrap();
-    std::fs::write(td.path().join("src/nested/file.txt"), "nested file").unwrap();
+    std::fs::create_dir_all(td.path().join("src/a_empty")).unwrap();
+    std::fs::create_dir_all(td.path().join("src/b_nested")).unwrap();
+    std::fs::write(td.path().join("src/b_nested/file.txt"), "nested file").unwrap();
 
     let archive = td.join("bundle.7z");
     let out_dir = td.join("out");
@@ -5940,6 +5941,7 @@ fn compress_7z_multiple_inputs_recursive_roundtrip() {
     geezipx()
         .args([
             "compress",
+            td.path().join("a_empty_input").to_str().unwrap(),
             td.path().join("top.txt").to_str().unwrap(),
             td.path().join("src").to_str().unwrap(),
             "-r",
@@ -5966,15 +5968,16 @@ fn compress_7z_multiple_inputs_recursive_roundtrip() {
         .assert()
         .success();
 
+    assert!(out_dir.join("a_empty_input").is_dir());
     assert_eq!(
         std::fs::read_to_string(out_dir.join("top.txt")).unwrap(),
         "top-level"
     );
     assert_eq!(
-        std::fs::read_to_string(out_dir.join("src/nested/file.txt")).unwrap(),
+        std::fs::read_to_string(out_dir.join("src/b_nested/file.txt")).unwrap(),
         "nested file"
     );
-    assert!(out_dir.join("src/empty").is_dir());
+    assert!(out_dir.join("src/a_empty").is_dir());
 }
 
 #[test]
