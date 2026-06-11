@@ -385,10 +385,10 @@ pub trait ArchiveReader: Send {
         Ok(report)
     }
 
-    /// Set a password for decrypting encrypted entries (ZIP AES-256).
+    /// Set a password for decrypting encrypted entries.
     ///
     /// The default implementation is a no-op. Only archive formats that
-    /// support encryption (currently ZIP) override this method.
+    /// support encrypted reads (currently ZIP, 7z, and RAR) override this method.
     fn set_password(&mut self, _password: &str) -> GeeZipResult<()> {
         Ok(())
     }

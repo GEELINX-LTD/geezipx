@@ -8,8 +8,9 @@
 //! # Design notes
 //!
 //! - **Writer scope** — GeeZipX's current writer is an MVP: it creates standard
-//!   `.7z` archives with the upstream crate's default non-solid LZMA2 encoder.
-//!   Password-protected creation and advanced encoder selection are not yet exposed.
+//!   `.7z` archives with the upstream crate's default non-solid LZMA2 encoder,
+//!   and can optionally enable AES-256 password protection before the first
+//!   entry is written. Advanced encoder selection is not yet exposed.
 //! - **Single-entry extract** re-opens the archive and uses
 //!   `sevenz_rust2::ArchiveReader::read_file()`, which is O(n) for
 //!   solid archives (decodes all preceding data).  Callers that need
@@ -27,7 +28,8 @@ use std::io::{Read, Seek, Write};
 use std::path::{Path, PathBuf};
 
 use sevenz_rust2::{
-    ArchiveEntry as SevenZArchiveEntry, ArchiveWriter as SevenZArchiveWriter, Password,
+    encoder_options::AesEncoderOptions, ArchiveEntry as SevenZArchiveEntry,
+    ArchiveWriter as SevenZArchiveWriter, EncoderMethod, Password,
 };
 
 use crate::archive::{
@@ -116,12 +118,14 @@ impl SevenZipReader {
 /// 7z archive writer.
 ///
 /// Uses `sevenz_rust2`'s archive writer with its default non-solid LZMA2
-/// encoder. The current GeeZipX MVP intentionally does not expose password
-/// creation or advanced writer tuning.
+/// encoder. GeeZipX's current writer MVP can optionally enable AES-256
+/// password protection before any entries are written, but does not yet expose
+/// advanced writer tuning.
 pub struct SevenZipWriter<W: Write + Seek> {
     inner: Option<SevenZArchiveWriter<W>>,
     start_pos: u64,
     format: ArchiveFormat,
+    entries_written: bool,
 }
 
 impl<W: Write + Seek> fmt::Debug for SevenZipWriter<W> {
@@ -141,7 +145,39 @@ impl<W: Write + Seek> SevenZipWriter<W> {
             inner: Some(inner),
             start_pos,
             format: ArchiveFormat::SevenZip,
+            entries_written: false,
         })
+    }
+
+    /// Enable AES-256 password protection for subsequently written entries.
+    ///
+    /// This must be called before the first file or directory entry is added.
+    pub fn set_password(&mut self, password: &str) -> GeeZipResult<()> {
+        if password.is_empty() {
+            return Err(GeeZipError::Format {
+                message: "7z password cannot be empty".into(),
+                format: ArchiveFormat::SevenZip,
+            });
+        }
+
+        if self.entries_written {
+            return Err(GeeZipError::Format {
+                message: "7z password must be set before writing any entries".into(),
+                format: ArchiveFormat::SevenZip,
+            });
+        }
+
+        let writer = self.inner.as_mut().ok_or_else(|| GeeZipError::Format {
+            message: "7z writer not initialised (already consumed)".into(),
+            format: ArchiveFormat::SevenZip,
+        })?;
+
+        writer.set_encrypt_header(true);
+        writer.set_content_methods(vec![
+            AesEncoderOptions::new(Password::from(password)).into(),
+            EncoderMethod::LZMA2.into(),
+        ]);
+        Ok(())
     }
 
     /// Finalise the 7z archive and return the inner writer alongside the
@@ -180,6 +216,7 @@ impl<W: Write + Seek + Send> ArchiveWriter for SevenZipWriter<W> {
         writer
             .push_archive_entry(SevenZArchiveEntry::new_file(name), Some(reader))
             .map_err(convert_7z_error)?;
+        self.entries_written = true;
         Ok(())
     }
 
@@ -197,6 +234,7 @@ impl<W: Write + Seek + Send> ArchiveWriter for SevenZipWriter<W> {
         writer
             .push_archive_entry::<&[u8]>(SevenZArchiveEntry::new_directory(name), None)
             .map_err(convert_7z_error)?;
+        self.entries_written = true;
         Ok(())
     }
 
@@ -956,6 +994,19 @@ mod tests {
         use_writer(&mut writer);
     }
 
+    fn create_writer_encrypted_7z(password: &str) -> Vec<u8> {
+        let mut writer = SevenZipWriter::new(std::io::Cursor::new(Vec::new())).unwrap();
+        writer.set_password(password).unwrap();
+        writer.add_directory(Path::new("empty")).unwrap();
+        writer
+            .add_entry_from_reader(
+                Path::new("secret.txt"),
+                &mut std::io::Cursor::new(b"hidden content".to_vec()),
+            )
+            .unwrap();
+        writer.finalize().unwrap().1.into_inner()
+    }
+
     // -------------------------------------------------------------------
     // Encrypted 7z tests
     // -------------------------------------------------------------------
@@ -1070,6 +1121,75 @@ mod tests {
         assert!(
             msg.contains("password"),
             "expected password error, got: {msg}"
+        );
+    }
+
+    #[test]
+    fn sevenzip_writer_encrypted_roundtrip() {
+        let data = create_writer_encrypted_7z("writerpw");
+        let (mut reader, _dir) = buf_reader(data);
+        reader.set_password("writerpw");
+
+        let entries = reader.entries().unwrap();
+        assert!(entries
+            .iter()
+            .any(|entry| entry.path == "empty" && entry.is_dir));
+        assert!(entries
+            .iter()
+            .any(|entry| entry.path == "secret.txt" && !entry.is_dir));
+
+        let dest = tempfile::tempdir().unwrap();
+        let report = reader.extract_all(dest.path(), true).unwrap();
+        assert!(report.errors.is_empty(), "errors: {report:?}");
+        assert!(dest.path().join("empty").is_dir());
+        assert_eq!(
+            std::fs::read_to_string(dest.path().join("secret.txt")).unwrap(),
+            "hidden content"
+        );
+    }
+
+    #[test]
+    fn sevenzip_writer_encrypted_without_password_fails() {
+        let data = create_writer_encrypted_7z("writerpw");
+        let (mut reader, _dir) = buf_reader(data);
+
+        let err = reader.entries().unwrap_err();
+        let msg = err.to_string().to_lowercase();
+        assert!(
+            msg.contains("password"),
+            "expected password error, got: {msg}"
+        );
+    }
+
+    #[test]
+    fn sevenzip_writer_encrypted_with_wrong_password_fails() {
+        let data = create_writer_encrypted_7z("writerpw");
+        let (mut reader, _dir) = buf_reader(data);
+        reader.set_password("wrongpw");
+
+        let err = reader.entries().unwrap_err();
+        let msg = err.to_string().to_lowercase();
+        assert!(
+            msg.contains("password") || msg.contains("invalid"),
+            "expected password/invalid error, got: {msg}"
+        );
+    }
+
+    #[test]
+    fn sevenzip_writer_set_password_after_writing_entries_fails() {
+        let mut writer = SevenZipWriter::new(std::io::Cursor::new(Vec::new())).unwrap();
+        writer
+            .add_entry_from_reader(
+                Path::new("plain.txt"),
+                &mut std::io::Cursor::new(b"plain".to_vec()),
+            )
+            .unwrap();
+
+        let err = writer.set_password("latepw").unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("before writing any entries"),
+            "unexpected error: {msg}"
         );
     }
 }

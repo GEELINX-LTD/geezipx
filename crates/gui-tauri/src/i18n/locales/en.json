@@ -76,7 +76,7 @@
     "levelPlaceholder": "Auto",
     "jobs": "Jobs (threads)",
     "jobsPlaceholder": "Auto",
-    "password": "Password (ZIP only)",
+    "password": "Password (ZIP / 7z)",
     "passwordPlaceholder": "Optional — leave empty for no encryption",
     "run": "Compress",
     "cancel": "Cancel",

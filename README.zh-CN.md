@@ -25,8 +25,8 @@
 - **Zip Slip 防护** -- 所有归档格式都防护路径穿越攻击
 - **JSON 输出** -- `list --json` 机器可读；`test --json` 适合程序化验证
 - **Shell 补全** -- bash、zsh、fish、PowerShell、elvish
-- **ZIP AES-256 加密** -- 可用 `--password`、`--password-file`、`--password-stdin` 创建加密 ZIP 归档
-- **加密 7z/RAR 只读支持** -- 只读 `list`、`decompress`、`test` 可处理带密码的 7z/RAR 归档
+- **ZIP / 7z AES-256 加密** -- 可用 `--password`、`--password-file`、`--password-stdin` 创建加密 ZIP 与 7z 归档
+- **加密 7z / RAR 读取支持** -- `list`、`decompress`、`test` 可处理带密码的 7z 与 RAR 归档
 - **ASAR 只读支持** -- `.asar` 支持 CLI `list`、`decompress`、`test`，也支持 GUI 归档浏览与选择性提取；不支持 `compress`、归档写入、加密或密码输入。
 - **DEB 只读支持** -- `.deb` 支持 CLI `list`、`decompress`、`test`，也支持 GUI 对 `data.tar*` payload 的归档浏览与提取；不支持 `compress`、包写入、control scripts 提取、加密或密码输入。
 - **CAB 只读支持** -- `.cab` 支持 CLI `list`、`decompress`、`test`，也支持 GUI 归档浏览与提取。当前 MVP 面向单卷 cabinet，不支持 `compress`、cabinet 写入、加密/密码输入或多卷 cabinet set。
@@ -201,7 +201,7 @@ geezipx compress <输入文件...> -o <输出文件> [选项]
 | `-r`, `--recursive` | 递归添加目录 |
 | `-L`, `--level` | 压缩级别 0-9（gzip/bzip2/tar.gz/tar.bz2/xz/tar.xz，默认 6）；0-11（brotli/tar.br）；0-22（zstd/zst/tar.zst/tzst，默认使用 zstd 默认级别）；`lz4`/`tar.lz4` 仅接受 `0` 或省略 |
 | `-j`, `--jobs` | Worker 线程数：1（默认，单线程）、0（自动使用全部 CPU）或 N（显式指定）。tar.gz（gzp 并行 gzip）和 zstd/tar.zst（zstd 原生 NbWorkers）实际启用多线程；tar.xz/zip/xz/lzma 接受但不生效（向前兼容）。**注意**：tar.gz 的 `--stdin` 单流模式下不生效（仅归档模式有效） |
-| `--password` | 使用 AES-256 加密 ZIP 归档（仅限 ZIP 格式）。使用 `--password-file` 从文件读取密码，或使用 `--password-stdin` 从标准输入读取。三者互斥。脚本中建议使用 `--password-file` 或 `--password-stdin` 以避免密码暴露在进程列表中 |
+| `--password` | 使用 AES-256 加密 ZIP 或 7z 归档。使用 `--password-file` 从文件读取密码，或使用 `--password-stdin` 从标准输入读取。三者互斥。脚本中建议使用 `--password-file` 或 `--password-stdin` 以避免密码暴露在进程列表中 |
 | `--stdin` | 从 stdin 读取未压缩数据或裸 tar 流（gzip/bzip2/brotli/lz4/zstd/xz/lzma 和 tar.gz/tar.bz2/tar.br/tar.lz4/tar.zst/tar.xz；需配合 `--format`；与输入文件互斥） |
 | `--stdout` | 将压缩结果写入 stdout（gzip/bzip2/brotli/lz4/zstd/xz/lzma 和 tar.gz/tar.bz2/tar.br/tar.lz4/tar.zst/tar.xz 裸 tar 流；需配合 `--format`；与 `--output` 互斥） |
 
@@ -564,7 +564,7 @@ cargo build --release --workspace
 - [x] Criterion 基准测试（advisory，无硬门禁）
 - [x] crates.io 发布
 - [x] 多线程压缩（`-j`/`--jobs` for tar.gz, zstd/tar.zst）
-- [x] ZIP AES-256 密码加密
+- [x] ZIP / 7z AES-256 密码加密
 - [x] stdin/stdout 管道（单流 + tar-based 格式）
 
 ### 第二阶段（桌面 GUI via Tauri）— 当前开发重心（v0.5.0）
@@ -589,7 +589,7 @@ cargo build --release --workspace
 
 - [ ] 平台原生安装渠道（Homebrew、winget、APT）
 - **格式扩展** — 分阶段推进，详见 [docs/PRD.md](docs/PRD.md) 第 5.1 节完整目标清单
-  - 压缩扩展：7z 高级写入能力（加密/调优）、更完整的 LZH/LHA 兼容（`lh5`/`lh6`/`lh7`、元数据、多卷）、ISO 写入、ZPAQ 写入、ZIPX 高级方法矩阵评估、SFX
+  - 压缩扩展：7z 高级写入能力（高级编码器/调优）、更完整的 LZH/LHA 兼容（`lh5`/`lh6`/`lh7`、元数据、多卷）、ISO 写入、ZPAQ 写入、ZIPX 高级方法矩阵评估、SFX
   - 解压扩展：WIM
   - 历史/专有格式：ARJ、ACE、ARC、ALZ（通过适配器评估）
   - 容器/衍生格式：JAR、WAR、APK、IPA、XPI（复用 ZIP 引擎）
@@ -598,7 +598,7 @@ cargo build --release --workspace
 
 ### 明确不做（当前阶段）
 
-右键菜单集成、自动更新、云同步、插件系统、分卷压缩、7z 高级写入能力（密码/高级编码器/更深优化待后续阶段）、RAR 创建（受许可限制保持只读）。更多格式扩展详见 [docs/PRD.md](docs/PRD.md) 第 5.1 节及第 6.2 节交付策略。
+右键菜单集成、自动更新、云同步、插件系统、分卷压缩、7z 高级写入能力（高级编码器/更深优化待后续阶段）、RAR 创建（受许可限制保持只读）。更多格式扩展详见 [docs/PRD.md](docs/PRD.md) 第 5.1 节及第 6.2 节交付策略。
 
 ## 配置
 

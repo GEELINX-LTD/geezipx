@@ -10,10 +10,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **Format support — 7z write MVP**:
-  - Added core `SevenZipWriter` support backed by `sevenz-rust2`, enabling GeeZipX to create standard `.7z` archives for files, multiple inputs, and recursive directories.
-  - Added CLI `compress -f 7z -o output.7z` round-trip support alongside existing `list`, `decompress`, and `test` flows.
-  - Updated GUI format metadata and compression routing so `7z` is createable from the Tauri app; current scope is a basic writer MVP without password creation, multi-thread tuning, or `tar.7z` packaging.
-  - Added targeted core / CLI / GUI tests covering 7z writer round-trip behavior.
+  - Added core `SevenZipWriter` support backed by `sevenz-rust2`, enabling GeeZipX to create standard `.7z` archives for files, multiple inputs, recursive directories, and AES-256 password-protected archives.
+  - Added CLI `compress -f 7z -o output.7z` round-trip support alongside existing `list`, `decompress`, and `test` flows, plus `--password`, `--password-file`, and `--password-stdin` for encrypted 7z creation.
+  - Updated GUI format metadata and compression routing so `7z` is creatable from the Tauri app, including AES-256 password creation; current scope remains a basic writer MVP without multi-thread tuning or `tar.7z` packaging.
+  - Added targeted core / CLI / GUI tests covering encrypted 7z writer round-trip behavior and password failure paths.
 
 - **Format support — CAB (read-only)**:
   - Added `MSCF` magic / `.cab` extension detection plus a path-based core `CabReader` backed by the `cab` crate for single-volume cabinet listing, extraction, and integrity verification.

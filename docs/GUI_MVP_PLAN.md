@@ -28,7 +28,7 @@
 - 云同步
 - 插件系统
 - 分卷压缩
-- 7z 高级写入能力（密码写入、多线程、tar.7z 等）— 当前仅交付基础 7z 创建 MVP
+- 7z 高级写入能力（高级编码器/多线程、tar.7z 等）— 当前已交付基础 7z 创建与 AES-256 密码写入 MVP
 - RAR 创建 — 受 UnRAR 许可限制，仅保持只读
 - 文件管理器集成（双面板、标签页等）
 - 批量任务队列（仅单次任务，后续可扩展）
@@ -46,7 +46,7 @@
 
 > 完整格式目标清单见 `docs/PRD.md` 第 5.1 节。新增格式按 feature gate 引入，不要求当前版本一次性完成。
 
-GUI 中 7z 已支持基础创建，LZH/LHA 已支持 store-only 写入 MVP（文件 `-lh0-`，目录 `-lhd-`），ZIPX 作为 ZIP-compatible alias 可创建、浏览、测试与提取，但不承诺 WinZip 专有高级压缩方法、Deflate64 写入或完整 ZIPX method matrix。RAR/CAB/ASAR/DEB/ISO/CPIO/ZPAQ 仍保持只读语义：可浏览、测试、提取，不可创建。
+GUI 中 7z 已支持基础创建与 AES-256 密码写入，LZH/LHA 已支持 store-only 写入 MVP（文件 `-lh0-`，目录 `-lhd-`），ZIPX 作为 ZIP-compatible alias 可创建、浏览、测试与提取，但不承诺 WinZip 专有高级压缩方法、Deflate64 写入或完整 ZIPX method matrix。RAR/CAB/ASAR/DEB/ISO/CPIO/ZPAQ 仍保持只读语义：可浏览、测试、提取，不可创建。
 
 
 ### 3.2 核心功能
@@ -58,7 +58,7 @@ GUI 中 7z 已支持基础创建，LZH/LHA 已支持 store-only 写入 MVP（文
 2. **压缩任务**
    - 选择目标格式（dropdown/radio group）
    - 配置压缩级别（通过 slider 或 dropdown）
-   - 支持密码（AES-256 for ZIP）
+   - 支持密码（AES-256 for ZIP / 7z）
    - 可选：输出目录
 
 3. **解压缩任务**
@@ -115,7 +115,7 @@ GUI 中 7z 已支持基础创建，LZH/LHA 已支持 store-only 写入 MVP（文
 - `geezipx-gui`/`crates/gui-tauri/src-tauri` 依赖 `geezipx-core`，反向依赖不允许。
 - GUI Rust 后端只做参数映射、任务生命周期管理、进度桥接与前端数据整形。
 - 前端不直接处理压缩格式细节；所有实际归档操作都经由 Tauri command bridge。
-- 7z 在 GUI 中已支持基础创建；LZH/LHA 已支持 store-only 写入 MVP；RAR / CAB / ASAR / DEB / ISO / CPIO / ZPAQ 仍保持只读语义：可浏览、测试、提取，不可创建。
+- 7z 在 GUI 中已支持基础创建与 AES-256 密码写入；LZH/LHA 已支持 store-only 写入 MVP；RAR / CAB / ASAR / DEB / ISO / CPIO / ZPAQ 仍保持只读语义：可浏览、测试、提取，不可创建。
 
 ## 5. Core API 复用策略
 
@@ -123,7 +123,7 @@ GUI 直接复用 core 的以下能力，不重复实现压缩/解压逻辑：
 
 | Core 模块 | GUI 复用方式 |
 |-----------|--------------|
-|| `core::archive::*` | 复用 `ArchiveReader` / `ArchiveWriter` trait；其中 7z 已支持基础 reader/writer，LZH/LHA 已支持 store-only writer MVP，RAR/CAB/ASAR/DEB/ISO/CPIO/ZPAQ 保持只读 reader |
+|| `core::archive::*` | 复用 `ArchiveReader` / `ArchiveWriter` trait；其中 7z 已支持基础 reader/writer 与 AES-256 密码写入，LZH/LHA 已支持 store-only writer MVP，RAR/CAB/ASAR/DEB/ISO/CPIO/ZPAQ 保持只读 reader |
 | `core::io::{ProgressReader, ProgressWriter, ProgressCallback, ProgressEvent}` | 进度计数与取消检查；由 GUI 后端转成 Tauri 事件 |
 | `core::detect::{detect_format, detect_from_extension, read_magic_bytes}` | 自动识别拖入文件与归档类型 |
 | `core::config::CompressOptions` | 统一传递 level、jobs、password 等参数 |
@@ -207,7 +207,8 @@ listen<TaskProgressPayload>('task:progress', (event) => {
 ## 7. 密码处理
 
 - ZIP：支持创建 AES-256 加密归档，也支持浏览/测试/提取已加密 ZIP。
-- 7z / RAR：密码仅支持读取路径（`list` / `test` / `extract`）。当前 7z 创建 MVP 不支持密码写入。
+- 7z：支持创建 AES-256 加密归档，也支持浏览/测试/提取已加密 7z。
+- RAR：密码仅支持读取路径（`list` / `test` / `extract`）。
 - CPIO：仅支持读取路径（`list` / `test` / `extract`），当前 MVP 面向 `newc` / `odc`，不做 `bin` / `crc`、密码访问或宿主 symlink/device/FIFO/socket 创建。 
 - 密码仅作为任务参数传递，不做持久化。
 - 前端提供显隐切换，但不保存默认密码。

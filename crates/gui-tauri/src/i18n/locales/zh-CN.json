@@ -76,7 +76,7 @@
     "levelPlaceholder": "自动",
     "jobs": "任务数（线程）",
     "jobsPlaceholder": "自动",
-    "password": "密码（仅 ZIP）",
+    "password": "密码（ZIP / 7z）",
     "passwordPlaceholder": "可选——留空表示不加密",
     "run": "开始压缩",
     "cancel": "取消",

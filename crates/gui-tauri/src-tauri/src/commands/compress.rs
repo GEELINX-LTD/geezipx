@@ -83,9 +83,9 @@ pub async fn compress_archive(
         return Err("At least one source path is required".to_string());
     }
     let af = parse_gui_compress_format(&format)?;
-    if password.is_some() && af != ArchiveFormat::Zip {
+    if password.is_some() && af != ArchiveFormat::Zip && af != ArchiveFormat::SevenZip {
         return Err(format!(
-            "Password is only supported for ZIP format; '{af}' does not support encryption when writing"
+            "Password is only supported for ZIP and 7z formats; '{af}' does not support encryption when writing"
         ));
     }
     let tid = task_id.unwrap_or_else(|| {
@@ -449,9 +449,12 @@ fn create_gui_writer(
     format: ArchiveFormat,
     options: CompressOptions,
 ) -> Result<Box<dyn ArchiveWriter>, String> {
-    if options.password.is_some() && format != ArchiveFormat::Zip {
+    if options.password.is_some()
+        && format != ArchiveFormat::Zip
+        && format != ArchiveFormat::SevenZip
+    {
         return Err(format!(
-            "Password is only supported for ZIP format; '{format}' does not support encryption when writing"
+            "Password is only supported for ZIP and 7z formats; '{format}' does not support encryption when writing"
         ));
     }
     match format {
@@ -463,9 +466,13 @@ fn create_gui_writer(
             Ok(Box::new(writer))
         }
         ArchiveFormat::Tar => Ok(Box::new(TarWriter::new(file))),
-        ArchiveFormat::SevenZip => Ok(Box::new(
-            SevenZipWriter::new(file).map_err(|e| e.to_string())?,
-        )),
+        ArchiveFormat::SevenZip => {
+            let mut writer = SevenZipWriter::new(file).map_err(|e| e.to_string())?;
+            if let Some(ref pwd) = options.password {
+                writer.set_password(pwd).map_err(|e| e.to_string())?;
+            }
+            Ok(Box::new(writer))
+        }
         ArchiveFormat::TarGz => Ok(Box::new(TarGzWriter::new_with_options(file, options))),
         ArchiveFormat::TarBz2 => Ok(Box::new(TarBz2Writer::new_with_options(file, options))),
         ArchiveFormat::TarBr => Ok(Box::new(
@@ -680,6 +687,52 @@ mod tests {
         assert_eq!(
             std::fs::read_to_string(dest.path().join("docs/readme.txt")).unwrap(),
             "gui seven zip"
+        );
+    }
+
+    #[test]
+    fn create_gui_writer_sevenzip_encrypted_roundtrip() {
+        let temp = tempfile::tempdir().unwrap();
+        let archive_path = temp.path().join("gui-encrypted.7z");
+        let file = fs::File::create(&archive_path).unwrap();
+        let mut writer = create_gui_writer(
+            file,
+            ArchiveFormat::SevenZip,
+            CompressOptions {
+                password: Some("guipw".into()),
+                ..CompressOptions::default()
+            },
+        )
+        .expect("encrypted 7z writer should be created");
+        writer
+            .add_entry_from_reader(
+                std::path::Path::new("docs/secret.txt"),
+                &mut std::io::Cursor::new(b"gui encrypted seven zip".to_vec()),
+            )
+            .expect("file should be added");
+        let bytes_written = writer.finish().expect("writer should finish");
+        assert!(bytes_written > 0);
+
+        let mut reader = SevenZipReader::new(&archive_path);
+        assert!(
+            reader.entries().is_err(),
+            "encrypted archive should require a password"
+        );
+        reader.set_password("guipw");
+
+        let entries = reader.entries().expect("entries should load with password");
+        assert!(entries
+            .iter()
+            .any(|entry| entry.path == "docs/secret.txt" && !entry.is_dir));
+
+        let dest = tempfile::tempdir().unwrap();
+        let report = reader
+            .extract_all(dest.path(), true)
+            .expect("archive should extract with password");
+        assert!(report.errors.is_empty(), "errors: {:?}", report.errors);
+        assert_eq!(
+            std::fs::read_to_string(dest.path().join("docs/secret.txt")).unwrap(),
+            "gui encrypted seven zip"
         );
     }
 }

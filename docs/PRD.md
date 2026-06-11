@@ -31,7 +31,7 @@ GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开�
 2. **快速解包**：用户解压常见格式，自动检测格式，无需手动指定。
 3. **格式转换**：用户将 `.tar.gz` 转为 `.zip`，或转为 `.zst` 以节省空间。
 4. **管道集成**：`cat data.tar.gz | geezipx decompress --stdout | tar xf -`。
-5. **加密压缩**：用户创建带密码的 ZIP/AES 归档（高级功能）。
+5. **加密压缩**：用户创建带密码的 ZIP / 7z AES-256 归档（高级功能）。
 6. **桌面拖拽**（GUI 阶段）：拖入文件夹 → 选格式 → 压缩完成。
 
 ## 5. MVP 范围（Phase 1 — CLI MVP）
@@ -81,7 +81,7 @@ GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开�
 | XZ | .xz | ✅ 已支持 | — |
 | TAR.XZ | .tar.xz, .txz | ✅ 已支持 | — |
 | LZMA | .lzma | ✅ 已支持 | — |
-| 7Z | .7z | ✅ 已支持（MVP） | 支持文件/多文件/目录压缩；当前不含密码写入、多线程或 tar.7z |
+| 7Z | .7z | ✅ 已支持（MVP） | 支持文件/多文件/目录压缩与 AES-256 密码写入；当前不含多线程调优或 tar.7z |
 | RAR | .rar | 📖 只读 | 受 UnRAR 许可限制，不规划写入 |
 | CAB | .cab | 📖 只读 | 当前支持 `list` / `decompress` / `test`；MVP 面向单卷 cabinet，不做写入、密码或 multi-volume cabinet set |
 | LZH/LHA | .lzh, .lha | ✅ 已支持（store-only 写入 MVP） | 已支持 `compress` / `list` / `decompress` / `test`；文件 entry 为 level-0 `-lh0-`，目录 entry 为 `-lhd-`。不包含 lh5/lh6/lh7 压缩写入、密码/加密、多卷、扩展属性、长路径/level 1/2/3 extended header |
@@ -122,7 +122,7 @@ GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开�
 
 以下能力在 Phase 1（CLI MVP）和 Phase 2（桌面 GUI）阶段明确不做：
 
-- 7z 高级写入能力（密码写入、多线程、tar.7z）— 当前仅交付基础 7z 创建 MVP
+- 7z 高级写入能力（高级编码器/多线程、tar.7z）— 当前已交付基础 7z 创建与 AES-256 密码写入 MVP
 - RAR 创建 — 受 UnRAR 许可限制，仅保持只读
 - 分卷压缩
 - 右键菜单集成
@@ -138,7 +138,7 @@ GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开�
 - **依赖策略**：按格式决定。优先 Rust 原生 crate（如 `zip`、`flate2`、`zstd`、`xz2`），仅在无合适实现时评估外部工具或系统库。
 - **Feature gate**：每种格式按独立 feature 引入，用户可按需编译。
 - **优先级**：由用户需求与社区反馈驱动，不做全格式一次性覆盖。
-- **读/写分离**：一种格式可先实现只读（如当前 RAR/ZPAQ），写入能力后续补充。7z 当前已交付基础写入 MVP。
+- **读/写分离**：一种格式可先实现只读（如当前 RAR/ZPAQ），写入能力后续补充。7z 当前已交付基础写入与 AES-256 密码写入 MVP。
 - **历史格式**：ARJ、ACE、ARC、ALZ 等历史/专有格式通过适配器层外部库评估；LZH/LHA 已交付 store-only 写入 MVP，更完整兼容能力后续补充（如 lh5/lh6/lh7 压缩写入、扩展 header、metadata）。
 - **Journaling 格式**：ZPAQ 当前仅交付只读 MVP；其追加/版本化写入路径与现有“从零创建归档”模型不同，需单独架构设计。
 
@@ -180,7 +180,7 @@ GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开�
 - 各格式校验方式：
   - ZIP：逐 entry 触发 CRC-32 校验。
   - TAR：验证头结构、截断和压缩层，无 per-file CRC。
-  - 加密 ZIP AES-256 password 保护已支持：`compress --password / --password-file / --password-stdin`。其它格式暂不支持
+  - 加密 ZIP / 7z AES-256 password 保护已支持：`compress --password / --password-file / --password-stdin`。其它格式暂不支持
 - 当前已支持：
   - `--stdout` 将 gzip/bzip2/zstd/xz/lzma 等**单流格式**解压到标准输出，便于脚本串联。
   - `--stdout` 将 tar.gz/tar.bz2/tar.zst/tar.xz 等 **tar-based 压缩归档**解压缩层并输出裸 tar 流，便于 `decompress --stdout archive.tar.gz | tar tf -` 管道串联。
@@ -212,7 +212,7 @@ Phase 1 (MVP — CLI)              ← ✅ 已完成并成熟
 ├── M4 CI/测试/发布              ── ✅ 已完成
 └── CLI 增强特性                 ── ✅ 已完成
     ├── 多线程压缩 (-j/--jobs)
-    ├── 加密 ZIP (AES-256)
+    ├── 加密 ZIP / 7z (AES-256)
     ├── 7z 读写 MVP / RAR 只读
     └── stdin/stdout 管道
 
@@ -235,7 +235,7 @@ Phase 2 (Desktop GUI via Tauri)  ← 🚀 当前阶段（v0.5.0）
 Phase 3 (生态 + 格式扩展)
 ├── Homebrew / winget / APT 仓库
 ├── 压缩格式扩展
-│   ├── 7z 高级写入能力 — 密码/高级编码器/进一步性能优化
+│   ├── 7z 高级写入能力 — 高级编码器/进一步性能优化
 │   ├── ZIPX 高级方法矩阵评估 — `.zipx` alias 已支持；JPEG 预压缩等 WinZip 专有高级方法另行评估
 │   ├── LZH/LHA 更完整兼容 — 在现有 store-only 写入基础上补齐 lh5/lh6/lh7 压缩写入、扩展 header、metadata
 │   ├── ISO — 数据 ISO 归档处理

@@ -367,10 +367,13 @@ pub fn create_writer(
     format: ArchiveFormat,
     options: CompressOptions,
 ) -> Result<Box<dyn ArchiveWriter>> {
-    // Validate password: only ZIP format supports password for writing.
-    if options.password.is_some() && format != ArchiveFormat::Zip {
+    // Validate password: only ZIP and 7z formats support password for writing.
+    if options.password.is_some()
+        && format != ArchiveFormat::Zip
+        && format != ArchiveFormat::SevenZip
+    {
         anyhow::bail!(
-            "--password is only supported for ZIP format; '{}' does not support encryption",
+            "--password is only supported for ZIP and 7z formats; '{}' does not support encryption",
             format
         );
     }
@@ -389,7 +392,13 @@ pub fn create_writer(
             Ok(Box::new(writer))
         }
         ArchiveFormat::Tar => Ok(Box::new(TarWriter::new(file))),
-        ArchiveFormat::SevenZip => Ok(Box::new(SevenZipWriter::new(file)?)),
+        ArchiveFormat::SevenZip => {
+            let mut writer = SevenZipWriter::new(file)?;
+            if let Some(pwd) = &options.password {
+                writer.set_password(pwd)?;
+            }
+            Ok(Box::new(writer))
+        }
         ArchiveFormat::TarGz => Ok(Box::new(TarGzWriter::new_with_options(file, options))),
         ArchiveFormat::TarBz2 => Ok(Box::new(TarBz2Writer::new_with_options(file, options))),
         ArchiveFormat::TarBr => Ok(Box::new(TarBrWriter::new_with_options(file, options)?)),

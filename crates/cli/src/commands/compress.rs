@@ -536,11 +536,11 @@ fn validate_compress_inputs(
         }
     }
 
-    // Password-protected archive creation is currently only supported for ZIP.
+    // Password-protected archive creation is currently supported for ZIP and 7z.
     if let Some(password) = options.password.as_deref() {
-        if format != ArchiveFormat::Zip {
+        if format != ArchiveFormat::Zip && format != ArchiveFormat::SevenZip {
             anyhow::bail!(
-                "--password is only supported for ZIP format; '{}' does not support encryption",
+                "--password is only supported for ZIP and 7z formats; '{}' does not support encryption",
                 format
             );
         }

@@ -5362,7 +5362,7 @@ fn zip_password_flag_on_non_zip_fails() {
         ])
         .assert()
         .failure()
-        .stderr(predicate::str::contains("only supported for ZIP"));
+        .stderr(predicate::str::contains("only supported for ZIP and 7z"));
 }
 
 #[test]
@@ -5630,7 +5630,7 @@ fn zip_password_file_on_non_zip_fails() {
         ])
         .assert()
         .failure()
-        .stderr(predicate::str::contains("only supported for ZIP"));
+        .stderr(predicate::str::contains("only supported for ZIP and 7z"));
 }
 
 #[test]
@@ -5652,12 +5652,12 @@ fn zip_password_stdin_on_non_zip_fails() {
         .write_stdin("secret\n")
         .assert()
         .failure()
-        .stderr(predicate::str::contains("only supported for ZIP"));
+        .stderr(predicate::str::contains("only supported for ZIP and 7z"));
 }
 
 #[test]
 fn zip_password_file_on_decompress_non_zip_fails() {
-    // Password on decompress with non-ZIP format, via --password-file
+    // Password on decompress with a non-encrypted format, via --password-file
     let td = TestDir::new();
     td.write("data.txt", "some data");
     td.write("passwd.txt", "secret");
@@ -5676,7 +5676,7 @@ fn zip_password_file_on_decompress_non_zip_fails() {
         .assert()
         .success();
 
-    // Decompress with --password-file (only relevant for ZIP)
+    // Decompress with --password-file (only relevant for encrypted archive formats)
     geezipx()
         .args([
             "decompress",
@@ -5688,7 +5688,9 @@ fn zip_password_file_on_decompress_non_zip_fails() {
         ])
         .assert()
         .failure()
-        .stderr(predicate::str::contains("only supported for ZIP"));
+        .stderr(predicate::str::contains(
+            "only supported for ZIP, 7z, and RAR",
+        ));
 }
 
 #[test]
@@ -5770,7 +5772,7 @@ fn compress_gzip_with_password_fails() {
         ])
         .assert()
         .failure()
-        .stderr(predicate::str::contains("only supported for ZIP"));
+        .stderr(predicate::str::contains("only supported for ZIP and 7z"));
 }
 
 #[test]
@@ -5793,7 +5795,7 @@ fn compress_gzip_with_password_file_fails() {
         ])
         .assert()
         .failure()
-        .stderr(predicate::str::contains("only supported for ZIP"));
+        .stderr(predicate::str::contains("only supported for ZIP and 7z"));
 }
 
 #[test]
@@ -5815,7 +5817,7 @@ fn compress_gzip_with_password_stdin_fails() {
         .write_stdin("secret\n")
         .assert()
         .failure()
-        .stderr(predicate::str::contains("only supported for ZIP"));
+        .stderr(predicate::str::contains("only supported for ZIP and 7z"));
 }
 
 #[test]
@@ -5837,7 +5839,7 @@ fn test_gzip_with_password_fails() {
         .assert()
         .success();
 
-    // Test with --password (should fail for non-ZIP)
+    // Test with --password (should fail for non-encrypted formats)
     geezipx()
         .args([
             "test",
@@ -5847,7 +5849,9 @@ fn test_gzip_with_password_fails() {
         ])
         .assert()
         .failure()
-        .stderr(predicate::str::contains("only supported for ZIP"));
+        .stderr(predicate::str::contains(
+            "only supported for ZIP, 7z, and RAR",
+        ));
 }
 
 // ---------------------------------------------------------------------------
@@ -5974,12 +5978,12 @@ fn compress_7z_multiple_inputs_recursive_roundtrip() {
 }
 
 #[test]
-fn compress_7z_with_password_preserves_existing_output_on_failure() {
+fn compress_7z_with_password_roundtrip() {
     let td = TestDir::new();
     td.write("input.txt", "hello world");
 
-    let archive = td.join("existing.7z");
-    std::fs::write(&archive, "original archive bytes").unwrap();
+    let archive = td.join("encrypted.7z");
+    let out_dir = td.join("out");
 
     geezipx()
         .args([
@@ -5990,15 +5994,148 @@ fn compress_7z_with_password_preserves_existing_output_on_failure() {
             "-o",
             archive.to_str().unwrap(),
             "--password",
-            "pw",
+            "secret123",
         ])
         .assert()
+        .success();
+
+    geezipx()
+        .args(["list", archive.to_str().unwrap(), "--password", "secret123"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("input.txt"));
+
+    geezipx()
+        .args(["test", archive.to_str().unwrap(), "--password", "secret123"])
+        .assert()
+        .success();
+
+    geezipx()
+        .args(["list", archive.to_str().unwrap()])
+        .assert()
         .failure()
-        .stderr(predicate::str::contains("only supported for ZIP"));
+        .stderr(predicate::str::contains("password").or(predicate::str::contains("Password")));
+
+    geezipx()
+        .args(["list", archive.to_str().unwrap(), "--password", "wrongpw"])
+        .assert()
+        .failure();
+
+    geezipx()
+        .args([
+            "decompress",
+            archive.to_str().unwrap(),
+            "-o",
+            out_dir.to_str().unwrap(),
+            "--password",
+            "wrongpw",
+        ])
+        .assert()
+        .failure();
+
+    geezipx()
+        .args([
+            "decompress",
+            archive.to_str().unwrap(),
+            "-o",
+            out_dir.to_str().unwrap(),
+            "--password",
+            "secret123",
+        ])
+        .assert()
+        .success();
 
     assert_eq!(
-        std::fs::read_to_string(&archive).unwrap(),
-        "original archive bytes"
+        std::fs::read_to_string(out_dir.join("input.txt")).unwrap(),
+        "hello world"
+    );
+}
+
+#[test]
+fn compress_7z_with_password_file_roundtrip() {
+    let td = TestDir::new();
+    td.write("input.txt", "hello from password file");
+    td.write("passwd.txt", "filepw\n");
+
+    let archive = td.join("file-password.7z");
+    let out_dir = td.join("file-out");
+
+    geezipx()
+        .args([
+            "compress",
+            td.path().join("input.txt").to_str().unwrap(),
+            "-f",
+            "7z",
+            "-o",
+            archive.to_str().unwrap(),
+            "--password-file",
+            td.path().join("passwd.txt").to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    geezipx()
+        .args([
+            "decompress",
+            archive.to_str().unwrap(),
+            "-o",
+            out_dir.to_str().unwrap(),
+            "--password-file",
+            td.path().join("passwd.txt").to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    assert_eq!(
+        std::fs::read_to_string(out_dir.join("input.txt")).unwrap(),
+        "hello from password file"
+    );
+}
+
+#[test]
+fn compress_7z_with_password_stdin_roundtrip() {
+    let td = TestDir::new();
+    td.write("input.txt", "hello from password stdin");
+
+    let archive = td.join("stdin-password.7z");
+    let out_dir = td.join("stdin-out");
+
+    geezipx()
+        .args([
+            "compress",
+            td.path().join("input.txt").to_str().unwrap(),
+            "-f",
+            "7z",
+            "-o",
+            archive.to_str().unwrap(),
+            "--password-stdin",
+        ])
+        .write_stdin("stdinpw\n")
+        .assert()
+        .success();
+
+    geezipx()
+        .args(["list", archive.to_str().unwrap(), "--password-stdin"])
+        .write_stdin("stdinpw\n")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("input.txt"));
+
+    geezipx()
+        .args([
+            "decompress",
+            archive.to_str().unwrap(),
+            "-o",
+            out_dir.to_str().unwrap(),
+            "--password-stdin",
+        ])
+        .write_stdin("stdinpw\n")
+        .assert()
+        .success();
+
+    assert_eq!(
+        std::fs::read_to_string(out_dir.join("input.txt")).unwrap(),
+        "hello from password stdin"
     );
 }
 
@@ -6380,7 +6517,9 @@ fn list_gzip_with_password_fails() {
         .args(["list", gz_path.to_str().unwrap(), "--password", "foo"])
         .assert()
         .failure()
-        .stderr(predicate::str::contains("only supported for ZIP"));
+        .stderr(predicate::str::contains(
+            "only supported for ZIP, 7z, and RAR",
+        ));
 }
 
 #[test]
@@ -6413,7 +6552,9 @@ fn list_zstd_with_password_file_fails() {
         ])
         .assert()
         .failure()
-        .stderr(predicate::str::contains("only supported for ZIP"));
+        .stderr(predicate::str::contains(
+            "only supported for ZIP, 7z, and RAR",
+        ));
 }
 
 #[test]
@@ -6441,7 +6582,9 @@ fn list_xz_with_password_stdin_fails() {
         .write_stdin("irrelevant\n")
         .assert()
         .failure()
-        .stderr(predicate::str::contains("only supported for ZIP"));
+        .stderr(predicate::str::contains(
+            "only supported for ZIP, 7z, and RAR",
+        ));
 }
 
 // ---------------------------------------------------------------------------

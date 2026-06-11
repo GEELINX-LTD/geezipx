@@ -25,8 +25,8 @@
 - **Zip Slip protection** -- blocks path-traversal attacks in all archive formats
 - **JSON output** -- `list --json` for machine-readable inspection; `test --json` for programmatic integrity results
 - **Shell completions** -- bash, zsh, fish, PowerShell, elvish
-- **ZIP AES-256 encryption** -- create encrypted ZIP archives with `--password`, `--password-file`, or `--password-stdin`
-- **Encrypted 7z/RAR read support** -- read-only `list`, `decompress`, and `test` can handle password-protected 7z/RAR archives
+- **ZIP / 7z AES-256 encryption** -- create encrypted ZIP and 7z archives with `--password`, `--password-file`, or `--password-stdin`
+- **Encrypted 7z / RAR read support** -- `list`, `decompress`, and `test` can handle password-protected 7z and RAR archives
 - **ASAR read-only support** -- `.asar` archives support CLI `list`, `decompress`, and `test`, plus GUI archive browsing and selective extraction. `compress`, archive writing, encryption, and password input are not supported.
 - **DEB read-only support** -- `.deb` packages support CLI `list`, `decompress`, and `test`, plus GUI archive browsing and extraction of the `data.tar*` payload. `compress`, package writing, control-script extraction, encryption, and password input are not supported.
 - **CAB read-only support** -- `.cab` archives support CLI `list`, `decompress`, and `test`, plus GUI archive browsing and extraction. The current MVP targets single-volume cabinets and does not support `compress`, cabinet writing, encryption/password input, or multi-volume cabinet sets.
@@ -209,7 +209,7 @@ geezipx compress <inputs...> -o <output> [options]
 | `-r`, `--recursive` | Recursively add directories |
 | `-L`, `--level` | Compression level 0-9 (gzip/bzip2/tar.gz/tar.bz2/xz/tar.xz, default: 6; bzip2 level 0 maps to default); 0-11 (brotli/tar.br); 0-22 (zstd/zst/tar.zst/tzst, default: zstd default); lz4/tar.lz4 accept `0` or omitted level only |
 | `-j`, `--jobs` | Worker threads: 1 (default, single-threaded), 0 (auto, use all CPUs), or N (explicit). Effective for tar.gz (gzp parallel gzip) and zstd/tar.zst (native zstdmt); tar.xz/zip/xz/lzma accept but ignore for forward compat. **Note**: tar.gz `--jobs` does not apply in `--stdin` single-stream mode, only in archive mode
-| `--password` | Encrypt ZIP with AES-256 (ZIP format only). Use `--password-file` to read the password from a file, or `--password-stdin` to read from stdin. These three options are mutually exclusive. For scripting, prefer `--password-file` or `--password-stdin` to avoid exposing the password in the process list |
+| `--password` | Encrypt ZIP or 7z with AES-256. Use `--password-file` to read the password from a file, or `--password-stdin` to read from stdin. These three options are mutually exclusive. For scripting, prefer `--password-file` or `--password-stdin` to avoid exposing the password in the process list |
 | `--stdin` | Read uncompressed data from stdin (gzip/bzip2/brotli/lz4/zstd/xz/lzma single-stream and tar.gz/tar.bz2/tar.br/tar.lz4/tar.zst/tar.xz raw tar; requires `--format`; mutually exclusive with input files)
 | `--stdout` | Write compressed data to stdout (gzip/bzip2/brotli/lz4/zstd/xz/lzma single-stream and tar.gz/tar.bz2/tar.br/tar.lz4/tar.zst/tar.xz raw tar; requires `--format`; mutually exclusive with `--output`)
 
@@ -591,7 +591,7 @@ All core features and the applicable format-specific subcommands are implemented
 - [x] Criterion benchmarks (advisory, no hard gate)
 - [x] crates.io releases
 - [x] Multi-threaded compression (`-j`/`--jobs` for tar.gz, zstd/tar.zst)
-- [x] ZIP AES-256 password encryption
+- [x] ZIP / 7z AES-256 password encryption
 - [x] stdin/stdout pipelines for single-stream and tar-based formats
 
 ### Phase 2 (Desktop GUI via Tauri) — Current Development (v0.5.0)
@@ -617,7 +617,7 @@ See [`docs/GUI_MVP_PLAN.md`](docs/GUI_MVP_PLAN.md) for detailed planning and tas
 
 - [ ] Platform-native installers (Homebrew, winget, APT)
 - **Format expansion** — phased, see [docs/PRD.md](docs/PRD.md) section 5.1 for the full target list
-  - Compress: 7Z advanced write features (encryption/tuning), broader LZH compatibility (`lh5`/`lh6`/`lh7`, metadata, multi-volume), ISO write, ZPAQ write, advanced ZIPX method matrix evaluation, SFX
+  - Compress: 7Z advanced write features (advanced codec/tuning), broader LZH compatibility (`lh5`/`lh6`/`lh7`, metadata, multi-volume), ISO write, ZPAQ write, advanced ZIPX method matrix evaluation, SFX
   - Decompress: WIM
   - Historical/legacy: ARJ, ACE, ARC, ALZ (via adapter/evaluation)
   - Container/derived: JAR, WAR, APK, IPA, XPI (ZIP-reuse)

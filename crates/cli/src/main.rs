@@ -67,17 +67,17 @@ enum Commands {
         #[arg(short = 'j', long = "jobs", default_value_t = 1, value_parser = clap::value_parser!(u32).range(0..=256))]
         jobs: u32,
 
-        /// Encrypt the archive with a password (ZIP AES-256 only).
-        /// Using --password with non-ZIP formats will cause an error.
+        /// Encrypt the archive with a password (ZIP AES-256 or 7z AES-256).
+        /// Using --password with formats other than ZIP or 7z will cause an error.
         #[arg(long = "password")]
         password: Option<String>,
 
-        /// Read the encryption password from a file (ZIP AES-256 only).
+        /// Read the encryption password from a file (ZIP AES-256 or 7z AES-256).
         /// Mutually exclusive with --password and --password-stdin.
         #[arg(long = "password-file")]
         password_file: Option<PathBuf>,
 
-        /// Read the encryption password from stdin (ZIP AES-256 only).
+        /// Read the encryption password from stdin (ZIP AES-256 or 7z AES-256).
         /// Mutually exclusive with --password and --password-file.
         #[arg(long = "password-stdin")]
         password_stdin: bool,

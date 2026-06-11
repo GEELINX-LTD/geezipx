@@ -60,7 +60,7 @@ geezipx/
 - core 只保留格式逻辑、I/O 包装、错误模型与安全检查；
 - CLI 负责参数解析、TTY 进度、stdout/stderr 呈现；
 - Tauri GUI 负责图形交互、任务管理、事件桥接；
-- RAR / CAB / ASAR / DEB / ISO / CPIO / ZPAQ 在当前版本中保持只读语义（`list` / `decompress` / `test`）；LZH/LHA 已支持 store-only 写入 MVP；7z 已支持基础读写。
+- RAR / CAB / ASAR / DEB / ISO / CPIO / ZPAQ 在当前版本中保持只读语义（`list` / `decompress` / `test`）；LZH/LHA 已支持 store-only 写入 MVP；7z 已支持基础读写与 AES-256 密码写入。
 
 ## 2. 模块设计
 
@@ -96,7 +96,7 @@ pub trait ArchiveWriter: Send {
 - 多文件归档格式通过 `ArchiveReader` / `ArchiveWriter` 统一。
 - `finish(self: Box<Self>) -> GeeZipResult<u64>` 负责结束写入并返回写出的总字节数。
 - `extract_all(..., overwrite)` 与 `extract_all_with_cancel(..., overwrite, ...)` 是当前真实批量提取入口。
-- 密码接口只用于读取已加密归档；写入加密仅 ZIP 支持。
+- 读取路径的密码接口由各 reader 覆盖；写入加密当前由 ZIP 与 7z writer 分别支持 AES-256。
 
 当前模块职责：
 
@@ -123,7 +123,7 @@ pub trait ArchiveWriter: Send {
 | `archive::lzh` | LZH/LHA 读写（`compress` / `list` / `extract` / `test`）；reader 基于 `delharc`，writer 为项目内实现（store-only level-0：文件 `-lh0-`，目录 `-lhd-`）|
 | `archive::iso` | ISO 只读（`list` / `extract` / `test`，`isomage` 解析 ISO9660/Rock Ridge/Joliet） |
 | `archive::zpaq` | ZPAQ 只读（`list` / `extract` / `test`，`zpaq_rs` 提供列表/条目读取；单条目提取当前可能经字节缓冲） |
-| `archive::seven_zip` | 7z 读写（`list` / `extract` / `test` / `compress`）；当前 writer 为基础 MVP（默认 LZMA2、无密码写入） |
+| `archive::seven_zip` | 7z 读写（`list` / `extract` / `test` / `compress`）；当前 writer 为基础 MVP（默认 non-solid LZMA2，支持 AES-256 密码写入） |
 | `archive::rar` | RAR 只读（`list` / `extract` / `test`，feature-gated） |
 
 > **注**：上表仅列出当前已实现的格式模块。项目长期规划支持更多格式（详见 `docs/PRD.md` 第 5.1 节），
@@ -253,7 +253,7 @@ CLI 当前子命令为：
 - 全局 `--no-progress` 用于关闭 TTY 进度条；
 - `--verbose` 输出逐文件日志；
 - ZIP AES-256 创建仅在 `compress` + ZIP 路径可用；
-- 7z / RAR 密码当前只服务于读取路径（`list` / `decompress` / `test`）；7z 写入 MVP 不支持密码创建。
+- ZIP 与 7z 当前都支持 AES-256 密码创建；7z / RAR 的读取路径（`list` / `decompress` / `test`）同样支持密码输入。
 
 ### 2.6 `cli/render` — 输出渲染
 
@@ -283,7 +283,7 @@ CLI 当前子命令为：
 | `isomage` 2.1 | ISO 只读支持（ISO9660 / Rock Ridge / Joliet 解析与流式读取） |
 | `cpio-archive` 0.10 | CPIO 只读支持（`newc` / `odc` 读取；MPL-2.0，作为未修改 Cargo 依赖使用） |
 | `zpaq_rs` 1.0 | ZPAQ 只读支持（optional, default-enabled；需 Rust 1.85+ 与 C++17 编译器） |
-| `sevenz-rust2` 0.21 | 7z 读写支持（当前 writer 走默认 non-solid LZMA2，密码写入未开放） |
+| `sevenz-rust2` 0.21 | 7z 读写支持（当前 writer 走默认 non-solid LZMA2，可选 AES-256 密码写入） |
 | `unrar` 0.5.8 | RAR 只读支持（optional, default-enabled） |
 | `thiserror` 2 | 错误定义 |
 | `log` 0.4 | 日志门面 |

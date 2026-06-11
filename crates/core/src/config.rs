@@ -32,14 +32,24 @@
 ///
 ///   Other formats accept the parameter for forward compatibility but ignore it.
 ///
-/// * `password` — optional password for ZIP AES-256 encryption.
-///   Only ZIP format supports this option; using `--password` with
+/// * `password` — optional password for ZIP and 7z AES-256 encryption.
+///   Only ZIP and 7z formats support this option; using `--password` with
 ///   other formats will produce an error.
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Default)]
 pub struct CompressOptions {
     pub level: Option<u32>,
     pub jobs: Option<u32>,
     pub password: Option<String>,
+}
+
+impl std::fmt::Debug for CompressOptions {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CompressOptions")
+            .field("level", &self.level)
+            .field("jobs", &self.jobs)
+            .field("password_set", &self.password.is_some())
+            .finish()
+    }
 }
 
 impl CompressOptions {
@@ -170,5 +180,21 @@ mod tests {
         assert_eq!(opts.effective_jobs(), 4);
         // level should not be affected by with_jobs
         assert_eq!(opts.level, None);
+    }
+
+    #[test]
+    fn debug_redacts_password_value() {
+        let opts = CompressOptions {
+            level: Some(6),
+            jobs: Some(2),
+            password: Some("secret-value".to_string()),
+        };
+
+        let debug = format!("{opts:?}");
+
+        assert!(debug.contains("level: Some(6)"));
+        assert!(debug.contains("jobs: Some(2)"));
+        assert!(debug.contains("password_set: true"));
+        assert!(!debug.contains("secret-value"));
     }
 }
