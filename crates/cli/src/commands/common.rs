@@ -248,8 +248,11 @@ fn collect_dir_contents(
     entries: &mut Vec<FileEntry>,
 ) -> io::Result<bool> {
     let mut has_children = false;
-    for entry in fs::read_dir(dir)? {
-        let entry = entry?;
+    let mut dir_entries = fs::read_dir(dir)?.collect::<io::Result<Vec<_>>>()?;
+    dir_entries.sort_by(|a, b| a.file_name().cmp(&b.file_name()));
+
+    let mut deferred_empty_dirs = Vec::new();
+    for entry in dir_entries {
         let path = entry.path();
         let relative = prefix.join(entry.file_name());
         if path.is_dir() {
@@ -257,13 +260,13 @@ fn collect_dir_contents(
             if child_has_children {
                 has_children = true;
             } else {
-                // Empty directory: add it as a directory entry.
-                entries.push(FileEntry {
+                // Empty directories must still be archived, but defer them until
+                // after data-bearing entries to keep 7z extraction stable.
+                deferred_empty_dirs.push(FileEntry {
                     real_path: path,
                     archive_path: relative,
                     is_dir: true,
                 });
-                has_children = true;
             }
         } else if path.is_file() {
             entries.push(FileEntry {
@@ -274,6 +277,12 @@ fn collect_dir_contents(
             has_children = true;
         }
     }
+
+    if !deferred_empty_dirs.is_empty() {
+        has_children = true;
+        entries.extend(deferred_empty_dirs);
+    }
+
     Ok(has_children)
 }
 
@@ -706,6 +715,23 @@ mod tests {
             "1",
         )
         .unwrap()
+    }
+
+    #[test]
+    fn collect_inputs_sorts_recursive_directory_entries() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let src = temp.path().join("src");
+        std::fs::create_dir_all(src.join("b_empty")).unwrap();
+        std::fs::create_dir_all(src.join("a_nested")).unwrap();
+        std::fs::write(src.join("a_nested/file.txt"), "nested file").unwrap();
+
+        let entries = collect_inputs(&[src.clone()], true).unwrap();
+        let archive_paths: Vec<_> = entries
+            .iter()
+            .map(|entry| entry.archive_path.to_string_lossy().into_owned())
+            .collect();
+
+        assert_eq!(archive_paths, vec!["src/a_nested/file.txt", "src/b_empty"]);
     }
 
     #[test]
