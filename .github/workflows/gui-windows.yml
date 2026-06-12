@@ -23,6 +23,10 @@ jobs:
           toolchain: stable
           cache: true
 
+      - name: Use static CRT on Windows
+        shell: pwsh
+        run: echo "RUSTFLAGS=-C target-feature=+crt-static" >> $env:GITHUB_ENV
+
       - name: Setup Node.js 20
         uses: actions/setup-node@v6
         with:
