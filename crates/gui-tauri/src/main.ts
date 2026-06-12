@@ -41,7 +41,7 @@ import {
 // State
 // ---------------------------------------------------------------------------
 
-type ProgressPanel = "compress" | "extract" | "list";
+type ProgressPanel = "compress" | "extract";
 type TranslationParams = Record<string, string | number>;
 type TerminalTaskStatus = Extract<TaskProgressPayload["status"], "finished" | "cancelled" | "failed">;
 
@@ -87,19 +87,16 @@ interface PreviewState {
 const activeTaskIds: Record<ProgressPanel, string | null> = {
   compress: null,
   extract: null,
-  list: null,
 };
 
 const runningTaskIds: Record<ProgressPanel, string | null> = {
   compress: null,
   extract: null,
-  list: null,
 };
 
 const progressSnapshots: Record<ProgressPanel, ProgressSnapshot> = {
   compress: null,
   extract: null,
-  list: null,
 };
 
 let compressFormats: FormatInfo[] = [];
@@ -113,13 +110,13 @@ let lastBrowserOperationState: BrowserOperationState = null;
 let lastPreviewState: PreviewState | null = null;
 
 // Archive browser state
-let browserEntries: EntryInfo[] = [];
-let browserArchivePath = "";
-let browserPassword = "";
-let browserCurrentDir = "";
-let browserSelected = new Set<string>();
-let browserExtractRunning = false;
-let browserExtractToken = 0;
+let extractEntriesList: EntryInfo[] = [];
+let extractArchivePath = "";
+let extractPassword = "";
+let extractCurrentDir = "";
+let extractSelectedEntries = new Set<string>();
+let extractRunning = false;
+let extractToken = 0;
 let currentDragTempId = "";
 let currentDragTimeout: ReturnType<typeof setTimeout> | null = null;
 const DRAG_CLEANUP_TIMEOUT_MS = 60_000;
@@ -299,7 +296,6 @@ function formatTaskStats(payload: TaskProgressPayload): string {
 function resolveProgressPanel(taskId: string): ProgressPanel | null {
   if (activeTaskIds.compress === taskId) return "compress";
   if (activeTaskIds.extract === taskId) return "extract";
-  if (activeTaskIds.list === taskId) return "list";
   return null;
 }
 
@@ -476,7 +472,7 @@ function inferOutputDir(archivePath: string): string {
   return `${parent}/${stem}_extracted`;
 }
 
-function syncExtractFormFromArchive(archivePath: string, password = "") {
+function setExtractArchiveForm(archivePath: string, password = "") {
   const archiveInput = el<HTMLInputElement>("extract-archive");
   const outputInput = el<HTMLInputElement>("extract-output");
   const passwordInput = el<HTMLInputElement>("extract-password");
@@ -489,8 +485,8 @@ function syncExtractFormFromArchive(archivePath: string, password = "") {
   passwordInput.value = password;
 }
 
-function syncBrowserExtractOutputFromArchive(archivePath: string) {
-  el<HTMLInputElement>("browser-extract-output").value = inferOutputDir(archivePath);
+function setExtractOutputDir(archivePath: string) {
+  el<HTMLInputElement>("extract-output").value = inferOutputDir(archivePath);
 }
 
 // ---------------------------------------------------------------------------
@@ -588,12 +584,12 @@ function renderRecentChips() {
       const path = (chip as HTMLElement).dataset.path ?? "";
       const isArchive = (chip as HTMLElement).dataset.archive === "true";
       if (isArchive) {
-        switchMode("list");
-        el<HTMLInputElement>("list-archive").value = path;
-        el<HTMLInputElement>("list-password").value = "";
-        el("list-result").innerHTML =
+        switchMode("extract");
+        el<HTMLInputElement>("extract-archive").value = path;
+        el<HTMLInputElement>("extract-password").value = "";
+        el("extract-result").innerHTML =
           `<div class="result-empty">${escapeHtml(t("list.opening"))}</div>`;
-        setTimeout(() => runListWithPath(path), 50);
+        setTimeout(() => openExtractArchive(path), 50);
       } else {
         switchMode("compress");
         const input = el<HTMLInputElement>("compress-sources");
@@ -651,14 +647,14 @@ function closePreview(resetState = true) {
   if (resetState) {
     lastPreviewState = null;
   }
-  el("browser-preview").style.display = "none";
+  el("extract-preview").style.display = "none";
 }
 
 function renderPreviewState() {
-  const previewPanel = el("browser-preview");
-  const title = el("preview-title");
-  const size = el("preview-size");
-  const content = el("preview-content");
+  const previewPanel = el("extract-preview");
+  const title = el("extract-preview-title");
+  const size = el("extract-preview-size");
+  const content = el("extract-preview-content");
 
   if (!lastPreviewState) {
     previewPanel.style.display = "none";
@@ -701,10 +697,10 @@ function renderPreviewState() {
 
 /** Get immediate children (files and directories) under the current browser directory. */
 function getCurrentDirChildren(): { name: string; isDir: boolean; entry: EntryInfo | null }[] {
-  const prefix = browserCurrentDir; // "" for root, "subdir/" otherwise
+  const prefix = extractCurrentDir; // "" for root, "subdir/" otherwise
   const items = new Map<string, { isDir: boolean; entry: EntryInfo | null }>();
 
-  for (const entry of browserEntries) {
+  for (const entry of extractEntriesList) {
     if (!entry.path.startsWith(prefix)) continue;
     let relative = entry.path.substring(prefix.length);
     if (!relative || relative === "/") continue;
@@ -744,13 +740,13 @@ function getCurrentDirChildren(): { name: string; isDir: boolean; entry: EntryIn
 
 /** Render the breadcrumb navigation. */
 function renderBreadcrumb() {
-  const container = el("browser-breadcrumb");
-  if (!browserCurrentDir) {
+  const container = el("extract-browser-breadcrumb");
+  if (!extractCurrentDir) {
     container.innerHTML = `<span class="bc-root bc-active">/</span>`;
     return;
   }
 
-  const parts = browserCurrentDir.replace(/\/$/, "").split("/");
+  const parts = extractCurrentDir.replace(/\/$/, "").split("/");
   let html = `<a href="#" class="bc-root" data-dir="">/</a>`;
   let accumulated = "";
   for (let i = 0; i < parts.length; i++) {
@@ -771,8 +767,8 @@ function renderBreadcrumb() {
   container.querySelectorAll("[data-dir]").forEach((a) => {
     a.addEventListener("click", (e) => {
       e.preventDefault();
-      browserCurrentDir = (a as HTMLElement).dataset.dir ?? "";
-      browserSelected.clear();
+      extractCurrentDir = (a as HTMLElement).dataset.dir ?? "";
+      extractSelectedEntries.clear();
       renderArchiveBrowser();
     });
   });
@@ -780,12 +776,12 @@ function renderBreadcrumb() {
 
 /** Render the archive browser table with current directory contents. */
 function renderArchiveBrowser() {
-  const panel = el("list-result");
+  const panel = el("extract-result");
   const children = getCurrentDirChildren();
-  const entryCount = browserEntries.length;
-  const hasArchive = browserArchivePath.trim().length > 0;
+  const entryCount = extractEntriesList.length;
+  const hasArchive = extractArchivePath.trim().length > 0;
 
-  el("browser-bar").style.display = hasArchive ? "flex" : "none";
+  el("extract-browser-bar").style.display = hasArchive ? "flex" : "none";
   if (!hasArchive) {
     panel.innerHTML = `<div class="result-empty">${escapeHtml(t("list.result.empty"))}</div>`;
     closePreview();
@@ -807,8 +803,8 @@ function renderArchiveBrowser() {
   let rows = "";
   for (let i = 0; i < children.length; i++) {
     const { name, isDir, entry } = children[i];
-    const fullPath = browserCurrentDir + name;
-    const checked = browserSelected.has(fullPath) ? "checked" : "";
+    const fullPath = extractCurrentDir + name;
+    const checked = extractSelectedEntries.has(fullPath) ? "checked" : "";
     const dirClass = isDir ? "dir" : "";
 
     rows += `
@@ -861,9 +857,9 @@ function wireBrowserEvents() {
       const row = target.closest("tr") as HTMLElement;
       const path = row.dataset.path ?? "";
       if (target.checked) {
-        browserSelected.add(path);
+        extractSelectedEntries.add(path);
       } else {
-        browserSelected.delete(path);
+        extractSelectedEntries.delete(path);
       }
       updateSelectionUI();
     });
@@ -887,8 +883,8 @@ function wireBrowserEvents() {
       const path = row.dataset.path ?? "";
 
       if (isDir) {
-        browserCurrentDir = path.endsWith("/") ? path : path + "/";
-        browserSelected.clear();
+        extractCurrentDir = path.endsWith("/") ? path : path + "/";
+        extractSelectedEntries.clear();
         renderArchiveBrowser();
       } else {
         showPreview(path);
@@ -902,16 +898,16 @@ function wireBrowserEvents() {
       e.preventDefault();
 
       const path = row.dataset.path ?? "";
-      if (!path || !browserArchivePath) return;
+      if (!path || !extractArchivePath) return;
 
       // Collect the selected entries, or just this row if nothing selected.
       const paths =
-        browserSelected.size > 0
-          ? [...browserSelected]
+        extractSelectedEntries.size > 0
+          ? [...extractSelectedEntries]
           : [path];
 
       // Show drag status.
-      const dragStatus = el("browser-drag-status");
+      const dragStatus = el("extract-browser-drag-status");
       dragStatus.textContent = t("browser.dragStatus.preparing");
       dragStatus.classList.remove("drag-error");
       dragStatus.style.display = "";
@@ -920,9 +916,9 @@ function wireBrowserEvents() {
       try {
         // Extract entries to a temp directory.
         const tempDir = await prepareDragEntries(
-          browserArchivePath,
+          extractArchivePath,
           paths,
-          browserPassword || undefined,
+          extractPassword || undefined,
         );
 
         // Extract a short temp id from the returned path.
@@ -1001,7 +997,7 @@ function wireBrowserEvents() {
     // Drag-end: only reset UI state; temp dir cleanup is handled by the
     // startDrag onEvent callback (or fallback timeout above).
     row.addEventListener("dragend", () => {
-      const dragStatus = el("browser-drag-status");
+      const dragStatus = el("extract-browser-drag-status");
       dragStatus.style.display = "none";
       dragStatus.classList.remove("drag-error");
 
@@ -1027,9 +1023,9 @@ async function showPreview(path: string) {
 
   try {
     const result = await previewEntry(
-      browserArchivePath,
+      extractArchivePath,
       path,
-      browserPassword || undefined,
+      extractPassword || undefined,
     );
     lastPreviewState = {
       path: result.entry_path,
@@ -1053,68 +1049,68 @@ async function showPreview(path: string) {
 // Archive Browser — selection & extraction
 // ---------------------------------------------------------------------------
 
-function beginBrowserExtract(): number | null {
-  if (!browserArchivePath || browserExtractRunning) {
+function beginExtractOperation(): number | null {
+  if (!extractArchivePath || extractRunning) {
     return null;
   }
 
-  browserExtractRunning = true;
-  browserExtractToken += 1;
+  extractRunning = true;
+  extractToken += 1;
   updateSelectionUI();
-  return browserExtractToken;
+  return extractToken;
 }
 
-function finishBrowserExtract(token: number) {
-  if (browserExtractToken !== token) {
+function finishExtractOperation(token: number) {
+  if (extractToken !== token) {
     return;
   }
 
-  browserExtractRunning = false;
+  extractRunning = false;
   updateSelectionUI();
 }
 
-function isBrowserExtractBlocked(): boolean {
-  if (!browserExtractRunning) {
+function isExtractOperationBlocked(): boolean {
+  if (!extractRunning) {
     return false;
   }
 
-  if (browserArchivePath) {
-    el<HTMLInputElement>("list-archive").value = browserArchivePath;
+  if (extractArchivePath) {
+    el<HTMLInputElement>("extract-archive").value = extractArchivePath;
     renderArchiveBrowser();
   }
-  el<HTMLInputElement>("list-password").value = browserPassword;
+  el<HTMLInputElement>("extract-password").value = extractPassword;
   renderBrowserExtractError(t("browser.error.running"));
   return true;
 }
 
 function updateSelectionUI() {
-  const count = el("browser-selection-count");
-  const extractAllBtn = el<HTMLButtonElement>("browser-extract-all");
-  const extractSelectedBtn = el<HTMLButtonElement>("browser-extract-selected");
-  const extractOutputInput = el<HTMLInputElement>("browser-extract-output");
-  const extractOutputBtn = el<HTMLButtonElement>("browser-extract-output-btn");
-  const listArchiveInput = el<HTMLInputElement>("list-archive");
-  const listArchiveBtn = el<HTMLButtonElement>("list-archive-btn");
-  const listRunBtn = el<HTMLButtonElement>("list-run");
-  const listPasswordInput = el<HTMLInputElement>("list-password");
+  const count = el("extract-browser-selection-count");
+  const extractAllBtn = el<HTMLButtonElement>("extract-browser-all");
+  const extractSelectedBtn = el<HTMLButtonElement>("extract-browser-selected");
+  const extractOutputInput = el<HTMLInputElement>("extract-output");
+  const extractOutputBtn = el<HTMLButtonElement>("extract-output-btn");
+  const listArchiveInput = el<HTMLInputElement>("extract-archive");
+  const listArchiveBtn = el<HTMLButtonElement>("extract-archive-btn");
+  const listRunBtn = el<HTMLButtonElement>("extract-run");
+  const listPasswordInput = el<HTMLInputElement>("extract-password");
 
-  const hasArchive = browserArchivePath.trim().length > 0;
-  const selectedCount = browserSelected.size;
-  count.textContent = browserExtractRunning
+  const hasArchive = extractArchivePath.trim().length > 0;
+  const selectedCount = extractSelectedEntries.size;
+  count.textContent = extractRunning
     ? selectedCount > 0
       ? t("browser.selection.extractingSelected", { count: selectedCount })
       : t("browser.selection.extracting")
     : selectedCount > 0
       ? t("browser.selection.selected", { count: selectedCount })
       : "";
-  extractAllBtn.disabled = !hasArchive || browserExtractRunning;
-  extractSelectedBtn.disabled = !hasArchive || browserExtractRunning || selectedCount === 0;
-  extractOutputInput.disabled = !hasArchive || browserExtractRunning;
-  extractOutputBtn.disabled = !hasArchive || browserExtractRunning;
-  listArchiveInput.disabled = browserExtractRunning;
-  listArchiveBtn.disabled = browserExtractRunning;
-  listRunBtn.disabled = browserExtractRunning;
-  listPasswordInput.disabled = browserExtractRunning;
+  extractAllBtn.disabled = !hasArchive || extractRunning;
+  extractSelectedBtn.disabled = !hasArchive || extractRunning || selectedCount === 0;
+  extractOutputInput.disabled = !hasArchive || extractRunning;
+  extractOutputBtn.disabled = !hasArchive || extractRunning;
+  listArchiveInput.disabled = extractRunning;
+  listArchiveBtn.disabled = extractRunning;
+  listRunBtn.disabled = extractRunning;
+  listPasswordInput.disabled = extractRunning;
 }
 
 function buildExtractErrorsHtml(errors: ExtractArchiveResult["errors"]): string {
@@ -1140,7 +1136,7 @@ function clearBrowserOperationFeedback(resetState = true) {
   if (resetState) {
     lastBrowserOperationState = null;
   }
-  el("list-result")
+  el("extract-result")
     .querySelectorAll(".browser-operation-feedback")
     .forEach((node) => node.remove());
 }
@@ -1173,7 +1169,7 @@ function renderBrowserExtractFeedback(
       </button>
     </div>`;
 
-  el("list-result").appendChild(feedback);
+  el("extract-result").appendChild(feedback);
   if (recordRecent) addRecent(outputDir);
   wireRevealButtons(feedback);
 }
@@ -1185,19 +1181,19 @@ function renderBrowserExtractError(msg: string) {
   const feedback = document.createElement("div");
   feedback.className = "browser-operation-feedback";
   feedback.innerHTML = `<div class="error-message">${escapeHtml(msg)}</div>`;
-  el("list-result").appendChild(feedback);
+  el("extract-result").appendChild(feedback);
 }
 
 async function runExtractAll() {
-  if (!browserArchivePath) {
+  if (!extractArchivePath) {
     renderBrowserExtractError(t("browser.error.openFirst"));
     return;
   }
 
-  syncExtractFormFromArchive(browserArchivePath, browserPassword);
-  const outputInput = el<HTMLInputElement>("browser-extract-output");
+  setExtractArchiveForm(extractArchivePath, extractPassword);
+  const outputInput = el<HTMLInputElement>("extract-output");
   if (!outputInput.value.trim()) {
-    outputInput.value = inferOutputDir(browserArchivePath);
+    outputInput.value = inferOutputDir(extractArchivePath);
   }
 
   const outputDir = outputInput.value.trim();
@@ -1206,22 +1202,22 @@ async function runExtractAll() {
     return;
   }
 
-  const token = beginBrowserExtract();
+  const token = beginExtractOperation();
   if (token === null) {
     return;
   }
 
-  const archivePath = browserArchivePath;
-  const password = browserPassword;
-  const overwrite = el<HTMLInputElement>("browser-overwrite").checked;
+  const archivePath = extractArchivePath;
+  const password = extractPassword;
+  const overwrite = el<HTMLInputElement>("extract-overwrite").checked;
   el<HTMLInputElement>("extract-overwrite").checked = overwrite;
 
-  const extractAllBtn = el<HTMLButtonElement>("browser-extract-all");
+  const extractAllBtn = el<HTMLButtonElement>("extract-browser-all");
   const taskId = `task-extract-all-${Date.now()}`;
   let terminalStatus: TerminalTaskStatus | null = null;
   let terminalMessage: string | undefined;
 
-  bindTaskProgress("list", taskId, "browser.progress.preparingAll");
+  bindTaskProgress("extract", taskId, "browser.progress.preparingAll");
   extractAllBtn.textContent = t("browser.selection.extracting");
   clearBrowserOperationFeedback();
 
@@ -1235,7 +1231,7 @@ async function runExtractAll() {
     );
     terminalStatus = "finished";
 
-    if (browserExtractToken !== token || browserArchivePath !== archivePath) {
+    if (extractToken !== token || extractArchivePath !== archivePath) {
       return;
     }
 
@@ -1244,32 +1240,32 @@ async function runExtractAll() {
     const msg = String(e);
     terminalStatus = msg.toLowerCase().includes("cancelled") ? "cancelled" : "failed";
     terminalMessage = terminalStatus === "cancelled" ? undefined : msg;
-    if (browserExtractToken === token) {
+    if (extractToken === token) {
       renderBrowserExtractError(msg);
     }
   } finally {
     extractAllBtn.textContent = t("browser.extractAll");
     if (terminalStatus) {
-      settleTaskProgressFallback("list", taskId, terminalStatus, terminalMessage);
+      settleTaskProgressFallback("extract", taskId, terminalStatus, terminalMessage);
     }
-    finishBrowserExtract(token);
+    finishExtractOperation(token);
   }
 }
 
 async function extractSelected() {
-  if (!browserArchivePath || browserSelected.size === 0) return;
+  if (!extractArchivePath || extractSelectedEntries.size === 0) return;
 
-  const token = beginBrowserExtract();
+  const token = beginExtractOperation();
   if (token === null) {
     return;
   }
 
-  const archivePath = browserArchivePath;
-  const password = browserPassword;
-  const entryPaths = Array.from(browserSelected);
-  const overwrite = el<HTMLInputElement>("browser-overwrite").checked;
+  const archivePath = extractArchivePath;
+  const password = extractPassword;
+  const entryPaths = Array.from(extractSelectedEntries);
+  const overwrite = el<HTMLInputElement>("extract-overwrite").checked;
   const taskId = `task-extract-entries-${Date.now()}`;
-  const extractSelectedBtn = el<HTMLButtonElement>("browser-extract-selected");
+  const extractSelectedBtn = el<HTMLButtonElement>("extract-browser-selected");
   let terminalStatus: TerminalTaskStatus | null = null;
   let terminalMessage: string | undefined;
 
@@ -1281,14 +1277,14 @@ async function extractSelected() {
       return;
     }
 
-    if (!browserExtractRunning || browserExtractToken !== token || browserArchivePath !== archivePath) {
+    if (!extractRunning || extractToken !== token || extractArchivePath !== archivePath) {
       return;
     }
 
-    syncExtractFormFromArchive(archivePath, password);
+    setExtractArchiveForm(archivePath, password);
     el<HTMLInputElement>("extract-overwrite").checked = overwrite;
 
-    bindTaskProgress("list", taskId, "browser.progress.preparingSelected");
+    bindTaskProgress("extract", taskId, "browser.progress.preparingSelected");
     extractSelectedBtn.textContent = t("browser.selection.extracting");
     clearBrowserOperationFeedback();
 
@@ -1302,7 +1298,7 @@ async function extractSelected() {
     );
     terminalStatus = "finished";
 
-    if (browserExtractToken !== token || browserArchivePath !== archivePath) {
+    if (extractToken !== token || extractArchivePath !== archivePath) {
       return;
     }
 
@@ -1311,15 +1307,15 @@ async function extractSelected() {
     const msg = String(e);
     terminalStatus = msg.toLowerCase().includes("cancelled") ? "cancelled" : "failed";
     terminalMessage = terminalStatus === "cancelled" ? undefined : msg;
-    if (browserExtractToken === token) {
+    if (extractToken === token) {
       renderBrowserExtractError(msg);
     }
   } finally {
     extractSelectedBtn.textContent = t("browser.extractSelected");
     if (terminalStatus) {
-      settleTaskProgressFallback("list", taskId, terminalStatus, terminalMessage);
+      settleTaskProgressFallback("extract", taskId, terminalStatus, terminalMessage);
     }
-    finishBrowserExtract(token);
+    finishExtractOperation(token);
   }
 }
 
@@ -1459,7 +1455,7 @@ function rerenderLocalizedUi() {
     renderTestResult(lastTestResult);
   }
 
-  if (browserArchivePath) {
+  if (extractArchivePath) {
     renderArchiveBrowser();
     if (lastBrowserOperationState?.kind === "success") {
       renderBrowserExtractFeedback(
@@ -1502,7 +1498,7 @@ function switchMode(mode: string) {
 
   syncModeTitle(mode);
 
-  if (mode !== "list") {
+  if (mode !== "extract") {
     closePreview();
   }
 }
@@ -1600,9 +1596,7 @@ async function handleDrop(dt: DataTransfer | null) {
       ? "extract-result"
       : currentMode === "test"
         ? "test-result"
-        : currentMode === "list"
-          ? "list-result"
-          : "compress-result";
+        : "compress-result";
     showError(targetId, t("preview.dropUnsupported"));
     return;
   }
@@ -1611,22 +1605,22 @@ async function handleDrop(dt: DataTransfer | null) {
   const nonArchives = paths.filter((p) => !isArchiveExt(p));
 
   if (archives.length > 0 && nonArchives.length === 0) {
-    switchMode("list");
-    el<HTMLInputElement>("list-archive").value = archives[0];
-    el<HTMLInputElement>("list-password").value = "";
+    switchMode("extract");
+    el<HTMLInputElement>("extract-archive").value = archives[0];
+    el<HTMLInputElement>("extract-password").value = "";
 
     if (archives.length === 1) {
-      el("list-result").innerHTML =
+      el("extract-result").innerHTML =
         `<div class="running-text"><span class="running-spinner"></span> ${escapeHtml(t("list.opening"))}</div>`;
     } else {
-      el("list-result").innerHTML =
+      el("extract-result").innerHTML =
         `<div class="info-message">${escapeHtml(t("list.multipleDropped", {
           count: archives.length,
           name: getBasename(archives[0]),
         }))}</div>`;
     }
 
-    setTimeout(() => runListWithPath(archives[0]), 50);
+    setTimeout(() => openExtractArchive(archives[0]), 50);
     return;
   }
 
@@ -1737,60 +1731,48 @@ async function runExtract() {
   }
 }
 
-/** Run list with the path already in the input field (normal interaction). */
-async function runList() {
-  const archivePath = el<HTMLInputElement>("list-archive").value.trim();
-  if (!archivePath) {
-    showError("list-result", t("list.validation.archive"));
-    return;
-  }
-  await runListWithPath(archivePath);
-}
 
 /** Run list with an explicit archive path (from drop, recent chip, opened-archives, etc.) */
-async function runListWithPath(archivePath: string) {
-  if (isBrowserExtractBlocked()) {
+async function openExtractArchive(archivePath: string) {
+  if (isExtractOperationBlocked()) {
     return;
   }
 
-  el<HTMLInputElement>("list-archive").value = archivePath;
-  const password = el<HTMLInputElement>("list-password").value.trim() || undefined;
+  el<HTMLInputElement>("extract-archive").value = archivePath;
+  const password = el<HTMLInputElement>("extract-password").value.trim() || undefined;
 
-  const runButton = el<HTMLButtonElement>("list-run");
-  runButton.disabled = true;
-  browserEntries = [];
-  browserArchivePath = "";
-  browserPassword = password ?? "";
-  browserCurrentDir = "";
-  browserSelected.clear();
+  extractEntriesList = [];
+  extractArchivePath = "";
+  extractPassword = password ?? "";
+  extractCurrentDir = "";
+  extractSelectedEntries.clear();
   lastBrowserOperationState = null;
   lastPreviewState = null;
   updateSelectionUI();
-  resetTaskProgress("list");
-  el("browser-bar").style.display = "none";
+  resetTaskProgress("extract");
+  el("extract-browser-bar").style.display = "none";
   closePreview();
-  el("list-result").innerHTML =
+  el("extract-result").innerHTML =
     `<div class="running-text"><span class="running-spinner"></span> ${escapeHtml(t("list.running"))}</div>`;
 
   try {
     const entries = await listArchive(archivePath, password);
-    browserEntries = entries;
-    browserArchivePath = archivePath;
-    browserPassword = password ?? "";
-    browserCurrentDir = "";
-    browserSelected.clear();
+    extractEntriesList = entries;
+    extractArchivePath = archivePath;
+    extractPassword = password ?? "";
+    extractCurrentDir = "";
+    extractSelectedEntries.clear();
 
-    syncExtractFormFromArchive(archivePath, browserPassword);
-    syncBrowserExtractOutputFromArchive(archivePath);
+    setExtractArchiveForm(archivePath, extractPassword);
+    setExtractOutputDir(archivePath);
 
     addRecent(archivePath);
     renderArchiveBrowser();
   } catch (e) {
-    browserArchivePath = "";
-    showError("list-result", String(e));
+    extractArchivePath = "";
+    showError("extract-result", String(e));
     updateSelectionUI();
   } finally {
-    runButton.disabled = false;
   }
 }
 
@@ -1878,7 +1860,7 @@ window.addEventListener("DOMContentLoaded", async () => {
 
   resetTaskProgress("compress");
   resetTaskProgress("extract");
-  resetTaskProgress("list");
+  resetTaskProgress("extract");
   updateSelectionUI();
 
   window.addEventListener(LOCALE_CHANGED_EVENT, () => {
@@ -1988,22 +1970,21 @@ window.addEventListener("DOMContentLoaded", async () => {
   // List — archive browser
   // -----------------------------------------------------------------------
 
-  el("list-archive-btn").addEventListener("click", async () => {
+  el("extract-archive-btn").addEventListener("click", async () => {
     const path = await pickSingleFile();
     if (!path) return;
-    el<HTMLInputElement>("list-archive").value = path;
+    el<HTMLInputElement>("extract-archive").value = path;
   });
 
-  el("browser-extract-output-btn").addEventListener("click", async () => {
+  el("extract-output-btn").addEventListener("click", async () => {
     const path = await pickDirectory();
     if (!path) return;
-    el<HTMLInputElement>("browser-extract-output").value = path;
+    el<HTMLInputElement>("extract-output").value = path;
   });
 
-  el("list-run").addEventListener("click", runList);
-  el("browser-extract-all").addEventListener("click", runExtractAll);
-  el("browser-extract-selected").addEventListener("click", extractSelected);
-  el("preview-close").addEventListener("click", () => {
+  el("extract-browser-all").addEventListener("click", runExtractAll);
+  el("extract-browser-selected").addEventListener("click", extractSelected);
+  el("extract-preview-close").addEventListener("click", () => {
     closePreview();
   });
 
@@ -2031,12 +2012,12 @@ window.addEventListener("DOMContentLoaded", async () => {
     const pending = await getOpenedArchives();
     if (pending.length > 0) {
       const firstPath = pending[0];
-      switchMode("list");
-      el<HTMLInputElement>("list-archive").value = firstPath;
-      el<HTMLInputElement>("list-password").value = "";
-      el("list-result").innerHTML =
+      switchMode("extract");
+      el<HTMLInputElement>("extract-archive").value = firstPath;
+      el<HTMLInputElement>("extract-password").value = "";
+      el("extract-result").innerHTML =
         `<div class="running-text"><span class="running-spinner"></span> ${escapeHtml(t("list.openingFromAssociation"))}</div>`;
-      setTimeout(() => runListWithPath(firstPath), 100);
+      setTimeout(() => openExtractArchive(firstPath), 100);
     }
   } catch (e) {
     console.debug("getOpenedArchives skipped (browser preview):", e);
@@ -2047,12 +2028,12 @@ window.addEventListener("DOMContentLoaded", async () => {
       const paths = event.payload;
       if (paths.length > 0) {
         const firstPath = paths[0];
-        switchMode("list");
-        el<HTMLInputElement>("list-archive").value = firstPath;
-        el<HTMLInputElement>("list-password").value = "";
-        el("list-result").innerHTML =
+        switchMode("extract");
+        el<HTMLInputElement>("extract-archive").value = firstPath;
+        el<HTMLInputElement>("extract-password").value = "";
+        el("extract-result").innerHTML =
           `<div class="running-text"><span class="running-spinner"></span> ${escapeHtml(t("list.opening"))}</div>`;
-        runListWithPath(firstPath);
+        openExtractArchive(firstPath);
       }
     });
     unlistenOpenedArchives = unlisten;

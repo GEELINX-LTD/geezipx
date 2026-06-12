@@ -11,7 +11,7 @@
       <div class="drop-overlay-content">
         <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
         <p data-i18n="drop.title">将文件或文件夹拖放到这里</p>
-        <span class="drop-hint" data-i18n="drop.hint">松开即可开始——归档会自动在“浏览归档”中打开，普通文件会进入“压缩”</span>
+        <span class="drop-hint" data-i18n="drop.hint">松开即可开始——归档会在"解压缩"中打开，普通文件会进入"压缩"</span>
       </div>
     </div>
 
@@ -101,6 +101,7 @@
           </section>
 
           <section id="panel-extract" class="panel" role="tabpanel">
+            <!-- 归档选择 -->
             <div class="field">
               <label data-i18n="extract.archiveFile">归档文件</label>
               <div class="input-row">
@@ -109,31 +110,13 @@
               </div>
             </div>
 
-            <div class="field">
-              <label data-i18n="extract.outputDirectory">输出目录</label>
-              <div class="input-row">
-                <input type="text" id="extract-output" readonly data-i18n-placeholder="extract.outputPlaceholder" placeholder="根据归档自动填写..." />
-                <button id="extract-output-btn" class="btn-secondary" data-i18n="common.browse">浏览</button>
-              </div>
-            </div>
-
-            <div class="field">
-              <label class="checkbox-label">
-                <input type="checkbox" id="extract-overwrite" checked />
-                <span data-i18n="extract.overwrite">覆盖已存在文件</span>
-              </label>
-            </div>
-
+            <!-- 密码 -->
             <div class="field">
               <label data-i18n="extract.password">密码（用于加密归档）</label>
               <input type="password" id="extract-password" data-i18n-placeholder="extract.passwordPlaceholder" placeholder="可选——留空表示无密码" />
             </div>
 
-            <div class="actions">
-              <button id="extract-run" class="btn-primary" data-i18n="extract.run">开始解压</button>
-              <button id="extract-cancel" class="btn-cancel" style="visibility:hidden" aria-hidden="true" data-i18n="extract.cancel">取消</button>
-            </div>
-
+            <!-- 进度（隐藏，任务运行时显示） -->
             <div id="extract-progress" class="task-progress" hidden>
               <div class="task-progress-header">
                 <span id="extract-progress-stage" class="task-progress-stage"></span>
@@ -145,74 +128,44 @@
               <progress id="extract-progress-bar" class="task-progress-bar" max="100"></progress>
             </div>
 
-            <div id="extract-result" class="result-panel">
-              <div class="result-empty" data-i18n="extract.result.empty">请选择归档文件和输出目录</div>
-            </div>
-          </section>
-
-          <section id="panel-list" class="panel" role="tabpanel">
-            <div class="field">
-              <label data-i18n="list.archiveFile">归档文件</label>
-              <div class="input-row">
-                <input type="text" id="list-archive" readonly data-i18n-placeholder="list.archivePlaceholder" placeholder="将归档拖到这里或点击浏览..." />
-                <button id="list-archive-btn" class="btn-secondary" data-i18n="common.browse">浏览</button>
-              </div>
-            </div>
-
-            <div class="field">
-              <label data-i18n="list.password">密码（用于加密归档）</label>
-              <input type="password" id="list-password" data-i18n-placeholder="list.passwordPlaceholder" placeholder="可选——留空表示无密码" />
-            </div>
-
-            <div class="actions">
-              <button id="list-run" class="btn-primary" data-i18n="list.run">打开归档</button>
-            </div>
-
-            <div id="browser-bar" class="browser-bar" style="display:none">
-              <div id="browser-breadcrumb" class="browser-breadcrumb"></div>
+            <!-- 浏览器工具栏（打开归档后显示） -->
+            <div id="extract-browser-bar" class="browser-bar" style="display:none">
+              <div id="extract-browser-breadcrumb" class="browser-breadcrumb"></div>
               <div class="browser-actions">
-                <button id="browser-extract-all" class="btn-primary" disabled data-i18n="browser.extractAll">全部解压</button>
-                <button id="browser-extract-selected" class="btn-secondary" disabled data-i18n="browser.extractSelected">解压所选</button>
-                <span id="browser-drag-status" class="drag-status" data-i18n="browser.dragStatus.idle">将行拖到桌面即可导出</span>
-                <span id="browser-selection-count" class="browser-selection-count"></span>
+                <button id="extract-browser-all" class="btn-primary" disabled data-i18n="browser.extractAll">全部解压</button>
+                <button id="extract-browser-selected" class="btn-secondary" disabled data-i18n="browser.extractSelected">解压所选</button>
+                <span id="extract-browser-drag-status" class="drag-status" data-i18n="browser.dragStatus.idle">将行拖到桌面即可导出</span>
+                <span id="extract-browser-selection-count" class="browser-selection-count"></span>
                 <label class="checkbox-label browser-overwrite-label">
-                  <input type="checkbox" id="browser-overwrite" />
+                  <input type="checkbox" id="extract-overwrite" checked />
                   <span data-i18n="browser.overwrite">覆盖已存在文件</span>
                 </label>
               </div>
               <div class="browser-extract-target">
-                <label for="browser-extract-output" data-i18n="browser.extractAllOutput">全部解压输出目录</label>
+                <label for="extract-output" data-i18n="browser.extractAllOutput">全部解压输出目录</label>
                 <div class="input-row">
-                  <input type="text" id="browser-extract-output" data-i18n-placeholder="browser.extractOutputPlaceholder" placeholder="根据归档自动填写..." />
-                  <button id="browser-extract-output-btn" class="btn-secondary" data-i18n="common.browse">浏览</button>
+                  <input type="text" id="extract-output" readonly data-i18n-placeholder="browser.extractOutputPlaceholder" placeholder="根据归档自动填写..." />
+                  <button id="extract-output-btn" class="btn-secondary" data-i18n="common.browse">浏览</button>
                 </div>
               </div>
             </div>
 
-            <div id="list-progress" class="task-progress" hidden>
-              <div class="task-progress-header">
-                <span id="list-progress-stage" class="task-progress-stage"></span>
-                <span id="list-progress-percent" class="task-progress-percent"></span>
-              </div>
-              <div id="list-progress-message" class="task-progress-message"></div>
-              <div id="list-progress-entry" class="task-progress-entry"></div>
-              <div id="list-progress-stats" class="task-progress-stats"></div>
-              <progress id="list-progress-bar" class="task-progress-bar" max="100"></progress>
+            <!-- 结果区域（空状态 / 文件浏览器 / 提取反馈） -->
+            <div id="extract-result" class="result-panel">
+              <div class="result-empty" data-i18n="extract.result.empty">请选择归档文件，文件列表将在此显示</div>
             </div>
 
-            <div id="list-result" class="result-panel">
-              <div class="result-empty" data-i18n="list.result.empty">请选择一个归档文件，然后点击“打开归档”</div>
-            </div>
-
-            <div id="browser-preview" class="browser-preview" style="display:none">
+            <!-- 文件预览面板 -->
+            <div id="extract-preview" class="browser-preview" style="display:none">
               <div class="preview-header">
-                <span id="preview-title" class="preview-title"></span>
-                <span id="preview-size" class="preview-size"></span>
-                <button id="preview-close" class="btn-secondary preview-close-btn" type="button">&times;</button>
+                <span id="extract-preview-title" class="preview-title"></span>
+                <span id="extract-preview-size" class="preview-size"></span>
+                <button id="extract-preview-close" class="btn-secondary preview-close-btn" type="button">&times;</button>
               </div>
-              <pre id="preview-content" class="preview-content"></pre>
+              <pre id="extract-preview-content" class="preview-content"></pre>
             </div>
           </section>
+
 
           <section id="panel-test" class="panel" role="tabpanel">
             <div class="field">
@@ -256,7 +209,7 @@
               <div class="home-card">
                 <span class="home-card-icon">🔍</span>
                 <strong data-i18n="home.features.browse.title">浏览</strong>
-                <span class="home-card-desc" data-i18n="home.features.browse.desc">无需解压即可查看归档内容</span>
+                <span class="home-card-desc" data-i18n="home.features.browse.desc">打开压缩包即可查看内容</span>
               </div>
               <div class="home-card">
                 <span class="home-card-icon">✅</span>
