@@ -53,6 +53,10 @@ jobs:
           toolchain: stable
           components: clippy
           cache: true
+      - name: Use static CRT on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: echo "RUSTFLAGS=-C target-feature=+crt-static" >> $env:GITHUB_ENV
       - run: cargo clippy --workspace --exclude geezipx-gui --all-targets --all-features -- -D warnings
 
   test:
@@ -67,6 +71,10 @@ jobs:
         with:
           toolchain: stable
           cache: true
+      - name: Use static CRT on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: echo "RUSTFLAGS=-C target-feature=+crt-static" >> $env:GITHUB_ENV
       - run: cargo test --workspace --exclude geezipx-gui --all-features
 
   build:
@@ -90,6 +98,10 @@ jobs:
         with:
           toolchain: stable
           cache: true
+      - name: Use static CRT on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: echo "RUSTFLAGS=-C target-feature=+crt-static" >> $env:GITHUB_ENV
       - run: cargo build --release --workspace --exclude geezipx-gui
       - uses: actions/upload-artifact@v7
         with:

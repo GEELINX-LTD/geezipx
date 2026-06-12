@@ -253,7 +253,7 @@ fn collect_dir_contents(
 ) -> io::Result<bool> {
     let mut has_children = false;
     let mut dir_entries = fs::read_dir(dir)?.collect::<io::Result<Vec<_>>>()?;
-    dir_entries.sort_by(|a, b| a.file_name().cmp(&b.file_name()));
+    dir_entries.sort_by_key(|a| a.file_name());
 
     for entry in dir_entries {
         let path = entry.path();
@@ -725,7 +725,7 @@ mod tests {
         std::fs::create_dir_all(src.join("b_nested")).unwrap();
         std::fs::write(src.join("b_nested/file.txt"), "nested file").unwrap();
 
-        let entries = collect_inputs(&[src.clone()], true).unwrap();
+        let entries = collect_inputs(std::slice::from_ref(&src), true).unwrap();
         let archive_paths: Vec<_> = entries
             .iter()
             .map(|entry| entry.archive_path.clone())
@@ -747,7 +747,7 @@ mod tests {
         std::fs::create_dir_all(src.join("a_parent/empty")).unwrap();
         std::fs::write(src.join("z.txt"), "later file").unwrap();
 
-        let entries = collect_inputs(&[src.clone()], true).unwrap();
+        let entries = collect_inputs(std::slice::from_ref(&src), true).unwrap();
         let archive_paths: Vec<_> = entries
             .iter()
             .map(|entry| entry.archive_path.clone())
@@ -770,7 +770,7 @@ mod tests {
         let file = temp.path().join("b.txt");
         std::fs::write(&file, "top-level").unwrap();
 
-        let entries = collect_inputs(&[empty_dir.clone(), file.clone()], true).unwrap();
+        let entries = collect_inputs(&[empty_dir, file], true).unwrap();
         let archive_paths: Vec<_> = entries
             .iter()
             .map(|entry| entry.archive_path.clone())
