@@ -74,9 +74,10 @@
     const paths = [...archiveStore.selectedPaths];
     if (paths.length === 0) return;
     try {
-      const tempId = await prepareDragEntries(archiveStore.archivePath, paths, archiveStore.archivePassword || undefined);
-      await startDrag({ item: [tempId], icon: '' });
-      cleanupDragTempDir(tempId).catch(() => {});
+      const tempDir = await prepareDragEntries(archiveStore.archivePath, paths, archiveStore.archivePassword || undefined);
+      const filePaths = paths.map(p => `${tempDir}/${p}`);
+      await startDrag({ item: filePaths, icon: '' });
+      cleanupDragTempDir(tempDir).catch(() => {});
     } catch { /* silent */ }
   }
 
