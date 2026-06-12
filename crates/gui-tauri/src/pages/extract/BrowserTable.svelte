@@ -4,10 +4,9 @@
   import { prepareDragEntries, cleanupDragTempDir } from '../../bridge';
   import { startDrag } from '@crabnebula/tauri-plugin-drag';
 
-  let dragMouseDown = false;
-  let dragStartX = 0;
-  let dragStartY = 0;
-  const DRAG_THRESHOLD = 5; // pixels
+  let dragTracking = $state(false);
+  let dragStartX = $state(0);
+  let dragStartY = $state(0);
 
   function formatBytes(bytes: number): string {
     if (bytes === 0) return '—';
@@ -45,51 +44,40 @@
     }
   }
 
-  function onRowMouseDown(e: MouseEvent, entryPath: string) {
-    dragMouseDown = true;
+  function onDragHandleDown(e: MouseEvent, entryPath: string) {
+    e.stopPropagation();
+    e.preventDefault();
+    if (!archiveStore.selectedPaths.has(entryPath)) {
+      archiveStore.clearSelection();
+      archiveStore.toggleSelection(entryPath);
+    }
+    dragTracking = true;
     dragStartX = e.clientX;
     dragStartY = e.clientY;
   }
 
-  async function onRowMouseMove(e: MouseEvent, entryPath: string) {
-    if (!dragMouseDown) return;
-
+  function onWindowMouseMove(e: MouseEvent) {
+    if (!dragTracking) return;
     const dx = Math.abs(e.clientX - dragStartX);
     const dy = Math.abs(e.clientY - dragStartY);
-
-    if (dx < DRAG_THRESHOLD && dy < DRAG_THRESHOLD) return;
-
-    // Drag threshold exceeded — start native drag
-    dragMouseDown = false;
-
-    if (!archiveStore.archivePath) return;
-
-    const paths = archiveStore.selectedPaths.has(entryPath)
-      ? [...archiveStore.selectedPaths]
-      : [entryPath];
-
-    try {
-      const tempId = await prepareDragEntries(
-        archiveStore.archivePath,
-        paths,
-        archiveStore.archivePassword || undefined
-      );
-
-      // Initiate OS-level native drag
-      await startDrag({
-        item: [tempId],
-        icon: '',
-      });
-
-      // Clean up after drag completes
-      cleanupDragTempDir(tempId).catch(() => {});
-    } catch {
-      // drag prepare failed — silently skip
-    }
+    if (dx < 5 && dy < 5) return;
+    dragTracking = false;
+    initiateDrag();
   }
 
-  function onRowMouseUp() {
-    dragMouseDown = false;
+  function onWindowMouseUp() {
+    dragTracking = false;
+  }
+
+  async function initiateDrag() {
+    if (!archiveStore.archivePath) return;
+    const paths = [...archiveStore.selectedPaths];
+    if (paths.length === 0) return;
+    try {
+      const tempId = await prepareDragEntries(archiveStore.archivePath, paths, archiveStore.archivePassword || undefined);
+      await startDrag({ item: [tempId], icon: '' });
+      cleanupDragTempDir(tempId).catch(() => {});
+    } catch { /* silent */ }
   }
 
   let allSelected = $derived(
@@ -114,6 +102,7 @@
           <th class="col-check">
             <input type="checkbox" checked={allSelected} onchange={toggleSelectAll} />
           </th>
+          <th class="col-drag"></th>
           <th class="col-name">{localeStore.t('browser.table.name')}</th>
           <th class="col-size">{localeStore.t('browser.table.size')}</th>
           <th class="col-type">{localeStore.t('browser.table.type')}</th>
@@ -125,10 +114,6 @@
           <tr
             class="browser-row"
             class:selected={archiveStore.selectedPaths.has(child.entry.path)}
-            onmousedown={(e) => onRowMouseDown(e, child.entry.path)}
-            onmousemove={(e) => onRowMouseMove(e, child.entry.path)}
-            onmouseup={onRowMouseUp}
-            onmouseleave={onRowMouseUp}
           >
             <td class="col-check" onclick={(e) => e.stopPropagation()}>
               <input
@@ -136,6 +121,9 @@
                 checked={archiveStore.selectedPaths.has(child.entry.path)}
                 onchange={() => archiveStore.toggleSelection(child.entry.path)}
               />
+            </td>
+            <td class="col-drag" onmousedown={(e) => onDragHandleDown(e, child.entry.path)}>
+              <span class="drag-handle" title={localeStore.t('browser.table.dragHandle')} aria-label={localeStore.t('browser.table.dragHandle')}>⋮⋮</span>
             </td>
             <td class="col-name">
               <button class="row-name-btn" onclick={() => handleRowClick(child.entry.path, child.isDir)} ondblclick={() => handleRowDblClick(child.entry.path, child.isDir)}>
@@ -160,6 +148,7 @@
     {localeStore.t('browser.info', { current: archiveStore.currentChildren.length, total: archiveStore.entryCount })}
   </div>
 {/if}
+<svelte:window onmousemove={onWindowMouseMove} onmouseup={onWindowMouseUp} />
 
 <style>
   .browser-table-wrapper {
@@ -192,6 +181,10 @@
   }
   td { padding: var(--space-1) var(--space-3); }
   .col-check { width: 32px; text-align: center; }
+  .col-drag { width: 24px; text-align: center; cursor: grab; }
+  .col-drag:active { cursor: grabbing; }
+  .drag-handle { color: var(--color-text-muted); font-size: 14px; user-select: none; letter-spacing: -2px; }
+  .browser-row:hover .drag-handle { color: var(--color-text-secondary); }
   .col-size { width: 90px; text-align: right; white-space: nowrap; font-size: var(--text-xs); color: var(--color-text-secondary); }
   .col-type { width: 80px; font-size: var(--text-xs); color: var(--color-text-secondary); white-space: nowrap; }
   .col-date { width: 120px; font-size: var(--text-xs); color: var(--color-text-muted); white-space: nowrap; }

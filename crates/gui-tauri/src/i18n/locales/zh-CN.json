@@ -65,7 +65,8 @@
     "result": "已解压 {{files}} 个文件（{{bytes}} 字节）{{skipped}}",
     "resultSkipped": "，跳过 {{count}} 个",
     "run": "解压",
-    "cancel": "取消"
+    "cancel": "取消",
+    "progressTitle": "正在提取..."
   },
   "browser": {
     "info": "显示 {{current}} 项 · 归档共 {{total}} 项",
@@ -77,7 +78,8 @@
       "name": "名称",
       "size": "大小",
       "type": "类型",
-      "modified": "修改时间"
+      "modified": "修改时间",
+      "dragHandle": "拖拽以提取"
     },
     "selectAll": "全选",
     "extractAll": "全部解压",

@@ -65,7 +65,8 @@
     "result": "Extracted {{files}} files ({{bytes}} bytes){{skipped}}",
     "resultSkipped": ", {{count}} skipped",
     "run": "Extract",
-    "cancel": "Cancel"
+    "cancel": "Cancel",
+    "progressTitle": "Extracting..."
   },
   "browser": {
     "info": "Showing {{current}} items · Archive: {{total}} entries",
@@ -77,7 +78,8 @@
       "name": "Name",
       "size": "Size",
       "type": "Type",
-      "modified": "Modified"
+      "modified": "Modified",
+      "dragHandle": "Drag to extract"
     },
     "selectAll": "Select all",
     "extractAll": "Extract All",
