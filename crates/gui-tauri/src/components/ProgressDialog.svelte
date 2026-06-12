@@ -6,8 +6,11 @@
 
   let { kind, oncancel }: { kind: 'compress' | 'extract'; oncancel?: () => void } = $props();
 
-  let visible = $derived(taskStore.isRunning && taskStore.activeTask?.kind === kind);
+  let visible = $derived(taskStore.isVisible && taskStore.activeTask?.kind === kind);
   let title = $derived(taskStore.activeTask?.message || taskStore.activeTask?.stage || '');
+  let isRunning = $derived(taskStore.activeTask?.status === 'pending' || taskStore.activeTask?.status === 'running');
+  let isFinished = $derived(taskStore.activeTask?.status === 'finished');
+  let isFailed = $derived(taskStore.activeTask?.status === 'failed' || taskStore.activeTask?.status === 'cancelled');
 
   async function handleCancel() {
     const taskId = taskStore.activeTask?.taskId;
@@ -21,20 +24,36 @@
     oncancel?.();
   }
 
-  function handleBackdropClick() {
+  function handleDismiss() {
+    taskStore.dismissTask();
     oncancel?.();
+  }
+
+  function handleBackdropClick() {
+    if (!isRunning) {
+      handleDismiss();
+    } else {
+      oncancel?.();
+    }
   }
 </script>
 
 {#if visible}
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div class="backdrop" onclick={handleBackdropClick} onkeydown={(e) => { if (e.key === 'Escape') handleBackdropClick(); }} role="presentation">
     <div class="dialog-card" onclick={(e) => e.stopPropagation()} onkeydown={(e) => { if (e.key === 'Escape') handleBackdropClick(); }} role="dialog" aria-modal="true" tabindex="-1">
       <h3 class="dialog-title">{title}</h3>
       <ProgressBar kind={kind} />
       <div class="dialog-actions">
-        <button class="btn-cancel" onclick={handleCancel}>
-          {localeStore.t('common.cancel')}
-        </button>
+        {#if isRunning}
+          <button class="btn-cancel" onclick={handleCancel}>
+            {localeStore.t('common.cancel')}
+          </button>
+        {:else}
+          <button class="btn-dismiss" onclick={handleDismiss}>
+            {localeStore.t('common.close')}
+          </button>
+        {/if}
       </div>
     </div>
   </div>
@@ -95,5 +114,21 @@
   .btn-cancel:hover {
     background: var(--color-border);
     color: var(--color-text);
+  }
+
+  .btn-dismiss {
+    padding: var(--space-2) var(--space-4);
+    background: var(--color-primary);
+    border: 1px solid var(--color-primary);
+    border-radius: var(--radius-md);
+    color: #fff;
+    font-size: var(--text-sm);
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 150ms ease, opacity 150ms ease;
+  }
+
+  .btn-dismiss:hover {
+    opacity: 0.85;
   }
 </style>

@@ -5,7 +5,7 @@
   import { archiveStore } from '../../stores/archiveStore.svelte';
   import { taskStore } from '../../stores/taskStore.svelte';
 
-  let disabled = $derived(taskStore.isRunning && taskStore.activeTask?.kind === 'extract');
+  let disabled = $derived(taskStore.isVisible && taskStore.activeTask?.kind === 'extract');
   let lastArchivePath = '';
   let outputDir = $state('');
 

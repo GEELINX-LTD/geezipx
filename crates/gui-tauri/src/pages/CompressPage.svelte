@@ -18,7 +18,7 @@
   let result: CompressArchiveResult | null = $state(null);
   let error = $state<string | null>(null);
 
-  let isRunning = $derived(taskStore.isRunning && taskStore.activeTask?.kind === 'compress');
+  let isRunning = $derived(taskStore.isVisible && taskStore.activeTask?.kind === 'compress');
 
   let levelPlaceholder = $derived(
     formats.find(f => f.name === format)?.level_hint || localeStore.t('compress.levelPlaceholder')
@@ -43,7 +43,9 @@
     const first = sourcePaths[0].replace(/\/$/, '');
     const base = first.split('/').pop() || 'archive';
     const ext = format === 'tar.gz' ? '.tar.gz' : `.${format}`;
-    outputPath = base + ext;
+    // Use the source file's parent directory so the output is created next to the source
+    const parent = first.substring(0, first.lastIndexOf('/') + 1);
+    outputPath = parent + base + ext;
   }
 
   async function browseFiles() {

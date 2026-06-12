@@ -20,9 +20,8 @@ interface TaskState {
 // --- Reactive State ---
 let activeTask: TaskState | null = $state(null);
 
-let isRunning = $derived(
-  activeTask !== null &&
-    (activeTask.status === 'pending' || activeTask.status === 'running')
+let isVisible = $derived(
+  (activeTask as TaskState | null) !== null
 );
 
 // --- Functions ---
@@ -54,7 +53,14 @@ function updateTask(payload: TaskProgressPayload): void {
     activeTask.kind = payload.kind;
   }
   if (payload.status) {
-    activeTask.status = payload.status;
+    const statusMap: Record<string, TaskState['status']> = {
+      started: 'pending',
+      progress: 'running',
+      finished: 'finished',
+      cancelled: 'cancelled',
+      failed: 'failed',
+    };
+    activeTask.status = statusMap[payload.status] ?? 'running';
   }
   if (payload.stage) {
     activeTask.stage = payload.stage;
@@ -85,6 +91,7 @@ function updateTask(payload: TaskProgressPayload): void {
   }
 }
 
+
 function finishTask(
   status: 'finished' | 'cancelled' | 'failed',
   message?: string
@@ -94,10 +101,11 @@ function finishTask(
     if (message !== undefined) {
       activeTask.message = message;
     }
+    // Keep the dialog visible so the user can see the result before dismissing
   }
 }
 
-function resetTask(): void {
+function dismissTask(): void {
   activeTask = null;
 }
 
@@ -106,11 +114,11 @@ export const taskStore = {
   get activeTask() {
     return activeTask;
   },
-  get isRunning() {
-    return isRunning;
+  get isVisible() {
+    return isVisible;
   },
   startTask,
   updateTask,
   finishTask,
-  resetTask,
+  dismissTask,
 };
