@@ -3,270 +3,113 @@
     "title": "GeeZipX"
   },
   "nav": {
-    "home": "🏠 主页",
-    "compress": "📦 压缩",
-    "extract": "📂 解压缩",
-    "settings": "⚙️ 设置",
-    "about": "ℹ️ 关于"
-  },
-  "page": {
     "home": "主页",
     "compress": "压缩",
     "extract": "解压缩",
     "settings": "设置",
-    "about": "关于",
-    "list": "浏览归档",
-    "test": "测试完整性"
+    "about": "关于"
   },
   "common": {
     "browse": "浏览",
     "saveAs": "另存为",
-    "revealInFolder": "在文件夹中显示",
-    "openFolder": "打开文件夹",
+    "openFile": "打开文件",
     "loading": "加载中...",
     "error": "错误",
-    "cancelled": "操作已由用户取消。",
-    "moreCount": "+还有 {{count}} 个",
-    "filesSelected": "已选择 {{count}} 个文件",
-    "currentEntry": "当前条目：{{entry}}"
+    "cancel": "取消",
+    "addFiles": "添加文件"
   },
-  "dialog": {
-    "selectFiles": "选择文件",
-    "selectDirectory": "选择目录",
-    "saveArchiveAs": "归档另存为",
-    "selectArchiveFile": "选择归档文件",
-    "chooseOutput": "选择输出目录"
+  "home": {
+    "createArchive": "创建归档",
+    "createArchiveDesc": "将文件压缩为 ZIP、TAR、7z 等格式",
+    "openArchive": "打开归档",
+    "openArchiveDesc": "浏览并提取归档中的文件",
+    "title": "欢迎使用 GeeZipX",
+    "subtitle": "高性能跨平台压缩工具"
   },
   "drop": {
-    "title": "将文件或文件夹拖放到这里",
-    "hint": "松开即可开始——归档会自动在“浏览归档”中打开，普通文件会进入“压缩”"
+    "title": "将文件拖放到这里",
+    "hint": "归档文件将进入解压缩 · 普通文件将进入压缩"
   },
   "recent": {
     "label": "最近"
   },
-  "home": {
-    "title": "欢迎使用 GeeZipX",
-    "subtitle": "高性能跨平台压缩/解压缩工具",
-    "features": {
-      "compress": {
-        "title": "压缩",
-        "desc": "支持 ZIP / TAR / TAR.GZ / TAR.ZST / TAR.XZ"
-      },
-      "extract": {
-        "title": "解压缩",
-        "desc": "支持 ZIP / TAR / GZ / ZST / XZ / 7Z / RAR"
-      },
-      "browse": {
-        "title": "浏览",
-        "desc": "无需解压即可查看归档内容"
-      },
-      "test": {
-        "title": "校验",
-        "desc": "测试归档完整性"
-      }
-    }
-  },
   "compress": {
     "sourceFiles": "源文件",
-    "sourcePlaceholder": "将文件拖到这里或点击浏览...",
-    "outputArchive": "输出归档",
-    "outputPlaceholder": "根据源路径自动填写...",
+    "sourcePlaceholder": "将文件拖到这里或点击浏览",
     "format": "格式",
     "level": "压缩级别",
     "levelPlaceholder": "自动",
-    "jobs": "任务数（线程）",
-    "jobsPlaceholder": "自动",
     "password": "密码（ZIP / 7z）",
-    "passwordPlaceholder": "可选——留空表示不加密",
+    "passwordPlaceholder": "可选",
+    "output": "输出路径",
+    "outputPlaceholder": "根据源路径自动填写",
     "run": "开始压缩",
     "cancel": "取消",
-    "configured": "已配置。点击“开始压缩”即可开始。",
-    "configuredDropped": "已根据拖放内容完成配置。点击“开始压缩”即可开始。",
-    "validation": {
-      "sources": "请至少选择一个源文件或目录。",
-      "output": "请选择输出路径。"
-    },
-    "progress": {
-      "preparing": "正在准备压缩..."
-    },
-    "result": {
-      "empty": "请先配置源文件，然后点击“开始压缩”",
-      "success": "压缩已成功完成",
-      "filesAdded": "已添加文件",
-      "directories": "目录",
-      "bytesWritten": "已写入字节",
-      "skipped": "已跳过",
-      "format": "格式",
-      "output": "输出"
-    }
+    "result": "归档已创建：{{files}} 个文件，{{bytes}} 字节",
+    "errorPrefix": "错误：{{message}}"
   },
   "extract": {
-    "archiveFile": "归档文件",
-    "archivePlaceholder": "将归档拖到这里或点击浏览...",
-    "outputDirectory": "输出目录",
-    "outputPlaceholder": "根据归档自动填写...",
+    "archiveLabel": "归档：",
+    "openArchiveBtn": "打开归档",
+    "changeBtn": "更换",
+    "loading": "加载归档中...",
+    "emptyState": "打开归档以浏览和提取内容",
+    "errorPrefix": "错误：{{message}}",
+    "output": "输出目录",
+    "outputPlaceholder": "选择输出目录...",
     "overwrite": "覆盖已存在文件",
-    "password": "密码（用于加密归档）",
-    "passwordPlaceholder": "可选——留空表示无密码",
-    "run": "开始解压",
-    "cancel": "取消",
-    "validation": {
-      "archive": "请选择归档文件。",
-      "output": "请选择输出目录。"
-    },
-    "progress": {
-      "preparing": "正在准备解压..."
-    },
-    "result": {
-      "empty": "请选择归档文件和输出目录",
-      "selected": "已选择归档。点击“开始解压”即可开始。",
-      "success": "解压已成功完成",
-      "filesExtracted": "已解压文件",
-      "bytesExtracted": "已解压字节",
-      "skipped": "已跳过"
-    }
-  },
-  "list": {
-    "archiveFile": "归档文件",
-    "archivePlaceholder": "将归档拖到这里或点击浏览...",
-    "password": "密码（用于加密归档）",
-    "passwordPlaceholder": "可选——留空表示无密码",
-    "run": "打开归档",
-    "validation": {
-      "archive": "请选择归档文件。"
-    },
-    "result": {
-      "empty": "请选择一个归档文件，然后点击“打开归档”"
-    },
-    "running": "正在列出内容...",
-    "opening": "正在打开归档...",
-    "openingFromAssociation": "正在从文件关联打开归档...",
-    "multipleDropped": "已拖入 {{count}} 个归档。正在打开第一个：{{name}}。如需处理其他归档，请单独拖入。"
+    "password": "密码",
+    "passwordPlaceholder": "可选",
+    "extractAll": "全部解压",
+    "extractSelected": "解压选中",
+    "result": "已解压 {{files}} 个文件（{{bytes}} 字节）{{skipped}}",
+    "resultSkipped": "，跳过 {{count}} 个",
+    "run": "解压",
+    "cancel": "取消"
   },
   "browser": {
-    "extractAll": "全部解压",
-    "extractSelected": "解压所选",
-    "dragStatus": {
-      "idle": "将行拖到桌面即可导出",
-      "preparing": "正在为拖拽准备文件...",
-      "dragging": "正在拖拽 {{count}} 项...",
-      "draggingSingle": "正在拖拽...",
-      "unavailablePrefix": "拖拽不可用：",
-      "unavailableSuffix": "。请改用“解压所选”。"
-    },
-    "selection": {
-      "extractingSelected": "已选择 {{count}} 项 · 正在解压...",
-      "extracting": "正在解压...",
-      "selected": "已选择 {{count}} 项"
-    },
-    "overwrite": "覆盖已存在文件",
-    "extractAllOutput": "全部解压输出目录",
-    "extractOutputPlaceholder": "根据归档自动填写...",
-    "info": "归档条目：{{entryCount}} · 当前显示：{{itemCount}}",
-    "emptyDir": "此目录为空。",
+    "info": "显示 {{current}} 项 · 归档共 {{total}} 项",
+    "emptyDir": "此目录为空",
+    "root": "根目录",
+    "folder": "文件夹",
+    "file": "文件",
     "table": {
       "name": "名称",
       "size": "大小",
-      "compressed": "压缩后",
-      "modified": "修改时间",
-      "crc32": "CRC32"
+      "type": "类型",
+      "modified": "修改时间"
     },
-    "preview": {
-      "loading": "加载中...",
-      "error": "错误",
-      "truncated": "（已截断）",
-      "dirHint": "\n\n（双击可进入该目录）",
-      "errorPrefix": "错误："
-    },
-    "feedback": {
-      "perFileErrors": "逐文件错误：",
-      "extractSuccessAll": "归档已成功解压",
-      "extractSuccessSelected": "所选条目已成功解压",
-      "filesExtracted": "已解压文件",
-      "bytesExtracted": "已解压字节",
-      "skipped": "已跳过"
-    },
-    "error": {
-      "openFirst": "请先打开一个归档。",
-      "outputUnknown": "无法确定输出目录。",
-      "running": "正在执行解压，请等待完成后再操作。"
-    },
-    "progress": {
-      "preparingAll": "正在准备归档解压...",
-      "preparingSelected": "正在准备选择性解压..."
-    }
+    "selectAll": "全选",
+    "extractAll": "全部解压",
+    "extractSelected": "解压选中",
+    "overwrite": "覆盖已存在文件",
+    "selected": "已选 {{count}} 项"
+  },
+  "preview": {
+    "close": "关闭预览",
+    "dirUnavailable": "暂不支持目录预览"
   },
   "test": {
     "archiveFile": "归档文件",
-    "archivePlaceholder": "将归档拖到这里或点击浏览...",
+    "archivePlaceholder": "将归档拖到这里或点击浏览",
     "password": "密码（用于加密归档）",
-    "passwordPlaceholder": "可选——留空表示无密码",
+    "passwordPlaceholder": "可选",
     "run": "测试完整性",
-    "running": "正在测试完整性...",
-    "validation": {
-      "archive": "请选择归档文件。"
-    },
     "result": {
-      "empty": "请选择一个归档文件，然后点击“测试完整性”",
-      "format": "格式",
-      "entries": "条目数",
-      "bytesRead": "已读取字节",
-      "crc32": "CRC32",
-      "verified": "已校验",
-      "notVerified": "未校验",
-      "passed": "归档完整性测试已通过。",
-      "completed": "归档完整性测试已完成。"
+      "empty": "请选择归档文件，然后点击测试完整性"
     }
   },
   "settings": {
     "title": "设置",
-    "subtitle": "更多设置选项即将推出",
     "locale": {
       "label": "界面语言",
-      "help": "语言偏好会保存到本地浏览器存储。"
+      "help": "语言偏好会保存到本地。"
     },
-    "moreComing": "主题、默认路径等设置将在后续版本中添加。"
+    "moreComing": "更多设置将在后续版本中添加。"
   },
   "about": {
     "title": "关于 GeeZipX",
     "description": "GeeZipX 是一款使用 Rust 开发的跨平台压缩/解压缩工具。",
-    "stack": "技术栈：Rust + Tauri 2 + TypeScript"
-  },
-  "footer": {
-    "desktop": "GeeZipX v0.4.0 — 桌面 GUI"
-  },
-  "progress": {
-    "waiting": "等待后端进度...",
-    "queued": "已排队",
-    "stage": {
-      "scanning": "扫描中",
-      "compressing": "压缩中",
-      "extracting": "解压中",
-      "finalizing": "收尾中",
-      "completed": "已完成",
-      "cancelled": "已取消",
-      "failed": "失败"
-    },
-    "phase": {
-      "reading": "读取",
-      "writing": "写入",
-      "hashing": "校验"
-    },
-    "terminal": {
-      "compressFinished": "压缩已完成。",
-      "extractFinished": "解压已完成。",
-      "cancelled": "操作已由用户取消。",
-      "failed": "操作失败。"
-    },
-    "stats": {
-      "processed": "已处理 {{current}}",
-      "total": "{{current}} / {{total}}",
-      "entries": "{{count}} 个条目",
-      "entriesTotal": "{{current}} / {{total}} 个条目",
-      "rate": "{{rate}}/秒"
-    }
-  },
-  "preview": {
-    "dropUnsupported": "当前浏览器预览环境不支持将拖放内容解析为本地路径。请使用“浏览”按钮，或在 Tauri 桌面应用中运行。"
+    "stack": "技术栈：Rust + Tauri 2 + Svelte 5"
   }
 }

@@ -3,270 +3,113 @@
     "title": "GeeZipX"
   },
   "nav": {
-    "home": "🏠 Home",
-    "compress": "📦 Compress",
-    "extract": "📂 Extract",
-    "settings": "⚙️ Settings",
-    "about": "ℹ️ About"
-  },
-  "page": {
     "home": "Home",
     "compress": "Compress",
     "extract": "Extract",
     "settings": "Settings",
-    "about": "About",
-    "list": "Browse Archive",
-    "test": "Test Integrity"
+    "about": "About"
   },
   "common": {
     "browse": "Browse",
     "saveAs": "Save As",
-    "revealInFolder": "Reveal in Folder",
-    "openFolder": "Open Folder",
+    "openFile": "Open File",
     "loading": "Loading...",
     "error": "Error",
-    "cancelled": "Operation cancelled by user.",
-    "moreCount": "+{{count}} more",
-    "filesSelected": "{{count}} files selected",
-    "currentEntry": "Current entry: {{entry}}"
+    "cancel": "Cancel",
+    "addFiles": "Add Files"
   },
-  "dialog": {
-    "selectFiles": "Select files",
-    "selectDirectory": "Select directory",
-    "saveArchiveAs": "Save archive as",
-    "selectArchiveFile": "Select archive file",
-    "chooseOutput": "Choose output directory"
+  "home": {
+    "createArchive": "Create Archive",
+    "createArchiveDesc": "Compress files into ZIP, TAR, 7z, and more",
+    "openArchive": "Open Archive",
+    "openArchiveDesc": "Browse and extract files from archives",
+    "title": "Welcome to GeeZipX",
+    "subtitle": "High-performance cross-platform compression tool"
   },
   "drop": {
-    "title": "Drop files or folders here",
-    "hint": "Release to start — archives auto-open in Browse, files go to Compress"
+    "title": "Drop files here",
+    "hint": "Archives open in Extract · Files go to Compress"
   },
   "recent": {
     "label": "Recent"
   },
-  "home": {
-    "title": "Welcome to GeeZipX",
-    "subtitle": "High-performance cross-platform archive tool",
-    "features": {
-      "compress": {
-        "title": "Compress",
-        "desc": "Supports ZIP / TAR / TAR.GZ / TAR.ZST / TAR.XZ"
-      },
-      "extract": {
-        "title": "Extract",
-        "desc": "Supports ZIP / TAR / GZ / ZST / XZ / 7Z / RAR"
-      },
-      "browse": {
-        "title": "Browse",
-        "desc": "Inspect archive contents without extracting"
-      },
-      "test": {
-        "title": "Verify",
-        "desc": "Check archive integrity"
-      }
-    }
-  },
   "compress": {
     "sourceFiles": "Source Files",
-    "sourcePlaceholder": "Drop files here or click Browse...",
-    "outputArchive": "Output Archive",
-    "outputPlaceholder": "Auto-filled from source...",
+    "sourcePlaceholder": "Drag files here or click to browse",
     "format": "Format",
-    "level": "Compression Level",
+    "level": "Level",
     "levelPlaceholder": "Auto",
-    "jobs": "Jobs (threads)",
-    "jobsPlaceholder": "Auto",
     "password": "Password (ZIP / 7z)",
-    "passwordPlaceholder": "Optional — leave empty for no encryption",
+    "passwordPlaceholder": "Optional",
+    "output": "Output",
+    "outputPlaceholder": "Auto-filled from source",
     "run": "Compress",
     "cancel": "Cancel",
-    "configured": "Configured. Click Compress to start.",
-    "configuredDropped": "Configured from dropped files. Click Compress to start.",
-    "validation": {
-      "sources": "Please select at least one source file or directory.",
-      "output": "Please select an output path."
-    },
-    "progress": {
-      "preparing": "Preparing compression..."
-    },
-    "result": {
-      "empty": "Configure sources above and click Compress",
-      "success": "Compression completed successfully",
-      "filesAdded": "Files Added",
-      "directories": "Directories",
-      "bytesWritten": "Bytes Written",
-      "skipped": "Skipped",
-      "format": "Format",
-      "output": "Output"
-    }
+    "result": "Archive created: {{files}} files, {{bytes}} bytes written",
+    "errorPrefix": "Error: {{message}}"
   },
   "extract": {
-    "archiveFile": "Archive File",
-    "archivePlaceholder": "Drop archive here or click Browse...",
-    "outputDirectory": "Output Directory",
-    "outputPlaceholder": "Auto-filled from archive...",
-    "overwrite": "Overwrite existing files",
-    "password": "Password (for encrypted archives)",
-    "passwordPlaceholder": "Optional — leave empty for no password",
-    "run": "Extract",
-    "cancel": "Cancel",
-    "validation": {
-      "archive": "Please select an archive file.",
-      "output": "Please select an output directory."
-    },
-    "progress": {
-      "preparing": "Preparing extraction..."
-    },
-    "result": {
-      "empty": "Select an archive and output directory",
-      "selected": "Archive selected. Click Extract to start.",
-      "success": "Extraction completed successfully",
-      "filesExtracted": "Files Extracted",
-      "bytesExtracted": "Bytes Extracted",
-      "skipped": "Skipped"
-    }
-  },
-  "list": {
-    "archiveFile": "Archive File",
-    "archivePlaceholder": "Drop archive here or click Browse...",
-    "password": "Password (for encrypted archives)",
-    "passwordPlaceholder": "Optional — leave empty for no password",
-    "run": "Open Archive",
-    "validation": {
-      "archive": "Please select an archive file."
-    },
-    "result": {
-      "empty": "Select an archive and click Open Archive"
-    },
-    "running": "Listing contents...",
-    "opening": "Opening archive...",
-    "openingFromAssociation": "Opening archive from file association...",
-    "multipleDropped": "{{count}} archives dropped. Opening the first one: {{name}}. Drop others individually."
-  },
-  "browser": {
+    "archiveLabel": "Archive:",
+    "openArchiveBtn": "Open Archive",
+    "changeBtn": "Change",
+    "loading": "Loading archive...",
+    "emptyState": "Open an archive to browse and extract its contents",
+    "errorPrefix": "Error: {{message}}",
+    "output": "Output",
+    "outputPlaceholder": "Choose output directory...",
+    "overwrite": "Overwrite existing",
+    "password": "Password",
+    "passwordPlaceholder": "Optional",
     "extractAll": "Extract All",
     "extractSelected": "Extract Selected",
-    "dragStatus": {
-      "idle": "Drag rows out to desktop",
-      "preparing": "Preparing files for drag...",
-      "dragging": "Dragging {{count}} items...",
-      "draggingSingle": "Dragging...",
-      "unavailablePrefix": "Drag not available: ",
-      "unavailableSuffix": ". Use Extract Selected instead."
-    },
-    "selection": {
-      "extractingSelected": "{{count}} selected · extracting...",
-      "extracting": "Extracting...",
-      "selected": "{{count}} selected"
-    },
-    "overwrite": "Overwrite existing files",
-    "extractAllOutput": "Extract All Output",
-    "extractOutputPlaceholder": "Auto-filled from archive...",
-    "info": "Archive entries: {{entryCount}} · Showing: {{itemCount}}",
-    "emptyDir": "This directory is empty.",
+    "result": "Extracted {{files}} files ({{bytes}} bytes){{skipped}}",
+    "resultSkipped": ", {{count}} skipped",
+    "run": "Extract",
+    "cancel": "Cancel"
+  },
+  "browser": {
+    "info": "Showing {{current}} items · Archive: {{total}} entries",
+    "emptyDir": "This directory is empty",
+    "root": "Root",
+    "folder": "Folder",
+    "file": "File",
     "table": {
       "name": "Name",
       "size": "Size",
-      "compressed": "Compressed",
-      "modified": "Modified",
-      "crc32": "CRC32"
+      "type": "Type",
+      "modified": "Modified"
     },
-    "preview": {
-      "loading": "Loading...",
-      "error": "Error",
-      "truncated": " (truncated)",
-      "dirHint": "\n\n(Double-click to browse into directory)",
-      "errorPrefix": "Error: "
-    },
-    "feedback": {
-      "perFileErrors": "Per-file errors:",
-      "extractSuccessAll": "Archive extracted successfully",
-      "extractSuccessSelected": "Selected entries extracted successfully",
-      "filesExtracted": "Files Extracted",
-      "bytesExtracted": "Bytes Extracted",
-      "skipped": "Skipped"
-    },
-    "error": {
-      "openFirst": "Please open an archive first.",
-      "outputUnknown": "Could not determine an output directory.",
-      "running": "Extraction is running, wait until it finishes."
-    },
-    "progress": {
-      "preparingAll": "Preparing archive extraction...",
-      "preparingSelected": "Preparing selective extraction..."
-    }
+    "selectAll": "Select all",
+    "extractAll": "Extract All",
+    "extractSelected": "Extract Selected",
+    "overwrite": "Overwrite existing",
+    "selected": "{{count}} selected"
+  },
+  "preview": {
+    "close": "Close preview",
+    "dirUnavailable": "Directory preview is not available"
   },
   "test": {
-    "archiveFile": "Archive File",
-    "archivePlaceholder": "Drop archive here or click Browse...",
+    "archiveFile": "Archive file",
+    "archivePlaceholder": "Drop archive here or click Browse",
     "password": "Password (for encrypted archives)",
-    "passwordPlaceholder": "Optional — leave empty for no password",
-    "run": "Test Integrity",
-    "running": "Testing integrity...",
-    "validation": {
-      "archive": "Please select an archive file."
-    },
+    "passwordPlaceholder": "Optional",
+    "run": "Test integrity",
     "result": {
-      "empty": "Select an archive and click Test Integrity",
-      "format": "Format",
-      "entries": "Entries",
-      "bytesRead": "Bytes Read",
-      "crc32": "CRC32",
-      "verified": "Verified",
-      "notVerified": "Not verified",
-      "passed": "Archive integrity test passed.",
-      "completed": "Archive integrity test completed."
+      "empty": "Select an archive, then click Test integrity"
     }
   },
   "settings": {
     "title": "Settings",
-    "subtitle": "More settings are coming soon",
     "locale": {
-      "label": "Interface Language",
-      "help": "Language preference is stored in local browser storage."
+      "label": "Language",
+      "help": "Your language preference is saved locally."
     },
-    "moreComing": "Theme, default paths, and more settings will be added in future versions."
+    "moreComing": "More settings coming in future versions."
   },
   "about": {
     "title": "About GeeZipX",
-    "description": "GeeZipX is a cross-platform archive tool built with Rust.",
-    "stack": "Tech stack: Rust + Tauri 2 + TypeScript"
-  },
-  "footer": {
-    "desktop": "GeeZipX v0.4.0 — Desktop GUI"
-  },
-  "progress": {
-    "waiting": "Waiting for backend progress...",
-    "queued": "Queued",
-    "stage": {
-      "scanning": "Scanning",
-      "compressing": "Compressing",
-      "extracting": "Extracting",
-      "finalizing": "Finalizing",
-      "completed": "Completed",
-      "cancelled": "Cancelled",
-      "failed": "Failed"
-    },
-    "phase": {
-      "reading": "Reading",
-      "writing": "Writing",
-      "hashing": "Hashing"
-    },
-    "terminal": {
-      "compressFinished": "Compression completed.",
-      "extractFinished": "Extraction completed.",
-      "cancelled": "Operation cancelled by user.",
-      "failed": "Operation failed."
-    },
-    "stats": {
-      "processed": "{{current}} processed",
-      "total": "{{current}} / {{total}}",
-      "entries": "{{count}} entries",
-      "entriesTotal": "{{current}} / {{total}} entries",
-      "rate": "{{rate}}/s"
-    }
-  },
-  "preview": {
-    "dropUnsupported": "This browser preview cannot resolve dropped items to local paths. Please use the Browse button or run the Tauri desktop app."
+    "description": "GeeZipX is a cross-platform compression/decompression tool built with Rust.",
+    "stack": "Tech stack: Rust + Tauri 2 + Svelte 5"
   }
 }

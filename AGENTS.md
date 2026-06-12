@@ -1,5 +1,44 @@
 # AGENTS.md
 
+> **Svelte 5 + AI Tools**: 本项目 GUI 使用 Svelte 5 和官方 Svelte AI 工具。创建/编辑 Svelte 文件时，优先使用 `svelte-file-editor` subagent。
+
+## Svelte MCP 工具使用指南
+
+本项目已配置 Svelte MCP server (`@sveltejs/mcp`)，可通过 MCP 工具访问官方 Svelte 5 文档和代码分析。
+
+### 可用 Svelte MCP 工具
+
+1. **list-sections** — 首先使用此工具发现所有可用的 Svelte 5 文档章节。在涉及 Svelte 话题时，始终先调用此工具查找相关章节。
+
+2. **get-documentation** — 获取特定章节的完整文档。调用 `list-sections` 后，分析返回的文档章节（特别是 `use_cases` 字段），然后使用此工具获取与当前任务相关的所有章节。
+   示例：`get-documentation("$state,$derived,$effect")`
+
+3. **svelte-autofixer** — 分析 Svelte 代码并返回问题和建议。在编写 Svelte 代码后**必须**使用此工具，持续调用直到没有新问题。
+
+4. **playground-link** — 生成 Svelte Playground 链接。仅在用户确认后调用，绝不用于已写入项目文件的代码。
+
+### Svelte 5 关键规则（runes 模式，compilerOptions: { runes: true }）
+
+- 仅对需要响应式的变量使用 `$state` rune；普通变量不加。
+- 使用 `$derived` 而非 `$effect` 进行计算派生。
+- 使用 `$derived.by(() => {...})` 处理复杂表达式。
+- 始终使用 keyed `{#each items as item (item.id)}`。
+- 使用 `$props()` 替代 Svelte 4 的 `export let`。
+- 事件处理：`onclick={handler}`（无 `:` 前缀）。
+- 大对象仅被重新赋值时，使用 `$state.raw` 替代 `$state`（避免深度代理开销）。
+- `$effect` 中修改 state 无需额外处理，但注意避免无限循环。
+- 组件样式自动 scoped；全局样式放在 `app.css`。
+
+### 何时使用 svelte-file-editor subagent
+
+以下情况**必须**使用 `svelte-file-editor` subagent（在独立上下文中运行，有 MCP 工具访问权限）：
+- 创建新的 `.svelte` 组件
+- 编辑现有 `.svelte` 文件
+- 创建/编辑 `.svelte.ts` 或 `.svelte.js` 模块
+- 审查 Svelte 代码质量
+
+---
+
 本文件为 GeeZipX 项目的 AI 编码代理协作说明。所有代理在本仓库内工作时，应优先遵守本文档；若与用户的最新明确指令冲突，以用户最新指令为准。
 
 ## 项目概述
