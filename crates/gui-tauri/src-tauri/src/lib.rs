@@ -24,6 +24,8 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_drag::init())
+        // Save/restore window position, size, and maximized state
+        .plugin(tauri_plugin_window_state::Builder::default().build())
         // Single-instance: second instance passes file paths to existing window.
         .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
             let paths: Vec<String> = argv
