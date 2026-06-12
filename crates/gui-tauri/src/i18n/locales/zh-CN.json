@@ -39,7 +39,7 @@
     "format": "格式",
     "level": "压缩级别",
     "levelPlaceholder": "自动",
-    "password": "密码（ZIP / 7z）",
+    "password": "密码",
     "passwordPlaceholder": "可选",
     "output": "输出路径",
     "outputPlaceholder": "根据源路径自动填写",

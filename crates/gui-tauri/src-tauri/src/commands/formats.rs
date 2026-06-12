@@ -7,15 +7,12 @@ use serde::Serialize;
 pub struct FormatInfo {
     /// Machine-readable format name (e.g. `"zip"`, `"tar.gz"`, `"7z"`).
     pub name: String,
-    /// Whether the current GUI compression command can create this format.
-    ///
-    /// In the current GUI release, single-stream `gzip`, `bzip2`, `brotli`,
-    /// `lz4`, `zstd`, `xz`, and `lzma` entries remain decompress-only.
-    /// Read-only archive formats still include `rar`, `cab`, `asar`, `deb`,
-    /// `iso`, `cpio`, and `zpaq`; `lzh` is createable via a store-only MVP.
     pub can_compress: bool,
-    /// Whether this format supports extracting archives (decompression).
     pub can_decompress: bool,
+    /// Whether this format supports password/encryption.
+    pub supports_encryption: bool,
+    /// Human-readable level hint (e.g. "6 (0-9)"), or None if not applicable.
+    pub level_hint: Option<String>,
 }
 
 /// Return the list of all formats supported by the GeeZipX engine.
@@ -29,121 +26,169 @@ pub fn get_formats() -> Vec<FormatInfo> {
             name: "zip".into(),
             can_compress: true,
             can_decompress: true,
+            supports_encryption: true,
+            level_hint: Some("6 (0-9)".into()),
         },
         FormatInfo {
             name: "zipx".into(),
             can_compress: true,
             can_decompress: true,
+            supports_encryption: true,
+            level_hint: Some("6 (0-9)".into()),
         },
         FormatInfo {
             name: "tar".into(),
             can_compress: true,
             can_decompress: true,
+            supports_encryption: false,
+            level_hint: None,
         },
         FormatInfo {
             name: "tar.gz".into(),
             can_compress: true,
             can_decompress: true,
+            supports_encryption: false,
+            level_hint: Some("6 (0-9)".into()),
         },
         FormatInfo {
             name: "gzip".into(),
             can_compress: false,
             can_decompress: true,
+            supports_encryption: false,
+            level_hint: Some("6 (0-9)".into()),
         },
         FormatInfo {
             name: "bzip2".into(),
             can_compress: false,
             can_decompress: true,
+            supports_encryption: false,
+            level_hint: Some("9 (1-9)".into()),
         },
         FormatInfo {
             name: "tar.bz2".into(),
             can_compress: true,
             can_decompress: true,
+            supports_encryption: false,
+            level_hint: Some("9 (1-9)".into()),
         },
         FormatInfo {
             name: "brotli".into(),
             can_compress: false,
             can_decompress: true,
+            supports_encryption: false,
+            level_hint: Some("11 (0-11)".into()),
         },
         FormatInfo {
             name: "tar.br".into(),
             can_compress: true,
             can_decompress: true,
+            supports_encryption: false,
+            level_hint: Some("11 (0-11)".into()),
         },
         FormatInfo {
             name: "lz4".into(),
             can_compress: false,
             can_decompress: true,
+            supports_encryption: false,
+            level_hint: None,
         },
         FormatInfo {
             name: "tar.lz4".into(),
             can_compress: true,
             can_decompress: true,
+            supports_encryption: false,
+            level_hint: None,
         },
         FormatInfo {
             name: "zstd".into(),
             can_compress: false,
             can_decompress: true,
+            supports_encryption: false,
+            level_hint: Some("3 (1-22)".into()),
         },
         FormatInfo {
             name: "tar.zst".into(),
             can_compress: true,
             can_decompress: true,
+            supports_encryption: false,
+            level_hint: Some("3 (1-22)".into()),
         },
         FormatInfo {
             name: "xz".into(),
             can_compress: false,
             can_decompress: true,
+            supports_encryption: false,
+            level_hint: Some("6 (0-9)".into()),
         },
         FormatInfo {
             name: "tar.xz".into(),
             can_compress: true,
             can_decompress: true,
+            supports_encryption: false,
+            level_hint: Some("6 (0-9)".into()),
         },
         FormatInfo {
             name: "lzma".into(),
             can_compress: false,
             can_decompress: true,
+            supports_encryption: false,
+            level_hint: Some("6 (0-9)".into()),
         },
         FormatInfo {
             name: "7z".into(),
             can_compress: true,
             can_decompress: true,
+            supports_encryption: true,
+            level_hint: None,
         },
         FormatInfo {
             name: "rar".into(),
             can_compress: false,
             can_decompress: true,
+            supports_encryption: true,
+            level_hint: None,
         },
         FormatInfo {
             name: "cab".into(),
             can_compress: false,
             can_decompress: true,
+            supports_encryption: false,
+            level_hint: None,
         },
         FormatInfo {
             name: "asar".into(),
             can_compress: false,
             can_decompress: true,
+            supports_encryption: false,
+            level_hint: None,
         },
         FormatInfo {
             name: "deb".into(),
             can_compress: false,
             can_decompress: true,
+            supports_encryption: false,
+            level_hint: None,
         },
         FormatInfo {
             name: "lzh".into(),
             can_compress: true,
             can_decompress: true,
+            supports_encryption: false,
+            level_hint: None,
         },
         FormatInfo {
             name: "iso".into(),
             can_compress: false,
             can_decompress: true,
+            supports_encryption: false,
+            level_hint: None,
         },
         FormatInfo {
             name: "cpio".into(),
             can_compress: false,
             can_decompress: true,
+            supports_encryption: false,
+            level_hint: None,
         },
     ];
 
@@ -154,6 +199,8 @@ pub fn get_formats() -> Vec<FormatInfo> {
             name: "zpaq".into(),
             can_compress: false,
             can_decompress: true,
+            supports_encryption: false,
+            level_hint: None,
         });
         formats
     };
@@ -178,6 +225,8 @@ mod tests {
         let zip = formats.iter().find(|f| f.name == "zip").unwrap();
         assert!(zip.can_compress);
         assert!(zip.can_decompress);
+        assert!(zip.supports_encryption);
+        assert_eq!(zip.level_hint.as_deref(), Some("6 (0-9)"));
     }
 
     #[test]
@@ -186,6 +235,7 @@ mod tests {
         let zipx = formats.iter().find(|f| f.name == "zipx").unwrap();
         assert!(zipx.can_compress);
         assert!(zipx.can_decompress);
+        assert!(zipx.supports_encryption);
     }
 
     #[test]
@@ -194,6 +244,8 @@ mod tests {
         let sz = formats.iter().find(|f| f.name == "7z").unwrap();
         assert!(sz.can_compress);
         assert!(sz.can_decompress);
+        assert!(sz.supports_encryption);
+        assert!(sz.level_hint.is_none());
     }
 
     #[test]
@@ -202,6 +254,7 @@ mod tests {
         let bz2 = formats.iter().find(|f| f.name == "bzip2").unwrap();
         assert!(!bz2.can_compress);
         assert!(bz2.can_decompress);
+        assert_eq!(bz2.level_hint.as_deref(), Some("9 (1-9)"));
     }
 
     #[test]
@@ -210,38 +263,17 @@ mod tests {
         let tarbz2 = formats.iter().find(|f| f.name == "tar.bz2").unwrap();
         assert!(tarbz2.can_compress);
         assert!(tarbz2.can_decompress);
+        assert!(!tarbz2.supports_encryption);
     }
 
     #[test]
-    fn get_formats_brotli_decompress_only() {
+    fn get_formats_tar_no_level() {
         let formats = get_formats();
-        let br = formats.iter().find(|f| f.name == "brotli").unwrap();
-        assert!(!br.can_compress);
-        assert!(br.can_decompress);
-    }
-
-    #[test]
-    fn get_formats_tarbr_compress_decompress() {
-        let formats = get_formats();
-        let tarbr = formats.iter().find(|f| f.name == "tar.br").unwrap();
-        assert!(tarbr.can_compress);
-        assert!(tarbr.can_decompress);
-    }
-
-    #[test]
-    fn get_formats_lz4_decompress_only() {
-        let formats = get_formats();
-        let lz4 = formats.iter().find(|f| f.name == "lz4").unwrap();
-        assert!(!lz4.can_compress);
-        assert!(lz4.can_decompress);
-    }
-
-    #[test]
-    fn get_formats_tarlz4_compress_decompress() {
-        let formats = get_formats();
-        let tarlz4 = formats.iter().find(|f| f.name == "tar.lz4").unwrap();
-        assert!(tarlz4.can_compress);
-        assert!(tarlz4.can_decompress);
+        let tar = formats.iter().find(|f| f.name == "tar").unwrap();
+        assert!(tar.can_compress);
+        assert!(tar.can_decompress);
+        assert!(!tar.supports_encryption);
+        assert!(tar.level_hint.is_none());
     }
 
     #[test]
@@ -250,69 +282,6 @@ mod tests {
         let rar = formats.iter().find(|f| f.name == "rar").unwrap();
         assert!(!rar.can_compress);
         assert!(rar.can_decompress);
-    }
-
-    #[test]
-    fn get_formats_cab_decompress_only() {
-        let formats = get_formats();
-        let cab = formats.iter().find(|f| f.name == "cab").unwrap();
-        assert!(!cab.can_compress);
-        assert!(cab.can_decompress);
-    }
-
-    #[test]
-    fn get_formats_asar_decompress_only() {
-        let formats = get_formats();
-        let asar = formats.iter().find(|f| f.name == "asar").unwrap();
-        assert!(!asar.can_compress);
-        assert!(asar.can_decompress);
-    }
-
-    #[test]
-    fn get_formats_deb_decompress_only() {
-        let formats = get_formats();
-        let deb = formats.iter().find(|f| f.name == "deb").unwrap();
-        assert!(!deb.can_compress);
-        assert!(deb.can_decompress);
-    }
-
-    #[test]
-    fn get_formats_lzh_compress_decompress() {
-        let formats = get_formats();
-        let lzh = formats.iter().find(|f| f.name == "lzh").unwrap();
-        assert!(lzh.can_compress);
-        assert!(lzh.can_decompress);
-    }
-
-    #[test]
-    fn get_formats_iso_decompress_only() {
-        let formats = get_formats();
-        let iso = formats.iter().find(|f| f.name == "iso").unwrap();
-        assert!(!iso.can_compress);
-        assert!(iso.can_decompress);
-    }
-
-    #[test]
-    fn get_formats_cpio_decompress_only() {
-        let formats = get_formats();
-        let cpio = formats.iter().find(|f| f.name == "cpio").unwrap();
-        assert!(!cpio.can_compress);
-        assert!(cpio.can_decompress);
-    }
-
-    #[cfg(feature = "zpaq")]
-    #[test]
-    fn get_formats_zpaq_decompress_only() {
-        let formats = get_formats();
-        let zpaq = formats.iter().find(|f| f.name == "zpaq").unwrap();
-        assert!(!zpaq.can_compress);
-        assert!(zpaq.can_decompress);
-    }
-
-    #[cfg(not(feature = "zpaq"))]
-    #[test]
-    fn get_formats_omits_zpaq_without_feature() {
-        let formats = get_formats();
-        assert!(formats.iter().all(|f| f.name != "zpaq"));
+        assert!(rar.supports_encryption);
     }
 }

@@ -39,7 +39,7 @@
     "format": "Format",
     "level": "Level",
     "levelPlaceholder": "Auto",
-    "password": "Password (ZIP / 7z)",
+    "password": "Password",
     "passwordPlaceholder": "Optional",
     "output": "Output",
     "outputPlaceholder": "Auto-filled from source",

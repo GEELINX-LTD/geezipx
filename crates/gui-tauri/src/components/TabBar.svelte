@@ -10,7 +10,6 @@
 </script>
 
 <nav class="tab-bar">
-  <span class="tab-brand">GeeZipX</span>
   {#each tabs as tab (tab.id)}
     <button
       class="tab"
@@ -41,12 +40,6 @@
     border-bottom: 1px solid var(--color-border);
     user-select: none;
     -webkit-app-region: drag;
-  }
-  .tab-brand {
-    font-weight: 600;
-    font-size: var(--text-base);
-    color: var(--color-text);
-    margin-right: var(--space-4);
   }
   .tab {
     padding: var(--space-1) var(--space-3);

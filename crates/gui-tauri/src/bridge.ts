@@ -17,6 +17,8 @@ export interface FormatInfo {
   name: string;
   can_compress: boolean;
   can_decompress: boolean;
+  supports_encryption: boolean;
+  level_hint: string | null;
 }
 
 /** A single entry inside an archive (serialized for the frontend). */

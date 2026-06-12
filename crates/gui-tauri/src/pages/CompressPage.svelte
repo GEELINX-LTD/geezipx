@@ -2,12 +2,12 @@
   import { onMount } from 'svelte';
   import { open } from '@tauri-apps/plugin-dialog';
   import { save } from '@tauri-apps/plugin-dialog';
-  import { compressArchive, cancelTask, getFormats, type FormatInfo } from '../bridge';
+  import { compressArchive, getFormats, type FormatInfo } from '../bridge';
   import { localeStore } from '../stores/localeStore.svelte';
   import type { CompressArchiveResult } from '../bridge';
   import { taskStore } from '../stores/taskStore.svelte';
   import { appStore } from '../stores/appStore.svelte';
-  import ProgressBar from '../components/ProgressBar.svelte';
+  import ProgressDialog from '../components/ProgressDialog.svelte';
 
   let sourcePaths = $state<string[]>([]);
   let outputPath = $state('');
@@ -19,6 +19,14 @@
   let error = $state<string | null>(null);
 
   let isRunning = $derived(taskStore.isRunning && taskStore.activeTask?.kind === 'compress');
+
+  let levelPlaceholder = $derived(
+    formats.find(f => f.name === format)?.level_hint || localeStore.t('compress.levelPlaceholder')
+  );
+
+  let showPassword = $derived(
+    formats.find(f => f.name === format)?.supports_encryption ?? false
+  );
 
   getFormats().then((f) => (formats = f));
 
@@ -95,9 +103,7 @@
     }
   }
 
-  function cancelCompress() {
-    if (taskStore.activeTask) cancelTask(taskStore.activeTask.taskId);
-  }
+
 </script>
 
 <div class="compress-page">
@@ -141,18 +147,20 @@
       </div>
       <div class="field">
         <label class="section-label" for="compress-level">{localeStore.t('compress.level')}</label>
-        <input type="number" id="compress-level" bind:value={level} min="0" max="22" placeholder={localeStore.t('compress.levelPlaceholder')} />
+        <input type="number" id="compress-level" bind:value={level} placeholder={levelPlaceholder} />
       </div>
     </div>
   </section>
 
   <!-- Password -->
-  <section class="section">
-    <div class="field">
-      <label class="section-label" for="compress-password">{localeStore.t('compress.password')}</label>
-      <input type="password" id="compress-password" bind:value={password} placeholder={localeStore.t('compress.passwordPlaceholder')} />
-    </div>
-  </section>
+  {#if showPassword}
+    <section class="section">
+      <div class="field">
+        <label class="section-label" for="compress-password">{localeStore.t('compress.password')}</label>
+        <input type="password" id="compress-password" bind:value={password} placeholder={localeStore.t('compress.passwordPlaceholder')} />
+      </div>
+    </section>
+  {/if}
 
   <!-- Output -->
   <section class="section">
@@ -175,15 +183,11 @@
 
   <!-- Action Bar -->
   <div class="action-bar">
-    {#if isRunning}
-      <ProgressBar kind="compress" />
-      <button class="btn-cancel" onclick={cancelCompress}>{localeStore.t('compress.cancel')}</button>
-    {:else}
-      <button class="btn-primary" onclick={runCompress} disabled={sourcePaths.length === 0 || !outputPath}>
-        {localeStore.t('compress.run')}
-      </button>
-    {/if}
+    <button class="btn-primary" onclick={runCompress} disabled={isRunning || sourcePaths.length === 0 || !outputPath}>
+      {localeStore.t('compress.run')}
+    </button>
   </div>
+  <ProgressDialog kind="compress" />
 </div>
 
 <style>
@@ -286,12 +290,5 @@
     font-size: var(--text-sm);
   }
   .btn-secondary:hover { background: var(--color-surface-alt); }
-  .btn-cancel {
-    padding: var(--space-2) var(--space-4);
-    color: var(--color-error);
-    font-size: var(--text-sm);
-    border: 1px solid var(--color-error);
-    border-radius: var(--radius-md);
-  }
-  .btn-cancel:hover { background: var(--color-error-bg); }
+
 </style>
