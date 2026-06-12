@@ -42,7 +42,7 @@ GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开�
 
 | 特性 | 说明 | 状态 |
 |------|------|------|
-| 格式支持 | `.tar.gz`/`.tgz`, `.tar.bz2`/`.tbz`/`.tbz2`, `.tar.br`, `.tar.lz4`, `.zip`（含 `.zipx`/`.jar`/`.war`/`.apk`/`.ipa`/`.xpi` ZIP 兼容别名）, `.tar`, `.gz`/`.gzip`, `.bz2`, `.br`, `.lz4`, `.tar.zst`/`.tzst`, `.zst`/`.zstd`, `.tar.xz`/`.txz`, `.xz`, `.lzma`, `.7z`（读/写）；LZH/LHA（store-only 写入 MVP）；RAR/CAB/ASAR/DEB/ISO/CPIO（只读） | **已完成** |
+| 格式支持 | `.tar.gz`/`.tgz`, `.tar.bz2`/`.tbz`/`.tbz2`, `.tar.br`, `.tar.lz4`, `.zip`（含 `.zipx`/`.jar`/`.war`/`.apk`/`.ipa`/`.xpi` ZIP 兼容别名）, `.tar`, `.gz`/`.gzip`, `.bz2`, `.br`, `.lz4`, `.tar.zst`/`.tzst`, `.zst`/`.zstd`, `.tar.xz`/`.txz`, `.xz`, `.lzma`, `.7z`（读/写）；LZH/LHA（store-only 写入 MVP）；RAR/CAB/ASAR/DEB/ISO/CPIO/ZPAQ（只读） | **已完成** |
 | 流式处理 | 文件流读写，内存占用与文件大小解耦 | **已完成** |
 | 进度显示 | TTY 下默认显示进度，可用 `--no-progress` 禁用 | **已完成** |
 | 格式自动检测 | 根据文件魔数（magic bytes）自动检测归档格式 | **已完成** |
@@ -217,7 +217,7 @@ Phase 1 (MVP — CLI)              ← ✅ 已完成并成熟
     └── stdin/stdout 管道
 
 Phase 2 (Desktop GUI via Tauri)  ← 🚀 当前阶段（v0.5.0）
-├── Tauri + Vue 项目骨架                     ── ✅ 已完成
+├── Tauri + TypeScript/Vite 项目骨架            ── ✅ 已完成
 ├── Core 引擎命令桥接 (command bridge)        ── ✅ 已完成
 ├── 文件浏览器 + 拖拽支持                     ── ✅ 已完成
 ├── 压缩/解压任务管理                         ── ✅ 已完成
@@ -226,7 +226,7 @@ Phase 2 (Desktop GUI via Tauri)  ← 🚀 当前阶段（v0.5.0）
 ├── 加密归档密码输入                          ── ✅ 已完成
 ├── 归档内容浏览 (+ 文件关联)                 ── ✅ 已完成
 ├── 拖拽导入归档                              ── ✅ 已完成
-├── 多语言 (i18n) 支持                        ── ⏳ 后续规划
+├── 多语言 (i18n) 支持 (中英文)                  ── ✅ 已完成
 ├── 偏好设置窗口                              ── ⏳ 后续规划
 ├── 格式偏好 / 默认行为配置                   ── ⏳ 后续规划
 ├── 自动/手动格式检测（压缩时）               ── ✅ 已完成

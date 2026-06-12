@@ -196,11 +196,13 @@ pub enum ArchiveFormat {
     TarXz,
     SevenZip,
     Rar,
+    Cab,
     Asar,
     Deb,
-    Cab,
     Lzh,
     Iso,
+    Cpio,
+    Zpaq,
     Unknown,
 }
 
@@ -275,10 +277,13 @@ CLI 当前子命令为：
 | `flate2` 1.x | gzip/deflate（纯 Rust backend） |
 | `bzip2` 0.6 | bzip2 / tar.bz2 |
 | `brotli` 8 | brotli / tar.br |
-| `lz4_flex` 0.11 | lz4 frame / tar.lz4 |
+| `lz4_flex` 0.13 | lz4 frame / tar.lz4 |
 | `gzp` 0.11 | tar.gz 并行 gzip 压缩 |
 | `xz2` 0.1 | xz / lzma / tar.xz |
 | `zstd` 0.13 | zstd / tar.zst，多线程支持 `zstdmt` |
+| `cab` 0.6 | CAB 只读支持（单卷 cabinet 浏览、提取、验证） |
+| `asar` 0.3 | ASAR 只读支持（Electron 归档） |
+| `ar` 0.9 | ar 归档只读支持（DEB 包解析） |
 | `delharc` 0.6 | LZH/LHA 只读 reader 支持（writer 为项目内实现，store-only level-0） |
 | `isomage` 2.1 | ISO 只读支持（ISO9660 / Rock Ridge / Joliet 解析与流式读取） |
 | `cpio-archive` 0.10 | CPIO 只读支持（`newc` / `odc` 读取；MPL-2.0，作为未修改 Cargo 依赖使用） |
@@ -411,7 +416,8 @@ crates/gui-tauri/
 - 进度通过 `task:progress` 事件推送，文件关联/单实例通过 `opened-archives` 事件通知前端；
 - 前端当前以 `src/main.ts` 为主，包含最近路径 chips、归档浏览器、任务状态管理；
 - 选择性提取、条目预览、拖出归档条目等 GUI 专属交互都建立在 core 的只读/提取能力之上；
-- 目前尚无完整设置系统或 i18n 框架，这些仍属于后续规划。
+- 前端已内置 i18n 支持（`en.json` / `zh-CN.json` 双语），由 `i18n/index.ts` 管理语言切换；
+- 偏好设置/默认行为配置仍属于后续规划。
 
 | 风险 | 影响 | 当前缓解 |
 |------|------|----------|

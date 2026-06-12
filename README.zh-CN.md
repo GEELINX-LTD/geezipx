@@ -304,7 +304,8 @@ geezipx/
 │       ├── src/
 │       │   ├── bridge.ts   # 前端与 Tauri 的桥接类型/辅助函数
 │       │   ├── main.ts     # 当前 Tauri 前端主逻辑（TypeScript/Vite）
-│       │   └── style.css   # GUI 样式
+│       │   ├── style.css   # GUI 样式
+│       │   └── i18n/       # 国际化 (en.json, zh-CN.json)
 │       └── src-tauri/
 │           ├── src/
 │           │   ├── commands/
