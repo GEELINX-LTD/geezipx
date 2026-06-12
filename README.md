@@ -314,7 +314,8 @@ geezipx/
 │       ├── src/
 │       │   ├── bridge.ts   # Frontend ↔ Tauri bridge types/helpers
 │       │   ├── main.ts     # Current Tauri frontend logic (TypeScript/Vite)
-│       │   └── style.css   # GUI styling
+│       │   ├── style.css   # GUI styling
+│       │   └── i18n/       # Internationalization (en.json, zh-CN.json)
 │       └── src-tauri/
 │           ├── src/
 │           │   ├── commands/

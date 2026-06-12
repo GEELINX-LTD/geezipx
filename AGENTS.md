@@ -110,22 +110,37 @@ CLI 和后续 Tauri GUI 只负责：
 
 当前已支持：
 
-- ZIP（含 AES-256 加密）；
+- ZIP（含 AES-256 加密、`zipx`/`jar`/`war`/`apk`/`ipa`/`xpi` 兼容别名）；
 - TAR；
 - TAR.GZ / TGZ；
+- TAR.BZ2 / TBZ / TBZ2；
+- TAR.BR；
+- TAR.LZ4；
 - TAR.XZ / TXZ；
 - TAR.ZST / TZST；
 - GZIP / GZ；
-- Zstandard / ZST / ZSTD；
+- BZIP2 / BZ2；
+- Brotli / BR；
+- LZ4；
 - XZ；
 - LZMA；
-- 7z（只读）；
-- RAR（只读）。
+- Zstandard / ZST / ZSTD；
+- 7z（读写，含 AES-256 加密）；
+- RAR（只读）；
+- CAB（只读）；
+- ASAR（只读，Electron 归档）；
+- DEB（只读，Debian 包）；
+- LZH / LHA（读写，store-only）；
+- ISO（只读）；
+- CPIO（只读）；
+- ZPAQ（只读）。
 
 后续可扩展现：
 
 - 分卷压缩；
-- 完整 7z 写入。
+- RAR 写入；
+- LZH/LHA 压缩条目（lh5/lh6/lh7）；
+- 完整 7z 多线程调优。
 
 当前阶段不承诺完整替代 7-Zip / WinRAR。
 

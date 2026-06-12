@@ -32,7 +32,7 @@
 - RAR 创建 — 受 UnRAR 许可限制，仅保持只读
 - 文件管理器集成（双面板、标签页等）
 - 批量任务队列（仅单次任务，后续可扩展）
-- 多语言 i18n（仅英文初始版）
+- 高级偏好设置窗口（命令行/格式/路径等默认行为配置）
 - 深色/浅色主题切换（沿用系统主题）
 
 ## 3. MVP 功能范围
@@ -86,8 +86,8 @@ GUI 中 7z 已支持基础创建与 AES-256 密码写入，LZH/LHA 已支持 sto
 
 ```text
 ┌─────────────────────────────────────┐
-│      Tauri Frontend (WebView)       │
-│  当前实现：src/main.ts + style.css    │
+│      Tauri Frontend (TypeScript/Vite)  │
+│  当前实现：src/main.ts + i18n + style.css  │
 │  - 文件选择 / 拖拽 / 浏览 / 预览       │
 │  - 任务状态与进度面板                 │
 └──────────────┬──────────────────────┘
@@ -234,7 +234,7 @@ listen<TaskProgressPayload>('task:progress', (event) => {
 ### G1：项目骨架与 Tauri 集成
 
 - [x] 创建 `crates/gui-tauri/` 目录与 `crates/gui-tauri/src-tauri` workspace member
-- [x] 初始化 Tauri v2 + Vue 3 GUI 项目
+- [x] 初始化 Tauri v2 + TypeScript/Vite GUI 项目
 - [x] 接入 `geezipx-core` 依赖并验证 `cargo build -p geezipx-gui`
 - [x] 验证开发模式可启动
 
