@@ -847,7 +847,7 @@ function renderArchiveBrowser() {
 // ---------------------------------------------------------------------------
 
 function wireBrowserEvents() {
-  const tbody = document.querySelector("#list-result tbody");
+  const tbody = document.querySelector("#extract-result tbody");
   if (!tbody) return;
 
   // Checkbox change events
