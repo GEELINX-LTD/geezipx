@@ -5,11 +5,11 @@
 > **前置依赖**：Phase 1 CLI 已完成并成熟，core 引擎库 API 稳定，crates.io 已发布。
 >
 > **已完成（v0.5.0）**：GUI 应用骨架、core 引擎桥接、归档浏览器、选择性提取、文件预览、
-> 拖拽/拖出、文件关联、单实例、侧边栏、密码输入、任务进度、取消操作。
+> 拖拽/拖出、文件关联、单实例、侧边栏、密码输入、任务进度、取消操作、窗口状态持久化。
 >
 > **当前状态**：独立 `gui-windows.yml` 已可手动构建 Windows GUI；`release.yml` 已配置三平台 GUI bundle 构建并上传 `.AppImage` / `.dmg` / `.msi`。首个真实 tag release 仍待实战验证。
 >
-> **剩余**：窗口状态持久化、更多发布验证与细节打磨项。
+> **剩余**：更多发布验证与细节打磨项。
 
 ---
 
@@ -269,7 +269,7 @@ listen<TaskProgressPayload>('task:progress', (event) => {
 
 ### G6：MVP 后打磨
 
-- [ ] 窗口状态持久化（位置、大小）
+- [x] 窗口状态持久化（位置、大小）— 通过 `tauri-plugin-window-state` v2.4.1 实现
 - [x] 最近路径 / 最近归档 chips（当前以前端 `localStorage` 形式存在）
 - [x] 拖拽时自动检测格式
 - [ ] 更细粒度的设置项与更多性能打磨

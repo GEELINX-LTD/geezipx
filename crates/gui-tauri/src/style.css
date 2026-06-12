@@ -1138,7 +1138,7 @@ select {
 
 /* --------------- Drag-out Status --------------- */
 
-#browser-drag-status.drag-status {
+#extract-browser-drag-status.drag-status {
   padding: 0.4rem 0.75rem;
   margin: 0.25rem 0;
   background: var(--surface-alt);
@@ -1150,7 +1150,7 @@ select {
   animation: drag-pulse 1.5s ease-in-out infinite;
 }
 
-#browser-drag-status.drag-status.drag-error {
+#extract-browser-drag-status.drag-status.drag-error {
   background: rgba(231, 76, 60, 0.12);
   border-color: var(--red);
   color: var(--red);
@@ -1163,6 +1163,6 @@ select {
 }
 
 /* --------------- TableScroll inside list panel --------------- */
-#list-result .table-scroll {
+#extract-result .table-scroll {
   max-height: 400px;
 }
