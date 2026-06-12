@@ -5,6 +5,7 @@
   import { archiveStore } from '../../stores/archiveStore.svelte';
   import { taskStore } from '../../stores/taskStore.svelte';
 
+  let disabled = $derived(taskStore.isRunning && taskStore.activeTask?.kind === 'extract');
   let outputDir = $state('');
   let overwrite = $state(true);
   let extractPassword = $state('');
@@ -58,7 +59,7 @@
         <label class="controls-label" for="extract-output-dir">{localeStore.t('extract.output')}</label>
         <div class="input-row">
           <input id="extract-output-dir" type="text" bind:value={outputDir} readonly placeholder={localeStore.t('extract.outputPlaceholder')} />
-          <button class="btn-secondary" onclick={browseOutput}>{localeStore.t('common.browse')}</button>
+          <button class="btn-secondary" onclick={browseOutput} disabled={disabled}>{localeStore.t('common.browse')}</button>
         </div>
       </div>
       <div class="controls-options">
@@ -81,8 +82,8 @@
     {/if}
 
     <div class="controls-actions">
-      <button class="btn-primary" onclick={runExtractAll} disabled={!outputDir}>{localeStore.t('extract.extractAll')}</button>
-      <button class="btn-secondary" onclick={runExtractSelected} disabled={!outputDir || archiveStore.selectedCount === 0}>
+      <button class="btn-primary" onclick={runExtractAll} disabled={disabled || !outputDir}>{localeStore.t('extract.extractAll')}</button>
+      <button class="btn-secondary" onclick={runExtractSelected} disabled={disabled || !outputDir || archiveStore.selectedCount === 0}>
         {localeStore.t('extract.extractSelected')} ({archiveStore.selectedCount})
       </button>
     </div>

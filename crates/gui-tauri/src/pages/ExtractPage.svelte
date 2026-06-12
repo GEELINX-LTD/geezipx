@@ -1,15 +1,13 @@
 <script lang="ts">
   import { localeStore } from '../stores/localeStore.svelte';
   import { archiveStore } from '../stores/archiveStore.svelte';
-  import { taskStore } from '../stores/taskStore.svelte';
   import ArchivePathBar from './extract/ArchivePathBar.svelte';
   import Breadcrumb from './extract/Breadcrumb.svelte';
   import BrowserTable from './extract/BrowserTable.svelte';
   import PreviewPanel from './extract/PreviewPanel.svelte';
   import ExtractControls from './extract/ExtractControls.svelte';
-  import ProgressBar from '../components/ProgressBar.svelte';
+  import ProgressDialog from '../components/ProgressDialog.svelte';
 
-  let isRunning = $derived(taskStore.isRunning && taskStore.activeTask?.kind === 'extract');
 </script>
 
 <div class="extract-page">
@@ -27,13 +25,8 @@
         <PreviewPanel />
       </div>
     </div>
-    {#if isRunning}
-      <div class="action-bar">
-        <ProgressBar kind="extract" />
-      </div>
-    {:else}
       <ExtractControls />
-    {/if}
+    <ProgressDialog kind="extract" />
   {:else}
     <div class="empty-state">
       <p>{localeStore.t('extract.emptyState')}</p>
@@ -74,13 +67,5 @@
     justify-content: center;
     color: var(--color-text-muted);
     font-size: var(--text-sm);
-  }
-  .action-bar {
-    display: flex;
-    align-items: center;
-    gap: var(--space-3);
-    padding: var(--space-3);
-    background: var(--color-surface);
-    border-radius: var(--radius-md);
   }
 </style>
