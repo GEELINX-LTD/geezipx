@@ -6,7 +6,16 @@
   import { taskStore } from '../../stores/taskStore.svelte';
 
   let disabled = $derived(taskStore.isRunning && taskStore.activeTask?.kind === 'extract');
+  let lastArchivePath = '';
   let outputDir = $state('');
+
+  $effect(() => {
+    const current = archiveStore.archivePath;
+    if (current && current !== lastArchivePath) {
+      lastArchivePath = current;
+      outputDir = archiveStore.suggestedOutputDir;
+    }
+  });
   let overwrite = $state(true);
   let extractPassword = $state('');
   let result: string | null = $state(null);

@@ -33,6 +33,48 @@ let currentChildren = $derived(getCurrentDirChildren(entries, currentDir));
 let selectedCount = $derived(selectedPaths.size);
 let entryCount = $derived(entries.length);
 let hasArchive = $derived(archivePath.length > 0);
+let suggestedOutputDir = $derived(computeSuggestedDir(archivePath, entries));
+
+// --- Suggested Output Directory ---
+
+function stripArchiveExtension(fileName: string): string {
+  const compound = ['.tar.gz','.tar.bz2','.tar.br','.tar.lz4','.tar.xz','.tar.zst','.tgz','.tbz','.tbz2','.txz','.tzst'];
+  const simple = ['.zip','.zipx','.jar','.war','.apk','.ipa','.xpi','.tar','.gz','.gzip','.bz2','.br','.lz4','.xz','.zst','.zstd','.lzma','.7z','.rar','.cab','.asar','.deb','.lzh','.lha','.cpio'];
+  const lower = fileName.toLowerCase();
+  for (const ext of compound) { if (lower.endsWith(ext)) return fileName.slice(0, -ext.length); }
+  for (const ext of simple) { if (lower.endsWith(ext)) return fileName.slice(0, -ext.length); }
+  return fileName;
+}
+
+function parentDir(filePath: string): string {
+  const sep = filePath.includes('\\') ? '\\' : '/';
+  const idx = filePath.lastIndexOf(sep);
+  return idx > 0 ? filePath.slice(0, idx + 1) : '';
+}
+
+function computeSuggestedDir(archivePath: string, allEntries: EntryInfo[]): string {
+  if (!archivePath || allEntries.length === 0) return '';
+
+  const parent = parentDir(archivePath);
+  const archiveFileName = archivePath.split(/[/\\]/).pop() || 'archive';
+  const archiveName = stripArchiveExtension(archiveFileName);
+
+  // Check if all entries share a single top-level directory prefix
+  const firstSlash = allEntries[0]?.path.indexOf('/') ?? -1;
+  if (firstSlash > 0) {
+    const commonPrefix = allEntries[0].path.slice(0, firstSlash + 1);
+    const allNested = allEntries.every(
+      (e) => e.path === commonPrefix || e.path.startsWith(commonPrefix)
+    );
+    if (allNested) {
+      // All entries inside a single top-level folder -> extract to parent directory
+      return parent;
+    }
+  }
+
+  // Multiple top-level items -> create a named folder
+  return parent + archiveName;
+}
 
 // --- Helper: get children of current directory ---
 
@@ -210,6 +252,9 @@ export const archiveStore = {
   },
   get hasArchive() {
     return hasArchive;
+  },
+  get suggestedOutputDir() {
+    return suggestedOutputDir;
   },
   openArchive,
   navigateTo,
