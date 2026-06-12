@@ -1089,10 +1089,9 @@ function updateSelectionUI() {
   const extractSelectedBtn = el<HTMLButtonElement>("extract-browser-selected");
   const extractOutputInput = el<HTMLInputElement>("extract-output");
   const extractOutputBtn = el<HTMLButtonElement>("extract-output-btn");
-  const listArchiveInput = el<HTMLInputElement>("extract-archive");
-  const listArchiveBtn = el<HTMLButtonElement>("extract-archive-btn");
-  const listRunBtn = el<HTMLButtonElement>("extract-run");
-  const listPasswordInput = el<HTMLInputElement>("extract-password");
+  const extractArchiveInput = el<HTMLInputElement>("extract-archive");
+  const extractArchiveBtn = el<HTMLButtonElement>("extract-archive-btn");
+  const extractPasswordInput = el<HTMLInputElement>("extract-password");
 
   const hasArchive = extractArchivePath.trim().length > 0;
   const selectedCount = extractSelectedEntries.size;
@@ -1107,10 +1106,9 @@ function updateSelectionUI() {
   extractSelectedBtn.disabled = !hasArchive || extractRunning || selectedCount === 0;
   extractOutputInput.disabled = !hasArchive || extractRunning;
   extractOutputBtn.disabled = !hasArchive || extractRunning;
-  listArchiveInput.disabled = extractRunning;
-  listArchiveBtn.disabled = extractRunning;
-  listRunBtn.disabled = extractRunning;
-  listPasswordInput.disabled = extractRunning;
+  extractArchiveInput.disabled = extractRunning;
+  extractArchiveBtn.disabled = extractRunning;
+  extractPasswordInput.disabled = extractRunning;
 }
 
 function buildExtractErrorsHtml(errors: ExtractArchiveResult["errors"]): string {
@@ -1956,8 +1954,6 @@ window.addEventListener("DOMContentLoaded", async () => {
     el<HTMLInputElement>("extract-output").value = path;
   });
 
-  el("extract-run").addEventListener("click", runExtract);
-  el("extract-cancel").addEventListener("click", () => handleCancel("extract"));
 
   el("extract-archive").addEventListener("change", () => {
     const path = el<HTMLInputElement>("extract-archive").value.trim();

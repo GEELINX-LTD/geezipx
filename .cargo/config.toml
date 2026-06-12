@@ -1,0 +1,8 @@
+# GeeZipX Cargo configuration
+#
+# All Windows GUI builds (local + CI) must use the static MSVC CRT
+# (/MT) so that native C/C++ dependencies (unrar_sys, zpaq_rs, etc.)
+# link against the same runtime library.  A mismatch between /MD and
+# /MT causes LNK2038 / LNK1319 linker errors on MSVC.
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-Ctarget-feature=+crt-static"]
