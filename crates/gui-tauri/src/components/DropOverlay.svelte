@@ -1,49 +1,63 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
+  import { getCurrentWindow } from '@tauri-apps/api/window';
   import { localeStore } from '../stores/localeStore.svelte';
+  import { appStore } from '../stores/appStore.svelte';
+  import { archiveStore } from '../stores/archiveStore.svelte';
 
-  let depth = $state(0);
-  let dropActive = $derived(depth > 0);
+  let dropActive = $state(false);
 
-  function handleDragEnter(e: DragEvent) {
-    e.preventDefault();
-    depth++;
-  }
+  const ARCHIVE_EXTS = new Set([
+    'zip', '7z', 'rar', 'tar', 'gz', 'tgz', 'bz2', 'tbz', 'tbz2',
+    'br', 'lz4', 'xz', 'txz', 'zst', 'tzst', 'cab', 'asar', 'deb',
+    'iso', 'cpio', 'zpaq', 'lzh', 'lha', 'jar', 'war', 'apk', 'ipa',
+    'xpi', 'zstd', 'lzma',
+  ]);
 
-  function handleDragLeave(e: DragEvent) {
-    e.preventDefault();
-    depth--;
-    if (depth < 0) depth = 0;
-  }
-
-  function handleDragOver(e: DragEvent) {
-    e.preventDefault();
-  }
-
-  function handleDrop(e: DragEvent) {
-    e.preventDefault();
-    depth = 0;
-    // File handling will be wired later
-  }
-
-  function handleGlobalDragEnter(e: DragEvent) {
-    e.preventDefault();
-    depth++;
-  }
-
-  function handleGlobalDragLeave(e: DragEvent) {
-    // Only decrement if leaving the actual window (not child elements)
-    if (e.target === document.documentElement || e.relatedTarget === null) {
-      depth = Math.max(0, depth - 1);
+  function isArchivePath(path: string): boolean {
+    const lower = path.toLowerCase();
+    if (
+      lower.endsWith('.tar.gz') ||
+      lower.endsWith('.tar.bz2') ||
+      lower.endsWith('.tar.br') ||
+      lower.endsWith('.tar.lz4') ||
+      lower.endsWith('.tar.xz') ||
+      lower.endsWith('.tar.zst')
+    ) {
+      return true;
     }
+    const ext = lower.split('.').pop() || '';
+    return ARCHIVE_EXTS.has(ext);
   }
-</script>
 
-<svelte:window
-  ondragenter={handleGlobalDragEnter}
-  ondragleave={handleGlobalDragLeave}
-  ondragover={handleDragOver}
-  ondrop={handleDrop}
-/>
+  onMount(() => {
+    const unlistenPromise = getCurrentWindow().onDragDropEvent((event) => {
+      if (event.payload.type === 'enter') {
+        dropActive = true;
+      } else if (event.payload.type === 'over') {
+        // keep overlay visible while hovering
+      } else if (event.payload.type === 'leave') {
+        dropActive = false;
+      } else if (event.payload.type === 'drop') {
+        dropActive = false;
+        const paths = event.payload.paths;
+        if (paths.length === 0) return;
+
+        if (paths.length === 1 && isArchivePath(paths[0])) {
+          appStore.switchTab('extract');
+          archiveStore.openArchive(paths[0]);
+        } else {
+          appStore.setPendingSourcePaths(paths);
+          appStore.switchTab('compress');
+        }
+      }
+    });
+
+    return () => {
+      unlistenPromise.then((fn) => fn());
+    };
+  });
+</script>
 
 {#if dropActive}
   <div
@@ -51,10 +65,6 @@
     role="dialog"
     aria-label={localeStore.t('drop.title')}
     tabindex="-1"
-    ondragenter={handleDragEnter}
-    ondragleave={handleDragLeave}
-    ondragover={handleDragOver}
-    ondrop={handleDrop}
   >
     <div class="overlay-content">
       <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">

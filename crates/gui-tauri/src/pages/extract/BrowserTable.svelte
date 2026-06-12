@@ -2,8 +2,12 @@
   import { localeStore } from '../../stores/localeStore.svelte';
   import { archiveStore } from '../../stores/archiveStore.svelte';
   import { prepareDragEntries, cleanupDragTempDir } from '../../bridge';
+  import { startDrag } from '@crabnebula/tauri-plugin-drag';
 
-  let dragTempId = '';
+  let dragMouseDown = false;
+  let dragStartX = 0;
+  let dragStartY = 0;
+  const DRAG_THRESHOLD = 5; // pixels
 
   function formatBytes(bytes: number): string {
     if (bytes === 0) return '—';
@@ -41,7 +45,23 @@
     }
   }
 
-  async function handleDragStart(e: DragEvent, entryPath: string) {
+  function onRowMouseDown(e: MouseEvent, entryPath: string) {
+    dragMouseDown = true;
+    dragStartX = e.clientX;
+    dragStartY = e.clientY;
+  }
+
+  async function onRowMouseMove(e: MouseEvent, entryPath: string) {
+    if (!dragMouseDown) return;
+
+    const dx = Math.abs(e.clientX - dragStartX);
+    const dy = Math.abs(e.clientY - dragStartY);
+
+    if (dx < DRAG_THRESHOLD && dy < DRAG_THRESHOLD) return;
+
+    // Drag threshold exceeded — start native drag
+    dragMouseDown = false;
+
     if (!archiveStore.archivePath) return;
 
     const paths = archiveStore.selectedPaths.has(entryPath)
@@ -49,19 +69,27 @@
       : [entryPath];
 
     try {
-      const tempId = await prepareDragEntries(archiveStore.archivePath, paths, archiveStore.archivePassword || undefined);
-      dragTempId = tempId;
-      e.dataTransfer?.setData('text/plain', tempId);
+      const tempId = await prepareDragEntries(
+        archiveStore.archivePath,
+        paths,
+        archiveStore.archivePassword || undefined
+      );
+
+      // Initiate OS-level native drag
+      await startDrag({
+        item: [tempId],
+        icon: '',
+      });
+
+      // Clean up after drag completes
+      cleanupDragTempDir(tempId).catch(() => {});
     } catch {
       // drag prepare failed — silently skip
     }
   }
 
-  function handleDragEnd() {
-    if (dragTempId) {
-      cleanupDragTempDir(dragTempId).catch(() => {});
-      dragTempId = '';
-    }
+  function onRowMouseUp() {
+    dragMouseDown = false;
   }
 
   let allSelected = $derived(
@@ -97,9 +125,10 @@
           <tr
             class="browser-row"
             class:selected={archiveStore.selectedPaths.has(child.entry.path)}
-            draggable="true"
-            ondragstart={(e) => handleDragStart(e, child.entry.path)}
-            ondragend={handleDragEnd}
+            onmousedown={(e) => onRowMouseDown(e, child.entry.path)}
+            onmousemove={(e) => onRowMouseMove(e, child.entry.path)}
+            onmouseup={onRowMouseUp}
+            onmouseleave={onRowMouseUp}
           >
             <td class="col-check" onclick={(e) => e.stopPropagation()}>
               <input

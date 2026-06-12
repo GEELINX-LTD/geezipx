@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import { open } from '@tauri-apps/plugin-dialog';
   import { save } from '@tauri-apps/plugin-dialog';
   import { compressArchive, cancelTask, getFormats, type FormatInfo } from '../bridge';
@@ -21,6 +22,14 @@
 
   getFormats().then((f) => (formats = f));
 
+  onMount(() => {
+    const pending = appStore.consumePendingSourcePaths();
+    if (pending.length > 0) {
+      sourcePaths = pending;
+      inferOutput();
+    }
+  });
+
   function inferOutput() {
     if (sourcePaths.length === 0) return;
     const first = sourcePaths[0].replace(/\/$/, '');
@@ -37,6 +46,13 @@
         if (!sourcePaths.includes(p)) sourcePaths = [...sourcePaths, p];
       }
       inferOutput();
+    }
+  }
+
+  function handleSourceKeydown(e: KeyboardEvent) {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      browseFiles();
     }
   }
 
@@ -87,10 +103,10 @@
 <div class="compress-page">
   <!-- Source Files -->
   <section class="section">
-    <label class="section-label">{localeStore.t('compress.sourceFiles')}</label>
+    <span class="section-label">{localeStore.t('compress.sourceFiles')}</span>
     <div class="source-area">
       {#if sourcePaths.length === 0}
-        <div class="source-empty" role="button" tabindex="0" onclick={browseFiles}>
+        <div class="source-empty" role="button" tabindex="0" onclick={browseFiles} onkeydown={handleSourceKeydown}>
           <p>{localeStore.t('compress.sourcePlaceholder')}</p>
         </div>
       {:else}
@@ -141,9 +157,9 @@
   <!-- Output -->
   <section class="section">
     <div class="field">
-      <label class="section-label">{localeStore.t('compress.output')}</label>
+      <label class="section-label" for="compress-output">{localeStore.t('compress.output')}</label>
       <div class="input-row">
-        <input type="text" value={outputPath} readonly placeholder={localeStore.t('compress.outputPlaceholder')} />
+        <input type="text" id="compress-output" value={outputPath} readonly placeholder={localeStore.t('compress.outputPlaceholder')} />
         <button class="btn-secondary" onclick={browseOutput}>{localeStore.t('common.saveAs')}</button>
       </div>
     </div>

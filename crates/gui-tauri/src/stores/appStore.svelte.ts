@@ -6,6 +6,7 @@ const MAX_RECENT = 20;
 // --- Reactive State ---
 let activeTab = $state<'home' | 'compress' | 'extract' | 'settings' | 'about'>('home');
 let dropActive = $state(false);
+let pendingSourcePaths = $state<string[]>([]);
 let recentFiles = $state<{ path: string; name: string; timestamp: number }[]>([]);
 
 // --- Derived ---
@@ -23,6 +24,16 @@ function switchTab(tab: string): void {
 
 function setDropActive(active: boolean): void {
   dropActive = active;
+}
+
+function setPendingSourcePaths(paths: string[]): void {
+  pendingSourcePaths = [...paths];
+}
+
+function consumePendingSourcePaths(): string[] {
+  const paths = pendingSourcePaths;
+  pendingSourcePaths = [];
+  return paths;
 }
 
 function addRecent(path: string): void {
@@ -87,6 +98,9 @@ export const appStore = {
   get dropActive() {
     return dropActive;
   },
+  get pendingSourcePaths() {
+    return pendingSourcePaths;
+  },
   get recentFiles() {
     return recentFiles;
   },
@@ -98,6 +112,8 @@ export const appStore = {
   },
   switchTab,
   setDropActive,
+  setPendingSourcePaths,
+  consumePendingSourcePaths,
   addRecent,
   removeRecent,
   loadRecent,
