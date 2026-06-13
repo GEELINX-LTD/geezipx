@@ -36,6 +36,7 @@ asar = { version = "0.3", default-features = false }
 ar = "0.9"
 delharc = "0.6"
 isomage = "2.1"
+hadris-iso = "1.1"
 sevenz-rust2 = { version = "0.21", default-features = false, features = ["compress", "aes256", "bzip2", "ppmd", "deflate"] }
 # Optional: RAR read-only (feature-gated, requires C++ compiler)
 unrar = { version = "0.5.8", optional = true }

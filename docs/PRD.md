@@ -42,7 +42,7 @@ GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开�
 
 | 特性 | 说明 | 状态 |
 |------|------|------|
-| 格式支持 | `.tar.gz`/`.tgz`, `.tar.bz2`/`.tbz`/`.tbz2`, `.tar.br`, `.tar.lz4`, `.zip`（含 `.zipx`/`.jar`/`.war`/`.apk`/`.ipa`/`.xpi` ZIP 兼容别名）, `.tar`, `.gz`/`.gzip`, `.bz2`, `.br`, `.lz4`, `.tar.zst`/`.tzst`, `.zst`/`.zstd`, `.tar.xz`/`.txz`, `.xz`, `.lzma`, `.7z`（读/写）；LZH/LHA（store-only 写入 MVP）；RAR/CAB/ASAR/DEB/ISO/CPIO/ZPAQ（只读） | **已完成** |
+| 格式支持 | `.tar.gz`/`.tgz`, `.tar.bz2`/`.tbz`/`.tbz2`, `.tar.br`, `.tar.lz4`, `.zip`（含 `.zipx`/`.jar`/`.war`/`.apk`/`.ipa`/`.xpi` ZIP 兼容别名）, `.tar`, `.gz`/`.gzip`, `.bz2`, `.br`, `.lz4`, `.tar.zst`/`.tzst`, `.zst`/`.zstd`, `.tar.xz`/`.txz`, `.xz`, `.lzma`, `.7z`（读/写）；LZH/LHA（store-only 写入 MVP）；ISO（读写）；RAR/CAB/ASAR/DEB/CPIO/ZPAQ（只读） | **已完成** |
 | 流式处理 | 文件流读写，内存占用与文件大小解耦 | **已完成** |
 | 进度显示 | TTY 下默认显示进度，可用 `--no-progress` 禁用 | **已完成** |
 | 格式自动检测 | 根据文件魔数（magic bytes）自动检测归档格式 | **已完成** |
@@ -85,7 +85,7 @@ GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开�
 | RAR | .rar | 📖 只读 | 受 UnRAR 许可限制，不规划写入 |
 | CAB | .cab | 📖 只读 | 当前支持 `list` / `decompress` / `test`；MVP 面向单卷 cabinet，不做写入、密码或 multi-volume cabinet set |
 | LZH/LHA | .lzh, .lha | ✅ 已支持（store-only 写入 MVP） | 已支持 `compress` / `list` / `decompress` / `test`；文件 entry 为 level-0 `-lh0-`，目录 entry 为 `-lhd-`。不包含 lh5/lh6/lh7 压缩写入、密码/加密、多卷、扩展属性、长路径/level 1/2/3 extended header |
-| ISO | .iso | 📖 只读 → 待写入 | 当前支持 `list` / `decompress` / `test`；MVP 面向 ISO9660 / Rock Ridge / Joliet 数据 ISO |
+| ISO | .iso | ✅ 已支持 | 支持 `compress` / `list` / `decompress` / `test`；ISO 9660 Level 1（小写文件名），通过 `hadris-iso` 实现。不含 Joliet / Rock Ridge / El Torito 写入。 |
 | CPIO | .cpio | 📖 只读 | 当前支持 `list` / `decompress` / `test`；MVP 支持 `newc` / `odc`，不做写入、`bin` / `crc`、宿主 symlink/device/FIFO/socket 创建 |
 | ZIPX | .zipx | ✅ 已支持 | ZIP 兼容容器/扩展名别名；不承诺 WinZip 专有高级压缩方法、Deflate64 写入或完整 ZIPX method matrix |
 | SFX | .exe | 📋 规划中 | 自解压 ZIP/7z 模块 |

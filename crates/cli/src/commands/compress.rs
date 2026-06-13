@@ -449,13 +449,6 @@ fn validate_compress_inputs(
         );
     }
 
-    // ISO writing is not supported; only list, test, and decompress for read-only.
-    if format == ArchiveFormat::Iso {
-        anyhow::bail!(
-            "iso writing is not supported; use list, test, or decompress for read-only iso support"
-        );
-    }
-
     // CPIO writing is not supported; only list, test, and decompress for read-only.
     if format == ArchiveFormat::Cpio {
         anyhow::bail!(

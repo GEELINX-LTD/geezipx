@@ -41,12 +41,12 @@
 
 | 操作 | 当前格式 | 目标扩展 |
 |------|----------|----------|
-|| 压缩 | ZIP、ZIPX（ZIP 兼容别名）、TAR、TAR.GZ、TAR.BZ2、TAR.BR、TAR.LZ4、TAR.ZST、TAR.XZ、7z、LZH/LHA（store-only） | 更完整 LZH/LHA 兼容（lh5/lh6/lh7 压缩写入、扩展 header、metadata）、ISO 写入、ZPAQ 写入、SFX、7z 高级写入能力（后续阶段） |
+| 压缩 | ZIP、ZIPX（ZIP 兼容别名）、TAR、TAR.GZ、TAR.BZ2、TAR.BR、TAR.LZ4、TAR.ZST、TAR.XZ、7z、LZH/LHA（store-only）、ISO | ZPAQ 写入、SFX、7z 高级写入能力（后续阶段） |
 || 解压缩 | 上述所有格式 + 7z / RAR / CAB / ASAR / DEB / ISO / CPIO / ZPAQ 只读 | ARJ、ACE、BZ2、BR、LZ4、WIM 等（后续阶段，含历史格式适配器） |
 
 > 完整格式目标清单见 `docs/PRD.md` 第 5.1 节。新增格式按 feature gate 引入，不要求当前版本一次性完成。
 
-GUI 中 7z 已支持基础创建与 AES-256 密码写入，LZH/LHA 已支持 store-only 写入 MVP（文件 `-lh0-`，目录 `-lhd-`），ZIPX 作为 ZIP-compatible alias 可创建、浏览、测试与提取，但不承诺 WinZip 专有高级压缩方法、Deflate64 写入或完整 ZIPX method matrix。RAR/CAB/ASAR/DEB/ISO/CPIO/ZPAQ 仍保持只读语义：可浏览、测试、提取，不可创建。
+GUI 中 7z 已支持基础创建与 AES-256 密码写入，LZH/LHA 已支持 store-only 写入 MVP（文件 `-lh0-`，目录 `-lhd-`），ZIPX 作为 ZIP-compatible alias 可创建、浏览、测试与提取，但不承诺 WinZip 专有高级压缩方法、Deflate64 写入或完整 ZIPX method matrix。ISO 已支持创建与读取（ISO 9660 Level 1）。RAR/CAB/ASAR/DEB/CPIO/ZPAQ 仍保持只读语义：可浏览、测试、提取，不可创建。
 
 
 ### 3.2 核心功能
@@ -115,7 +115,7 @@ GUI 中 7z 已支持基础创建与 AES-256 密码写入，LZH/LHA 已支持 sto
 - `geezipx-gui`/`crates/gui-tauri/src-tauri` 依赖 `geezipx-core`，反向依赖不允许。
 - GUI Rust 后端只做参数映射、任务生命周期管理、进度桥接与前端数据整形。
 - 前端不直接处理压缩格式细节；所有实际归档操作都经由 Tauri command bridge。
-- 7z 在 GUI 中已支持基础创建与 AES-256 密码写入；LZH/LHA 已支持 store-only 写入 MVP；RAR / CAB / ASAR / DEB / ISO / CPIO / ZPAQ 仍保持只读语义：可浏览、测试、提取，不可创建。
+- 7z 在 GUI 中已支持基础创建与 AES-256 密码写入；LZH/LHA 已支持 store-only 写入 MVP；ISO 已支持创建与读取；RAR / CAB / ASAR / DEB / CPIO / ZPAQ 仍保持只读语义：可浏览、测试、提取，不可创建。
 
 ## 5. Core API 复用策略
 
@@ -123,7 +123,7 @@ GUI 直接复用 core 的以下能力，不重复实现压缩/解压逻辑：
 
 | Core 模块 | GUI 复用方式 |
 |-----------|--------------|
-|| `core::archive::*` | 复用 `ArchiveReader` / `ArchiveWriter` trait；其中 7z 已支持基础 reader/writer 与 AES-256 密码写入，LZH/LHA 已支持 store-only writer MVP，RAR/CAB/ASAR/DEB/ISO/CPIO/ZPAQ 保持只读 reader |
+| `core::archive::*` | 复用 `ArchiveReader` / `ArchiveWriter` trait；其中 7z 已支持基础 reader/writer 与 AES-256 密码写入，LZH/LHA 已支持 store-only writer MVP，ISO 已支持 reader/writer，RAR/CAB/ASAR/DEB/CPIO/ZPAQ 保持只读 reader |
 | `core::io::{ProgressReader, ProgressWriter, ProgressCallback, ProgressEvent}` | 进度计数与取消检查；由 GUI 后端转成 Tauri 事件 |
 | `core::detect::{detect_format, detect_from_extension, read_magic_bytes}` | 自动识别拖入文件与归档类型 |
 | `core::config::CompressOptions` | 统一传递 level、jobs、password 等参数 |

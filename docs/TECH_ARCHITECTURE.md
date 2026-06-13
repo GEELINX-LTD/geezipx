@@ -60,7 +60,7 @@ geezipx/
 - core 只保留格式逻辑、I/O 包装、错误模型与安全检查；
 - CLI 负责参数解析、TTY 进度、stdout/stderr 呈现；
 - Tauri GUI 负责图形交互、任务管理、事件桥接；
-- RAR / CAB / ASAR / DEB / ISO / CPIO / ZPAQ 在当前版本中保持只读语义（`list` / `decompress` / `test`）；LZH/LHA 已支持 store-only 写入 MVP；7z 已支持基础读写与 AES-256 密码写入。
+- RAR / CAB / ASAR / DEB / CPIO / ZPAQ 在当前版本中保持只读语义（`list` / `decompress` / `test`）；LZH/LHA 已支持 store-only 写入 MVP；7z 已支持基础读写与 AES-256 密码写入；ISO 已支持读写（ISO 9660 Level 1）。
 
 ## 2. 模块设计
 
@@ -121,7 +121,7 @@ pub trait ArchiveWriter: Send {
 | `archive::cab` | CAB 只读（`list` / `extract` / `test`；path-based 读取，当前面向单卷 cabinet） |
 | `archive::cpio` | CPIO 只读（`list` / `extract` / `test`；path-based 读取，MVP 支持 `newc` / `odc`，不创建宿主 symlink/device/FIFO/socket） |
 | `archive::lzh` | LZH/LHA 读写（`compress` / `list` / `extract` / `test`）；reader 基于 `delharc`，writer 为项目内实现（store-only level-0：文件 `-lh0-`，目录 `-lhd-`）|
-| `archive::iso` | ISO 只读（`list` / `extract` / `test`，`isomage` 解析 ISO9660/Rock Ridge/Joliet） |
+| `archive::iso` | ISO 读写（读 `isomage` 解析 ISO9660/Rock Ridge/Joliet，写 `hadris-iso` ISO 9660 Level 1） |
 | `archive::zpaq` | ZPAQ 只读（`list` / `extract` / `test`，`zpaq_rs` 提供列表/条目读取；单条目提取当前可能经字节缓冲） |
 | `archive::seven_zip` | 7z 读写（`list` / `extract` / `test` / `compress`）；当前 writer 为基础 MVP（默认 non-solid LZMA2，支持 AES-256 密码写入） |
 | `archive::rar` | RAR 只读（`list` / `extract` / `test`，feature-gated） |
@@ -285,7 +285,7 @@ CLI 当前子命令为：
 | `asar` 0.3 | ASAR 只读支持（Electron 归档） |
 | `ar` 0.9 | ar 归档只读支持（DEB 包解析） |
 | `delharc` 0.6 | LZH/LHA 只读 reader 支持（writer 为项目内实现，store-only level-0） |
-| `isomage` 2.1 | ISO 只读支持（ISO9660 / Rock Ridge / Joliet 解析与流式读取） |
+| `isomage` 2.1 | ISO 读取（ISO9660 / Rock Ridge / Joliet 解析与流式读取）；`hadris-iso` 1.1 提供 ISO 9660 Level 1 写入 |
 | `cpio-archive` 0.10 | CPIO 只读支持（`newc` / `odc` 读取；MPL-2.0，作为未修改 Cargo 依赖使用） |
 | `zpaq_rs` 1.0 | ZPAQ 只读支持（optional, default-enabled；需 Rust 1.85+ 与 C++17 编译器） |
 | `sevenz-rust2` 0.21 | 7z 读写支持（当前 writer 走默认 non-solid LZMA2，可选 AES-256 密码写入） |
@@ -424,7 +424,7 @@ crates/gui-tauri/
 | GUI bundle 发布尚未经历真实 tag release 演练 | 发布路径可能存在流程性缺口 | 保守表述为“已配置，待验证” |
 | 大文件压缩进度依赖预扫描总量 | 首次开始任务前会有扫描延迟 | UI 上明确扫描阶段 |
 | Windows 长路径/符号链接差异 | 个别归档场景行为与 Unix 不完全一致 | 持续测试 + 文档限制说明 |
-| RAR / CAB / ASAR / DEB / ISO / CPIO / ZPAQ 仍为只读 | GUI 不能创建这些格式 | 在产品文档中明确范围 |
+| RAR / CAB / ASAR / DEB / CPIO / ZPAQ 仍为只读 | GUI 不能创建这些格式 | 在产品文档中明确范围 |
 | LZH/LHA writer 为 store-only level-0 缓冲写入 | 不支持 lh5/lh6/lh7 压缩、加密、多卷、extended header；单个 entry payload 会缓冲 | 在产品文档中明确限制范围 |
 ## 附录：Cargo Workspace 配置
 

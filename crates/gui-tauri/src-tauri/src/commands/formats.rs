@@ -178,7 +178,7 @@ pub fn get_formats() -> Vec<FormatInfo> {
         },
         FormatInfo {
             name: "iso".into(),
-            can_compress: false,
+            can_compress: true,
             can_decompress: true,
             supports_encryption: false,
             level_hint: None,

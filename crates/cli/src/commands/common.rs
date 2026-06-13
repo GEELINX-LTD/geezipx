@@ -14,6 +14,7 @@ use geezipx_core::archive::cab::CabReader;
 use geezipx_core::archive::cpio::CpioReader;
 use geezipx_core::archive::deb::DebReader;
 use geezipx_core::archive::iso::IsoReader;
+use geezipx_core::archive::iso::IsoWriter;
 use geezipx_core::archive::lzh::{LzhReader, LzhWriter};
 #[cfg(feature = "rar")]
 use geezipx_core::archive::rar::RarReader;
@@ -414,11 +415,11 @@ pub fn create_writer(
         ArchiveFormat::TarLz4 => Ok(Box::new(TarLz4Writer::new_with_options(file, options)?)),
         ArchiveFormat::TarZst => Ok(Box::new(TarZstWriter::new_with_options(file, options))),
         ArchiveFormat::Lzh => Ok(Box::new(LzhWriter::new(file))),
+        ArchiveFormat::Iso => Ok(Box::new(IsoWriter::new(file))),
         ArchiveFormat::Asar
         | ArchiveFormat::Cab
         | ArchiveFormat::Deb
         | ArchiveFormat::Cpio
-        | ArchiveFormat::Iso
         | ArchiveFormat::Zpaq => {
             anyhow::bail!("'{format}' is a read-only archive format; writing is not supported")
         }
@@ -1065,16 +1066,30 @@ mod tests {
     }
 
     #[test]
-    fn create_writer_iso_is_read_only() {
+    fn create_writer_iso_is_writable() {
         let temp = tempfile::TempDir::new().unwrap();
         let output = temp.path().join("out.iso");
         let file = fs::File::create(&output).unwrap();
-        match create_writer(file, ArchiveFormat::Iso, CompressOptions::default()) {
-            Ok(_) => panic!("iso writer should be rejected"),
-            Err(err) => assert!(err.to_string().contains("read-only archive format")),
-        }
-    }
+        let mut writer =
+            create_writer(file, ArchiveFormat::Iso, CompressOptions::default()).unwrap();
+        writer
+            .add_entry_from_reader(
+                std::path::Path::new("CLI.TXT"),
+                &mut std::io::Cursor::new(b"cli iso test"),
+            )
+            .unwrap();
+        let bytes_written = writer.finish().unwrap();
+        assert!(bytes_written > 0);
+        assert_eq!(bytes_written, fs::metadata(&output).unwrap().len());
 
+        let mut reader = open_reader(&output, ArchiveFormat::Iso, None).unwrap();
+        let entries = reader.entries().unwrap();
+        let file_entry = entries.iter().find(|e| e.path.contains("CLI.TXT")).unwrap();
+        assert!(!file_entry.is_dir);
+        let mut out = Vec::new();
+        reader.extract(file_entry, &mut out).unwrap();
+        assert_eq!(out, b"cli iso test");
+    }
     #[test]
     fn create_writer_cpio_is_read_only() {
         let temp = tempfile::TempDir::new().unwrap();

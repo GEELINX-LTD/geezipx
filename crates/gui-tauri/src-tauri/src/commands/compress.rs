@@ -9,6 +9,7 @@
 //! is never blocked. Progress is emitted as `task:progress` events.
 use crate::commands::progress::{is_cancelled_error, TaskKind, TaskProgressEmitter, TaskStage};
 use crate::state::AppState;
+use geezipx_core::archive::iso::IsoWriter;
 use geezipx_core::archive::lzh::LzhWriter;
 use geezipx_core::archive::seven_zip::SevenZipWriter;
 use geezipx_core::archive::tar::TarWriter;
@@ -328,6 +329,7 @@ fn parse_gui_compress_format(s: &str) -> Result<ArchiveFormat, String> {
         ),
         "7z" => Ok(ArchiveFormat::SevenZip),
         "lzh" | "lha" => Ok(ArchiveFormat::Lzh),
+        "iso" => Ok(ArchiveFormat::Iso),
         "rar" => Err(
             "rar writing is not supported; use list, test, or decompress for read-only rar support"
                 .to_string(),
@@ -341,7 +343,7 @@ fn parse_gui_compress_format(s: &str) -> Result<ArchiveFormat, String> {
                 .to_string()
         ),
         other => Err(format!(
-            "Unsupported format '{other}'; expected: zip, zipx, tar, tar.gz, tgz, tar.bz2, tbz, tbz2, tar.br, tar.lz4, tar.zst, tzst, tar.xz, txz, 7z, lzh, lha"
+            "Unsupported format '{other}'; expected: zip, zipx, tar, tar.gz, tgz, tar.bz2, tbz, tbz2, tar.br, tar.lz4, tar.zst, tzst, tar.xz, txz, 7z, lzh, lha, iso"
         )),
     }
 }
@@ -495,6 +497,7 @@ fn create_gui_writer(
                  (will be added in a later update)"
         )),
         ArchiveFormat::Lzh => Ok(Box::new(LzhWriter::new(file))),
+        ArchiveFormat::Iso => Ok(Box::new(IsoWriter::new(file))),
         ArchiveFormat::Cab => Err(
             "cab writing is not supported; use list, test, or decompress for read-only cab support"
                 .to_string(),
