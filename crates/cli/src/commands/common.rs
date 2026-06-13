@@ -432,12 +432,18 @@ pub fn create_writer(
         ArchiveFormat::TarZst => Ok(Box::new(TarZstWriter::new_with_options(file, options))),
         ArchiveFormat::Lzh => Ok(Box::new(LzhWriter::new(file))),
         ArchiveFormat::Iso => Ok(Box::new(IsoWriter::new(file))),
-        ArchiveFormat::Asar
-        | ArchiveFormat::Cab
-        | ArchiveFormat::Deb
-        | ArchiveFormat::Cpio
-        | ArchiveFormat::Zpaq => {
+        ArchiveFormat::Asar | ArchiveFormat::Cab | ArchiveFormat::Deb | ArchiveFormat::Cpio => {
             anyhow::bail!("'{format}' is a read-only archive format; writing is not supported")
+        }
+        #[cfg(feature = "zpaq")]
+        ArchiveFormat::Zpaq => {
+            let writer = geezipx_core::archive::zpaq::ZpaqWriter::new(file, options.level);
+            Ok(Box::new(writer))
+        }
+
+        #[cfg(not(feature = "zpaq"))]
+        ArchiveFormat::Zpaq => {
+            anyhow::bail!("'zpaq' support is disabled in this build; rebuild with --features zpaq")
         }
         ArchiveFormat::Gzip
         | ArchiveFormat::Bzip2
@@ -1118,13 +1124,16 @@ mod tests {
     }
 
     #[test]
-    fn create_writer_zpaq_is_read_only() {
+    fn create_writer_zpaq_is_writable() {
         let temp = tempfile::TempDir::new().unwrap();
         let output = temp.path().join("out.zpaq");
         let file = fs::File::create(&output).unwrap();
-        match create_writer(file, ArchiveFormat::Zpaq, CompressOptions::default()) {
-            Ok(_) => panic!("zpaq writer should be rejected"),
-            Err(err) => assert!(err.to_string().contains("read-only archive format")),
-        }
+        let mut writer = create_writer(file, ArchiveFormat::Zpaq, CompressOptions::default())
+            .expect("zpaq writer should be creatable");
+        writer
+            .add_entry_from_reader(std::path::Path::new("hello.txt"), &mut "hello".as_bytes())
+            .expect("file should be added");
+        let written = writer.finish().expect("writer should finish");
+        assert!(written > 0);
     }
 }

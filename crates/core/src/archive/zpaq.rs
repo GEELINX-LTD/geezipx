@@ -13,10 +13,13 @@
 //!   and no-clobber behavior remain centralized.
 
 use std::fmt;
+use std::io::Read;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use crate::archive::{datetime_to_timestamp, ArchiveReader, Entry};
+use crate::archive::{
+    datetime_to_timestamp, is_entry_path_dangerous, ArchiveReader, ArchiveWriter, Entry,
+};
 use crate::detect::ArchiveFormat;
 use crate::error::{GeeZipError, GeeZipResult};
 
@@ -261,6 +264,160 @@ impl ArchiveReader for ZpaqReader {
     }
 }
 
+// ---------------------------------------------------------------------------
+// ZpaqWriter
+// ---------------------------------------------------------------------------
+
+/// ZPAQ archive writer.
+///
+/// Entries are buffered in memory during `add_entry_from_reader` calls and
+/// compressed in a single pass when `finish()` is called via
+/// `zpaq_rs::archive_from_entries`.
+pub struct ZpaqWriter<W: Write + Send> {
+    inner: Option<W>,
+    entries: Vec<BufferedZpaqEntry>,
+    method: String,
+    format: ArchiveFormat,
+}
+
+struct BufferedZpaqEntry {
+    path: String,
+    data: Vec<u8>,
+}
+
+impl<W: Write + Send> fmt::Debug for ZpaqWriter<W> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ZpaqWriter")
+            .field("format", &self.format)
+            .field("method", &self.method)
+            .finish_non_exhaustive()
+    }
+}
+
+impl<W: Write + Send> ZpaqWriter<W> {
+    pub fn new(writer: W, level: Option<u32>) -> Self {
+        let method = match level {
+            None | Some(0) => "1",
+            Some(1) => "1",
+            Some(2) => "2",
+            Some(3) => "3",
+            Some(4) => "4",
+            Some(5) => "5",
+            Some(_) => "5", // Fallback: treat anything above 5 as "5"
+        };
+        Self {
+            inner: Some(writer),
+            entries: Vec::new(),
+            method: method.to_string(),
+            format: ArchiveFormat::Zpaq,
+        }
+    }
+
+    pub fn finalize(mut self) -> GeeZipResult<(u64, W)> {
+        let mut writer = self.inner.take().ok_or_else(|| {
+            GeeZipError::format("ZPAQ writer already finalised", ArchiveFormat::Zpaq)
+        })?;
+
+        let entry_refs: Vec<zpaq_rs::ArchiveEntry> = self
+            .entries
+            .iter()
+            .map(|e| zpaq_rs::ArchiveEntry {
+                path: &e.path,
+                data: &e.data,
+                comment: None,
+            })
+            .collect();
+
+        let archive_bytes =
+            zpaq_rs::archive_from_entries(&entry_refs, &self.method).map_err(|err| {
+                GeeZipError::format(
+                    format!("ZPAQ compression failed: {err}"),
+                    ArchiveFormat::Zpaq,
+                )
+            })?;
+
+        writer
+            .write_all(&archive_bytes)
+            .map_err(|err| GeeZipError::io(err, "writing ZPAQ archive"))?;
+        writer
+            .flush()
+            .map_err(|err| GeeZipError::io(err, "flushing ZPAQ archive"))?;
+
+        Ok((archive_bytes.len() as u64, writer))
+    }
+}
+
+impl<W: Write + Send> ArchiveWriter for ZpaqWriter<W> {
+    fn format(&self) -> ArchiveFormat {
+        self.format
+    }
+
+    fn add_entry_from_reader(&mut self, path: &Path, reader: &mut dyn Read) -> GeeZipResult<()> {
+        let raw = path.to_str().ok_or_else(|| {
+            GeeZipError::format(
+                format!("non-UTF-8 path: {}", path.display()),
+                ArchiveFormat::Zpaq,
+            )
+        })?;
+
+        // ZPAQ uses unix-style paths internally
+        let normalized = raw.replace('\\', "/");
+
+        if is_entry_path_dangerous(Path::new(&normalized)) {
+            return Err(GeeZipError::format(
+                format!("invalid ZPAQ entry path: {raw}"),
+                ArchiveFormat::Zpaq,
+            ));
+        }
+
+        let mut data = Vec::new();
+        reader.read_to_end(&mut data).map_err(|e| {
+            GeeZipError::io(e, format!("reading data for ZPAQ entry '{normalized}'"))
+        })?;
+
+        self.entries.push(BufferedZpaqEntry {
+            path: normalized,
+            data,
+        });
+        Ok(())
+    }
+
+    fn add_directory(&mut self, path: &Path) -> GeeZipResult<()> {
+        let raw = path.to_str().ok_or_else(|| {
+            GeeZipError::format(
+                format!("non-UTF-8 path: {}", path.display()),
+                ArchiveFormat::Zpaq,
+            )
+        })?;
+        let normalized = raw.replace('\\', "/");
+
+        if is_entry_path_dangerous(Path::new(&normalized)) {
+            return Err(GeeZipError::format(
+                format!("invalid ZPAQ entry path: {raw}"),
+                ArchiveFormat::Zpaq,
+            ));
+        }
+
+        // Register directory with trailing slash (matches reader convention)
+        let dir_path = if normalized.ends_with('/') {
+            normalized
+        } else {
+            format!("{normalized}/")
+        };
+
+        self.entries.push(BufferedZpaqEntry {
+            path: dir_path,
+            data: Vec::new(),
+        });
+        Ok(())
+    }
+
+    fn finish(self: Box<Self>) -> GeeZipResult<u64> {
+        let (bytes, _writer) = (*self).finalize()?;
+        Ok(bytes)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -419,5 +576,109 @@ mod tests {
         let (_temp, archive_path) = build_test_zpaq(&sample_entries());
         let reader: Box<dyn ArchiveReader> = Box::new(ZpaqReader::new(&archive_path));
         assert_eq!(reader.format(), ArchiveFormat::Zpaq);
+    }
+
+    // -----------------------------------------------------------------------
+    // ZPAQ writer tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn zpaq_writer_single_file_roundtrip() {
+        let content = b"hello zpaq writer";
+        let mut writer = ZpaqWriter::new(std::io::Cursor::new(Vec::new()), Some(1));
+        writer
+            .add_entry_from_reader(
+                std::path::Path::new("hello.txt"),
+                &mut std::io::Cursor::new(content.to_vec()),
+            )
+            .expect("file should be added");
+
+        let (bytes_written, cursor) = writer.finalize().expect("writer should finalize");
+        let archive = cursor.into_inner();
+        assert_eq!(bytes_written, archive.len() as u64);
+
+        let temp = tempfile::TempDir::new().expect("tempdir");
+        let archive_path = temp.path().join("out.zpaq");
+        fs::write(&archive_path, &archive).expect("write");
+        let mut reader = ZpaqReader::new(&archive_path);
+        let entries = reader.entries().expect("entries should load");
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].path, "hello.txt");
+        assert!(!entries[0].is_dir);
+        assert_eq!(entries[0].size, content.len() as u64);
+    }
+
+    #[test]
+    fn zpaq_writer_roundtrip_with_directories() {
+        let mut writer = ZpaqWriter::new(std::io::Cursor::new(Vec::new()), Some(1));
+        writer
+            .add_directory(std::path::Path::new("subdir"))
+            .expect("dir should be added");
+        writer
+            .add_entry_from_reader(
+                std::path::Path::new("subdir/file.txt"),
+                &mut std::io::Cursor::new(b"nested"),
+            )
+            .expect("nested file should be added");
+
+        let (_, cursor) = writer.finalize().expect("writer should finalize");
+        let archive = cursor.into_inner();
+
+        let temp = tempfile::TempDir::new().expect("tempdir");
+        let archive_path = temp.path().join("out.zpaq");
+        fs::write(&archive_path, &archive).expect("write");
+        let mut reader = ZpaqReader::new(&archive_path);
+        let entries = reader.entries().expect("entries should load");
+        assert!(
+            entries.iter().any(|e| e.path == "subdir/" && e.is_dir),
+            "expected subdir/ directory: {entries:?}"
+        );
+        assert!(
+            entries.iter().any(|e| e.path == "subdir/file.txt"),
+            "expected subdir/file.txt: {entries:?}"
+        );
+    }
+
+    #[test]
+    fn zpaq_writer_trait_object_finish_returns_byte_count() {
+        let mut writer: Box<dyn ArchiveWriter> =
+            Box::new(ZpaqWriter::new(std::io::Cursor::new(Vec::new()), Some(1)));
+        writer
+            .add_entry_from_reader(
+                std::path::Path::new("data.bin"),
+                &mut std::io::Cursor::new(b"payload"),
+            )
+            .unwrap();
+        let bytes = writer.finish().unwrap();
+        assert!(bytes > 0);
+    }
+
+    #[test]
+    fn zpaq_writer_rejects_absolute_paths() {
+        let mut writer = ZpaqWriter::new(std::io::Cursor::new(Vec::new()), None);
+        let err = writer
+            .add_entry_from_reader(
+                std::path::Path::new("/etc/passwd"),
+                &mut std::io::Cursor::new(b"bad"),
+            )
+            .expect_err("absolute path should be rejected");
+        assert!(err.to_string().contains("invalid"));
+    }
+
+    #[test]
+    fn zpaq_writer_level_method_mapping() {
+        // Level 0 / None → "1" (fast)
+        let w = ZpaqWriter::new(std::io::Cursor::new(Vec::new()), None);
+        assert_eq!(w.method, "1");
+        let w = ZpaqWriter::new(std::io::Cursor::new(Vec::new()), Some(0));
+        assert_eq!(w.method, "1");
+        // Explicit levels
+        let w = ZpaqWriter::new(std::io::Cursor::new(Vec::new()), Some(3));
+        assert_eq!(w.method, "3");
+        let w = ZpaqWriter::new(std::io::Cursor::new(Vec::new()), Some(5));
+        assert_eq!(w.method, "5");
+        // Above 5 → "5"
+        let w = ZpaqWriter::new(std::io::Cursor::new(Vec::new()), Some(9));
+        assert_eq!(w.method, "5");
     }
 }

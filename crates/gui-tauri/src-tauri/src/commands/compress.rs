@@ -330,6 +330,7 @@ fn parse_gui_compress_format(s: &str) -> Result<ArchiveFormat, String> {
         "7z" => Ok(ArchiveFormat::SevenZip),
         "lzh" | "lha" => Ok(ArchiveFormat::Lzh),
         "iso" => Ok(ArchiveFormat::Iso),
+        "zpaq" => Ok(ArchiveFormat::Zpaq),
         "rar" => Err(
             "rar writing is not supported; use list, test, or decompress for read-only rar support"
                 .to_string(),
@@ -498,6 +499,19 @@ fn create_gui_writer(
         )),
         ArchiveFormat::Lzh => Ok(Box::new(LzhWriter::new(file))),
         ArchiveFormat::Iso => Ok(Box::new(IsoWriter::new(file))),
+        ArchiveFormat::Zpaq => {
+            #[cfg(feature = "zpaq")]
+            {
+                Ok(Box::new(geezipx_core::archive::zpaq::ZpaqWriter::new(
+                    file,
+                    options.level,
+                )))
+            }
+            #[cfg(not(feature = "zpaq"))]
+            {
+                Err("'zpaq' support is disabled in this build; rebuild with --features zpaq".to_string())
+            }
+        }
         ArchiveFormat::Cab => Err(
             "cab writing is not supported; use list, test, or decompress for read-only cab support"
                 .to_string(),

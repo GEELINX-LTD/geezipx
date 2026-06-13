@@ -26,6 +26,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Added core round-trip tests and path-safety validation tests for the writer.
   - Added GUI format metadata, archive-browser/list/extract routing, frontend `.cab` archive detection, drag-out extension stripping, and Tauri file associations for the read-only archive flow.
 
+- **Format support — ZPAQ write**:
+  - Added core `ZpaqWriter` backed by `zpaq_rs::archive_from_entries`, enabling creation of ZPAQ archives with levels 1-5.
+  - Added CLI `compress -f zpaq` support alongside existing `list`, `decompress`, and `test` flows.
+  - Updated GUI format metadata and compression routing so `zpaq` is creatable from the Tauri app.
+  - Added core round-trip tests and path-safety validation tests for the writer.
+  - Non-goals: incremental journaling, deduplication, streaming per-entry compression.
+
+- **SFX (Self-Extracting Archive) support — ZIP MVP**:
+  - New `geezipx-sfx-stub` crate and `core::sfx` module for creating self-extracting ZIP executables.
+  - CLI `--sfx` / `--sfx-target` flags on `compress` command; 3 platform targets (Linux/Windows/macOS).
 - **Format support — CPIO (read-only)**:
   - Added `.cpio` extension / explicit-format detection plus a path-based core `CpioReader` backed by `cpio-archive` for `newc` / `odc` listing, extraction, and integrity verification.
   - Added CLI `list`, `decompress`, and `test` support for `.cpio`; `compress -f cpio` now fails early with a read-only error before creating or truncating the output path.
