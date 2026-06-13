@@ -58,6 +58,8 @@ pub fn execute(
     password: Option<String>,
     use_stdin: bool,
     use_stdout: bool,
+    sfx: bool,
+    sfx_target: Option<&str>,
 ) -> Result<()> {
     let compress_options = CompressOptions {
         level,
@@ -112,6 +114,8 @@ pub fn execute(
         no_progress,
         verbose,
         cancel_token,
+        sfx,
+        sfx_target,
     )
 }
 
@@ -291,6 +295,8 @@ fn compress_archive_mode(
     no_progress: bool,
     verbose: bool,
     cancel_token: crate::signal::CancellationToken,
+    sfx: bool,
+    sfx_target: Option<&str>,
 ) -> Result<()> {
     let output_path = output.unwrap();
     let files = common::collect_inputs(inputs, recursive)?;
@@ -407,12 +413,74 @@ fn compress_archive_mode(
         ));
     }
 
-    eprintln!(
-        "Created {} with {} entries ({} bytes)",
-        output_path.display(),
-        files.len(),
-        total_bytes,
-    );
+    // SFX post-processing: wrap ZIP in self-extracting stub.
+    #[cfg(feature = "sfx")]
+    if sfx {
+        use std::io::Read;
+        let target = if let Some(t) = sfx_target {
+            crate::commands::common::parse_sfx_target(t)?
+        } else {
+            geezipx_core::sfx::SfxTarget::host()
+        };
+
+        // Read the ZIP file back into memory.
+        let mut zip_file = std::fs::File::open(output_path)
+            .with_context(|| format!("re-opening '{}' for SFX wrap", output_path.display()))?;
+        let mut zip_data = Vec::new();
+        zip_file
+            .read_to_end(&mut zip_data)
+            .with_context(|| format!("reading '{}' for SFX wrap", output_path.display()))?;
+        drop(zip_file);
+
+        let sfx_data =
+            geezipx_core::sfx::create_zip_sfx(&zip_data, target).context("creating SFX")?;
+
+        // Write back the SFX data.
+        std::fs::write(output_path, &sfx_data)
+            .with_context(|| format!("writing SFX to '{}'", output_path.display()))?;
+
+        // Set executable permission on Unix.
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = std::fs::metadata(output_path)
+                .with_context(|| format!("reading permissions of '{}'", output_path.display()))?
+                .permissions();
+            perms.set_mode(0o755);
+            std::fs::set_permissions(output_path, perms).with_context(|| {
+                format!(
+                    "setting executable permission on '{}'",
+                    output_path.display()
+                )
+            })?;
+        }
+
+        eprintln!(
+            "SFX written to {}{}",
+            output_path.display(),
+            target.extension()
+        );
+    } else {
+        eprintln!(
+            "Created {} with {} entries ({} bytes)",
+            output_path.display(),
+            files.len(),
+            total_bytes,
+        );
+    }
+
+    #[cfg(not(feature = "sfx"))]
+    {
+        let _ = sfx;
+        let _ = sfx_target;
+        eprintln!(
+            "Created {} with {} entries ({} bytes)",
+            output_path.display(),
+            files.len(),
+            total_bytes,
+        );
+    }
+
     Ok(())
 }
 

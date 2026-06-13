@@ -27,6 +27,7 @@ glob = "0.3"
 [features]
 rar = ["geezipx-core/rar"]
 zpaq = ["geezipx-core/zpaq"]
+sfx = ["geezipx-core/sfx"]
 default = ["rar", "zpaq"]
 
 [[bin]]

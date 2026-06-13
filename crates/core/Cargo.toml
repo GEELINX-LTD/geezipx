@@ -15,6 +15,7 @@ categories = ["compression"]
 [features]
 rar = ["dep:unrar"]
 zpaq = ["dep:zpaq_rs"]
+sfx = []
 default = ["rar", "zpaq"]
 
 [dependencies]

@@ -84,6 +84,22 @@ pub fn parse_format(s: &str) -> Result<ArchiveFormat> {
     }
 }
 
+/// Parse a user-supplied SFX target string.
+///
+/// Accepts: `linux`, `windows`, `macos` (or `mac`).
+#[cfg(feature = "sfx")]
+pub fn parse_sfx_target(s: &str) -> anyhow::Result<geezipx_core::sfx::SfxTarget> {
+    match s.to_ascii_lowercase().as_str() {
+        "linux" => Ok(geezipx_core::sfx::SfxTarget::Linux),
+        "windows" => Ok(geezipx_core::sfx::SfxTarget::Windows),
+        "macos" | "mac" => Ok(geezipx_core::sfx::SfxTarget::MacOS),
+        other => Err(anyhow::anyhow!(
+            "unsupported SFX target '{}'; expected: linux, windows, macos",
+            other
+        )),
+    }
+}
+
 /// Resolve the compress output format from an optional `--format` flag and the
 /// output file extension.  Defaults to `Zip`.
 pub fn resolve_format(cli_format: Option<&str>, output: &Path) -> Result<ArchiveFormat> {

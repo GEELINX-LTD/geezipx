@@ -4,6 +4,7 @@ members = [
     "crates/core",
     "crates/cli",
     "crates/gui-tauri/src-tauri",
+    "crates/sfx-stub",
 ]
 
 [workspace.package]

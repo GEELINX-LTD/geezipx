@@ -89,6 +89,14 @@ enum Commands {
         /// Write compressed data to stdout (single-stream and tar-based formats: gzip, bzip2, brotli, lz4, zstd, xz, lzma, tar.gz, tar.bz2, tar.br, tar.lz4, tar.zst, tar.xz)
         #[arg(long = "stdout")]
         stdout: bool,
+
+        /// Create a self-extracting archive (ZIP SFX). Output is a native executable.
+        #[arg(long = "sfx")]
+        sfx: bool,
+
+        /// Target platform for SFX (linux, windows, macos). Default: host platform.
+        #[arg(long = "sfx-target", requires = "sfx")]
+        sfx_target: Option<String>,
     },
 
     /// Decompress an archive or compressed file
@@ -219,6 +227,8 @@ fn run() -> anyhow::Result<()> {
             password_stdin,
             stdin,
             stdout,
+            sfx,
+            sfx_target,
         } => {
             let password = common::resolve_password(password, password_file, password_stdin)?;
 
@@ -234,6 +244,9 @@ fn run() -> anyhow::Result<()> {
             }
             if !stdout && output.is_none() {
                 anyhow::bail!("--output (-o) is required (or use --stdout)");
+            }
+            if sfx && stdout {
+                anyhow::bail!("--sfx and --stdout are mutually exclusive");
             }
 
             let expanded_inputs = if stdin {
@@ -257,6 +270,8 @@ fn run() -> anyhow::Result<()> {
                 password,
                 stdin,
                 stdout,
+                sfx,
+                sfx_target.as_deref(),
             )?
         }
         Commands::Decompress {

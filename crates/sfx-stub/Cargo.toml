@@ -1,0 +1,21 @@
+[package]
+name = "geezipx-sfx-stub"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Minimal self-extracting ZIP stub for GeeZipX"
+
+[[bin]]
+name = "sfx-stub"
+path = "src/main.rs"
+
+[profile.release]
+opt-level = "z"
+lto = true
+panic = "abort"
+strip = true
+codegen-units = 1
+
+[dependencies]
+zip = { version = "2", default-features = false, features = ["deflate"] }
