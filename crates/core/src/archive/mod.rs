@@ -38,6 +38,8 @@ pub mod zip;
 pub mod zpaq;
 pub mod zstd;
 
+#[cfg(feature = "wim")]
+pub mod wim;
 use std::io::{Read, Write};
 use std::path::Path;
 

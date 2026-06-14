@@ -36,6 +36,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **SFX (Self-Extracting Archive) support — ZIP MVP**:
   - New `geezipx-sfx-stub` crate and `core::sfx` module for creating self-extracting ZIP executables.
   - CLI `--sfx` / `--sfx-target` flags on `compress` command; 3 platform targets (Linux/Windows/macOS).
+
+- **Format support — WIM read-only**:
+  - Added `.wim` / `.swm` extension detection and core `WimReader` backed by `wimlib-imagex` CLI (listing) and libwim FFI (extraction).
+  - CLI `list`, `decompress`, and `test` commands now support WIM archives.
+  - WIM supports multiple images (MVP uses first image), XPRESS/LZX/LZMS decompression.
 - **Format support — CPIO (read-only)**:
   - Added `.cpio` extension / explicit-format detection plus a path-based core `CpioReader` backed by `cpio-archive` for `newc` / `odc` listing, extraction, and integrity verification.
   - Added CLI `list`, `decompress`, and `test` support for `.cpio`; `compress -f cpio` now fails early with a read-only error before creating or truncating the output path.

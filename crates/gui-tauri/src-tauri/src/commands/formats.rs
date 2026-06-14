@@ -190,6 +190,13 @@ pub fn get_formats() -> Vec<FormatInfo> {
             supports_encryption: false,
             level_hint: None,
         },
+        FormatInfo {
+            name: "wim".into(),
+            can_compress: false,
+            can_decompress: true,
+            supports_encryption: false,
+            level_hint: None,
+        },
     ];
 
     #[cfg(feature = "zpaq")]
@@ -198,6 +205,19 @@ pub fn get_formats() -> Vec<FormatInfo> {
         formats.push(FormatInfo {
             name: "zpaq".into(),
             can_compress: true,
+            can_decompress: true,
+            supports_encryption: false,
+            level_hint: None,
+        });
+        formats
+    };
+
+    #[cfg(feature = "wim")]
+    let formats = {
+        let mut formats = formats;
+        formats.push(FormatInfo {
+            name: "wim".into(),
+            can_compress: false,
             can_decompress: true,
             supports_encryption: false,
             level_hint: None,
@@ -215,7 +235,7 @@ mod tests {
     #[test]
     fn get_formats_returns_expected_count() {
         let formats = get_formats();
-        let expected = if cfg!(feature = "zpaq") { 25 } else { 24 };
+        let expected = if cfg!(feature = "zpaq") { 26 } else { 25 };
         assert_eq!(formats.len(), expected, "unexpected supported format count");
     }
 

@@ -63,6 +63,8 @@ pub enum ArchiveFormat {
     Cpio,
     /// ZPAQ archive (extension-based — `.zpaq`, `.zpq`; deliberately no shallow magic sniff).
     Zpaq,
+    /// WIM (Windows Imaging Format) — extension-based (`.wim`, `.swm`).
+    Wim,
     /// Unknown or unrecognised format.
     Unknown,
 }
@@ -93,6 +95,7 @@ impl fmt::Display for ArchiveFormat {
             ArchiveFormat::Lzh => write!(f, "lzh"),
             ArchiveFormat::Iso => write!(f, "iso"),
             ArchiveFormat::Cpio => write!(f, "cpio"),
+            ArchiveFormat::Wim => write!(f, "wim"),
             ArchiveFormat::Zpaq => write!(f, "zpaq"),
             ArchiveFormat::Unknown => write!(f, "unknown"),
         }
@@ -153,6 +156,8 @@ const EXTENSION_MAP: &[(&str, ArchiveFormat)] = &[
     (".lha", ArchiveFormat::Lzh),
     (".iso", ArchiveFormat::Iso),
     (".cpio", ArchiveFormat::Cpio),
+    (".wim", ArchiveFormat::Wim),
+    (".swm", ArchiveFormat::Wim),
     (".zpaq", ArchiveFormat::Zpaq),
     (".zpq", ArchiveFormat::Zpaq),
 ];

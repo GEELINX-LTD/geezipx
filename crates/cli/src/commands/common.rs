@@ -33,6 +33,8 @@ use geezipx_core::archive::tarxz::TarXzReader;
 use geezipx_core::archive::tarxz::TarXzWriter;
 use geezipx_core::archive::tarzst::TarZstReader;
 use geezipx_core::archive::tarzst::TarZstWriter;
+#[cfg(feature = "wim")]
+use geezipx_core::archive::wim::WimReader;
 use geezipx_core::archive::zip::ZipReader;
 use geezipx_core::archive::zip::ZipWriter;
 #[cfg(feature = "zpaq")]
@@ -77,9 +79,10 @@ pub fn parse_format(s: &str) -> Result<ArchiveFormat> {
         "lzh" | "lha" => Ok(ArchiveFormat::Lzh),
         "iso" => Ok(ArchiveFormat::Iso),
         "cpio" => Ok(ArchiveFormat::Cpio),
+        "wim" | "swm" => Ok(ArchiveFormat::Wim),
         "zpaq" | "zpq" => Ok(ArchiveFormat::Zpaq),
         other => Err(anyhow::anyhow!(
-            "unsupported format '{other}'; expected: zip, zipx, jar, war, apk, ipa, xpi, tar, tar.gz, tgz, tar.bz2, tbz, tbz2, tar.br, gz, gzip, bz2, bzip2, br, brotli, lz4, tar.lz4, zst, zstd, tar.zst, tzst, tar.xz, txz, xz, lzma, 7z, rar, cab, asar, deb, lzh, lha, iso, cpio, zpaq, zpq"
+            "unsupported format '{other}'; expected: zip, zipx, jar, war, apk, ipa, xpi, tar, tar.gz, tgz, tar.bz2, tbz, tbz2, tar.br, gz, gzip, bz2, bzip2, br, brotli, lz4, tar.lz4, zst, zstd, tar.zst, tzst, tar.xz, txz, xz, lzma, 7z, rar, cab, asar, deb, lzh, lha, iso, cpio, zpaq, zpq, wim, swm"
         )),
     }
 }
@@ -352,6 +355,12 @@ pub fn open_reader(
         ArchiveFormat::Cpio => Box::new(CpioReader::new(path)),
         ArchiveFormat::Lzh => Box::new(LzhReader::new(file)),
         ArchiveFormat::Iso => Box::new(IsoReader::new(file)),
+        #[cfg(feature = "wim")]
+        ArchiveFormat::Wim => Box::new(WimReader::open(path)?),
+        #[cfg(not(feature = "wim"))]
+        ArchiveFormat::Wim => anyhow::bail!(
+            "'wim' support is disabled in this build; rebuild with --features wim"
+        ),
         #[cfg(feature = "zpaq")]
         ArchiveFormat::Zpaq => Box::new(ZpaqReader::new(path)),
         #[cfg(not(feature = "zpaq"))]
@@ -432,7 +441,11 @@ pub fn create_writer(
         ArchiveFormat::TarZst => Ok(Box::new(TarZstWriter::new_with_options(file, options))),
         ArchiveFormat::Lzh => Ok(Box::new(LzhWriter::new(file))),
         ArchiveFormat::Iso => Ok(Box::new(IsoWriter::new(file))),
-        ArchiveFormat::Asar | ArchiveFormat::Cab | ArchiveFormat::Deb | ArchiveFormat::Cpio => {
+        ArchiveFormat::Asar
+        | ArchiveFormat::Cab
+        | ArchiveFormat::Deb
+        | ArchiveFormat::Cpio
+        | ArchiveFormat::Wim => {
             anyhow::bail!("'{format}' is a read-only archive format; writing is not supported")
         }
         #[cfg(feature = "zpaq")]
