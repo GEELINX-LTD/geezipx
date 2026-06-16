@@ -97,7 +97,7 @@ GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开�
 
 | 格式 | 当前状态 | 说明 |
 |------|---------|------|
-| WIM | 📋 规划中 | Microsoft 映像格式 |
+| WIM | ✅ 已支持 (纯 Rust) | 只读，支持 XPRESS/LZX 解压 |
 | ARJ, ACE, ALZ, BH, PMA, PEA, EGG, ARC | 📋 规划中 | 历史/专有格式，通过适配器评估 |
 | LZ (.lz) | 📋 规划中 | Lzip |
 | UU (.uu/.uue/.xxe), Z (.Z) | 📋 规划中 | 编码格式 / Unix compress |

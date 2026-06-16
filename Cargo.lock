@@ -1982,11 +1982,13 @@ dependencies = [
  "isomage",
  "log",
  "lz4_flex",
+ "lzxd",
  "sevenz-rust2",
  "tar",
  "tempfile",
  "thiserror 2.0.18",
  "unrar",
+ "xpress-huffman",
  "xz2",
  "zip",
  "zpaq_rs",
@@ -6796,6 +6798,12 @@ dependencies = [
  "libc",
  "rustix",
 ]
+
+[[package]]
+name = "xpress-huffman"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7db36564308ced066dfa8972d844e85647f9c3588c57a1cecda89f76e8700907"
 
 [[package]]
 name = "xz2"
