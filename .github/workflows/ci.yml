@@ -85,12 +85,18 @@ jobs:
           - os: ubuntu-latest
             artifact: geezipx-linux-x86_64
             path: target/release/geezipx
+            stub_target: linux-x86_64
+            stub_binary: sfx-stub
           - os: macos-latest
             artifact: geezipx-macos-x86_64
             path: target/release/geezipx
+            stub_target: macos-x86_64
+            stub_binary: sfx-stub
           - os: windows-latest
             artifact: geezipx-windows-x86_64
             path: target/release/geezipx.exe
+            stub_target: windows-x86_64
+            stub_binary: sfx-stub.exe
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v6
@@ -102,6 +108,13 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: echo "RUSTFLAGS=-C target-feature=+crt-static" >> $env:GITHUB_ENV
+      - name: Build SFX stub
+        shell: bash
+        run: |
+          cargo build -p geezipx-sfx-stub --release
+          mkdir -p crates/core/stubs/${{ matrix.stub_target }}
+          cp target/release/${{ matrix.stub_binary }} crates/core/stubs/${{ matrix.stub_target }}/${{ matrix.stub_binary }}
+          echo "${{ matrix.stub_target }} stub: $(stat -c%s crates/core/stubs/${{ matrix.stub_target }}/${{ matrix.stub_binary }} 2>/dev/null || stat -f%z crates/core/stubs/${{ matrix.stub_target }}/${{ matrix.stub_binary }} 2>/dev/null || echo '?') bytes"
       - run: cargo build --release --workspace --exclude geezipx-gui
       - uses: actions/upload-artifact@v7
         with:
@@ -109,6 +122,41 @@ jobs:
           path: ${{ matrix.path }}
           if-no-files-found: error
           retention-days: 7
+
+  sfx-e2e:
+    needs: [fmt, clippy, test]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+          cache: true
+      - name: Build SFX stub and CLI
+        run: |
+          cargo build -p geezipx-sfx-stub --release
+          mkdir -p crates/core/stubs/linux-x86_64
+          cp target/release/sfx-stub crates/core/stubs/linux-x86_64/sfx-stub
+          cargo build --release -p geezipx
+      - name: Create test data
+        run: |
+          mkdir -p testdata/subdir
+          echo "hello sfx world" > testdata/file1.txt
+          echo "nested content" > testdata/subdir/nested.txt
+      - name: Create SFX archive
+        run: |
+          ./target/release/geezipx compress testdata -o test.sfx --sfx
+          chmod +x test.sfx
+          echo "SFX binary size: $(stat -c%s test.sfx) bytes"
+      - name: Run SFX and verify extraction
+        run: |
+          mkdir -p sfx-out
+          cd sfx-out
+          ../test.sfx
+          test -f file1.txt && echo "file1.txt extracted OK"
+          test -f subdir/nested.txt && echo "subdir/nested.txt extracted OK"
+          grep -q "hello sfx world" file1.txt && echo "file1.txt content OK"
+          grep -q "nested content" subdir/nested.txt && echo "nested.txt content OK"
 
   interop:
     needs: [clippy, test, build]
@@ -159,7 +207,5 @@ jobs:
       - name: Run benchmarks
         run: cargo bench -p geezipx-core
       - name: Check benchmark regression
-        # Advisory: GitHub-hosted runners have noisy benchmark variance.
-        # Keep logs visible but do not fail the PR when the threshold is exceeded.
         continue-on-error: true
         run: bash scripts/check-bench-regression.sh
