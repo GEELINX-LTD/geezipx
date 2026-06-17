@@ -29,7 +29,7 @@ rar = ["geezipx-core/rar"]
 zpaq = ["geezipx-core/zpaq"]
 sfx = ["geezipx-core/sfx"]
 wim = ["geezipx-core/wim"]
-default = ["rar", "zpaq"]
+default = ["rar", "zpaq", "sfx"]
 
 [[bin]]
 name = "geezipx"
