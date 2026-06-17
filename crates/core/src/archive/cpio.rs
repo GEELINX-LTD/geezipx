@@ -1,34 +1,36 @@
-//! CPIO (`.cpio`) archive reader.
+//! CPIO (`.cpio`) archive reader and writer.
 //!
-//! GeeZipX exposes CPIO support as a read-only archive view backed by the
+//! GeeZipX exposes CPIO support backed by the
 //! [`cpio-archive`](https://crates.io/crates/cpio-archive) crate. The current
-//! MVP supports `newc` and `odc` archives for listing, extraction, and
-//! integrity verification.
+//! implementation supports `newc` and `odc` archives for listing, extraction,
+//! integrity verification, and creation (writing).
 //!
 //! # Design notes
 //!
-//! - **Extension-only detection** — GeeZipX maps `.cpio` to this reader but does
-//!   not auto-detect CPIO from leading bytes. CPIO has per-entry header magic,
-//!   not a stable file-wide magic, so shallow sniffing is prone to false
-//!   positives.
-//! - **Read-only** — creation/writing is intentionally out of scope for the
-//!   current product phase.
-//! - **Path-based** — the reader stores the archive path and re-opens the file
-//!   for each operation because the upstream reader is a forward-only cursor.
+//! - **Extension-only detection** — GeeZipX maps `.cpio` to this reader/writer
+//!   but does not auto-detect CPIO from leading bytes. CPIO has per-entry
+//!   header magic, not a stable file-wide magic, so shallow sniffing is prone
+//!   to false positives.
+//! - **Dual-format writing** — newc (SVR4) entries are built manually, while
+//!   odc entries use the `cpio_archive::OdcBuilder`.
+//! - **Path-based reading** — the reader stores the archive path and re-opens
+//!   the file for each operation because the upstream reader is a forward-only
+//!   cursor.
 //! - **Filesystem safety first** — regular files and directories extract
 //!   normally; symlinks, hard links, device nodes, FIFOs, sockets, and unknown
 //!   special entries are reported as unsupported instead of being created on the
-//!   host filesystem.
+//!   host filesystem. Writing only supports regular files and directories.
 
 use std::fmt;
 use std::fs::File;
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
-use cpio_archive::CpioHeader;
+use cpio_archive::{CpioHeader, OdcBuilder};
 
 use crate::archive::{
-    check_entry_path_safety, normalize_path, ArchiveReader, CancellableWriter, Entry, ExtractReport,
+    check_entry_path_safety, normalize_path, ArchiveReader, ArchiveWriter, CancellableWriter,
+    CountWriter, Entry, ExtractReport,
 };
 use crate::detect::ArchiveFormat;
 use crate::error::{GeeZipError, GeeZipResult};
@@ -440,6 +442,362 @@ fn convert_cpio_error(err: cpio_archive::Error, context: impl Into<String>) -> G
         }
     }
 }
+// ---------------------------------------------------------------------------
+// CpioWriter
+// ---------------------------------------------------------------------------
+
+const MAGIC_NEWC: &[u8] = b"070701";
+const TRAILER_FILENAME: &str = "TRAILER!!!";
+const DEFAULT_FILE_MODE: u32 = 0o100000 | 0o644; // S_IFREG | 0o644
+const DEFAULT_DIR_MODE: u32 = 0o040000 | 0o755; // S_IFDIR | 0o755
+
+/// CPIO archive writer.
+///
+/// Supports both `newc` (SVR4) and `odc` (portable ASCII) formats.
+/// Construct via [`CpioWriter::new`] for newc or [`CpioWriter::new_odc`]
+/// for odc, then add entries with
+/// [`add_entry_from_reader`](ArchiveWriter::add_entry_from_reader),
+/// then finalise with either:
+///
+/// - [`CpioWriter::finalize`] — returns `(total_bytes, inner_writer)`
+/// - [`ArchiveWriter::finish`] — returns `total_bytes` (trait object-safe)
+pub struct CpioWriter<W: Write + Send> {
+    inner: Option<CpioWriterInner<W>>,
+    format: ArchiveFormat,
+    variant: CpioWriteVariant,
+    inode_counter: u32,
+}
+
+enum CpioWriterInner<W: Write + Send> {
+    Newc(CountWriter<W>),
+    Odc(OdcBuilder<CountWriter<W>>),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CpioWriteVariant {
+    Newc,
+    Odc,
+}
+
+impl<W: Write + Send> fmt::Debug for CpioWriter<W> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("CpioWriter")
+            .field("format", &self.format)
+            .field("variant", &self.variant)
+            .finish_non_exhaustive()
+    }
+}
+
+impl<W: Write + Send> CpioWriter<W> {
+    /// Create a new CPIO writer in newc (SVR4) format.
+    pub fn new(writer: W) -> Self {
+        let counter = CountWriter {
+            inner: writer,
+            count: 0,
+        };
+        CpioWriter {
+            inner: Some(CpioWriterInner::Newc(counter)),
+            format: ArchiveFormat::Cpio,
+            variant: CpioWriteVariant::Newc,
+            inode_counter: 0,
+        }
+    }
+
+    /// Create a new CPIO writer in odc (portable ASCII) format.
+    pub fn new_odc(writer: W) -> Self {
+        let counter = CountWriter {
+            inner: writer,
+            count: 0,
+        };
+        let mut builder = OdcBuilder::new(counter);
+        builder.auto_write_dirs(false);
+        CpioWriter {
+            inner: Some(CpioWriterInner::Odc(builder)),
+            format: ArchiveFormat::Cpio,
+            variant: CpioWriteVariant::Odc,
+            inode_counter: 0,
+        }
+    }
+
+    /// Finalise the archive and return the inner writer alongside
+    /// the total number of bytes written.
+    pub fn finalize(mut self) -> GeeZipResult<(u64, W)> {
+        let inner = self.inner.take().ok_or_else(|| GeeZipError::Format {
+            message: "CPIO writer already finalised".into(),
+            format: ArchiveFormat::Cpio,
+        })?;
+
+        match inner {
+            CpioWriterInner::Newc(mut cw) => {
+                write_newc_trailer(&mut cw, &mut self.inode_counter)?;
+                // write_newc_trailer already appended the TRAILER!!! entry above.
+                let bytes = cw.count;
+                Ok((bytes, cw.inner))
+            }
+            CpioWriterInner::Odc(mut builder) => {
+                builder
+                    .finish()
+                    .map_err(|e| convert_odc_write_error(e, "<trailer>"))?;
+                let counter = builder
+                    .into_inner()
+                    .map_err(|e| convert_odc_write_error(e, "<close>"))?;
+                let bytes = counter.count;
+                Ok((bytes, counter.inner))
+            }
+        }
+    }
+}
+
+impl<W: Write + Send> ArchiveWriter for CpioWriter<W> {
+    fn format(&self) -> ArchiveFormat {
+        self.format
+    }
+
+    fn add_entry_from_reader(&mut self, path: &Path, reader: &mut dyn Read) -> GeeZipResult<()> {
+        let name = validate_cpio_write_path(path)?;
+
+        // Buffer the data to know the size (CPIO requires size in header).
+        let mut data = Vec::new();
+        reader
+            .read_to_end(&mut data)
+            .map_err(|e| GeeZipError::io(e, format!("reading data for entry '{name}'")))?;
+
+        self.inode_counter += 1;
+        let inode = self.inode_counter;
+        let file_size = data.len() as u32;
+
+        let inner = self.inner.as_mut().ok_or_else(|| GeeZipError::Format {
+            message: "CPIO writer not initialised (already consumed)".into(),
+            format: ArchiveFormat::Cpio,
+        })?;
+
+        match inner {
+            CpioWriterInner::Newc(ref mut cw) => {
+                write_newc_entry(cw, inode, &name, file_size, DEFAULT_FILE_MODE)?;
+                if file_size > 0 {
+                    cw.write_all(&data).map_err(|e| {
+                        GeeZipError::io(e, format!("writing data for entry '{name}'"))
+                    })?;
+                }
+                write_newc_data_padding(cw, file_size)?;
+            }
+            CpioWriterInner::Odc(ref mut builder) => {
+                let mut header = builder.next_header();
+                header.inode = inode;
+                header.name = name.clone();
+                header.mode = DEFAULT_FILE_MODE;
+                header.nlink = 1;
+                header.file_size = file_size as u64;
+                builder
+                    .append_header_with_data(header, &data)
+                    .map_err(|e| convert_odc_write_error(e, &name))?;
+            }
+        }
+
+        Ok(())
+    }
+
+    fn add_directory(&mut self, path: &Path) -> GeeZipResult<()> {
+        let mut name = validate_cpio_write_path(path)?;
+        // Ensure trailing `/` for directory entries.
+        if !name.ends_with('/') {
+            name.push('/');
+        }
+
+        self.inode_counter += 1;
+        let inode = self.inode_counter;
+
+        let inner = self.inner.as_mut().ok_or_else(|| GeeZipError::Format {
+            message: "CPIO writer not initialised (already consumed)".into(),
+            format: ArchiveFormat::Cpio,
+        })?;
+
+        match inner {
+            CpioWriterInner::Newc(ref mut cw) => {
+                write_newc_entry(cw, inode, &name, 0, DEFAULT_DIR_MODE)?;
+                write_newc_data_padding(cw, 0)?;
+            }
+            CpioWriterInner::Odc(ref mut builder) => {
+                let mut header = builder.next_header();
+                header.inode = inode;
+                header.name = name.clone();
+                header.mode = DEFAULT_DIR_MODE;
+                header.nlink = 2;
+                header.file_size = 0;
+                builder
+                    .append_header_with_data(header, [])
+                    .map_err(|e| convert_odc_write_error(e, &name))?;
+            }
+        }
+
+        Ok(())
+    }
+
+    fn finish(self: Box<Self>) -> GeeZipResult<u64> {
+        let (bytes, _writer) = (*self).finalize()?;
+        Ok(bytes)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Path validation
+// ---------------------------------------------------------------------------
+
+/// Validate a CPIO write path. Rejects absolute paths, paths containing
+/// `..`, and Windows drive-prefixed/UNC paths. Returns the path as a
+/// forward-slash-separated string.
+fn validate_cpio_write_path(path: &Path) -> GeeZipResult<String> {
+    let path_str = path.to_string_lossy();
+
+    // Reject absolute paths.
+    if path.has_root() {
+        return Err(GeeZipError::PathTraversal {
+            entry: path_str.into_owned(),
+            target: "archive root".into(),
+        });
+    }
+
+    // Reject Windows drive-letter and UNC paths.
+    let path_str_check = path_str.replace('/', "\\");
+    let bytes = path_str_check.as_bytes();
+    if path_str_check.starts_with("\\\\")
+        || (bytes.len() >= 3
+            && bytes[0].is_ascii_alphabetic()
+            && bytes[1] == b':'
+            && bytes[2] == b'\\')
+    {
+        return Err(GeeZipError::PathTraversal {
+            entry: path_str.into_owned(),
+            target: "archive root".into(),
+        });
+    }
+
+    // Normalise and reject parent-dir traversal.
+    let norm = normalize_path(path);
+    let norm_str = norm.to_string_lossy();
+
+    // Check if any component is ".." (explicit traversal attempt).
+    if norm
+        .components()
+        .any(|c| matches!(c, std::path::Component::ParentDir))
+    {
+        return Err(GeeZipError::PathTraversal {
+            entry: path_str.into_owned(),
+            target: "archive root".into(),
+        });
+    }
+
+    // Retain forward slashes (the normalised path may have OS-dependent
+    // separators; convert back to forward slashes for cpio).
+    Ok(norm_str.replace('\\', "/"))
+}
+
+// ---------------------------------------------------------------------------
+// newc header helpers
+// ---------------------------------------------------------------------------
+
+/// Write a newc (SVR4) CPIO entry header followed by the filename.
+///
+/// The header consists of a 6-byte magic (`070701`) followed by 13
+/// 8-character hexadecimal fields (104 bytes) and a NUL-terminated
+/// filename padded to a 4-byte boundary.
+fn write_newc_entry<Wr: Write>(
+    writer: &mut Wr,
+    inode: u32,
+    name: &str,
+    file_size: u32,
+    mode: u32,
+) -> GeeZipResult<u64> {
+    let mut header_bytes = 0u64;
+
+    // Magic.
+    writer
+        .write_all(MAGIC_NEWC)
+        .map_err(|e| GeeZipError::io(e, "writing newc header magic"))?;
+    header_bytes += 6;
+
+    // Write each field as 8-character uppercase hex.
+    let fields: &[(u32, &str)] = &[
+        (inode, "inode"),
+        (mode, "mode"),
+        (0, "uid"),
+        (0, "gid"),
+        (1, "nlink"),
+        (0, "mtime"),
+        (file_size, "filesize"),
+        (0, "devmajor"),
+        (0, "devminor"),
+        (0, "rdevmajor"),
+        (0, "rdevminor"),
+        ((name.len() + 1) as u32, "namesize"),
+        (0, "check"),
+    ];
+
+    for &(value, label) in fields {
+        let hex = format!("{value:08X}");
+        writer
+            .write_all(hex.as_bytes())
+            .map_err(|e| GeeZipError::io(e, format!("writing newc header field '{label}'")))?;
+        header_bytes += 8;
+    }
+
+    // Filename + NUL.
+    writer
+        .write_all(name.as_bytes())
+        .map_err(|e| GeeZipError::io(e, "writing newc filename"))?;
+    writer
+        .write_all(b"\0")
+        .map_err(|e| GeeZipError::io(e, "writing newc filename NUL"))?;
+    header_bytes += (name.len() + 1) as u64;
+
+    // Pad to 4-byte boundary (110-byte header + filename + NUL must be aligned).
+    let position_after_name = 110 + name.len() as u64 + 1;
+    let name_padding = (4 - position_after_name % 4) % 4;
+    if name_padding > 0 {
+        writer
+            .write_all(&vec![0u8; name_padding as usize])
+            .map_err(|e| GeeZipError::io(e, "writing newc name padding"))?;
+        header_bytes += name_padding;
+    }
+
+    Ok(header_bytes)
+}
+
+/// Write NUL padding bytes to align to a 4-byte boundary after
+/// `file_size` bytes of data.
+fn write_newc_data_padding<Wr: Write>(writer: &mut Wr, file_size: u32) -> GeeZipResult<u64> {
+    let padding = (4 - (file_size % 4)) % 4;
+    if padding > 0 {
+        writer
+            .write_all(&vec![0u8; padding as usize])
+            .map_err(|e| GeeZipError::io(e, "writing newc data padding"))?;
+    }
+    Ok(padding as u64)
+}
+
+/// Write the newc trailer entry (`TRAILER!!!`). The trailer must use
+/// inode 0 to mark the end of the archive.
+fn write_newc_trailer<Wr: Write>(writer: &mut Wr, _inode_counter: &mut u32) -> GeeZipResult<()> {
+    write_newc_entry(writer, 0, TRAILER_FILENAME, 0, DEFAULT_FILE_MODE)?;
+    write_newc_data_padding(writer, 0)?;
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// ODC error conversion
+// ---------------------------------------------------------------------------
+
+fn convert_odc_write_error(err: cpio_archive::Error, entry_name: &str) -> GeeZipError {
+    match err {
+        cpio_archive::Error::Io(io_err) => {
+            GeeZipError::io(io_err, format!("writing odc entry '{entry_name}'"))
+        }
+        other => GeeZipError::format(
+            format!("error writing odc entry '{entry_name}': {other}"),
+            ArchiveFormat::Cpio,
+        ),
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -848,5 +1206,252 @@ mod tests {
             .expect("extract should work through trait object");
         assert_eq!(bytes, 11);
         assert_eq!(out, b"hello world");
+    }
+
+    // -------------------------------------------------------------------
+    // Write round-trip tests
+    // -------------------------------------------------------------------
+
+    /// Write a vec to a temp file, return a CpioReader and the temp dir
+    /// (keeping the dir alive so the file persists during the test).
+    fn round_trip_read(buf: Vec<u8>) -> (CpioReader, tempfile::TempDir) {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("test.cpio");
+        std::fs::write(&path, buf).unwrap();
+        (CpioReader::new(&path), temp)
+    }
+
+    #[test]
+    fn cpio_write_debug_bytes() {
+        let buf = Vec::new();
+        let writer = CpioWriter::new(buf);
+        let (bytes, inner) = writer.finalize().unwrap();
+        println!("Total bytes: {}, inner len: {}", bytes, inner.len());
+        for (i, chunk) in inner.chunks(16).enumerate() {
+            print!("{:04x}: ", i * 16);
+            for b in chunk {
+                print!("{:02x} ", b);
+            }
+            print!(" |");
+            for b in chunk {
+                if b.is_ascii_graphic() || *b == b' ' {
+                    print!("{}", *b as char);
+                } else {
+                    print!(".");
+                }
+            }
+            println!("|");
+        }
+        // Try to read
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("test.cpio");
+        std::fs::write(&path, &inner).unwrap();
+        match CpioReader::new(&path).entries() {
+            Ok(entries) => println!("OK: {} entries", entries.len()),
+            Err(e) => println!("FAIL: {}", e),
+        }
+    }
+
+    #[test]
+    fn cpio_write_newc_round_trip() {
+        let buf = Vec::new();
+        let mut writer = CpioWriter::new(buf);
+        writer
+            .add_entry_from_reader(Path::new("hello.txt"), &mut "hello world".as_bytes())
+            .unwrap();
+        writer
+            .add_entry_from_reader(
+                Path::new("docs/README.txt"),
+                &mut "readme content".as_bytes(),
+            )
+            .unwrap();
+        let (bytes, inner) = writer.finalize().unwrap();
+        assert!(bytes > 0, "should have written bytes");
+
+        let (mut reader, _temp) = round_trip_read(inner);
+        let entries = reader.entries().unwrap();
+        assert_eq!(entries.len(), 2);
+
+        // Verify hello.txt
+        let hello = entries.iter().find(|e| e.path == "hello.txt").unwrap();
+        let mut out = Vec::new();
+        reader.extract(hello, &mut out).unwrap();
+        assert_eq!(out, b"hello world");
+
+        // Verify docs/README.txt
+        let readme = entries
+            .iter()
+            .find(|e| e.path == "docs/README.txt")
+            .unwrap();
+        let mut out = Vec::new();
+        reader.extract(readme, &mut out).unwrap();
+        assert_eq!(out, b"readme content");
+    }
+
+    #[test]
+    fn cpio_write_newc_with_directory() {
+        let buf = Vec::new();
+        let mut writer = CpioWriter::new(buf);
+        writer.add_directory(Path::new("data")).unwrap();
+        writer
+            .add_entry_from_reader(Path::new("data/file.bin"), &mut &b"binary\x00data"[..])
+            .unwrap();
+        let (_bytes, inner) = writer.finalize().unwrap();
+
+        let (mut reader, _temp) = round_trip_read(inner);
+        let entries = reader.entries().unwrap();
+        // Should have both dir + file entries.
+        let dir_entry = entries.iter().find(|e| e.is_dir).unwrap();
+        assert!(dir_entry.path.contains("data"));
+        let file_entry = entries.iter().find(|e| !e.is_dir).unwrap();
+        assert_eq!(file_entry.path, "data/file.bin");
+
+        let mut out = Vec::new();
+        reader.extract(file_entry, &mut out).unwrap();
+        assert_eq!(out, b"binary\x00data");
+    }
+
+    #[test]
+    fn cpio_write_odc_round_trip() {
+        let buf = Vec::new();
+        let mut writer = CpioWriter::new_odc(buf);
+        writer
+            .add_entry_from_reader(Path::new("file.txt"), &mut "odc test".as_bytes())
+            .unwrap();
+        let (bytes, inner) = writer.finalize().unwrap();
+        assert!(bytes > 0);
+
+        let (mut reader, _temp) = round_trip_read(inner);
+        let entries = reader.entries().unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].path, "file.txt");
+
+        let mut out = Vec::new();
+        reader.extract(&entries[0], &mut out).unwrap();
+        assert_eq!(out, b"odc test");
+    }
+
+    #[test]
+    fn cpio_write_rejects_absolute_paths() {
+        let buf = Vec::new();
+        let mut writer = CpioWriter::new(buf);
+        let err = writer
+            .add_entry_from_reader(Path::new("/etc/passwd"), &mut "leak".as_bytes())
+            .unwrap_err();
+        assert!(
+            matches!(err, GeeZipError::PathTraversal { .. }),
+            "expected PathTraversal, got: {err}"
+        );
+    }
+
+    #[test]
+    fn cpio_write_rejects_parent_dir_paths() {
+        let buf = Vec::new();
+        let mut writer = CpioWriter::new(buf);
+        let err = writer
+            .add_entry_from_reader(Path::new("../secret.txt"), &mut "secret".as_bytes())
+            .unwrap_err();
+        assert!(
+            matches!(err, GeeZipError::PathTraversal { .. }),
+            "expected PathTraversal, got: {err}"
+        );
+    }
+
+    #[test]
+    fn cpio_write_rejects_dotdot_middle_paths() {
+        let buf = Vec::new();
+        let mut writer = CpioWriter::new(buf);
+        let err = writer
+            .add_entry_from_reader(Path::new("sub/../../escape.txt"), &mut "bad".as_bytes())
+            .unwrap_err();
+        assert!(
+            matches!(err, GeeZipError::PathTraversal { .. }),
+            "expected PathTraversal for .. in middle, got: {err}"
+        );
+    }
+
+    #[test]
+    fn cpio_write_rejects_absolute_path_add_directory() {
+        let mut writer = CpioWriter::new(Vec::new());
+        let err = writer.add_directory(Path::new("/etc")).unwrap_err();
+        assert!(matches!(err, GeeZipError::PathTraversal { .. }));
+    }
+
+    #[test]
+    fn cpio_write_rejects_dotdot_add_directory() {
+        let mut writer = CpioWriter::new(Vec::new());
+        let err = writer.add_directory(Path::new("../secret")).unwrap_err();
+        assert!(matches!(err, GeeZipError::PathTraversal { .. }));
+    }
+
+    #[test]
+    fn cpio_write_empty_file_newc() {
+        let buf = Vec::new();
+        let mut writer = CpioWriter::new(buf);
+        writer
+            .add_entry_from_reader(Path::new("empty.txt"), &mut &b""[..])
+            .unwrap();
+        let (_bytes, inner) = writer.finalize().unwrap();
+
+        let (mut reader, _temp) = round_trip_read(inner);
+        let entries = reader.entries().unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].path, "empty.txt");
+        assert_eq!(entries[0].size, 0);
+
+        let mut out = Vec::new();
+        let extracted = reader.extract(&entries[0], &mut out).unwrap();
+        assert_eq!(extracted, 0);
+        assert!(out.is_empty());
+    }
+
+    #[test]
+    fn cpio_write_large_data_newc() {
+        // 10003 bytes — an odd size to test alignment padding.
+        let data = vec![0xABu8; 10003];
+        let buf = Vec::new();
+        let mut writer = CpioWriter::new(buf);
+        writer
+            .add_entry_from_reader(Path::new("large.bin"), &mut &data[..])
+            .unwrap();
+        let (_bytes, inner) = writer.finalize().unwrap();
+
+        let (mut reader, _temp) = round_trip_read(inner);
+        let entries = reader.entries().unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].size, 10003);
+
+        let mut out = Vec::new();
+        reader.extract(&entries[0], &mut out).unwrap();
+        assert_eq!(out.len(), 10003);
+        assert_eq!(out, data);
+    }
+
+    #[test]
+    fn cpio_writer_trait_object() {
+        fn use_writer(_w: Box<dyn ArchiveWriter>) {}
+        let buf = Vec::new();
+        let writer = CpioWriter::new(buf);
+        use_writer(Box::new(writer));
+    }
+
+    #[test]
+    fn cpio_write_odc_with_directory() {
+        let buf = Vec::new();
+        let mut writer = CpioWriter::new_odc(buf);
+        writer.add_directory(Path::new("mydir")).unwrap();
+        writer
+            .add_entry_from_reader(Path::new("mydir/file.txt"), &mut "nested".as_bytes())
+            .unwrap();
+        let (_bytes, inner) = writer.finalize().unwrap();
+
+        let (mut reader, _temp) = round_trip_read(inner);
+        let entries = reader.entries().unwrap();
+        assert_eq!(entries.len(), 2);
+        assert!(entries.iter().any(|e| e.is_dir));
+        let file_entry = entries.iter().find(|e| e.path == "mydir/file.txt").unwrap();
+        let mut out = Vec::new();
+        reader.extract(file_entry, &mut out).unwrap();
+        assert_eq!(out, b"nested");
     }
 }

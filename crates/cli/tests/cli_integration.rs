@@ -8311,9 +8311,9 @@ fn cpio_test_valid() {
 }
 
 #[test]
-fn cpio_compress_is_rejected_and_does_not_create_output() {
+fn cpio_compress_creates_valid_archive() {
     let td = TestDir::new();
-    td.write("payload.txt", "cpio write should fail");
+    td.write("payload.txt", "cpio write should succeed");
     let output = td.join("out.cpio");
 
     geezipx()
@@ -8326,13 +8326,16 @@ fn cpio_compress_is_rejected_and_does_not_create_output() {
             output.to_str().unwrap(),
         ])
         .assert()
-        .failure()
-        .stderr(predicate::str::contains("cpio writing is not supported"));
+        .success()
+        .stderr(predicate::str::contains("Created"))
+        .stderr(predicate::str::contains("out.cpio"));
 
-    assert!(
-        !output.exists(),
-        "cpio output should not be created on rejection"
-    );
+    // Verify the output is valid by listing it
+    geezipx()
+        .args(["list", output.to_str().unwrap()])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("payload.txt"));
 }
 
 #[test]
