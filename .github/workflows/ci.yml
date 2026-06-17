@@ -160,7 +160,7 @@ jobs:
           echo "nested content" > testdata/subdir/nested.txt
       - name: Create SFX archive
         run: |
-          ./target/release/geezipx compress testdata -o test.sfx --sfx --recursive
+          cd testdata && ../target/release/geezipx compress . -o ../test.sfx --sfx --recursive
           chmod +x test.sfx
           echo "SFX binary size: $(stat -c%s test.sfx) bytes"
       - name: Run SFX and verify extraction
