@@ -5,6 +5,7 @@ members = [
     "crates/cli",
     "crates/gui-tauri/src-tauri",
     "crates/sfx-stub",
+    "crates/vendor/unrar-sys",
 ]
 
 [workspace.package]
@@ -18,3 +19,6 @@ rust-version = "1.96"
 
 [workspace.dependencies]
 geezipx-core = { version = "0.5.0", path = "crates/core", default-features = false }
+
+[patch.crates-io]
+unrar_sys = { path = "crates/vendor/unrar-sys" }
