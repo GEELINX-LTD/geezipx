@@ -550,6 +550,15 @@ fn validate_compress_inputs(
                 anyhow::bail!("{} compression level must be 0..=9, got {}", format, l);
             }
         }
+
+        // 7z levels are limited to 0..=9
+        if format == ArchiveFormat::SevenZip {
+            if let Some(l) = options.level {
+                if l > 9 {
+                    anyhow::bail!("7z compression level must be 0..=9, got {}", l);
+                }
+            }
+        }
     }
 
     if format == ArchiveFormat::Brotli || format == ArchiveFormat::TarBr {

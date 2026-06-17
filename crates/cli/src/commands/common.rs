@@ -428,7 +428,7 @@ pub fn create_writer(
         }
         ArchiveFormat::Tar => Ok(Box::new(TarWriter::new(file))),
         ArchiveFormat::SevenZip => {
-            let mut writer = SevenZipWriter::new(file)?;
+            let mut writer = SevenZipWriter::new(file, &options)?;
             if let Some(pwd) = &options.password {
                 writer.set_password(pwd)?;
             }
