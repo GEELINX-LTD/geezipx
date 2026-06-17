@@ -168,10 +168,10 @@ jobs:
           mkdir -p sfx-out
           cd sfx-out
           ../test.sfx
-          test -f file1.txt && echo "file1.txt extracted OK"
-          test -f subdir/nested.txt && echo "subdir/nested.txt extracted OK"
-          grep -q "hello sfx world" file1.txt && echo "file1.txt content OK"
-          grep -q "nested content" subdir/nested.txt && echo "nested.txt content OK"
+          test -f testdata/file1.txt && echo "file1.txt extracted OK"
+          test -f testdata/subdir/nested.txt && echo "subdir/nested.txt extracted OK"
+          grep -q "hello sfx world" testdata/file1.txt && echo "file1.txt content OK"
+          grep -q "nested content" testdata/subdir/nested.txt && echo "nested.txt content OK"
 
   interop:
     needs: [clippy, test, build]
