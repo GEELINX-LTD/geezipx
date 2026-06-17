@@ -15,6 +15,7 @@ geezipx/
 │   │       ├── detect.rs      # 魔数字节 + 扩展名检测
 │   │       ├── error.rs       # GeeZipError
 │   │       ├── io.rs          # ProgressReader / ProgressWriter / ProgressEvent
+│   │       ├── sfx.rs         # 自解压 ZIP 创建（feature-gated）
 │   │       └── test.rs        # 完整性验证与测试辅助
 │   ├── cli/
 │   │   ├── src/
@@ -60,7 +61,7 @@ geezipx/
 - core 只保留格式逻辑、I/O 包装、错误模型与安全检查；
 - CLI 负责参数解析、TTY 进度、stdout/stderr 呈现；
 - Tauri GUI 负责图形交互、任务管理、事件桥接；
-- RAR / CAB / ASAR / DEB / CPIO / ZPAQ 在当前版本中保持只读语义（`list` / `decompress` / `test`）；LZH/LHA 已支持 store-only 写入 MVP；7z 已支持基础读写与 AES-256 密码写入；ISO 已支持读写（ISO 9660 Level 1）。
+- RAR / CAB / ASAR / DEB / CPIO 在当前版本中保持只读语义（`list` / `decompress` / `test`）；WIM 为只读（`list` / `extract` / `test`，XPRESS/LZX/LZMS 解压，多映像支持，MVP 默认第一映像）；LZH/LHA 已支持 store-only 写入 MVP；7z 已支持基础读写与 AES-256 密码写入；ISO 与 ZPAQ 已支持完整读写。SFX 自解压 ZIP 创建位于独立 `core::sfx` 模块。
 
 ## 2. 模块设计
 
@@ -121,10 +122,12 @@ pub trait ArchiveWriter: Send {
 | `archive::cab` | CAB 只读（`list` / `extract` / `test`；path-based 读取，当前面向单卷 cabinet） |
 | `archive::cpio` | CPIO 只读（`list` / `extract` / `test`；path-based 读取，MVP 支持 `newc` / `odc`，不创建宿主 symlink/device/FIFO/socket） |
 | `archive::lzh` | LZH/LHA 读写（`compress` / `list` / `extract` / `test`）；reader 基于 `delharc`，writer 为项目内实现（store-only level-0：文件 `-lh0-`，目录 `-lhd-`）|
-| `archive::iso` | ISO 读写（读 `isomage` 解析 ISO9660/Rock Ridge/Joliet，写 `hadris-iso` ISO 9660 Level 1） |
-| `archive::zpaq` | ZPAQ 只读（`list` / `extract` / `test`，`zpaq_rs` 提供列表/条目读取；单条目提取当前可能经字节缓冲） |
+| `archive::iso` | ISO 读写（`compress` / `list` / `extract` / `test`）；reader 基于 `isomage`（ISO9660/Rock Ridge/Joliet），writer 基于 `hadris-iso`（ISO 9660 Level 1） |
+| `archive::zpaq` | ZPAQ 读写（`compress` / `list` / `extract` / `test`）；writer 基于 `zpaq_rs::archive_from_entries`，压缩级别 1-5；不含增量 journaling/dedup |
 | `archive::seven_zip` | 7z 读写（`list` / `extract` / `test` / `compress`）；当前 writer 为基础 MVP（默认 non-solid LZMA2，支持 AES-256 密码写入） |
 | `archive::rar` | RAR 只读（`list` / `extract` / `test`，feature-gated） |
+| `archive::wim` | WIM — 只读（`list` / `extract` / `test`），XPRESS/LZX/LZMS 解压，多映像支持（MVP 默认第一映像）；feature-gated |
+| `sfx` | SFX — 自解压 ZIP 创建（`core::sfx`），通过 stub 二进制拼接实现，支持 Linux/Windows/macOS target；feature-gated |
 
 > **注**：上表仅列出当前已实现的格式模块。项目长期规划支持更多格式（详见 `docs/PRD.md` 第 5.1 节），
 > 新增格式遵循相同的 `ArchiveReader` / `ArchiveWriter` trait 接口和 feature gate 策略，归档模块数量随阶段逐步扩展。
@@ -287,8 +290,10 @@ CLI 当前子命令为：
 | `delharc` 0.6 | LZH/LHA 只读 reader 支持（writer 为项目内实现，store-only level-0） |
 | `isomage` 2.1 | ISO 读取（ISO9660 / Rock Ridge / Joliet 解析与流式读取）；`hadris-iso` 1.1 提供 ISO 9660 Level 1 写入 |
 | `cpio-archive` 0.10 | CPIO 只读支持（`newc` / `odc` 读取；MPL-2.0，作为未修改 Cargo 依赖使用） |
-| `zpaq_rs` 1.0 | ZPAQ 只读支持（optional, default-enabled；需 Rust 1.85+ 与 C++17 编译器） |
+| `zpaq_rs` 1.0 | ZPAQ 读写支持（writer 基于 `archive_from_entries`，压缩级别 1-5；optional, default-enabled；需 Rust 1.85+ 与 C++17 编译器） |
 | `sevenz-rust2` 0.21 | 7z 读写支持（当前 writer 走默认 non-solid LZMA2，可选 AES-256 密码写入） |
+| `lzxd` 0.2 | WIM LZX 解压（pull 依赖） |
+| `xpress-huffman` 0.1 | WIM XPRESS 解压（pull 依赖） |
 | `unrar` 0.5.8 | RAR 只读支持（optional, default-enabled） |
 | `thiserror` 2 | 错误定义 |
 | `log` 0.4 | 日志门面 |
@@ -424,7 +429,8 @@ crates/gui-tauri/
 | GUI bundle 发布尚未经历真实 tag release 演练 | 发布路径可能存在流程性缺口 | 保守表述为“已配置，待验证” |
 | 大文件压缩进度依赖预扫描总量 | 首次开始任务前会有扫描延迟 | UI 上明确扫描阶段 |
 | Windows 长路径/符号链接差异 | 个别归档场景行为与 Unix 不完全一致 | 持续测试 + 文档限制说明 |
-| RAR / CAB / ASAR / DEB / CPIO / ZPAQ 仍为只读 | GUI 不能创建这些格式 | 在产品文档中明确范围 |
+|| RAR / CAB / ASAR / DEB / CPIO 仍为只读 | GUI 不能创建这些格式 | 在产品文档中明确范围 |
+|| WIM 为只读（XPRESS/LZX/LZMS 解压，多映像，MVP 默认第一映像） | GUI 可浏览提取 .wim 文件，不能创建 | 在产品文档中明确限制范围 |
 | LZH/LHA writer 为 store-only level-0 缓冲写入 | 不支持 lh5/lh6/lh7 压缩、加密、多卷、extended header；单个 entry payload 会缓冲 | 在产品文档中明确限制范围 |
 ## 附录：Cargo Workspace 配置
 
@@ -468,15 +474,19 @@ flate2 = { version = "1", default-features = false, features = ["rust_backend"] 
 xz2 = { version = "0.1", features = ["static"] }
 zstd = { version = "0.13", features = ["zstdmt"] }
 sevenz-rust2 = { version = "0.21", default-features = false, features = ["aes256", "bzip2", "ppmd", "deflate"] }
+lzxd = "0.2"
+xpress-huffman = "0.1"
 # Optional: RAR read-only (feature-gated, requires C++ compiler)
 unrar = { version = "0.5.8", optional = true }
-# Optional: ZPAQ read-only (feature-gated, requires Rust 1.85+ and a C++17 compiler)
+# Optional: ZPAQ read-write (feature-gated, requires Rust 1.85+ and a C++17 compiler)
 zpaq_rs = { version = "1.0", optional = true }
 
 [features]
 rar = ["dep:unrar"]
 zpaq = ["dep:zpaq_rs"]
-default = ["rar", "zpaq"]
+sfx = []
+wim = []
+default = ["rar", "zpaq", "wim"]
 
 [dev-dependencies]
 tempfile = "3"
@@ -525,7 +535,9 @@ glob = "0.3"
 [features]
 rar = ["geezipx-core/rar"]
 zpaq = ["geezipx-core/zpaq"]
-default = ["rar", "zpaq"]
+sfx = ["geezipx-core/sfx"]
+wim = ["geezipx-core/wim"]
+default = ["rar", "zpaq", "sfx"]
 
 [dev-dependencies]
 assert_cmd = "2"

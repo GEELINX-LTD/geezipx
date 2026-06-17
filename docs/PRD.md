@@ -88,7 +88,7 @@ GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开�
 | ISO | .iso | ✅ 已支持 | 支持 `compress` / `list` / `decompress` / `test`；ISO 9660 Level 1（小写文件名），通过 `hadris-iso` 实现。不含 Joliet / Rock Ridge / El Torito 写入。 |
 | CPIO | .cpio | 📖 只读 | 当前支持 `list` / `decompress` / `test`；MVP 支持 `newc` / `odc`，不做写入、`bin` / `crc`、宿主 symlink/device/FIFO/socket 创建 |
 | ZIPX | .zipx | ✅ 已支持 | ZIP 兼容容器/扩展名别名；不承诺 WinZip 专有高级压缩方法、Deflate64 写入或完整 ZIPX method matrix |
-| SFX | .exe | 📋 规划中 | 自解压 ZIP/7z 模块 |
+| SFX | .exe | ✅ 已支持 | 自解压 ZIP（Linux/Windows/macOS），通过 CLI `--sfx`/`--sfx-target` 参数 |
 | ZPAQ | .zpaq, .zpq | ✅ 已支持 | 支持 `compress` / `list` / `decompress` / `test`；通过 `zpaq_rs::archive_from_entries` 实现。压缩级别 1-5（ZPAQ 不支持 store 级别）。不含增量 journaling / dedup。 |
 
 > 说明：当前 ZIPX 支持限定为 ZIP-compatible `.zipx` container/extension alias，`compress` / `list` / `test` / `decompress` 全部复用 ZIP 引擎；WinZip 专有高级压缩方法、Deflate64 写入以及完整 ZIPX method matrix 仍不在当前承诺范围内。
@@ -138,9 +138,9 @@ GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开�
 - **依赖策略**：按格式决定。优先 Rust 原生 crate（如 `zip`、`flate2`、`zstd`、`xz2`），仅在无合适实现时评估外部工具或系统库。
 - **Feature gate**：每种格式按独立 feature 引入，用户可按需编译。
 - **优先级**：由用户需求与社区反馈驱动，不做全格式一次性覆盖。
-- **读/写分离**：一种格式可先实现只读（如当前 RAR/ZPAQ），写入能力后续补充。7z 当前已交付基础写入与 AES-256 密码写入 MVP。
+|- **读/写分离**：一种格式可先实现只读（如当前 RAR），写入能力后续补充。7z 当前已交付基础写入与 AES-256 密码写入 MVP。ZPAQ 已从只读升级为完整读写（压缩级别 1-5）。
 - **历史格式**：ARJ、ACE、ARC、ALZ 等历史/专有格式通过适配器层外部库评估；LZH/LHA 已交付 store-only 写入 MVP，更完整兼容能力后续补充（如 lh5/lh6/lh7 压缩写入、扩展 header、metadata）。
-- **Journaling 格式**：ZPAQ 当前仅交付只读 MVP；其追加/版本化写入路径与现有“从零创建归档”模型不同，需单独架构设计。
+|- **Journaling 格式**：ZPAQ 当前已升级为完整读写（压缩级别 1-5）；其追加/版本化写入路径与现有"从零创建归档"模型不同，需单独架构设计。
 
 ## 7. 功能需求（Feature Requirements）
 
@@ -239,13 +239,9 @@ Phase 3 (生态 + 格式扩展)
 │   ├── 7z 高级写入能力 — 高级编码器/进一步性能优化
 │   ├── ZIPX 高级方法矩阵评估 — `.zipx` alias 已支持；JPEG 预压缩等 WinZip 专有高级方法另行评估
 │   ├── LZH/LHA 更完整兼容 — 在现有 store-only 写入基础上补齐 lh5/lh6/lh7 压缩写入、扩展 header、metadata
-│   ├── ISO — 数据 ISO 归档处理
-│   ├── SFX — 自解压 ZIP/7z 模块
-│   ├── ZPAQ — 当前已具备只读 MVP；后续补齐 journaling/append 写入设计
 │   └── 其他按用户需求驱动的格式
 ├── 解压格式扩展
 │   ├── Brotli (.br)、bzip2 (.bz2)、LZ4 — 现代压缩格式
-│   ├── WIM — Microsoft 映像格式
 │   ├── DEB、ASAR — 应用包格式
 │   ├── ARJ、ACE、ARC、ALZ — 历史格式适配器
 │   ├── UU/UUE/XXE、.Z — 编码/早期压缩格式

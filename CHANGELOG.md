@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+### Notes
+
+- First end-to-end tagged release still needs real-world verification.
+
+## [0.5.0] - 2026-06-05
+
+### Added
+
 - **Format support — 7z write MVP**:
   - Added core `SevenZipWriter` support backed by `sevenz-rust2`, enabling GeeZipX to create standard `.7z` archives for files, multiple inputs, recursive directories, and AES-256 password-protected archives.
   - Added CLI `compress -f 7z -o output.7z` round-trip support alongside existing `list`, `decompress`, and `test` flows, plus `--password`, `--password-file`, and `--password-stdin` for encrypted 7z creation.
@@ -41,6 +49,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Added `.wim` / `.swm` extension detection and core `WimReader` backed by `wimlib-imagex` CLI (listing) and libwim FFI (extraction).
   - CLI `list`, `decompress`, and `test` commands now support WIM archives.
   - WIM supports multiple images (MVP uses first image), XPRESS/LZX/LZMS decompression.
+
 - **Format support — CPIO (read-only)**:
   - Added `.cpio` extension / explicit-format detection plus a path-based core `CpioReader` backed by `cpio-archive` for `newc` / `odc` listing, extraction, and integrity verification.
   - Added CLI `list`, `decompress`, and `test` support for `.cpio`; `compress -f cpio` now fails early with a read-only error before creating or truncating the output path.
@@ -78,14 +87,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **GUI release builds**:
   - New `.github/workflows/gui-windows.yml` workflow for standalone Windows desktop bundle builds
   - `.github/workflows/release.yml` now includes cross-platform GUI bundle jobs for `.AppImage`, `.dmg`, and `.msi` artifacts
-
-### Notes
-
-- GUI release builds are configured in CI. The standalone Windows workflow is ready for manual builds, and the tag-triggered `release.yml` path is configured for cross-platform GUI bundles; the first end-to-end tagged release still needs real-world verification.
-
-## [0.5.0] - 2026-06-05
-
-### Added
 
 - **Desktop GUI (Tauri) — workflow usability improvements**:
   - Drag-and-drop files/archives into the app window for instant compression or extraction
@@ -126,6 +127,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Notes
 
+- GUI release builds are configured in CI. The standalone Windows workflow is ready for manual builds, and the tag-triggered `release.yml` path is configured for cross-platform GUI bundles; the first end-to-end tagged release still needs real-world verification.
 - **OS-level file association**: double-clicking `.zip`/`.7z`/etc. to open GeeZipX requires a
   `tauri build` packaged app; cannot be verified in Vite dev/preview mode.
 - **Drag-out**: requires a real Tauri desktop environment to verify that files correctly appear
@@ -300,6 +302,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     the filename causing checksum mismatch
   - `.sha256` files now normalized to LF before generating `SHA256SUMS` and before running
     `shasum -c` validation in both `consolidate` and `release` jobs
+
 ## [0.2.1] - 2026-06-02
 
 ### Added
@@ -440,4 +443,3 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [0.2.1]: https://github.com/GEELINX-LTD/geezipx/releases/tag/v0.2.1
 [0.2.0]: https://github.com/GEELINX-LTD/geezipx/releases/tag/v0.2.0
 [0.1.0]: https://github.com/GEELINX-LTD/geezipx/releases/tag/v0.1.0
-

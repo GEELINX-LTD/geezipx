@@ -5,7 +5,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![crates.io](https://img.shields.io/crates/v/geezipx.svg)](https://crates.io/crates/geezipx)
 
-> **一款基于 Rust 构建的高性能跨平台压缩/解压缩命令行工具。**  
+> **一款基于 Rust 构建的高性能跨平台压缩/解压缩命令行工具。**
 > 统一接口处理多种归档格式，CLI 优先，流式驱动。
 
 [English](README.md)
@@ -14,26 +14,28 @@
 
 ## 特性
 
-- **多格式支持** -- ZIP（含 ZIP 兼容别名 `.zipx`、`.jar`、`.war`、`.apk`、`.ipa`、`.xpi`）、TAR、TAR.GZ/TGZ、TAR.BZ2/TBZ/TBZ2、TAR.BR、TAR.LZ4、TAR.ZST/TZST、TAR.XZ/TXZ、GZIP/GZ、BZIP2/BZ2、Brotli/BR、LZ4、Zstandard/ZST、XZ、LZMA、7Z、LZH/LHA（读写；当前写入器为 store-only `-lh0-`），以及 RAR、CAB、ASAR、DEB、ISO、CPIO、ZPAQ（只读）。*规划扩展：更完整的 LZH/LHA 兼容、ISO 写入、ZPAQ 写入、SFX、WIM 等（详见 [docs/PRD.md](docs/PRD.md) 第 5.1 节）*
+- **多格式支持** -- ZIP（含 ZIP 兼容别名 `.zipx`、`.jar`、`.war`、`.apk`、`.ipa`、`.xpi`）、TAR、TAR.GZ/TGZ、TAR.BZ2/TBZ/TBZ2、TAR.BR、TAR.LZ4、TAR.ZST/TZST、TAR.XZ/TXZ、GZIP/GZ、BZIP2/BZ2、Brotli/BR、LZ4、Zstandard/ZST、XZ、LZMA 以及 7Z、ISO、ZPAQ、LZH/LHA（读写；当前 LZH/LHA 写入器为 store-only `-lh0-`；ISO 写入为 ISO 9660 Level 1；ZPAQ 支持压缩级别 1-5），另有 RAR、CAB、ASAR、DEB、WIM、CPIO（只读）。*规划扩展：更完整的 LZH/LHA 兼容、WIM 写入、扩展格式矩阵评估等（详见 [docs/PRD.md](docs/PRD.md) 第 5.1 节）*
 - **ZIPX 兼容支持** -- `.zipx` 已作为 ZIP 兼容容器/扩展名别名接入 `compress`、`list`、`test` 与 `decompress`。当前不承诺 WinZip 专有高级压缩方法、Deflate64 写入或完整 ZIPX method matrix。
+- **SFX（自解压）** -- 通过 `--sfx` 将 ZIP 归档包装为自解压可执行文件，支持 Linux、macOS、Windows 目标平台（需 `sfx` feature，CLI 默认启用）
 - **流式 I/O** -- 大文件处理内存可控
 - **实时进度条** -- 在 TTY 中显示速度、预计完成时间、逐文件状态
 - **取消安全** -- Ctrl+C 优雅退出，自动清理未完成文件；双击强制退出
 - **格式自动检测** -- 魔数字节识别 + 扩展名回退
-- **压缩级别** -- gzip/tar.gz/xz/lzma/tar.xz 支持 `--level 0-9`；zstd/tar.zst 支持 `--level 0-22`
+- **压缩级别** -- gzip/bzip2/tar.gz/tar.bz2/xz/lzma/tar.xz 支持 `--level 0-9`；brotli/tar.br 支持 `--level 0-11`；zstd/tar.zst 支持 `--level 0-22`；lz4/tar.lz4 仅接受 `0` 或省略
 - **覆盖控制** -- `--no-clobber` 跳过已有文件，`--force` 强制覆盖
 - **Zip Slip 防护** -- 所有归档格式都防护路径穿越攻击
 - **JSON 输出** -- `list --json` 机器可读；`test --json` 适合程序化验证
 - **Shell 补全** -- bash、zsh、fish、PowerShell、elvish
 - **ZIP / 7z AES-256 加密** -- 可用 `--password`、`--password-file`、`--password-stdin` 创建加密 ZIP 与 7z 归档
 - **加密 7z / RAR 读取支持** -- `list`、`decompress`、`test` 可处理带密码的 7z 与 RAR 归档
-- **ASAR 只读支持** -- `.asar` 支持 CLI `list`、`decompress`、`test`，也支持 GUI 归档浏览与选择性提取；不支持 `compress`、归档写入、加密或密码输入。
-- **DEB 只读支持** -- `.deb` 支持 CLI `list`、`decompress`、`test`，也支持 GUI 对 `data.tar*` payload 的归档浏览与提取；不支持 `compress`、包写入、control scripts 提取、加密或密码输入。
-- **CAB 只读支持** -- `.cab` 支持 CLI `list`、`decompress`、`test`，也支持 GUI 归档浏览与提取。当前 MVP 面向单卷 cabinet，不支持 `compress`、cabinet 写入、加密/密码输入或多卷 cabinet set。
-- **LZH/LHA 写入 MVP** -- `.lzh` / `.lha` 支持 CLI/GUI `compress`、`list`、`decompress`、`test`。当前写入器输出 store-only `-lh0-` 文件条目和 `-lhd-` 目录条目；`lh5`/`lh6`/`lh7` 压缩写入、加密/密码输入、多卷归档、扩展属性、长路径 / level 1-3 扩展 header 写入，以及单条目超过 4 GiB 仍不支持。
-- **ISO 只读支持** -- `.iso` 支持 CLI `list`、`decompress`、`test`，也支持 GUI 归档浏览与提取。当前 MVP 面向常见 ISO9660 / Rock Ridge / Joliet 数据 ISO，不支持 `compress`、镜像写入、加密或密码输入。
-- **CPIO 只读支持** -- `.cpio` 支持 CLI `list`、`decompress`、`test`，也支持 GUI 归档浏览与提取。当前 MVP 支持 `newc` / `odc`，仅通过扩展名识别，不支持 `compress`、`bin` / `crc` 变体、宿主 symlink/device 创建、加密或密码输入。 
-- **ZPAQ 只读支持** -- `.zpaq` / `.zpq` 支持 CLI `list`、`decompress`、`test`，也支持 GUI 归档浏览与提取。当前 MVP 为只读实现，不支持归档创建或追加/更新工作流，单条目提取目前通过字节缓冲 helper 完成。
+- **ASAR 只读** -- `.asar` 支持 CLI `list`、`decompress`、`test`，也支持 GUI 归档浏览与选择性提取；不支持 `compress`、归档写入、加密或密码输入
+- **DEB 只读** -- `.deb` 支持 CLI `list`、`decompress`、`test`，也支持 GUI 对 `data.tar*` payload 的归档浏览与提取；不支持 `compress`、包写入、control scripts 提取、加密或密码输入
+- **CAB 只读** -- `.cab` 支持 CLI `list`、`decompress`、`test`，也支持 GUI 归档浏览与提取。当前 MVP 面向单卷 cabinet，不支持 `compress`、cabinet 写入、加密/密码输入或多卷 cabinet set
+- **WIM 只读** -- `.wim` / `.swm` 支持 CLI `list`、`decompress`、`test`，也支持 GUI 归档浏览与提取。当前 MVP 使用第一映像，支持 XPRESS/LZX/LZMS 解压；不支持 `compress`、多映像选择、加密或密码输入
+- **LZH/LHA 写入 MVP** -- `.lzh` / `.lha` 支持 CLI/GUI `compress`、`list`、`decompress`、`test`。当前写入器输出 store-only `-lh0-` 文件条目和 `-lhd-` 目录条目；`lh5`/`lh6`/`lh7` 压缩写入、加密/密码输入、多卷归档、扩展属性、长路径 / level 1-3 扩展 header 写入，以及单条目超过 4 GiB 仍不支持
+- **ISO 读写** -- `.iso` 支持 CLI/GUI 读写。读取面向常见 ISO9660 / Rock Ridge / Joliet 数据镜像；写入基于 ISO 9660 Level 1（最大 4 GiB / 条目），支持文件与目录层级。不支持 UDF-only 介质、多卷镜像、完整 El Torito boot 元数据、加密或密码输入
+- **CPIO 只读** -- `.cpio` 支持 CLI `list`、`decompress`、`test`，也支持 GUI 归档浏览与提取。当前 MVP 支持 `newc` / `odc`，仅通过扩展名识别；不支持 `compress`、`bin` / `crc` 变体、宿主 symlink/device 创建、加密或密码输入
+- **ZPAQ 读写** -- `.zpaq` / `.zpq` 支持 CLI/GUI 读写。使用 `zpaq_rs` 引擎，支持 1-5 压缩级别。当前不支持加密/密码输入或版本选择等 journaling 工作流
 - **跨平台** -- Linux、macOS、Windows（三平台 CI）
 - **单一二进制** -- 无运行时依赖，`cargo install` 即装即用
 - **多线程压缩** -- tar.gz（gzp/pigz 风格）与 zstd/tar.zst（zstd 原生 NbWorkers）支持 `-j`/`--jobs` 并行压缩
@@ -42,7 +44,7 @@
 
 ## 项目状态
 
-第一阶段（CLI MVP）已经**全部完成并进入成熟阶段**。适用的子命令均已落地：读写格式（含 7z 与当前 LZH/LHA store-only MVP）支持 `compress`、`decompress`、`list`、`test`；只读 RAR/CAB/ASAR/DEB/ISO/CPIO/ZPAQ 支持 `list`、`decompress`、`test`。`completions` 子命令也已完成。crates.io 上已发布 `geezipx` 和 `geezipx-core` 包。
+第一阶段（CLI MVP）已经**全部完成并进入成熟阶段**。适用的子命令均已落地：读写格式（含 7z、ISO、ZPAQ 与当前 LZH/LHA store-only MVP）支持 `compress`、`decompress`、`list`、`test`；只读 RAR/CAB/ASAR/DEB/WIM/CPIO 支持 `list`、`decompress`、`test`。`completions` 子命令也已完成。crates.io 上已发布 `geezipx` 和 `geezipx-core` 包。
 第二阶段（桌面 GUI via Tauri）**是当前开发重心**。
 
 | 阶段 | 主题 | 状态 |
@@ -121,6 +123,9 @@ geezipx decompress hello.zip
 # gzip 解压到 stdout
 geezipx decompress hello.txt.gz --stdout > output.txt
 
+# 使用 Brotli 压缩
+geezipx compress hello.txt -f brotli -o hello.txt.br
+
 # 使用 zstandard 压缩
 geezipx compress hello.txt -f zst -o hello.txt.zst
 
@@ -129,6 +134,9 @@ geezipx decompress hello.txt.zst --stdout > output.txt
 
 # 多线程 zstd 压缩（4 个 worker）
 geezipx compress hello.txt -f zst -o hello.txt.zst -j 4
+
+# 递归压缩目录为 tar.lz4
+geezipx compress mydir -r -f tar.lz4 -o mydir.tar.lz4
 
 # 递归压缩目录为 tar.zst
 geezipx compress mydir -r -f tar.zst -o mydir.tar.zst
@@ -171,8 +179,20 @@ geezipx compress hello.txt -f gz --stdout > hello.gz               # 文件 -> s
 # tar-based 管道示例（stdin/stdout 传输裸 tar 流）
 cat raw.tar | geezipx compress --stdin -f tar.gz -o archive.tar.gz
 tar cf - mydir/ | geezipx compress --stdin -f tar.zst -o mydir.tar.zst
+cat raw.tar | geezipx compress --stdin -f tar.bz2 -o archive.tar.bz2
+cat raw.tar | geezipx compress --stdin -f tar.br -o archive.tar.br
+cat raw.tar | geezipx compress --stdin -f tar.lz4 -o archive.tar.lz4
 geezipx decompress archive.tar.gz --stdout | tar tf -
+geezipx decompress archive.tar.bz2 --stdout > raw.tar
+geezipx decompress archive.tar.br --stdout > raw.tar
+geezipx decompress archive.tar.lz4 --stdout > raw.tar
 geezipx decompress archive.tar.xz --stdout > raw.tar
+
+# 创建自解压 ZIP（当前平台）
+geezipx compress mydir/ -r -o myapp.zip --sfx
+
+# 创建自解压 ZIP 指定目标平台
+geezipx compress mydir/ -r -o myapp.exe --sfx --sfx-target windows
 ```
 
 注意：管道模式支持 gzip/zstd/xz/lzma 单流格式和 tar.gz/tar.zst/tar.xz 裸 tar 流，不支持 zip/tar/7z/rar 等多文件归档。
@@ -197,11 +217,13 @@ geezipx compress <输入文件...> -o <输出文件> [选项]
 | 选项 | 说明 |
 |------|------|
 | `-o`, `--output` | 输出文件路径（除非使用 `--stdout`，否则必填） |
-| `-f`, `--format` | 格式：`zip`、`zipx`、`jar`、`war`、`apk`、`ipa`、`xpi`、`tar`、`tar.gz`、`tgz`、`tar.bz2`、`tbz`、`tbz2`、`tar.br`、`tar.lz4`、`tar.zst`、`tzst`、`tar.xz`、`txz`、`7z`、`gz`、`gzip`、`bz2`、`bzip2`、`br`、`brotli`、`lz4`、`zst`、`zstd`、`xz`、`lzma`（省略时从扩展名推断，默认 zip） |
+| `-f`, `--format` | 格式：`zip`、`zipx`、`jar`、`war`、`apk`、`ipa`、`xpi`、`tar`、`tar.gz`、`tgz`、`tar.bz2`、`tbz`、`tbz2`、`tar.br`、`tar.lz4`、`tar.zst`、`tzst`、`tar.xz`、`txz`、`7z`、`gz`、`gzip`、`bz2`、`bzip2`、`br`、`brotli`、`lz4`、`zst`、`zstd`、`xz`、`lzma`、`lzh`、`lha`、`iso`、`cpio`、`zpaq`、`zpq`（省略时从扩展名推断，默认 zip） |
 | `-r`, `--recursive` | 递归添加目录 |
-| `-L`, `--level` | 压缩级别 0-9（gzip/bzip2/tar.gz/tar.bz2/xz/tar.xz，默认 6）；0-11（brotli/tar.br）；0-22（zstd/zst/tar.zst/tzst，默认使用 zstd 默认级别）；`lz4`/`tar.lz4` 仅接受 `0` 或省略 |
+| `-L`, `--level` | 压缩级别 0-9（gzip/bzip2/tar.gz/tar.bz2/xz/lzma/tar.xz，默认 6）；0-11（brotli/tar.br）；0-22（zstd/zst/tar.zst/tzst，默认使用 zstd 默认级别）；lz4/tar.lz4 仅接受 `0` 或省略 |
 | `-j`, `--jobs` | Worker 线程数：1（默认，单线程）、0（自动使用全部 CPU）或 N（显式指定）。tar.gz（gzp 并行 gzip）和 zstd/tar.zst（zstd 原生 NbWorkers）实际启用多线程；tar.xz/zip/xz/lzma 接受但不生效（向前兼容）。**注意**：tar.gz 的 `--stdin` 单流模式下不生效（仅归档模式有效） |
 | `--password` | 使用 AES-256 加密 ZIP 或 7z 归档。使用 `--password-file` 从文件读取密码，或使用 `--password-stdin` 从标准输入读取。三者互斥。脚本中建议使用 `--password-file` 或 `--password-stdin` 以避免密码暴露在进程列表中 |
+| `--sfx` | 将 ZIP 归档包装为自解压可执行文件（需 `sfx` feature，CLI 默认启用）。与 `--stdout` 互斥 |
+| `--sfx-target` | SFX 目标平台：`linux`、`windows`、`macos`（省略时自动检测当前主机） |
 | `--stdin` | 从 stdin 读取未压缩数据或裸 tar 流（gzip/bzip2/brotli/lz4/zstd/xz/lzma 和 tar.gz/tar.bz2/tar.br/tar.lz4/tar.zst/tar.xz；需配合 `--format`；与输入文件互斥） |
 | `--stdout` | 将压缩结果写入 stdout（gzip/bzip2/brotli/lz4/zstd/xz/lzma 和 tar.gz/tar.bz2/tar.br/tar.lz4/tar.zst/tar.xz 裸 tar 流；需配合 `--format`；与 `--output` 互斥） |
 
@@ -300,18 +322,19 @@ geezipx/
 │   │   │   ├── render/     # 终端进度与输出渲染
 │   │   │   └── signal.rs   # Ctrl+C 取消处理
 │   │   └── tests/          # CLI 集成测试与流式 smoke 测试
-│   └── gui-tauri/
-│       ├── src/
-│       │   ├── bridge.ts   # 前端与 Tauri 的桥接类型/辅助函数
-│       │   ├── main.ts     # 当前 Tauri 前端主逻辑（TypeScript/Vite）
-│       │   ├── style.css   # GUI 样式
-│       │   └── i18n/       # 国际化 (en.json, zh-CN.json)
-│       └── src-tauri/
-│           ├── src/
-│           │   ├── commands/
-│           │   ├── lib.rs
-│           │   └── state.rs
-│           └── tauri.conf.json
+│   ├── gui-tauri/
+│   │   ├── src/
+│   │   │   ├── bridge.ts   # 前端与 Tauri 的桥接类型/辅助函数
+│   │   │   ├── main.ts     # 当前 Tauri 前端主逻辑（TypeScript/Vite）
+│   │   │   ├── style.css   # GUI 样式
+│   │   │   └── i18n/       # 国际化 (en.json, zh-CN.json)
+│   │   └── src-tauri/
+│   │       ├── src/
+│   │       │   ├── commands/
+│   │       │   ├── lib.rs
+│   │       │   └── state.rs
+│   │       └── tauri.conf.json
+│   └── sfx-stub/           # 自解压 stub 二进制（Linux/macOS/Windows）
 ├── docs/                   # 产品与架构文档
 ├── scripts/                # 构建、CI、benchmark、互操作脚本
 └── .github/workflows/      # CI、审计、覆盖率、benchmark、release 工作流
@@ -402,6 +425,23 @@ geezipx test package.deb
 geezipx decompress package.deb -o out/
 ```
 
+### CAB 支持
+
+CAB 归档当前为**只读**支持。GeeZipX 在 CLI 中可对 `.cab` 执行 `list`、`decompress`、`test`，Tauri GUI 也支持归档浏览与提取。当前 MVP 面向单卷 cabinet。
+
+当前不支持：
+
+- `compress` / 创建 CAB
+- 归档写入或原地更新
+- 加密 / 密码访问
+- 多卷 cabinet set
+
+```sh
+geezipx list archive.cab
+geezipx test archive.cab
+geezipx decompress archive.cab -o out/
+```
+
 ### LZH/LHA 支持
 
 LZH/LHA 归档已支持 CLI/GUI `compress`、`list`、`decompress`、`test`。当前写入器是 store-only MVP：普通文件写成 `-lh0-`，目录写成 `-lhd-`；提取时仍会在 `delharc` 归一化路径前先校验原始 LZH 路径字节，因此 `../`、绝对路径、UNC 路径与 Windows drive-relative 名称都会被拒绝。
@@ -422,21 +462,22 @@ geezipx test archive.lha
 geezipx decompress archive.lzh -o out/
 ```
 
-### ISO 支持
+### ISO 支持（读写）
 
-ISO 镜像当前为**只读**支持。GeeZipX 在 CLI 中可对 `.iso` 执行 `list`、`decompress`、`test`，Tauri GUI Archive Browser 也可浏览并提取这类镜像。当前 MVP 面向常见 ISO9660 / Rock Ridge / Joliet 数据 ISO，明确不承诺 UDF-only 介质、多卷镜像或完整 El Torito boot 元数据工作流。
+ISO 镜像当前支持**读写**。读取面向常见 ISO9660 / Rock Ridge / Joliet 数据镜像，支持 `list`、`decompress`、`test`；写入基于 ISO 9660 Level 1（每个文件最大 4 GiB），通过 `hadris-iso` 库实现，支持文件与目录层级。CLI 与 Tauri GUI 均可创建 `.iso` 镜像。
 
 当前不支持：
 
-- `compress` / 创建 ISO 镜像
-- 镜像写入或原地更新
+- UDF-only 介质或纯 UDF 写入
+- 多卷镜像
+- 完整 El Torito boot 元数据工作流
 - 加密 / 密码访问
-- 超出当前只读 MVP 的更广泛磁盘镜像能力
 
 ```sh
 geezipx list image.iso
 geezipx test image.iso
 geezipx decompress image.iso -o out/
+geezipx compress mydir/ -r -f iso -o output.iso
 ```
 
 ### CPIO 支持
@@ -456,9 +497,9 @@ geezipx test archive.cpio
 geezipx decompress archive.cpio -o out/
 ```
 
-### ZPAQ 支持
+### ZPAQ 支持（读写）
 
-ZPAQ 归档当前为**只读**支持。GeeZipX 在 CLI 中可对 `.zpaq` / `.zpq` 执行 `list`、`decompress`、`test`，Tauri GUI Archive Browser 也可浏览并提取这类归档。当前 MVP 明确**不**实现归档创建、追加/更新语义、密码访问、版本选择等需要单独写路径设计的 journaling 工作流。
+ZPAQ 归档当前支持**读写**。读取通过 `zpaq_rs` 对 `.zpaq` / `.zpq` 执行 `list`、`decompress`、`test`；写入通过 `zpaq_rs::archive_from_entries` 实现，支持 1-5 压缩级别。CLI 与 Tauri GUI 均可创建 ZPAQ 归档。
 
 实现说明：
 
@@ -468,16 +509,59 @@ ZPAQ 归档当前为**只读**支持。GeeZipX 在 CLI 中可对 `.zpaq` / `.zpq
 
 当前不支持：
 
-- `compress` / 创建 ZPAQ 归档
-- 归档写入、追加/原地更新、版本选择
 - 加密 / 密码访问
-- 超出当前只读 MVP 的更广泛 ZPAQ journaling 工作流
+- 归档追加或原地更新
+- 版本选择或 journaling 工作流
 
 ```sh
 geezipx list backup.zpaq
 geezipx test backup.zpq
 geezipx decompress backup.zpaq -o out/
+geezipx compress mydir/ -r -f zpaq -o archive.zpaq
+geezipx compress mydir/ -r -f zpq -o archive.zpq
 ```
+
+### WIM 支持（只读）
+
+WIM 归档当前为**只读**支持。GeeZipX 在 CLI 中可对 `.wim` / `.swm` 执行 `list`、`decompress`、`test`，Tauri GUI 也可浏览与提取。当前 MVP 自动使用第一映像，支持 XPRESS、LZX、LZMS 解压算法。
+
+当前不支持：
+
+- `compress` / 创建 WIM 归档
+- 多映像选择或浏览（默认使用第一映像）
+- 加密 / 密码访问
+
+```sh
+geezipx list image.wim
+geezipx test image.swm
+geezipx decompress image.wim -o out/
+```
+
+### SFX 支持（自解压）
+
+GeeZipX 支持将 ZIP 归档包装为自解压可执行文件，通过 `--sfx` 选项启用。该功能基于将 ZIP 数据直接追加到平台特定的 stub 二进制实现，stub 在运行时通过 End-of-Central-Directory 记录定位自身 ZIP payload。
+
+SFX 目标平台：
+
+| 参数值 | 平台 | 输出扩展名 |
+|--------|------|-----------|
+| `linux` | Linux (x86_64) | 无（可执行文件） |
+| `windows` | Windows (x86_64) | `.exe` |
+| `macos` | macOS (x86_64) | 无（可执行文件） |
+
+不指定 `--sfx-target` 时，自动使用当前主机平台。
+
+```sh
+# 创建当前平台的自解压归档
+geezipx compress myapp/ -r -o myapp.zip --sfx
+
+# 指定目标平台
+geezipx compress myapp/ -r -o myapp.exe --sfx --sfx-target windows
+
+# 注意：--sfx 与 --stdout 互斥
+```
+
+SFX 功能需启用 `sfx` feature。CLI 默认包含，core 中需显式启用。
 
 ### 构建与测试
 
@@ -497,8 +581,8 @@ cargo fmt --all --check
 # 运行 clippy（严格模式）
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 
-# 生成文档并将 rustdoc warning 视为错误
-RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --document-private-items
+# 生成文档
+cargo doc --no-deps
 ```
 
 ### 基准测试
@@ -515,17 +599,14 @@ cargo bench -p geezipx-core
 
 > **注意**：基准测试仅作为参考信息（advisory）。GitHub-hosted runner 性能波动大，硬性阈值不可靠。不进一步推进 benchmark 基线或 CI 性能门禁。
 
+### 互操作性测试
+
 ```sh
 # 使用系统 tar、unzip、gzip 进行标准检查
 bash scripts/check-interop.sh
 
 # 重型压力测试（256 MB gzip、1000 文件 tar.gz）
 GEEZIPX_INTEROP_STRESS=1 bash scripts/check-interop.sh
-```
-
-```sh
-# CI 专用流式 smoke（默认 cargo test 不运行，需显式 --ignored）
-cargo test -p geezipx --test streaming_smoke -- --test-threads=1 --ignored
 ```
 
 ### Release 构建验证
@@ -535,9 +616,12 @@ cargo test -p geezipx --test streaming_smoke -- --test-threads=1 --ignored
 cargo fmt --all --check && \
 cargo clippy --workspace --all-targets --all-features -- -D warnings && \
 cargo test --workspace --all-features && \
-RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --document-private-items && \
 cargo build --release --workspace
 ```
+
+### Release 产物预检
+
+在打 tag 前，可通过 **workflow_dispatch** 手动触发 [Release workflow](.github/workflows/release.yml)（默认 `dry_run: true`）进行三平台构建、打包与校验。工作流任务摘要包含产物完整性检查（是否存在、大小、SHA256）与合并的 `SHA256SUMS` 文件。
 
 ---
 
@@ -549,7 +633,10 @@ cargo build --release --workspace
 
 - [x] ZIP / TAR / 7Z / TAR.GZ / TAR.BZ2 / TAR.BR / TAR.LZ4 / TAR.ZST / TAR.XZ / GZIP / BZIP2 / Brotli / LZ4 / ZSTD / XZ / LZMA 读写
 - [x] LZH / LHA store-only 读写 MVP（`compress`、`list`、`decompress`、`test`）
-- [x] RAR / CAB / ASAR / DEB / ISO / CPIO / ZPAQ 只读支持（`list`、`decompress`、`test`）
+- [x] ISO 读写（ISO 9660 Level 1 写入）
+- [x] ZPAQ 读写（1-5 压缩级别）
+- [x] RAR / CAB / ASAR / DEB / WIM / CPIO 只读支持（`list`、`decompress`、`test`）
+- [x] SFX 自解压支持（`--sfx`，Linux/Windows/macOS）
 - [x] 流式 I/O，内存占用可控
 - [x] `indicatif` 进度条
 - [x] Ctrl+C 优雅取消
@@ -572,7 +659,7 @@ cargo build --release --workspace
 
 - [x] Tauri v2 项目骨架 + TypeScript/Vite 前端
 - [x] Core 引擎桥接（Tauri commands）
-- [x] 归档浏览器 + 文件关联（含只读 `.cab` / `.asar` / `.deb` / `.iso` / `.cpio` / `.zpaq` 打开、浏览、提取流程，以及 `.lzh` / `.lha` 的浏览/提取与 store-only 写入流程）
+- [x] 归档浏览器 + 文件关联（含只读 `.cab` / `.asar` / `.deb` / `.iso` / `.cpio` / `.zpaq` / `.wim` 打开、浏览、提取流程，以及 `.lzh` / `.lha` 的浏览/提取与 store-only 写入流程）
 - [x] 选择性提取
 - [x] 内联预览（文本 + 十六进制）
 - [x] 拖入应用与拖出条目
@@ -590,8 +677,8 @@ cargo build --release --workspace
 
 - [ ] 平台原生安装渠道（Homebrew、winget、APT）
 - **格式扩展** — 分阶段推进，详见 [docs/PRD.md](docs/PRD.md) 第 5.1 节完整目标清单
-  - 压缩扩展：7z 高级写入能力（高级编码器/调优）、更完整的 LZH/LHA 兼容（`lh5`/`lh6`/`lh7`、元数据、多卷）、ISO 写入、ZPAQ 写入、ZIPX 高级方法矩阵评估、SFX
-  - 解压扩展：WIM
+  - 压缩扩展：7z 高级写入能力（高级编码器/调优）、更完整的 LZH/LHA 兼容（`lh5`/`lh6`/`lh7`、元数据、多卷）
+  - 解压扩展：WIM 写入
   - 历史/专有格式：ARJ、ACE、ARC、ALZ（通过适配器评估）
   - 容器/衍生格式：JAR、WAR、APK、IPA、XPI（复用 ZIP 引擎）
   - 磁盘镜像：IMG、ISZ、UDF
@@ -600,6 +687,8 @@ cargo build --release --workspace
 ### 明确不做（当前阶段）
 
 右键菜单集成、自动更新、云同步、插件系统、分卷压缩、7z 高级写入能力（高级编码器/更深优化待后续阶段）、RAR 创建（受许可限制保持只读）。更多格式扩展详见 [docs/PRD.md](docs/PRD.md) 第 5.1 节及第 6.2 节交付策略。
+
+---
 
 ## 配置
 
@@ -616,8 +705,7 @@ GeeZipX 遵循 [XDG 基础目录规范](https://specifications.freedesktop.org/b
 1. 全部测试通过：`cargo test --workspace --all-features`
 2. Clippy 零警告：`cargo clippy --workspace --all-targets --all-features -- -D warnings`
 3. 代码格式正确：`cargo fmt --all --check`
-4. 文档检查通过：`RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --document-private-items`
-5. 如果变更影响公共 API 或 CLI 行为，同步更新文档
+4. 如果变更影响公共 API 或 CLI 行为，同步更新文档
 
 ---
 

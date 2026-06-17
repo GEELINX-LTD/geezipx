@@ -170,9 +170,11 @@ CLI 和后续 Tauri GUI 只负责：
 - ASAR（只读，Electron 归档）；
 - DEB（只读，Debian 包）；
 - LZH / LHA（读写，store-only）；
-- ISO（只读）；
+|- ISO（读写，ISO 9660 Level 1）；
 - CPIO（只读）；
-- ZPAQ（只读）。
+|- ZPAQ（读写）；
+|- WIM（只读）；
+|- SFX（自解压 ZIP 读取）；
 
 后续可扩展现：
 

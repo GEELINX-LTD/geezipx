@@ -5,7 +5,8 @@
 > **前置依赖**：Phase 1 CLI 已完成并成熟，core 引擎库 API 稳定，crates.io 已发布。
 >
 > **已完成（v0.5.0）**：GUI 应用骨架、core 引擎桥接、归档浏览器、选择性提取、文件预览、
-> 拖拽/拖出、文件关联、单实例、侧边栏、密码输入、任务进度、取消操作、窗口状态持久化。
+> 拖拽/拖出、文件关联、单实例、侧边栏、密码输入、任务进度、取消操作、窗口状态持久化、
+> i18n 中英文、自动格式检测、最近路径 chips、SFX（ZIP self-extracting）、ZPAQ 写入。
 >
 > **当前状态**：独立 `gui-windows.yml` 已可手动构建 Windows GUI；`release.yml` 已配置三平台 GUI bundle 构建并上传 `.AppImage` / `.dmg` / `.msi`。首个真实 tag release 仍待实战验证。
 >
@@ -41,13 +42,12 @@
 
 | 操作 | 当前格式 | 目标扩展 |
 |------|----------|----------|
-| 压缩 | ZIP、ZIPX（ZIP 兼容别名）、TAR、TAR.GZ、TAR.BZ2、TAR.BR、TAR.LZ4、TAR.ZST、TAR.XZ、7z、LZH/LHA（store-only）、ISO | ZPAQ 写入、SFX、7z 高级写入能力（后续阶段） |
-|| 解压缩 | 上述所有格式 + 7z / RAR / CAB / ASAR / DEB / ISO / CPIO / ZPAQ 只读 | ARJ、ACE、BZ2、BR、LZ4、WIM 等（后续阶段，含历史格式适配器） |
+| 压缩 | ZIP、ZIPX（ZIP 兼容别名）、TAR、TAR.GZ、TAR.BZ2、TAR.BR、TAR.LZ4、TAR.ZST、TAR.XZ、7z、LZH/LHA（store-only）、ISO、ZPAQ、SFX（ZIP self-extracting） | 7z 高级写入能力（后续阶段） |
+| 解压缩 | 上述所有格式 + RAR / CAB / ASAR / DEB / CPIO / WIM | ARJ、ACE、BZ2、BR、LZ4 等（后续阶段，含历史格式适配器） |
 
 > 完整格式目标清单见 `docs/PRD.md` 第 5.1 节。新增格式按 feature gate 引入，不要求当前版本一次性完成。
 
-GUI 中 7z 已支持基础创建与 AES-256 密码写入，LZH/LHA 已支持 store-only 写入 MVP（文件 `-lh0-`，目录 `-lhd-`），ZIPX 作为 ZIP-compatible alias 可创建、浏览、测试与提取，但不承诺 WinZip 专有高级压缩方法、Deflate64 写入或完整 ZIPX method matrix。ISO 已支持创建与读取（ISO 9660 Level 1）。RAR/CAB/ASAR/DEB/CPIO/ZPAQ 仍保持只读语义：可浏览、测试、提取，不可创建。
-
+GUI 中 7z 已支持基础创建与 AES-256 密码写入，LZH/LHA 已支持 store-only 写入 MVP（文件 `-lh0-`，目录 `-lhd-`），ZIPX 作为 ZIP-compatible alias 可创建、浏览、测试与提取，但不承诺 WinZip 专有高级压缩方法、Deflate64 写入或完整 ZIPX method matrix。ISO 已支持创建与读取（ISO 9660 Level 1）。ZPAQ 已支持创建与读取。SFX 已支持创建 ZIP self-extracting 可执行文件。RAR / CAB / ASAR / DEB / CPIO 仍保持只读语义：可浏览、测试、提取，不可创建。WIM 已支持只读浏览与提取。
 
 ### 3.2 核心功能
 
@@ -57,6 +57,7 @@ GUI 中 7z 已支持基础创建与 AES-256 密码写入，LZH/LHA 已支持 sto
 
 2. **压缩任务**
    - 选择目标格式（dropdown/radio group）
+   - 自动格式检测（压缩时根据文件类型自动推荐）
    - 配置压缩级别（通过 slider 或 dropdown）
    - 支持密码（AES-256 for ZIP / 7z）
    - 可选：输出目录
@@ -115,7 +116,7 @@ GUI 中 7z 已支持基础创建与 AES-256 密码写入，LZH/LHA 已支持 sto
 - `geezipx-gui`/`crates/gui-tauri/src-tauri` 依赖 `geezipx-core`，反向依赖不允许。
 - GUI Rust 后端只做参数映射、任务生命周期管理、进度桥接与前端数据整形。
 - 前端不直接处理压缩格式细节；所有实际归档操作都经由 Tauri command bridge。
-- 7z 在 GUI 中已支持基础创建与 AES-256 密码写入；LZH/LHA 已支持 store-only 写入 MVP；ISO 已支持创建与读取；RAR / CAB / ASAR / DEB / CPIO / ZPAQ 仍保持只读语义：可浏览、测试、提取，不可创建。
+- 7z 在 GUI 中已支持基础创建与 AES-256 密码写入；LZH/LHA 已支持 store-only 写入 MVP；ISO 已支持创建与读取；ZPAQ 已支持创建与读取；SFX 已支持创建。RAR / CAB / ASAR / DEB / CPIO 仍保持只读语义：可浏览、测试、提取，不可创建。WIM 已支持只读浏览与提取。
 
 ## 5. Core API 复用策略
 
@@ -123,7 +124,7 @@ GUI 直接复用 core 的以下能力，不重复实现压缩/解压逻辑：
 
 | Core 模块 | GUI 复用方式 |
 |-----------|--------------|
-| `core::archive::*` | 复用 `ArchiveReader` / `ArchiveWriter` trait；其中 7z 已支持基础 reader/writer 与 AES-256 密码写入，LZH/LHA 已支持 store-only writer MVP，ISO 已支持 reader/writer，RAR/CAB/ASAR/DEB/CPIO/ZPAQ 保持只读 reader |
+| `core::archive::*` | 复用 `ArchiveReader` / `ArchiveWriter` trait；其中 7z 已支持基础 reader/writer 与 AES-256 密码写入，LZH/LHA 已支持 store-only writer MVP，ISO 已支持 reader/writer，ZPAQ 已支持 reader/writer，SFX（ZIP self-extracting）已支持创建，RAR/CAB/ASAR/DEB/CPIO 保持只读 reader，WIM 已支持只读 reader |
 | `core::io::{ProgressReader, ProgressWriter, ProgressCallback, ProgressEvent}` | 进度计数与取消检查；由 GUI 后端转成 Tauri 事件 |
 | `core::detect::{detect_format, detect_from_extension, read_magic_bytes}` | 自动识别拖入文件与归档类型 |
 | `core::config::CompressOptions` | 统一传递 level、jobs、password 等参数 |
@@ -190,7 +191,7 @@ GUI 后端在 `src-tauri/src/commands/progress.rs` 中把它包装为更丰富�
 - 每个 GUI 任务都会注册一个 `Arc<AtomicBool>` 取消令牌到 `AppState`。
 - 前端调用 `cancel_task(task_id)` 后，后端将对应令牌置为取消态。
 - `ProgressReader` / `ProgressWriter` 会在每次 I/O 前调用 `ProgressCallback::is_cancelled()`。
-- 底层 `Interrupted` / `GeeZipError::Cancelled` 会被 GUI 层统一映射为“用户取消”状态。
+- 底层 `Interrupted` / `GeeZipError::Cancelled` 会被 GUI 层统一映射为"用户取消"状态。
 
 ### 6.3 前端监听
 
@@ -209,7 +210,7 @@ listen<TaskProgressPayload>('task:progress', (event) => {
 - ZIP：支持创建 AES-256 加密归档，也支持浏览/测试/提取已加密 ZIP。
 - 7z：支持创建 AES-256 加密归档，也支持浏览/测试/提取已加密 7z。
 - RAR：密码仅支持读取路径（`list` / `test` / `extract`）。
-- CPIO：仅支持读取路径（`list` / `test` / `extract`），当前 MVP 面向 `newc` / `odc`，不做 `bin` / `crc`、密码访问或宿主 symlink/device/FIFO/socket 创建。 
+- CPIO：仅支持读取路径（`list` / `test` / `extract`），当前 MVP 面向 `newc` / `odc`，不做 `bin` / `crc`、密码访问或宿主 symlink/device/FIFO/socket 创建。
 - 密码仅作为任务参数传递，不做持久化。
 - 前端提供显隐切换，但不保存默认密码。
 
@@ -227,7 +228,7 @@ listen<TaskProgressPayload>('task:progress', (event) => {
 | Linux | `release.yml` 已配置构建 `.AppImage` 并上传 release artifacts；待真实 tag release 验证 |
 | Windows | `gui-windows.yml` 可手动构建 Windows GUI；`release.yml` 已配置 `.msi` release artifacts |
 
-> 打包配置声明在 `crates/gui-tauri/src-tauri/tauri.conf.json`。当前文档统一以“已配置，待 tag release 实战验证”为准。
+> 打包配置声明在 `crates/gui-tauri/src-tauri/tauri.conf.json`。当前文档统一以"已配置，待 tag release 实战验证"为准。
 
 ## 10. 首批任务拆分（当前回顾）
 
