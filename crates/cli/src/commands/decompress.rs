@@ -1,4 +1,5 @@
 //! `geezipx decompress` — extract an archive or decompress a stream.
+use std::sync::atomic::Ordering;
 
 use std::fs;
 use std::io::Write;
@@ -14,6 +15,8 @@ use geezipx_core::archive::brotli;
 use geezipx_core::archive::bzip2;
 use geezipx_core::archive::gzip;
 use geezipx_core::archive::lz4;
+use geezipx_core::archive::uu;
+use geezipx_core::archive::xxe;
 use geezipx_core::archive::xz;
 use geezipx_core::archive::zstd;
 use geezipx_core::ProgressReader;
@@ -56,6 +59,8 @@ pub fn execute(
                 | ArchiveFormat::Zstd
                 | ArchiveFormat::Xz
                 | ArchiveFormat::Lzma
+                | ArchiveFormat::Uu
+                | ArchiveFormat::Xxe
         )
     {
         anyhow::bail!(
@@ -320,6 +325,77 @@ pub fn execute(
                 }
             }
         }
+
+        ArchiveFormat::Uu => {
+            let cancel_flag = cancel_token.clone().into_inner();
+
+            let result = if stdout {
+                decompress_uu_stdout(archive, cancel_flag)
+            } else {
+                decompress_uu_to_file(archive, output_dir, overwrite, cancel_flag)
+            };
+
+            let spinner = if show_progress {
+                Some(crate::render::progress::ProgressBarWrapper::spinner(
+                    "Decompressing...",
+                ))
+            } else {
+                None
+            };
+
+            match result {
+                Ok(()) => {
+                    if let Some(s) = &spinner {
+                        s.finish("Decompressed");
+                    }
+                }
+                Err(e) => {
+                    if let Some(s) = &spinner {
+                        s.finish("Decompression failed");
+                    }
+                    if cancel_token.is_cancelled() {
+                        eprintln!("Cancelled");
+                        std::process::exit(130);
+                    }
+                    return Err(anyhow::anyhow!("uu decompression error: {}", e));
+                }
+            }
+        }
+        ArchiveFormat::Xxe => {
+            let cancel_flag = cancel_token.clone().into_inner();
+
+            let result = if stdout {
+                decompress_xxe_stdout(archive, cancel_flag)
+            } else {
+                decompress_xxe_to_file(archive, output_dir, overwrite, cancel_flag)
+            };
+
+            let spinner = if show_progress {
+                Some(crate::render::progress::ProgressBarWrapper::spinner(
+                    "Decompressing...",
+                ))
+            } else {
+                None
+            };
+
+            match result {
+                Ok(()) => {
+                    if let Some(s) = &spinner {
+                        s.finish("Decompressed");
+                    }
+                }
+                Err(e) => {
+                    if let Some(s) = &spinner {
+                        s.finish("Decompression failed");
+                    }
+                    if cancel_token.is_cancelled() {
+                        eprintln!("Cancelled");
+                        std::process::exit(130);
+                    }
+                    return Err(anyhow::anyhow!("xxe decompression error: {}", e));
+                }
+            }
+        }
         _ => {
             if stdout {
                 let cancel_flag = cancel_token.clone().into_inner();
@@ -402,7 +478,14 @@ fn decompress_stdin_mode(
         | ArchiveFormat::Zstd
         | ArchiveFormat::Xz
         | ArchiveFormat::Lzma
+        | ArchiveFormat::Uu
+        | ArchiveFormat::Xxe
         | ArchiveFormat::TarGz
+        | ArchiveFormat::TarBz2
+        | ArchiveFormat::TarBr
+        | ArchiveFormat::TarLz4
+        | ArchiveFormat::TarZst
+        | ArchiveFormat::TarXz => {}
         | ArchiveFormat::TarBz2
         | ArchiveFormat::TarBr
         | ArchiveFormat::TarLz4
@@ -410,7 +493,7 @@ fn decompress_stdin_mode(
         | ArchiveFormat::TarXz => {}
         _ => anyhow::bail!(
             "--stdin is only supported for single-stream formats \
-             (gzip, bzip2, brotli, lz4, zstd, xz, lzma, tar.gz, tar.bz2, tar.br, tar.lz4, tar.zst, tar.xz); got '{fmt}'"
+             (gzip, bzip2, brotli, lz4, zstd, xz, lzma, uu, uue, xxe, tar.gz, tar.bz2, tar.br, tar.lz4, tar.zst, tar.xz); got '{fmt}'"
         ),
     }
 
@@ -436,6 +519,24 @@ fn decompress_stdin_mode(
             }
             ArchiveFormat::Xz | ArchiveFormat::TarXz => {
                 xz::xz_decompress(&mut reader, &mut writer)?
+            }
+            ArchiveFormat::Uu => {
+                let mut content = String::new();
+                reader.read_to_string(&mut content)?;
+                let (_, data) = uu::uu_decode(&content)
+                    .ok_or_else(|| anyhow::anyhow!("failed to decode uu from stdin"))?;
+                let n = data.len() as u64;
+                writer.write_all(&data)?;
+                n
+            }
+            ArchiveFormat::Xxe => {
+                let mut content = String::new();
+                reader.read_to_string(&mut content)?;
+                let (_, data) = xxe::xxe_decode(&content)
+                    .map_err(|e| anyhow::anyhow!("failed to decode xxe from stdin: {}", e))?;
+                let n = data.len() as u64;
+                writer.write_all(&data)?;
+                n
             }
             ArchiveFormat::Lzma => xz::lzma_decompress(&mut reader, &mut writer)?,
             _ => unreachable!(),
@@ -475,6 +576,24 @@ fn decompress_stdin_mode(
             }
             ArchiveFormat::Xz | ArchiveFormat::TarXz => {
                 xz::xz_decompress(&mut reader, &mut writer)?
+            }
+            ArchiveFormat::Uu => {
+                let mut content = String::new();
+                reader.read_to_string(&mut content)?;
+                let (_, data) = uu::uu_decode(&content)
+                    .ok_or_else(|| anyhow::anyhow!("failed to decode uu from stdin"))?;
+                let n = data.len() as u64;
+                writer.write_all(&data)?;
+                n
+            }
+            ArchiveFormat::Xxe => {
+                let mut content = String::new();
+                reader.read_to_string(&mut content)?;
+                let (_, data) = xxe::xxe_decode(&content)
+                    .map_err(|e| anyhow::anyhow!("failed to decode xxe from stdin: {}", e))?;
+                let n = data.len() as u64;
+                writer.write_all(&data)?;
+                n
             }
             ArchiveFormat::Lzma => xz::lzma_decompress(&mut reader, &mut writer)?,
             _ => unreachable!(),
@@ -798,6 +917,92 @@ fn decompress_zstd_to_file(
         archive.display(),
         output_path.display(),
         bytes,
+    );
+    Ok(())
+}
+
+/// Decode a UU/UUE file to stdout.
+fn decompress_uu_stdout(archive: &Path, cancel_flag: Arc<AtomicBool>) -> Result<()> {
+    if cancel_flag.load(Ordering::Relaxed) {
+        anyhow::bail!("Cancelled");
+    }
+    let bytes = uu::uu_decode_to_writer(archive, &mut std::io::stdout().lock())
+        .context("decoding uu file")?;
+    eprintln!("Decoded {} bytes to stdout", bytes);
+    Ok(())
+}
+
+/// Decode a UU/UUE file to a file on disk.
+fn decompress_uu_to_file(
+    archive: &Path,
+    output_dir: &Path,
+    overwrite: bool,
+    cancel_flag: Arc<AtomicBool>,
+) -> Result<()> {
+    if cancel_flag.load(Ordering::Relaxed) {
+        anyhow::bail!("Cancelled");
+    }
+    let output_name = common::uu_output_filename(archive);
+    let output_path = output_dir.join(&output_name);
+    if !overwrite && output_path.exists() {
+        eprintln!(
+            "Warning: '{}' already exists, skipping (use --force to overwrite)",
+            output_path.display()
+        );
+        return Ok(());
+    }
+    let mut file = fs::File::create(&output_path)
+        .with_context(|| format!("creating '{}'", output_path.display()))?;
+    let bytes = uu::uu_decode_to_writer(archive, &mut file)
+        .with_context(|| format!("decoding '{}'", archive.display()))?;
+    eprintln!(
+        "Decoded {} -> {} ({} bytes)",
+        archive.display(),
+        output_path.display(),
+        bytes
+    );
+    Ok(())
+}
+
+/// Decode an XXE file to stdout.
+fn decompress_xxe_stdout(archive: &Path, cancel_flag: Arc<AtomicBool>) -> Result<()> {
+    if cancel_flag.load(Ordering::Relaxed) {
+        anyhow::bail!("Cancelled");
+    }
+    let bytes = xxe::xxe_decode_to_writer(archive, &mut std::io::stdout().lock())
+        .context("decoding xxe file")?;
+    eprintln!("Decoded {} bytes to stdout", bytes);
+    Ok(())
+}
+
+/// Decode an XXE file to a file on disk.
+fn decompress_xxe_to_file(
+    archive: &Path,
+    output_dir: &Path,
+    overwrite: bool,
+    cancel_flag: Arc<AtomicBool>,
+) -> Result<()> {
+    if cancel_flag.load(Ordering::Relaxed) {
+        anyhow::bail!("Cancelled");
+    }
+    let output_name = common::xxe_output_filename(archive);
+    let output_path = output_dir.join(&output_name);
+    if !overwrite && output_path.exists() {
+        eprintln!(
+            "Warning: '{}' already exists, skipping (use --force to overwrite)",
+            output_path.display()
+        );
+        return Ok(());
+    }
+    let mut file = fs::File::create(&output_path)
+        .with_context(|| format!("creating '{}'", output_path.display()))?;
+    let bytes = xxe::xxe_decode_to_writer(archive, &mut file)
+        .with_context(|| format!("decoding '{}'", archive.display()))?;
+    eprintln!(
+        "Decoded {} -> {} ({} bytes)",
+        archive.display(),
+        output_path.display(),
+        bytes
     );
     Ok(())
 }

@@ -81,8 +81,10 @@ pub fn parse_format(s: &str) -> Result<ArchiveFormat> {
         "cpio" => Ok(ArchiveFormat::Cpio),
         "wim" | "swm" => Ok(ArchiveFormat::Wim),
         "zpaq" | "zpq" => Ok(ArchiveFormat::Zpaq),
+        "uu" | "uue" => Ok(ArchiveFormat::Uu),
+        "xxe" => Ok(ArchiveFormat::Xxe),
         other => Err(anyhow::anyhow!(
-            "unsupported format '{other}'; expected: zip, zipx, jar, war, apk, ipa, xpi, tar, tar.gz, tgz, tar.bz2, tbz, tbz2, tar.br, gz, gzip, bz2, bzip2, br, brotli, lz4, tar.lz4, zst, zstd, tar.zst, tzst, tar.xz, txz, xz, lzma, 7z, rar, cab, asar, deb, lzh, lha, iso, cpio, zpaq, zpq, wim, swm"
+            "unsupported format '{other}'; expected: zip, zipx, jar, war, apk, ipa, xpi, tar, tar.gz, tgz, tar.bz2, tbz, tbz2, tar.br, gz, gzip, bz2, bzip2, br, brotli, lz4, tar.lz4, zst, zstd, tar.zst, tzst, tar.xz, txz, xz, lzma, 7z, rar, cab, asar, deb, lzh, lha, iso, cpio, zpaq, zpq, wim, swm, uu, uue, xxe"
         )),
     }
 }
@@ -558,6 +560,31 @@ pub fn lzma_output_filename(archive: &Path) -> PathBuf {
         .map(|s| s.to_string_lossy().to_string())
         .unwrap_or_else(|| "output".to_string());
     let stripped = name.strip_suffix(".lzma").unwrap_or(&name);
+    PathBuf::from(stripped)
+}
+
+/// Infer the decoded filename for a UU/UUE file by stripping `.uu` or
+/// `.uue` from the filename.
+pub fn uu_output_filename(archive: &Path) -> PathBuf {
+    let name = archive
+        .file_name()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_else(|| "output".to_string());
+    let stripped = name
+        .strip_suffix(".uu")
+        .or_else(|| name.strip_suffix(".uue"))
+        .unwrap_or(&name);
+    PathBuf::from(stripped)
+}
+
+/// Infer the decoded filename for an XXE file by stripping `.xxe` from the
+/// filename.
+pub fn xxe_output_filename(archive: &Path) -> PathBuf {
+    let name = archive
+        .file_name()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_else(|| "output".to_string());
+    let stripped = name.strip_suffix(".xxe").unwrap_or(&name);
     PathBuf::from(stripped)
 }
 

@@ -8,6 +8,8 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 use geezipx_core::archive::cpio::verify_cpio_archive;
+use geezipx_core::archive::uu;
+use geezipx_core::archive::xxe;
 use geezipx_core::detect::ArchiveFormat;
 
 use super::common;
@@ -57,6 +59,23 @@ fn run_verify(archive: &Path, json: bool, password: Option<String>) -> Result<()
         | ArchiveFormat::Xz
         | ArchiveFormat::Lzma => verify_single_stream(archive, format)
             .with_context(|| format!("verifying '{}'", archive.display()))?,
+        ArchiveFormat::Uu | ArchiveFormat::Xxe => {
+            let data = match format {
+                ArchiveFormat::Uu => uu::uu_decode_file(archive)
+                    .map_err(|e| anyhow::anyhow!("uu verification failed: {}", e))?
+                    .1,
+                ArchiveFormat::Xxe => xxe::xxe_decode_file(archive)
+                    .map_err(|e| anyhow::anyhow!("xxe verification failed: {}", e))?
+                    .1,
+                _ => unreachable!(),
+            };
+            TestReport {
+                format,
+                entry_count: 1,
+                bytes_read: data.len() as u64,
+                crc32_verified: false,
+            }
+        }
         ArchiveFormat::Cpio => verify_cpio_archive(archive)
             .with_context(|| format!("verifying '{}'", archive.display()))?,
         ArchiveFormat::Zip
