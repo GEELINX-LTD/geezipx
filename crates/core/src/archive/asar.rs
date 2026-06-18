@@ -24,12 +24,12 @@
 use std::collections::{BTreeMap, HashSet};
 use std::fmt;
 use std::fs::File as FsFile;
-use std::io::Write;
+use std::io::{Read, Seek, Write};
 use std::path::{Component, Path, PathBuf};
 
 use asar::{header::FileLocation, Header};
 
-use crate::archive::{is_entry_path_dangerous, normalize_path, ArchiveReader, Entry};
+use crate::archive::{is_entry_path_dangerous, normalize_path, ArchiveReader, ArchiveWriter, CountWriter, Entry};
 use crate::detect::ArchiveFormat;
 use crate::error::{GeeZipError, GeeZipResult};
 
@@ -240,6 +240,87 @@ impl ArchiveReader for AsarReader {
                 ArchiveFormat::Asar,
             )),
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// AsarWriter
+// ---------------------------------------------------------------------------
+
+/// ASAR archive writer.
+///
+/// Creates Electron `.asar` archives using the `asar` crate.
+///
+/// Because the `asar` crate's `AsarWriter` requires all file data to be
+/// registered before finalisation, `add_entry_from_reader` buffers data
+/// in memory.  This is standard for ASAR (used at Electron app build time).
+pub struct AsarWriter<W: Write + Seek + Send> {
+    inner: asar::AsarWriter,
+    writer: Option<W>,
+    format: ArchiveFormat,
+}
+
+impl<W: Write + Seek + Send> fmt::Debug for AsarWriter<W> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AsarWriter")
+            .field("format", &self.format)
+            .finish_non_exhaustive()
+    }
+}
+
+impl<W: Write + Seek + Send> AsarWriter<W> {
+    /// Create a new ASAR writer targeting the given output.
+    pub fn new(writer: W) -> Self {
+        AsarWriter {
+            inner: asar::AsarWriter::new(),
+            writer: Some(writer),
+            format: ArchiveFormat::Asar,
+        }
+    }
+}
+
+impl<W: Write + Seek + Send> ArchiveWriter for AsarWriter<W> {
+    fn format(&self) -> ArchiveFormat {
+        self.format
+    }
+
+    fn add_entry_from_reader(&mut self, path: &Path, reader: &mut dyn Read) -> GeeZipResult<()> {
+        let mut data = Vec::new();
+        reader.read_to_end(&mut data).map_err(|e| {
+            GeeZipError::io(e, format!("reading data for ASAR entry '{}'", path.display()))
+        })?;
+        self.inner.write_file(path, data, false).map_err(|e| {
+            GeeZipError::Format {
+                message: format!("writing ASAR entry '{}': {e}", path.display()),
+                format: ArchiveFormat::Asar,
+            }
+        })?;
+        Ok(())
+    }
+
+    fn add_directory(&mut self, _path: &Path) -> GeeZipResult<()> {
+        // ASAR creates directories implicitly from file paths.
+        Ok(())
+    }
+
+    fn finish(self: Box<Self>) -> GeeZipResult<u64> {
+        let writer = self
+            .writer
+            .ok_or_else(|| GeeZipError::Format {
+                message: "ASAR writer not initialised (already consumed)".into(),
+                format: ArchiveFormat::Asar,
+            })?;
+        let mut counter = CountWriter {
+            inner: writer,
+            count: 0,
+        };
+        self.inner.finalize(&mut counter).map_err(|e| {
+            GeeZipError::Format {
+                message: format!("finalising ASAR: {e}"),
+                format: ArchiveFormat::Asar,
+            }
+        })?;
+        Ok(counter.count)
     }
 }
 
@@ -769,5 +850,43 @@ mod tests {
         let archive = write_archive(&temp, "app.asar", &create_basic_asar());
         let mut reader = AsarReader::new(&archive);
         use_reader(&mut reader);
+    }
+
+    #[test]
+    fn asar_writer_roundtrip() {
+        use std::io::Cursor;
+
+        let mut buf = Cursor::new(Vec::new());
+        let writer = AsarWriter::new(&mut buf);
+        let mut boxed_writer: Box<dyn ArchiveWriter> = Box::new(writer);
+        boxed_writer
+            .add_entry_from_reader(Path::new("hello.txt"), &mut Cursor::new(b"hello asar"))
+            .unwrap();
+        boxed_writer
+            .add_directory(Path::new("subdir"))
+            .unwrap();
+        let total = boxed_writer.finish().unwrap();
+        assert!(total > 0);
+
+        let out_buf = buf.into_inner();
+
+        let temp = tempfile::TempDir::new().unwrap();
+        let archive_path = temp.path().join("test.asar");
+        std::fs::write(&archive_path, &out_buf).unwrap();
+
+        let mut reader = AsarReader::new(&archive_path);
+        let entries = reader.entries().unwrap();
+        let paths: Vec<&str> = entries.iter().map(|e| e.path.as_str()).collect();
+        assert!(paths.contains(&"hello.txt"));
+
+        let hello = entries
+            .iter()
+            .find(|e| e.path == "hello.txt")
+            .unwrap()
+            .clone();
+        let mut out = Vec::new();
+        let bytes = reader.extract(&hello, &mut out).unwrap();
+        assert_eq!(bytes, 10);
+        assert_eq!(out, b"hello asar");
     }
 }

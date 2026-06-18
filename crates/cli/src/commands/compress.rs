@@ -503,13 +503,6 @@ fn validate_compress_inputs(
         );
     }
 
-    // CAB writing is not supported; only list, test, and decompress for read-only.
-    if format == ArchiveFormat::Cab {
-        anyhow::bail!(
-            "cab writing is not supported; use list, test, or decompress for read-only cab support"
-        );
-    }
-
     // DEB writing is not supported; only list, test, and decompress for read-only.
     if format == ArchiveFormat::Deb {
         anyhow::bail!(

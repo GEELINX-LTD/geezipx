@@ -22,10 +22,10 @@
 
 use std::fmt;
 use std::fs::File;
-use std::io::Write;
-use std::path::PathBuf;
+use std::io::{Read, Seek, Write};
+use std::path::{Path, PathBuf};
 
-use crate::archive::{ArchiveReader, Entry};
+use crate::archive::{ArchiveReader, ArchiveWriter, Entry};
 use crate::detect::ArchiveFormat;
 use crate::error::{GeeZipError, GeeZipResult};
 
@@ -163,6 +163,142 @@ fn convert_cab_extract_error(err: std::io::Error, entry_name: &str) -> GeeZipErr
             ArchiveFormat::Cab,
         ),
         _ => GeeZipError::io(err, format!("extracting CAB entry '{entry_name}'")),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// CabWriter
+// ---------------------------------------------------------------------------
+
+/// CAB archive writer.
+///
+/// Creates `.cab` (Microsoft Cabinet) archives using the `cab` crate.
+/// Supports MSZIP (Deflate) compression.
+///
+/// Because the `cab` crate requires all files to be registered before
+/// writing begins, `add_entry_from_reader` buffers all file data in
+/// memory.  This is acceptable for CAB files which are typically small
+/// (installers, driver packages).
+pub struct CabWriter<W: Write + Seek + Send> {
+    writer: Option<W>,
+    files: Vec<(String, Vec<u8>)>,
+    dirs: Vec<String>,
+    format: ArchiveFormat,
+}
+
+impl<W: Write + Seek + Send> fmt::Debug for CabWriter<W> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("CabWriter")
+            .field("format", &self.format)
+            .field("file_count", &self.files.len())
+            .field("dir_count", &self.dirs.len())
+            .finish_non_exhaustive()
+    }
+}
+
+impl<W: Write + Seek + Send> CabWriter<W> {
+    /// Create a new CAB writer targeting the given output.
+    pub fn new(writer: W) -> Self {
+        CabWriter {
+            writer: Some(writer),
+            files: Vec::new(),
+            dirs: Vec::new(),
+            format: ArchiveFormat::Cab,
+        }
+    }
+}
+
+impl<W: Write + Seek + Send> ArchiveWriter for CabWriter<W> {
+    fn format(&self) -> ArchiveFormat {
+        self.format
+    }
+
+    fn add_entry_from_reader(&mut self, path: &Path, reader: &mut dyn Read) -> GeeZipResult<()> {
+        let name = path
+            .to_str()
+            .ok_or_else(|| GeeZipError::Format {
+                message: format!("non-UTF-8 path: {}", path.display()),
+                format: ArchiveFormat::Cab,
+            })?
+            .to_owned();
+        let mut data = Vec::new();
+        reader.read_to_end(&mut data).map_err(|e| {
+            GeeZipError::io(e, format!("reading data for CAB entry '{name}'"))
+        })?;
+        self.files.push((name, data));
+        Ok(())
+    }
+
+    fn add_directory(&mut self, path: &Path) -> GeeZipResult<()> {
+        let name = path
+            .to_str()
+            .ok_or_else(|| GeeZipError::Format {
+                message: format!("non-UTF-8 path: {}", path.display()),
+                format: ArchiveFormat::Cab,
+            })?
+            .to_owned();
+        self.dirs.push(name);
+        Ok(())
+    }
+
+    fn finish(self: Box<Self>) -> GeeZipResult<u64> {
+        let writer = self
+            .writer
+            .ok_or_else(|| GeeZipError::Format {
+                message: "CAB writer not initialised (already consumed)".into(),
+                format: ArchiveFormat::Cab,
+            })?;
+
+        let mut builder = cab::CabinetBuilder::new();
+
+        // Use MSZIP if there are files; None for dirs-only archives.
+        let compression = if !self.files.is_empty() {
+            cab::CompressionType::MsZip
+        } else {
+            cab::CompressionType::None
+        };
+
+        {
+            let folder = builder.add_folder(compression);
+            for (path, _) in &self.files {
+                folder.add_file(path);
+            }
+        }
+
+        let mut cab_writer = builder.build(writer).map_err(|e| GeeZipError::Format {
+            message: format!("building CAB: {e}"),
+            format: ArchiveFormat::Cab,
+        })?;
+
+        // Write file data in registration order.
+        let mut idx = 0;
+        while let Some(mut file_writer) = cab_writer.next_file().map_err(|e| {
+            GeeZipError::Format {
+                message: format!("writing CAB file: {e}"),
+                format: ArchiveFormat::Cab,
+            }
+        })? {
+            if idx >= self.files.len() {
+                return Err(GeeZipError::Format {
+                    message: "CAB writer returned more file slots than registered".into(),
+                    format: ArchiveFormat::Cab,
+                });
+            }
+            file_writer
+                .write_all(&self.files[idx].1)
+                .map_err(|e| GeeZipError::io(e, "writing CAB file data"))?;
+            idx += 1;
+        }
+
+        let mut writer = cab_writer.finish().map_err(|e| GeeZipError::Format {
+            message: format!("finalising CAB: {e}"),
+            format: ArchiveFormat::Cab,
+        })?;
+        let bytes = writer.stream_position().map_err(|e| {
+            GeeZipError::io(e, "determining CAB size")
+        })?;
+
+        Ok(bytes)
     }
 }
 
@@ -448,5 +584,43 @@ mod tests {
             .expect("entries should load through trait object");
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].path, "hello.txt");
+    }
+
+    #[test]
+    fn cab_writer_roundtrip() {
+        use std::io::Cursor;
+
+        let mut buf = Cursor::new(Vec::new());
+        let writer = CabWriter::new(&mut buf);
+        let mut boxed_writer: Box<dyn ArchiveWriter> = Box::new(writer);
+        boxed_writer
+            .add_entry_from_reader(Path::new("hello.txt"), &mut Cursor::new(b"hello cab"))
+            .unwrap();
+        boxed_writer
+            .add_directory(Path::new("subdir"))
+            .unwrap();
+        let total = boxed_writer.finish().unwrap();
+        assert!(total > 0);
+
+        let out_buf = buf.into_inner();
+
+        let temp = tempfile::TempDir::new().unwrap();
+        let archive_path = temp.path().join("test.cab");
+        std::fs::write(&archive_path, &out_buf).unwrap();
+
+        let mut reader = CabReader::new(&archive_path);
+        let entries = reader.entries().unwrap();
+        let paths: Vec<&str> = entries.iter().map(|e| e.path.as_str()).collect();
+        assert!(paths.contains(&"hello.txt"));
+
+        let hello = entries
+            .iter()
+            .find(|e| e.path == "hello.txt")
+            .unwrap()
+            .clone();
+        let mut out = Vec::new();
+        let bytes = reader.extract(&hello, &mut out).unwrap();
+        assert_eq!(bytes, 9);
+        assert_eq!(out, b"hello cab");
     }
 }

@@ -9,8 +9,8 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
-use geezipx_core::archive::asar::AsarReader;
-use geezipx_core::archive::cab::CabReader;
+use geezipx_core::archive::asar::{AsarReader, AsarWriter};
+use geezipx_core::archive::cab::{CabReader, CabWriter};
 use geezipx_core::archive::cpio::{CpioReader, CpioWriter};
 use geezipx_core::archive::deb::DebReader;
 use geezipx_core::archive::iso::IsoReader;
@@ -451,7 +451,9 @@ pub fn create_writer(
             Ok(Box::new(LzhWriter::new(file, method)))
         }
         ArchiveFormat::Iso => Ok(Box::new(IsoWriter::new(file))),
-        ArchiveFormat::Asar | ArchiveFormat::Cab | ArchiveFormat::Deb | ArchiveFormat::Wim => {
+        ArchiveFormat::Asar => Ok(Box::new(AsarWriter::new(file))),
+        ArchiveFormat::Cab => Ok(Box::new(CabWriter::new(file))),
+        ArchiveFormat::Deb | ArchiveFormat::Wim => {
             anyhow::bail!("'{format}' is a read-only archive format; writing is not supported")
         }
         ArchiveFormat::Cpio => Ok(Box::new(CpioWriter::new(file))),
@@ -1075,14 +1077,23 @@ mod tests {
     }
 
     #[test]
-    fn create_writer_cab_is_read_only() {
+    fn create_writer_cab() {
         let temp = tempfile::TempDir::new().unwrap();
         let output = temp.path().join("out.cab");
         let file = fs::File::create(&output).unwrap();
-        match create_writer(file, ArchiveFormat::Cab, CompressOptions::default()) {
-            Ok(_) => panic!("cab writer should be rejected"),
-            Err(err) => assert!(err.to_string().contains("read-only archive format")),
-        }
+        let writer = create_writer(file, ArchiveFormat::Cab, CompressOptions::default()).unwrap();
+        assert_eq!(writer.format(), ArchiveFormat::Cab);
+        writer.finish().unwrap();
+    }
+
+    #[test]
+    fn create_writer_asar() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let output = temp.path().join("out.asar");
+        let file = fs::File::create(&output).unwrap();
+        let writer = create_writer(file, ArchiveFormat::Asar, CompressOptions::default()).unwrap();
+        assert_eq!(writer.format(), ArchiveFormat::Asar);
+        writer.finish().unwrap();
     }
 
     #[test]
