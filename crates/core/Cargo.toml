@@ -37,6 +37,7 @@ zstd = { version = "0.13", features = ["zstdmt"] }
 asar = { version = "0.3", default-features = false }
 ar = "0.9"
 delharc = "0.6"
+oxiarc-lzhuf = "0.3"
 isomage = "2.1"
 hadris-iso = "1.1"
 lzxd = "0.2"

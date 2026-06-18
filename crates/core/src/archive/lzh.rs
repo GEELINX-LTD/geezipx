@@ -1,9 +1,9 @@
-//! LZH/LHA (`.lzh`, `.lha`) archive reader and store-only writer.
+//! LZH/LHA (`.lzh`, `.lha`) archive reader and writer.
 //!
-//! GeeZipX exposes LZH/LHA reading via the `delharc` decoder and now also
-//! supports a minimal writer MVP that emits standard level-0 `-lh0-` entries
-//! plus `-lhd-` directory records. The current write path is intentionally
-//! limited to store/no-compression output.
+//! GeeZipX exposes LZH/LHA reading via the `delharc` decoder and writing
+//! via `oxiarc-lzhuf` for compression methods lh0 (store) through lh7
+//! (64 KB window, static Huffman). The writer supports configurable
+//! compression levels 0-4 mapping to lh0-lh7.
 //!
 //! Path handling notes:
 //! - `delharc`'s parsed pathname helpers intentionally normalise separators and
@@ -20,6 +20,7 @@ use std::path::Path;
 use delharc::crc::Crc16;
 use delharc::header::{ext::EXT_HEADER_FILENAME, ext::EXT_HEADER_PATH, LhaHeader, OsType};
 use delharc::{LhaDecodeReader, LhaError};
+use oxiarc_lzhuf::{encode_lzh, LzhMethod};
 
 use crate::archive::{is_entry_path_dangerous, ArchiveReader, ArchiveWriter, Entry};
 use crate::detect::ArchiveFormat;
@@ -65,6 +66,54 @@ const LZH_METHOD_DIRECTORY: [u8; 5] = *b"-lhd-";
 const LZH_ATTR_FILE: u8 = 0x20;
 const LZH_ATTR_DIRECTORY: u8 = 0x10;
 const LZH_READ_CHUNK_SIZE: usize = 65_536;
+const LZH_METHOD_LH4: [u8; 5] = *b"-lh4-";
+const LZH_METHOD_LH5: [u8; 5] = *b"-lh5-";
+const LZH_METHOD_LH6: [u8; 5] = *b"-lh6-";
+const LZH_METHOD_LH7: [u8; 5] = *b"-lh7-";
+/// Compression method for LZH/LHA writing.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LzhCompressionMethod {
+    Store,
+    Lh4,
+    Lh5,
+    Lh6,
+    Lh7,
+}
+
+impl LzhCompressionMethod {
+    /// Convert to the 5-byte method ID used in LZH headers.
+    pub fn method_bytes(self) -> [u8; 5] {
+        match self {
+            Self::Store => LZH_METHOD_STORE,
+            Self::Lh4 => LZH_METHOD_LH4,
+            Self::Lh5 => LZH_METHOD_LH5,
+            Self::Lh6 => LZH_METHOD_LH6,
+            Self::Lh7 => LZH_METHOD_LH7,
+        }
+    }
+
+    /// Convert to an `oxiarc_lzhuf::LzhMethod`.
+    pub fn to_lzh_method(self) -> LzhMethod {
+        match self {
+            Self::Store => LzhMethod::Lh0,
+            Self::Lh4 => LzhMethod::Lh4,
+            Self::Lh5 => LzhMethod::Lh5,
+            Self::Lh6 => LzhMethod::Lh6,
+            Self::Lh7 => LzhMethod::Lh7,
+        }
+    }
+
+    /// Whether this method does actual compression.
+    pub fn is_store(self) -> bool {
+        matches!(self, Self::Store)
+    }
+}
+
+impl Default for LzhCompressionMethod {
+    fn default() -> Self {
+        Self::Lh5
+    }
+}
 
 fn lzh_crc16(data: &[u8]) -> u16 {
     let mut crc = Crc16::default();
@@ -194,29 +243,27 @@ fn build_lzh_level0_header(
     Ok(header)
 }
 
-fn write_lzh_level0_entry<W: Write>(
+/// Write an LZH entry header and payload.
+///
+/// `compressed_size` and `original_size` may differ for compressed entries.
+/// `file_crc` is the CRC-16 of the **original** (uncompressed) data.
+fn write_lzh_entry<W: Write>(
     writer: &mut W,
     path: &Path,
     path_bytes: &[u8],
-    data: &[u8],
+    method: [u8; 5],
+    compressed_size: u32,
+    original_size: u32,
+    file_crc: u16,
     is_dir: bool,
+    payload: &[u8],
 ) -> GeeZipResult<()> {
-    let stored_len = if is_dir {
-        0
-    } else {
-        u32::try_from(data.len())
-            .map_err(|_| lzh_entry_size_limit_error(path, LZH_LEVEL0_MAX_ENTRY_SIZE))?
-    };
     let header = build_lzh_level0_header(
         path_bytes,
-        if is_dir {
-            LZH_METHOD_DIRECTORY
-        } else {
-            LZH_METHOD_STORE
-        },
-        stored_len,
-        stored_len,
-        if is_dir { 0 } else { lzh_crc16(data) },
+        method,
+        compressed_size,
+        original_size,
+        file_crc,
         if is_dir {
             LZH_ATTR_DIRECTORY
         } else {
@@ -243,9 +290,20 @@ fn write_lzh_level0_entry<W: Write>(
         GeeZipError::io(err, format!("writing LZH header for '{}'", path.display()))
     })?;
     if !is_dir {
-        writer.write_all(data).map_err(|err| {
+        writer.write_all(payload).map_err(|err| {
             GeeZipError::io(err, format!("writing LZH payload for '{}'", path.display()))
         })?;
+
+        // LZH entries are always padded to an even byte boundary
+        // (2-byte alignment after the payload).
+        if payload.len().is_odd() {
+            writer.write_all(&[0]).map_err(|err| {
+                GeeZipError::io(
+                    err,
+                    format!("writing LZH padding for '{}'", path.display()),
+                )
+            })?;
+        }
     }
 
     Ok(())
@@ -286,6 +344,7 @@ pub struct LzhWriter<W: Write + Seek + Send> {
     inner: Option<W>,
     start_pos: u64,
     format: ArchiveFormat,
+    method: LzhCompressionMethod,
 }
 
 impl<W: Write + Seek + Send> fmt::Debug for LzhWriter<W> {
@@ -297,13 +356,19 @@ impl<W: Write + Seek + Send> fmt::Debug for LzhWriter<W> {
 }
 
 impl<W: Write + Seek + Send> LzhWriter<W> {
-    pub fn new(mut writer: W) -> Self {
+    pub fn new(mut writer: W, method: LzhCompressionMethod) -> Self {
         let start_pos = writer.stream_position().unwrap_or(0);
         Self {
             inner: Some(writer),
             start_pos,
             format: ArchiveFormat::Lzh,
+            method,
         }
+    }
+
+    /// Create a new LZH writer with store-only (no compression) mode.
+    pub fn new_store_only(writer: W) -> Self {
+        Self::new(writer, LzhCompressionMethod::Store)
     }
 
     pub fn finalize(mut self) -> GeeZipResult<(u64, W)> {
@@ -649,9 +714,75 @@ impl<W: Write + Seek + Send> ArchiveWriter for LzhWriter<W> {
 
         let path_bytes = normalize_lzh_writer_path(path, false)?;
         let data = read_lzh_entry_data(path, reader, LZH_LEVEL0_MAX_ENTRY_SIZE)?;
-        write_lzh_level0_entry(writer, path, &path_bytes, &data, false)
-    }
+        let crc = lzh_crc16(&data);
+        let original_size = u32::try_from(data.len()).map_err(|_| {
+            GeeZipError::format(
+                format!("LZH entry '{}' too large ({} bytes)", path.display(), data.len()),
+                ArchiveFormat::Lzh,
+            )
+        })?;
 
+        if self.method.is_store() {
+            // Store (no compression) — write directly.
+            write_lzh_entry(
+                writer,
+                path,
+                &path_bytes,
+                LZH_METHOD_STORE,
+                original_size,
+                original_size,
+                crc,
+                false,
+                &data,
+            )
+        } else {
+            // Attempt compression; fall back to store if compressed data is larger.
+            let compressed = encode_lzh(&data, self.method.to_lzh_method()).map_err(|e| {
+                GeeZipError::format(
+                    format!(
+                        "LZH compression failed for '{}': {}",
+                        path.display(),
+                        e
+                    ),
+                    ArchiveFormat::Lzh,
+                )
+            })?;
+            if compressed.len() >= data.len() {
+                write_lzh_entry(
+                    writer,
+                    path,
+                    &path_bytes,
+                    LZH_METHOD_STORE,
+                    original_size,
+                    original_size,
+                    crc,
+                    false,
+                    &data,
+                )
+            } else {
+                let compressed_size = u32::try_from(compressed.len()).map_err(|_| {
+                    GeeZipError::format(
+                        format!(
+                            "LZH compressed entry '{}' too large ({} bytes)",
+                            path.display(),
+                            compressed.len()
+                        ),
+                        ArchiveFormat::Lzh,
+                    )
+                })?;
+                write_lzh_entry(
+                    writer,
+                    path,
+                    &path_bytes,
+                    self.method.method_bytes(),
+                    compressed_size,
+                    original_size,
+                    crc,
+                    false,
+                    &compressed,
+                )
+        }
+    }
     fn add_directory(&mut self, path: &Path) -> GeeZipResult<()> {
         let writer = self.inner.as_mut().ok_or_else(|| {
             GeeZipError::format(
@@ -660,7 +791,7 @@ impl<W: Write + Seek + Send> ArchiveWriter for LzhWriter<W> {
             )
         })?;
         let path_bytes = normalize_lzh_writer_path(path, true)?;
-        write_lzh_level0_entry(writer, path, &path_bytes, &[], true)
+        write_lzh_entry(writer, path, &path_bytes, LZH_METHOD_DIRECTORY, 0, 0, 0, true, &[])
     }
 
     fn finish(self: Box<Self>) -> GeeZipResult<u64> {

@@ -1983,6 +1983,7 @@ dependencies = [
  "log",
  "lz4_flex",
  "lzxd",
+ "oxiarc-lzhuf",
  "sevenz-rust2",
  "tar",
  "tempfile",
@@ -3532,6 +3533,24 @@ name = "owo-colors"
 version = "4.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d211803b9b6b570f68772237e415a029d5a50c65d382910b879fb19d3271f94d"
+
+[[package]]
+name = "oxiarc-core"
+version = "0.3.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "870de52f96c9df5474080d34ca0c32f5ca1db3e3bd9d6b614436090e86ae7f0c"
+dependencies = [
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "oxiarc-lzhuf"
+version = "0.3.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "050f63a80544b24c56cb3dfcac23bc4ae9943f5b4d53f5a397fce7be90c7af3e"
+dependencies = [
+ "oxiarc-core",
+]
 
 [[package]]
 name = "pango"
