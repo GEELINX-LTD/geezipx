@@ -8207,9 +8207,9 @@ fn cab_test_valid() {
 }
 
 #[test]
-fn cab_compress_is_rejected() {
+fn cab_compress_and_list() {
     let td = TestDir::new();
-    td.write("payload.txt", "cab write should fail");
+    td.write("payload.txt", "cab write test data");
     let output = td.join("out.cab");
 
     geezipx()
@@ -8222,12 +8222,35 @@ fn cab_compress_is_rejected() {
             output.to_str().unwrap(),
         ])
         .assert()
-        .failure()
-        .stderr(predicate::str::contains("cab writing is not supported"));
+        .success();
 
-    assert!(
-        !output.exists(),
-        "cab output should not be created on rejection"
+    assert!(output.exists(), "output.cab should exist");
+
+    // Verify the CAB can be listed.
+    geezipx()
+        .args(["list", output.to_str().unwrap()])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("payload.txt"));
+
+    // Round-trip: decompress and verify.
+    let extract_dir = td.join("extracted");
+    std::fs::create_dir(&extract_dir).unwrap();
+    geezipx()
+        .args([
+            "decompress",
+            output.to_str().unwrap(),
+            "-o",
+            extract_dir.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    let extracted = extract_dir.join("payload.txt");
+    assert!(extracted.exists());
+    assert_eq!(
+        std::fs::read_to_string(&extracted).unwrap(),
+        "cab write test data"
     );
 }
 

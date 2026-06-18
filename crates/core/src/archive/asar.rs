@@ -29,7 +29,9 @@ use std::path::{Component, Path, PathBuf};
 
 use asar::{header::FileLocation, Header};
 
-use crate::archive::{is_entry_path_dangerous, normalize_path, ArchiveReader, ArchiveWriter, CountWriter, Entry};
+use crate::archive::{
+    is_entry_path_dangerous, normalize_path, ArchiveReader, ArchiveWriter, CountWriter, Entry,
+};
 use crate::detect::ArchiveFormat;
 use crate::error::{GeeZipError, GeeZipResult};
 
@@ -287,14 +289,17 @@ impl<W: Write + Seek + Send> ArchiveWriter for AsarWriter<W> {
     fn add_entry_from_reader(&mut self, path: &Path, reader: &mut dyn Read) -> GeeZipResult<()> {
         let mut data = Vec::new();
         reader.read_to_end(&mut data).map_err(|e| {
-            GeeZipError::io(e, format!("reading data for ASAR entry '{}'", path.display()))
+            GeeZipError::io(
+                e,
+                format!("reading data for ASAR entry '{}'", path.display()),
+            )
         })?;
-        self.inner.write_file(path, data, false).map_err(|e| {
-            GeeZipError::Format {
+        self.inner
+            .write_file(path, data, false)
+            .map_err(|e| GeeZipError::Format {
                 message: format!("writing ASAR entry '{}': {e}", path.display()),
                 format: ArchiveFormat::Asar,
-            }
-        })?;
+            })?;
         Ok(())
     }
 
@@ -304,22 +309,20 @@ impl<W: Write + Seek + Send> ArchiveWriter for AsarWriter<W> {
     }
 
     fn finish(self: Box<Self>) -> GeeZipResult<u64> {
-        let writer = self
-            .writer
-            .ok_or_else(|| GeeZipError::Format {
-                message: "ASAR writer not initialised (already consumed)".into(),
-                format: ArchiveFormat::Asar,
-            })?;
+        let writer = self.writer.ok_or_else(|| GeeZipError::Format {
+            message: "ASAR writer not initialised (already consumed)".into(),
+            format: ArchiveFormat::Asar,
+        })?;
         let mut counter = CountWriter {
             inner: writer,
             count: 0,
         };
-        self.inner.finalize(&mut counter).map_err(|e| {
-            GeeZipError::Format {
+        self.inner
+            .finalize(&mut counter)
+            .map_err(|e| GeeZipError::Format {
                 message: format!("finalising ASAR: {e}"),
                 format: ArchiveFormat::Asar,
-            }
-        })?;
+            })?;
         Ok(counter.count)
     }
 }
@@ -862,9 +865,7 @@ mod tests {
         boxed_writer
             .add_entry_from_reader(Path::new("hello.txt"), &mut Cursor::new(b"hello asar"))
             .unwrap();
-        boxed_writer
-            .add_directory(Path::new("subdir"))
-            .unwrap();
+        boxed_writer.add_directory(Path::new("subdir")).unwrap();
         let total = boxed_writer.finish().unwrap();
         assert!(total > 0);
 

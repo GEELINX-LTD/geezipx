@@ -32,6 +32,7 @@ cpio-archive = "0.10"
 flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
 gzp = { version = "0.11", default-features = false, features = ["deflate_rust"] }
 lz4_flex = "0.13"
+lzma-rust2 = { version = "0.16", default-features = false, features = ["std", "lzip", "encoder"] }
 xz2 = { version = "0.1", features = ["static"] }
 zstd = { version = "0.13", features = ["zstdmt"] }
 asar = { version = "0.3", default-features = false, features = ["write"] }

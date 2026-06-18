@@ -222,9 +222,9 @@ impl<W: Write + Seek + Send> ArchiveWriter for CabWriter<W> {
             })?
             .to_owned();
         let mut data = Vec::new();
-        reader.read_to_end(&mut data).map_err(|e| {
-            GeeZipError::io(e, format!("reading data for CAB entry '{name}'"))
-        })?;
+        reader
+            .read_to_end(&mut data)
+            .map_err(|e| GeeZipError::io(e, format!("reading data for CAB entry '{name}'")))?;
         self.files.push((name, data));
         Ok(())
     }
@@ -242,13 +242,15 @@ impl<W: Write + Seek + Send> ArchiveWriter for CabWriter<W> {
     }
 
     fn finish(self: Box<Self>) -> GeeZipResult<u64> {
-        let writer = self
-            .writer
-            .ok_or_else(|| GeeZipError::Format {
-                message: "CAB writer not initialised (already consumed)".into(),
-                format: ArchiveFormat::Cab,
-            })?;
+        let writer = self.writer.ok_or_else(|| GeeZipError::Format {
+            message: "CAB writer not initialised (already consumed)".into(),
+            format: ArchiveFormat::Cab,
+        })?;
 
+        // Empty archives: return 0 bytes (cab crate panics on empty folders).
+        if self.files.is_empty() {
+            return Ok(0);
+        }
         let mut builder = cab::CabinetBuilder::new();
 
         // Use MSZIP if there are files; None for dirs-only archives.
@@ -272,12 +274,12 @@ impl<W: Write + Seek + Send> ArchiveWriter for CabWriter<W> {
 
         // Write file data in registration order.
         let mut idx = 0;
-        while let Some(mut file_writer) = cab_writer.next_file().map_err(|e| {
-            GeeZipError::Format {
+        while let Some(mut file_writer) =
+            cab_writer.next_file().map_err(|e| GeeZipError::Format {
                 message: format!("writing CAB file: {e}"),
                 format: ArchiveFormat::Cab,
-            }
-        })? {
+            })?
+        {
             if idx >= self.files.len() {
                 return Err(GeeZipError::Format {
                     message: "CAB writer returned more file slots than registered".into(),
@@ -294,9 +296,9 @@ impl<W: Write + Seek + Send> ArchiveWriter for CabWriter<W> {
             message: format!("finalising CAB: {e}"),
             format: ArchiveFormat::Cab,
         })?;
-        let bytes = writer.stream_position().map_err(|e| {
-            GeeZipError::io(e, "determining CAB size")
-        })?;
+        let bytes = writer
+            .stream_position()
+            .map_err(|e| GeeZipError::io(e, "determining CAB size"))?;
 
         Ok(bytes)
     }
@@ -596,9 +598,7 @@ mod tests {
         boxed_writer
             .add_entry_from_reader(Path::new("hello.txt"), &mut Cursor::new(b"hello cab"))
             .unwrap();
-        boxed_writer
-            .add_directory(Path::new("subdir"))
-            .unwrap();
+        boxed_writer.add_directory(Path::new("subdir")).unwrap();
         let total = boxed_writer.finish().unwrap();
         assert!(total > 0);
 
