@@ -1,7 +1,7 @@
 //! Unix compress (`.Z`) reader — single-stream LZW decompression.
 //!
 //! GeeZipX exposes Unix compress as a read-only single-stream format backed
-//! by the [`unarc-rs`] crate.  Unlike archive containers, `.Z` files contain
+//! by the `unarc-rs` crate.  Unlike archive containers, `.Z` files contain
 //! a single compressed stream; the reader synthesises a single entry whose
 //! name is derived from the input filename.
 //!

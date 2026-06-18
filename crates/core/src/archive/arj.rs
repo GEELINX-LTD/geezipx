@@ -1,7 +1,7 @@
 //! ARJ archive reader (`.arj`).
 //!
 //! GeeZipX exposes ARJ as a read-only archive format backed by the
-//! [`unarc-rs`] crate.  The reader supports listing, extraction, and
+//! `unarc-rs` crate.  The reader supports listing, extraction, and
 //! password-protected archives (Garble and GOST-40 encryption).
 //!
 //! # Design notes
