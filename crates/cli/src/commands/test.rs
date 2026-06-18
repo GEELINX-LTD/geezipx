@@ -57,16 +57,21 @@ fn run_verify(archive: &Path, json: bool, password: Option<String>) -> Result<()
         | ArchiveFormat::Lz4
         | ArchiveFormat::Zstd
         | ArchiveFormat::Xz
+        | ArchiveFormat::Lz
         | ArchiveFormat::Lzma => verify_single_stream(archive, format)
             .with_context(|| format!("verifying '{}'", archive.display()))?,
         ArchiveFormat::Uu | ArchiveFormat::Xxe => {
             let data = match format {
-                ArchiveFormat::Uu => uu::uu_decode_file(archive)
-                    .map_err(|e| anyhow::anyhow!("uu verification failed: {}", e))?
-                    .1,
-                ArchiveFormat::Xxe => xxe::xxe_decode_file(archive)
-                    .map_err(|e| anyhow::anyhow!("xxe verification failed: {}", e))?
-                    .1,
+                ArchiveFormat::Uu => {
+                    uu::uu_decode_file(archive)
+                        .map_err(|e| anyhow::anyhow!("uu verification failed: {}", e))?
+                        .1
+                }
+                ArchiveFormat::Xxe => {
+                    xxe::xxe_decode_file(archive)
+                        .map_err(|e| anyhow::anyhow!("xxe verification failed: {}", e))?
+                        .1
+                }
                 _ => unreachable!(),
             };
             TestReport {

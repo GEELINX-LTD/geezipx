@@ -2,6 +2,7 @@
 use std::sync::atomic::Ordering;
 
 use std::fs;
+use std::io::Read;
 use std::io::Write;
 use std::path::Path;
 
@@ -14,6 +15,7 @@ use crate::render::progress::{ProgressBarWrapper, SharedCallback};
 use geezipx_core::archive::brotli;
 use geezipx_core::archive::bzip2;
 use geezipx_core::archive::gzip;
+use geezipx_core::archive::lz;
 use geezipx_core::archive::lz4;
 use geezipx_core::archive::uu;
 use geezipx_core::archive::xxe;
@@ -58,6 +60,7 @@ pub fn execute(
                 | ArchiveFormat::Lz4
                 | ArchiveFormat::Zstd
                 | ArchiveFormat::Xz
+                | ArchiveFormat::Lz
                 | ArchiveFormat::Lzma
                 | ArchiveFormat::Uu
                 | ArchiveFormat::Xxe
@@ -325,6 +328,41 @@ pub fn execute(
                 }
             }
         }
+        ArchiveFormat::Lz => {
+            let cancel_flag = cancel_token.clone().into_inner();
+
+            let result = if stdout {
+                decompress_lz_stdout(archive, cancel_flag)
+            } else {
+                decompress_lz_to_file(archive, output_dir, overwrite, cancel_flag)
+            };
+
+            let spinner = if show_progress {
+                Some(crate::render::progress::ProgressBarWrapper::spinner(
+                    "Decompressing...",
+                ))
+            } else {
+                None
+            };
+
+            match result {
+                Ok(()) => {
+                    if let Some(s) = &spinner {
+                        s.finish("Decompressed");
+                    }
+                }
+                Err(e) => {
+                    if let Some(s) = &spinner {
+                        s.finish("Decompression failed");
+                    }
+                    if cancel_token.is_cancelled() {
+                        eprintln!("Cancelled");
+                        std::process::exit(130);
+                    }
+                    return Err(anyhow::anyhow!("lz decompression error: {}", e));
+                }
+            }
+        }
 
         ArchiveFormat::Uu => {
             let cancel_flag = cancel_token.clone().into_inner();
@@ -481,11 +519,6 @@ fn decompress_stdin_mode(
         | ArchiveFormat::Uu
         | ArchiveFormat::Xxe
         | ArchiveFormat::TarGz
-        | ArchiveFormat::TarBz2
-        | ArchiveFormat::TarBr
-        | ArchiveFormat::TarLz4
-        | ArchiveFormat::TarZst
-        | ArchiveFormat::TarXz => {}
         | ArchiveFormat::TarBz2
         | ArchiveFormat::TarBr
         | ArchiveFormat::TarLz4
@@ -662,6 +695,67 @@ fn decompress_gzip_to_file(
     let mut reader = ProgressReader::new(input_file).with_callback(Box::new(shared));
 
     let bytes = geezipx_core::archive::gzip::gzip_decompress(&mut reader, &mut output_file)
+        .with_context(|| format!("decompressing '{}'", archive.display()))?;
+
+    eprintln!(
+        "Decompressed {} -> {} ({} bytes)",
+        archive.display(),
+        output_path.display(),
+        bytes,
+    );
+    Ok(())
+}
+
+/// Decompress an lz stream to stdout.
+fn decompress_lz_stdout(archive: &Path, cancel_flag: Arc<AtomicBool>) -> Result<()> {
+    let file_size = std::fs::metadata(archive).map(|m| m.len()).unwrap_or(0);
+    let file =
+        fs::File::open(archive).with_context(|| format!("opening '{}'", archive.display()))?;
+    let mut stdout = std::io::stdout().lock();
+
+    let wrapper = crate::render::progress::ProgressBarWrapper::hidden();
+    let shared = crate::render::progress::SharedCallback::new(wrapper, cancel_flag);
+    let mut reader = geezipx_core::ProgressReader::new(file)
+        .with_total(file_size)
+        .with_callback(Box::new(shared));
+
+    let bytes = lz::lz_decompress(&mut reader, &mut stdout)
+        .with_context(|| format!("decompressing '{}'", archive.display()))?;
+    stdout
+        .flush()
+        .context("flushing stdout after decompression")?;
+    eprintln!("Decompressed {} bytes to stdout", bytes);
+    Ok(())
+}
+
+/// Decompress an lz file to a new file in the output directory.
+fn decompress_lz_to_file(
+    archive: &Path,
+    output_dir: &Path,
+    overwrite: bool,
+    cancel_flag: Arc<AtomicBool>,
+) -> Result<()> {
+    let output_name = common::lz_output_filename(archive);
+    let output_path = output_dir.join(&output_name);
+
+    if !overwrite && output_path.exists() {
+        eprintln!(
+            "Warning: '{}' already exists, skipping (use --force to overwrite)",
+            output_path.display()
+        );
+        return Ok(());
+    }
+
+    let input_file =
+        fs::File::open(archive).with_context(|| format!("opening '{}'", archive.display()))?;
+    let mut output_file = fs::File::create(&output_path)
+        .with_context(|| format!("creating '{}'", output_path.display()))?;
+
+    let wrapper = ProgressBarWrapper::hidden();
+    let shared = SharedCallback::new(wrapper, cancel_flag);
+    let mut reader = ProgressReader::new(input_file).with_callback(Box::new(shared));
+
+    let bytes = lz::lz_decompress(&mut reader, &mut output_file)
         .with_context(|| format!("decompressing '{}'", archive.display()))?;
 
     eprintln!(

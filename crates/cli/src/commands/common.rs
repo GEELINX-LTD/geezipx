@@ -71,6 +71,7 @@ pub fn parse_format(s: &str) -> Result<ArchiveFormat> {
         "tar.xz" | "txz" => Ok(ArchiveFormat::TarXz),
         "xz" => Ok(ArchiveFormat::Xz),
         "lzma" => Ok(ArchiveFormat::Lzma),
+        "lz" => Ok(ArchiveFormat::Lz),
         "7z" => Ok(ArchiveFormat::SevenZip),
         "rar" => Ok(ArchiveFormat::Rar),
         "cab" => Ok(ArchiveFormat::Cab),
@@ -84,7 +85,7 @@ pub fn parse_format(s: &str) -> Result<ArchiveFormat> {
         "uu" | "uue" => Ok(ArchiveFormat::Uu),
         "xxe" => Ok(ArchiveFormat::Xxe),
         other => Err(anyhow::anyhow!(
-            "unsupported format '{other}'; expected: zip, zipx, jar, war, apk, ipa, xpi, tar, tar.gz, tgz, tar.bz2, tbz, tbz2, tar.br, gz, gzip, bz2, bzip2, br, brotli, lz4, tar.lz4, zst, zstd, tar.zst, tzst, tar.xz, txz, xz, lzma, 7z, rar, cab, asar, deb, lzh, lha, iso, cpio, zpaq, zpq, wim, swm, uu, uue, xxe"
+            "unsupported format '{other}'; expected: zip, zipx, jar, war, apk, ipa, xpi, tar, tar.gz, tgz, tar.bz2, tbz, tbz2, tar.br, gz, gzip, bz2, bzip2, br, brotli, lz4, tar.lz4, zst, zstd, tar.zst, tzst, tar.xz, txz, xz, lzma, lz, 7z, rar, cab, asar, deb, lzh, lha, iso, cpio, zpaq, zpq, wim, swm, uu, uue, xxe"
         )),
     }
 }
@@ -390,6 +391,7 @@ pub fn open_reader(
         | ArchiveFormat::Lz4
         | ArchiveFormat::Zstd
         | ArchiveFormat::Xz
+        | ArchiveFormat::Lz
         | ArchiveFormat::Lzma => anyhow::bail!(
             "'{}' is a single-stream compression format; use 'decompress' directly, not an archive reader",
             format
@@ -475,6 +477,7 @@ pub fn create_writer(
         | ArchiveFormat::Lz4
         | ArchiveFormat::Zstd
         | ArchiveFormat::Xz
+        | ArchiveFormat::Lz
         | ArchiveFormat::Lzma => {
             anyhow::bail!(
                 "'{format}' is a single-stream compression format; use 'compress' directly, not an archive writer"
@@ -560,6 +563,16 @@ pub fn lzma_output_filename(archive: &Path) -> PathBuf {
         .map(|s| s.to_string_lossy().to_string())
         .unwrap_or_else(|| "output".to_string());
     let stripped = name.strip_suffix(".lzma").unwrap_or(&name);
+    PathBuf::from(stripped)
+}
+
+/// Infer the decompressed filename for an lz file by stripping `.lz`.
+pub fn lz_output_filename(archive: &Path) -> PathBuf {
+    let name = archive
+        .file_name()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_else(|| "output".to_string());
+    let stripped = name.strip_suffix(".lz").unwrap_or(&name);
     PathBuf::from(stripped)
 }
 

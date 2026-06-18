@@ -6,9 +6,9 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 use comfy_table::Table;
-use geezipx_core::archive::{is_entry_path_dangerous, Entry};
 use geezipx_core::archive::uu;
 use geezipx_core::archive::xxe;
+use geezipx_core::archive::{is_entry_path_dangerous, Entry};
 use geezipx_core::detect::ArchiveFormat;
 
 use super::common;
@@ -24,6 +24,7 @@ pub fn execute(archive: &Path, json: bool, password: Option<String>) -> Result<(
     // Validate password: single-stream formats do not support encryption.
     if password.is_some()
         && matches!(
+            format,
             ArchiveFormat::Gzip
                 | ArchiveFormat::Bzip2
                 | ArchiveFormat::Brotli
@@ -31,8 +32,10 @@ pub fn execute(archive: &Path, json: bool, password: Option<String>) -> Result<(
                 | ArchiveFormat::Zstd
                 | ArchiveFormat::Xz
                 | ArchiveFormat::Lzma
+                | ArchiveFormat::Lz
                 | ArchiveFormat::Uu
                 | ArchiveFormat::Xxe
+        )
     {
         anyhow::bail!(
             "--password is only supported for ZIP, 7z, and RAR formats; '{}' does not support encryption",
@@ -110,6 +113,19 @@ pub fn execute(archive: &Path, json: bool, password: Option<String>) -> Result<(
         ArchiveFormat::Lzma => {
             // Lzma is a single-stream compression — produce a synthetic entry.
             let inferred_name = common::lzma_output_filename(archive);
+            let compressed_size = fs::metadata(archive).map(|m| m.len()).unwrap_or(0);
+            vec![Entry {
+                path: inferred_name.to_string_lossy().into_owned(),
+                size: 0,
+                compressed_size,
+                crc32: None,
+                modified: None,
+                is_dir: false,
+            }]
+        }
+        ArchiveFormat::Lz => {
+            // Lzip is a single-stream compression — produce a synthetic entry.
+            let inferred_name = common::lz_output_filename(archive);
             let compressed_size = fs::metadata(archive).map(|m| m.len()).unwrap_or(0);
             vec![Entry {
                 path: inferred_name.to_string_lossy().into_owned(),

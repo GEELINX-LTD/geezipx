@@ -17,7 +17,7 @@ pub fn uu_decode_file(path: &Path) -> GeeZipResult<(String, Vec<u8>)> {
     })
 }
 
-pub(crate) fn uu_decode(input: &str) -> Option<(String, Vec<u8>)> {
+pub fn uu_decode(input: &str) -> Option<(String, Vec<u8>)> {
     let mut lines = input.lines();
     let header = lines.next()?;
     let header = header.strip_prefix("begin ")?;
