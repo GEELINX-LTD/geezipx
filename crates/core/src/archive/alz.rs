@@ -12,7 +12,7 @@
 //! - **No stable magic** — Detection relies on the `.alz` extension.
 
 use std::fmt;
-use std::io::{Read, SeekFrom, Write};
+use std::io::{SeekFrom, Write};
 use std::path::PathBuf;
 
 use crate::archive::{ArchiveReader, Entry};
@@ -60,7 +60,7 @@ impl AlzReader {
                 let is_dir = file_entry.is_directory();
                 let original_name = file_entry.file_name.replace('\\', "/");
                 let path = if is_dir {
-                    original_name.trim_end_matches(&['/', '\\']).to_owned()
+                    original_name.trim_end_matches(['/', '\\']).to_owned()
                 } else {
                     original_name
                 };
@@ -119,7 +119,7 @@ impl ArchiveReader for AlzReader {
                 let name = e.file_name.replace('\\', "/");
                 let is_dir = e.is_directory();
                 let path = if is_dir {
-                    name.trim_end_matches(&['/', '\\']).to_owned()
+                    name.trim_end_matches(['/', '\\']).to_owned()
                 } else {
                     name
                 };
