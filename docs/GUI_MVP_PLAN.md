@@ -42,12 +42,12 @@
 
 | 操作 | 当前格式 | 目标扩展 |
 |------|----------|----------|
-| 压缩 | ZIP、ZIPX（ZIP 兼容别名）、TAR、TAR.GZ、TAR.BZ2、TAR.BR、TAR.LZ4、TAR.ZST、TAR.XZ、7z、LZH/LHA（store-only）、ISO、ZPAQ、SFX（ZIP self-extracting） | 7z 高级写入能力（后续阶段） |
-| 解压缩 | 上述所有格式 + RAR / CAB / ASAR / DEB / CPIO / WIM | ARJ、ACE、BZ2、BR、LZ4 等（后续阶段，含历史格式适配器） |
+| 压缩 | ZIP、ZIPX（ZIP 兼容别名）、TAR、TAR.GZ、TAR.BZ2、TAR.BR、TAR.LZ4、TAR.ZST、TAR.XZ、7z、LZH/LHA（lh4-lh7 压缩）、ISO、ZPAQ、SFX（ZIP self-extracting）、CPIO | 7z 高级写入能力（后续阶段） |
+| 解压缩 | 上述所有格式 + RAR / CAB / ASAR / DEB / CPIO / WIM / ARJ / ACE / ARC / ALZ / UU / UUE / XXE / Z | BH、PMA、PEA、EGG、LZ、AES、磁盘镜像等（后续阶段） |
 
 > 完整格式目标清单见 `docs/PRD.md` 第 5.1 节。新增格式按 feature gate 引入，不要求当前版本一次性完成。
 
-GUI 中 7z 已支持基础创建与 AES-256 密码写入，LZH/LHA 已支持 store-only 写入 MVP（文件 `-lh0-`，目录 `-lhd-`），ZIPX 作为 ZIP-compatible alias 可创建、浏览、测试与提取，但不承诺 WinZip 专有高级压缩方法、Deflate64 写入或完整 ZIPX method matrix。ISO 已支持创建与读取（ISO 9660 Level 1）。ZPAQ 已支持创建与读取。SFX 已支持创建 ZIP self-extracting 可执行文件。RAR / CAB / ASAR / DEB / CPIO 仍保持只读语义：可浏览、测试、提取，不可创建。WIM 已支持只读浏览与提取。
+GUI 中 7z 已支持基础创建与 AES-256 密码写入，LZH/LHA 已支持 lh4-lh7 压缩写入（通过 oxiarc-lzhuf），ZIPX 作为 ZIP-compatible alias 可创建、浏览、测试与提取，但不承诺 WinZip 专有高级压缩方法、Deflate64 写入或完整 ZIPX method matrix。ISO 已支持创建与读取（ISO 9660 Level 1）。ZPAQ 已支持创建与读取。SFX 已支持创建 ZIP self-extracting 可执行文件。CPIO 已支持创建与读取。RAR / CAB / ASAR / DEB 仍保持只读语义：可浏览、测试、提取，不可创建。WIM / ARJ / ACE / ARC / ALZ / UU / UUE / XXE / Z 已支持只读浏览、测试与提取。
 
 ### 3.2 核心功能
 
@@ -116,7 +116,7 @@ GUI 中 7z 已支持基础创建与 AES-256 密码写入，LZH/LHA 已支持 sto
 - `geezipx-gui`/`crates/gui-tauri/src-tauri` 依赖 `geezipx-core`，反向依赖不允许。
 - GUI Rust 后端只做参数映射、任务生命周期管理、进度桥接与前端数据整形。
 - 前端不直接处理压缩格式细节；所有实际归档操作都经由 Tauri command bridge。
-- 7z 在 GUI 中已支持基础创建与 AES-256 密码写入；LZH/LHA 已支持 store-only 写入 MVP；ISO 已支持创建与读取；ZPAQ 已支持创建与读取；SFX 已支持创建。RAR / CAB / ASAR / DEB / CPIO 仍保持只读语义：可浏览、测试、提取，不可创建。WIM 已支持只读浏览与提取。
+- 7z 在 GUI 中已支持基础创建与 AES-256 密码写入；LZH/LHA 已支持 lh4-lh7 压缩写入；ISO 已支持创建与读取；ZPAQ 已支持创建与读取；SFX 已支持创建；CPIO 已支持创建与读取。RAR / CAB / ASAR / DEB 仍保持只读语义：可浏览、测试、提取，不可创建。WIM / ARJ / ACE / ARC / ALZ / UU / UUE / XXE / Z 已支持只读浏览与提取。
 
 ## 5. Core API 复用策略
 
@@ -124,7 +124,7 @@ GUI 直接复用 core 的以下能力，不重复实现压缩/解压逻辑：
 
 | Core 模块 | GUI 复用方式 |
 |-----------|--------------|
-| `core::archive::*` | 复用 `ArchiveReader` / `ArchiveWriter` trait；其中 7z 已支持基础 reader/writer 与 AES-256 密码写入，LZH/LHA 已支持 store-only writer MVP，ISO 已支持 reader/writer，ZPAQ 已支持 reader/writer，SFX（ZIP self-extracting）已支持创建，RAR/CAB/ASAR/DEB/CPIO 保持只读 reader，WIM 已支持只读 reader |
+| `core::archive::*` | 复用 `ArchiveReader` / `ArchiveWriter` trait；其中 7z 已支持基础 reader/writer 与 AES-256 密码写入，LZH/LHA 已支持 lh4-lh7 writer（via oxiarc-lzhuf），ISO 已支持 reader/writer，ZPAQ 已支持 reader/writer，SFX（ZIP self-extracting）已支持创建，CPIO 已支持 reader/writer，RAR/CAB/ASAR/DEB 保持只读 reader，WIM/ARJ/ACE/ARC/ALZ/UU/UUE/XXE/Z 已支持只读 reader |
 | `core::io::{ProgressReader, ProgressWriter, ProgressCallback, ProgressEvent}` | 进度计数与取消检查；由 GUI 后端转成 Tauri 事件 |
 | `core::detect::{detect_format, detect_from_extension, read_magic_bytes}` | 自动识别拖入文件与归档类型 |
 | `core::config::CompressOptions` | 统一传递 level、jobs、password 等参数 |
@@ -210,7 +210,7 @@ listen<TaskProgressPayload>('task:progress', (event) => {
 - ZIP：支持创建 AES-256 加密归档，也支持浏览/测试/提取已加密 ZIP。
 - 7z：支持创建 AES-256 加密归档，也支持浏览/测试/提取已加密 7z。
 - RAR：密码仅支持读取路径（`list` / `test` / `extract`）。
-- CPIO：仅支持读取路径（`list` / `test` / `extract`），当前 MVP 面向 `newc` / `odc`，不做 `bin` / `crc`、密码访问或宿主 symlink/device/FIFO/socket 创建。
+- CPIO：支持读取与创建路径（`compress` / `list` / `test` / `extract`），支持 `newc` / `odc`，不含 `bin` / `crc`、密码访问或宿主 symlink/device/FIFO/socket 创建。
 - 密码仅作为任务参数传递，不做持久化。
 - 前端提供显隐切换，但不保存默认密码。
 

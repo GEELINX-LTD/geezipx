@@ -42,7 +42,7 @@ GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开�
 
 | 特性 | 说明 | 状态 |
 |------|------|------|
-| 格式支持 | `.tar.gz`/`.tgz`, `.tar.bz2`/`.tbz`/`.tbz2`, `.tar.br`, `.tar.lz4`, `.zip`（含 `.zipx`/`.jar`/`.war`/`.apk`/`.ipa`/`.xpi` ZIP 兼容别名）, `.tar`, `.gz`/`.gzip`, `.bz2`, `.br`, `.lz4`, `.tar.zst`/`.tzst`, `.zst`/`.zstd`, `.tar.xz`/`.txz`, `.xz`, `.lzma`, `.7z`（读/写）；LZH/LHA（store-only 写入 MVP）；ISO/ZPAQ（读写）；RAR/CAB/ASAR/DEB/CPIO（只读） | **已完成** |
+| 格式支持 | `.tar.gz`/`.tgz`, `.tar.bz2`/`.tbz`/`.tbz2`, `.tar.br`, `.tar.lz4`, `.zip`（含 `.zipx`/`.jar`/`.war`/`.apk`/`.ipa`/`.xpi` ZIP 兼容别名）, `.tar`, `.gz`/`.gzip`, `.bz2`, `.br`, `.lz4`, `.tar.zst`/`.tzst`, `.zst`/`.zstd`, `.tar.xz`/`.txz`, `.xz`, `.lzma`, `.7z`（读/写）；LZH/LHA（lh4-lh7 压缩）；ISO/ZPAQ/CPIO（读写）；RAR/CAB/ASAR/DEB（只读） | **已完成** |
 | 流式处理 | 文件流读写，内存占用与文件大小解耦 | **已完成** |
 | 进度显示 | TTY 下默认显示进度，可用 `--no-progress` 禁用 | **已完成** |
 | 格式自动检测 | 根据文件魔数（magic bytes）自动检测归档格式 | **已完成** |
@@ -84,9 +84,9 @@ GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开�
 | 7Z | .7z | ✅ 已支持（MVP） | 支持文件/多文件/目录压缩与 AES-256 密码写入；当前不含多线程调优或 tar.7z |
 | RAR | .rar | 📖 只读 | 受 UnRAR 许可限制，不规划写入 |
 | CAB | .cab | 📖 只读 | 当前支持 `list` / `decompress` / `test`；MVP 面向单卷 cabinet，不做写入、密码或 multi-volume cabinet set |
-| LZH/LHA | .lzh, .lha | ✅ 已支持（store-only 写入 MVP） | 已支持 `compress` / `list` / `decompress` / `test`；文件 entry 为 level-0 `-lh0-`，目录 entry 为 `-lhd-`。不包含 lh5/lh6/lh7 压缩写入、密码/加密、多卷、扩展属性、长路径/level 1/2/3 extended header |
+| LZH/LHA | .lzh, .lha | ✅ 已支持 | 支持 `compress` / `list` / `decompress` / `test`；文件 entry 为 level-0 `-lh0-` / lh4 / lh5 / lh6 / lh7 压缩（通过 oxiarc-lzhuf），目录 entry 为 `-lhd-`。不含密码/加密、多卷、扩展属性、长路径/level 1/2/3 extended header |
 | ISO | .iso | ✅ 已支持 | 支持 `compress` / `list` / `decompress` / `test`；ISO 9660 Level 1（小写文件名），通过 `hadris-iso` 实现。不含 Joliet / Rock Ridge / El Torito 写入。 |
-| CPIO | .cpio | 📖 只读 | 当前支持 `list` / `decompress` / `test`；MVP 支持 `newc` / `odc`，不做写入、`bin` / `crc`、宿主 symlink/device/FIFO/socket 创建 |
+| CPIO | .cpio | ✅ 已支持 | 支持 `compress` / `list` / `decompress` / `test`；支持 `newc` / `odc`。不含 `bin` / `crc`、密码/加密、宿主 symlink/device/FIFO/socket 创建 |
 | ZIPX | .zipx | ✅ 已支持 | ZIP 兼容容器/扩展名别名；不承诺 WinZip 专有高级压缩方法、Deflate64 写入或完整 ZIPX method matrix |
 | SFX | .exe | ✅ 已支持 | 自解压 ZIP（Linux/Windows/macOS），通过 CLI `--sfx`/`--sfx-target` 参数 |
 | ZPAQ | .zpaq, .zpq | ✅ 已支持 | 支持 `compress` / `list` / `decompress` / `test`；通过 `zpaq_rs::archive_from_entries` 实现。压缩级别 1-5（ZPAQ 不支持 store 级别）。不含增量 journaling / dedup。 |
@@ -98,9 +98,13 @@ GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开�
 | 格式 | 当前状态 | 说明 |
 |------|---------|------|
 | WIM | ✅ 已支持 (纯 Rust) | 只读，支持 XPRESS/LZX 解压 |
-| ARJ, ACE, ALZ, BH, PMA, PEA, EGG, ARC | 📋 规划中 | 历史/专有格式，通过适配器评估 |
+| ARJ, ACE, ARC | ✅ 已支持 | 历史/专有格式，通过 unarc-rs 适配器 |
+| ALZ | ✅ 已支持 | ALZip 格式，通过 unalz-rs |
+| BH, PMA, PEA, EGG | 📋 规划中 | 历史/专有格式，待评估 |
 | LZ (.lz) | 📋 规划中 | Lzip |
-| UU (.uu/.uue/.xxe), Z (.Z) | 📋 规划中 | 编码格式 / Unix compress |
+| UU (.uu/.uue) | ✅ 已支持 | 自实现解码器 |
+| XXE (.xxe) | ✅ 已支持 | 自实现解码器 |
+| Z (.Z) | ✅ 已支持 | Unix compress，通过 unarc-rs |
 | AES | 📋 规划中 | AES 加密容器 |
 | JAR, WAR, APK, IPA, XPI | ✅ 已支持 | 本质为 ZIP 容器，复用 ZIP 引擎 |
 | DEB | 📖 只读 | Debian 包（ar 容器 + `data.tar*` payload 视图；忽略 `control.tar.*`） |
@@ -139,7 +143,7 @@ GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开�
 - **Feature gate**：每种格式按独立 feature 引入，用户可按需编译。
 - **优先级**：由用户需求与社区反馈驱动，不做全格式一次性覆盖。
 |- **读/写分离**：一种格式可先实现只读（如当前 RAR），写入能力后续补充。7z 当前已交付基础写入与 AES-256 密码写入 MVP。ZPAQ 已从只读升级为完整读写（压缩级别 1-5）。
-- **历史格式**：ARJ、ACE、ARC、ALZ 等历史/专有格式通过适配器层外部库评估；LZH/LHA 已交付 store-only 写入 MVP，更完整兼容能力后续补充（如 lh5/lh6/lh7 压缩写入、扩展 header、metadata）。
+- **历史格式**：ARJ、ACE、ARC（via unarc-rs）、ALZ（via unalz-rs）、UU/UUE/XXE（自实现）、Z/Unix compress（via unarc-rs）等历史/专有格式已通过适配器层接入；LZH/LHA 已交付 lh4-lh7 压缩写入（via oxiarc-lzhuf），更完整兼容能力后续补充（如扩展 header、metadata）。
 |- **Journaling 格式**：ZPAQ 当前已升级为完整读写（压缩级别 1-5）；其追加/版本化写入路径与现有"从零创建归档"模型不同，需单独架构设计。
 
 ## 7. 功能需求（Feature Requirements）
@@ -238,13 +242,13 @@ Phase 3 (生态 + 格式扩展)
 ├── 压缩格式扩展
 │   ├── 7z 高级写入能力 — 高级编码器/进一步性能优化
 │   ├── ZIPX 高级方法矩阵评估 — `.zipx` alias 已支持；JPEG 预压缩等 WinZip 专有高级方法另行评估
-│   ├── LZH/LHA 更完整兼容 — 在现有 store-only 写入基础上补齐 lh5/lh6/lh7 压缩写入、扩展 header、metadata
+│   ├── LZH/LHA 更完整兼容 — lh4-lh7 压缩写入已完成（oxiarc-lzhuf），后续补齐扩展 header、metadata
 │   └── 其他按用户需求驱动的格式
 ├── 解压格式扩展
 │   ├── Brotli (.br)、bzip2 (.bz2)、LZ4 — 现代压缩格式
 │   ├── DEB、ASAR — 应用包格式
-│   ├── ARJ、ACE、ARC、ALZ — 历史格式适配器
-│   ├── UU/UUE/XXE、.Z — 编码/早期压缩格式
+│   ├── ARJ、ACE、ARC、ALZ — ✅ 已支持（unarc-rs / unalz-rs 适配器）
+│   ├── UU/UUE/XXE、.Z — ✅ 已支持（自实现解码器 / unarc-rs）
 │   ├── PEA、PMA、AES、EGG — 专有格式按需评估
 │   ├── IMG、ISZ、UDF — 磁盘镜像格式
 │   └── JAR/WAR/APK/IPA/XPI — ZIP 容器格式（复用引擎）
