@@ -15,7 +15,7 @@ use geezipx_core::archive::cpio::{CpioReader, CpioWriter};
 use geezipx_core::archive::deb::DebReader;
 use geezipx_core::archive::iso::IsoReader;
 use geezipx_core::archive::iso::IsoWriter;
-use geezipx_core::archive::lzh::{LzhReader, LzhWriter};
+use geezipx_core::archive::lzh::{LzhCompressionMethod, LzhReader, LzhWriter};
 #[cfg(feature = "rar")]
 use geezipx_core::archive::rar::RarReader;
 use geezipx_core::archive::seven_zip::{SevenZipReader, SevenZipWriter};
@@ -439,7 +439,17 @@ pub fn create_writer(
         ArchiveFormat::TarBr => Ok(Box::new(TarBrWriter::new_with_options(file, options)?)),
         ArchiveFormat::TarLz4 => Ok(Box::new(TarLz4Writer::new_with_options(file, options)?)),
         ArchiveFormat::TarZst => Ok(Box::new(TarZstWriter::new_with_options(file, options))),
-        ArchiveFormat::Lzh => Ok(Box::new(LzhWriter::new(file))),
+        ArchiveFormat::Lzh => {
+            let method = match options.level {
+                Some(0) => LzhCompressionMethod::Store,
+                Some(1) => LzhCompressionMethod::Lh4,
+                Some(2) => LzhCompressionMethod::Lh5,
+                Some(3) => LzhCompressionMethod::Lh6,
+                Some(_) => LzhCompressionMethod::Lh7,
+                None => LzhCompressionMethod::default(),
+            };
+            Ok(Box::new(LzhWriter::new(file, method)))
+        }
         ArchiveFormat::Iso => Ok(Box::new(IsoWriter::new(file))),
         ArchiveFormat::Asar | ArchiveFormat::Cab | ArchiveFormat::Deb | ArchiveFormat::Wim => {
             anyhow::bail!("'{format}' is a read-only archive format; writing is not supported")

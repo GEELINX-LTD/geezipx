@@ -10,7 +10,7 @@
 use crate::commands::progress::{is_cancelled_error, TaskKind, TaskProgressEmitter, TaskStage};
 use crate::state::AppState;
 use geezipx_core::archive::iso::IsoWriter;
-use geezipx_core::archive::lzh::LzhWriter;
+use geezipx_core::archive::lzh::{LzhCompressionMethod, LzhWriter};
 use geezipx_core::archive::seven_zip::SevenZipWriter;
 use geezipx_core::archive::tar::TarWriter;
 use geezipx_core::archive::tarbr::TarBrWriter;
@@ -474,7 +474,7 @@ fn create_gui_writer(
         }
         ArchiveFormat::Tar => Ok(Box::new(TarWriter::new(file))),
         ArchiveFormat::SevenZip => {
-            let mut writer = SevenZipWriter::new(file).map_err(|e| e.to_string())?;
+            let mut writer = SevenZipWriter::new(file, &options).map_err(|e| e.to_string())?;
             if let Some(ref pwd) = options.password {
                 writer.set_password(pwd).map_err(|e| e.to_string())?;
             }
@@ -501,7 +501,17 @@ fn create_gui_writer(
                  single-stream compression is not yet supported in the GUI \
                  (will be added in a later update)"
         )),
-        ArchiveFormat::Lzh => Ok(Box::new(LzhWriter::new(file))),
+        ArchiveFormat::Lzh => {
+            let method = match options.level {
+                Some(0) => LzhCompressionMethod::Store,
+                Some(1) => LzhCompressionMethod::Lh4,
+                Some(2) => LzhCompressionMethod::Lh5,
+                Some(3) => LzhCompressionMethod::Lh6,
+                Some(_) => LzhCompressionMethod::Lh7,
+                None => LzhCompressionMethod::Lh5,
+            };
+            Ok(Box::new(LzhWriter::new(file, method)))
+        },
         ArchiveFormat::Iso => Ok(Box::new(IsoWriter::new(file))),
         ArchiveFormat::Zpaq => {
             #[cfg(feature = "zpaq")]

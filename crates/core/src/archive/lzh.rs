@@ -109,6 +109,7 @@ impl LzhCompressionMethod {
     }
 }
 
+#[allow(clippy::derivable_impls)]
 impl Default for LzhCompressionMethod {
     fn default() -> Self {
         Self::Lh5
@@ -247,6 +248,7 @@ fn build_lzh_level0_header(
 ///
 /// `compressed_size` and `original_size` may differ for compressed entries.
 /// `file_crc` is the CRC-16 of the **original** (uncompressed) data.
+#[allow(clippy::too_many_arguments)]
 fn write_lzh_entry<W: Write>(
     writer: &mut W,
     path: &Path,
@@ -293,17 +295,6 @@ fn write_lzh_entry<W: Write>(
         writer.write_all(payload).map_err(|err| {
             GeeZipError::io(err, format!("writing LZH payload for '{}'", path.display()))
         })?;
-
-        // LZH entries are always padded to an even byte boundary
-        // (2-byte alignment after the payload).
-        if payload.len().is_odd() {
-            writer.write_all(&[0]).map_err(|err| {
-                GeeZipError::io(
-                    err,
-                    format!("writing LZH padding for '{}'", path.display()),
-                )
-            })?;
-        }
     }
 
     Ok(())
@@ -717,7 +708,11 @@ impl<W: Write + Seek + Send> ArchiveWriter for LzhWriter<W> {
         let crc = lzh_crc16(&data);
         let original_size = u32::try_from(data.len()).map_err(|_| {
             GeeZipError::format(
-                format!("LZH entry '{}' too large ({} bytes)", path.display(), data.len()),
+                format!(
+                    "LZH entry '{}' too large ({} bytes)",
+                    path.display(),
+                    data.len()
+                ),
                 ArchiveFormat::Lzh,
             )
         })?;
@@ -739,11 +734,7 @@ impl<W: Write + Seek + Send> ArchiveWriter for LzhWriter<W> {
             // Attempt compression; fall back to store if compressed data is larger.
             let compressed = encode_lzh(&data, self.method.to_lzh_method()).map_err(|e| {
                 GeeZipError::format(
-                    format!(
-                        "LZH compression failed for '{}': {}",
-                        path.display(),
-                        e
-                    ),
+                    format!("LZH compression failed for '{}': {}", path.display(), e),
                     ArchiveFormat::Lzh,
                 )
             })?;
@@ -781,6 +772,7 @@ impl<W: Write + Seek + Send> ArchiveWriter for LzhWriter<W> {
                     false,
                     &compressed,
                 )
+            }
         }
     }
     fn add_directory(&mut self, path: &Path) -> GeeZipResult<()> {
@@ -791,7 +783,17 @@ impl<W: Write + Seek + Send> ArchiveWriter for LzhWriter<W> {
             )
         })?;
         let path_bytes = normalize_lzh_writer_path(path, true)?;
-        write_lzh_entry(writer, path, &path_bytes, LZH_METHOD_DIRECTORY, 0, 0, 0, true, &[])
+        write_lzh_entry(
+            writer,
+            path,
+            &path_bytes,
+            LZH_METHOD_DIRECTORY,
+            0,
+            0,
+            0,
+            true,
+            &[],
+        )
     }
 
     fn finish(self: Box<Self>) -> GeeZipResult<u64> {
@@ -963,7 +965,10 @@ mod tests {
     }
 
     fn assert_lzh_writer_rejects_path(path: &Path) {
-        let mut writer = LzhWriter::new(std::io::Cursor::new(Vec::new()));
+        let mut writer = LzhWriter::new(
+            std::io::Cursor::new(Vec::new()),
+            LzhCompressionMethod::Store,
+        );
         let err = writer
             .add_entry_from_reader(path, &mut std::io::Cursor::new(b"payload".to_vec()))
             .expect_err("dangerous path should be rejected");
@@ -1151,7 +1156,10 @@ mod tests {
     #[test]
     fn lzh_writer_single_file_roundtrip() {
         let content = b"hello lzh writer";
-        let mut writer = LzhWriter::new(std::io::Cursor::new(Vec::new()));
+        let mut writer = LzhWriter::new(
+            std::io::Cursor::new(Vec::new()),
+            LzhCompressionMethod::Store,
+        );
         writer
             .add_entry_from_reader(
                 std::path::Path::new("hello.txt"),
@@ -1179,7 +1187,10 @@ mod tests {
 
     #[test]
     fn lzh_writer_roundtrip_directories_empty_files_and_normalized_paths() {
-        let mut writer = LzhWriter::new(std::io::Cursor::new(Vec::new()));
+        let mut writer = LzhWriter::new(
+            std::io::Cursor::new(Vec::new()),
+            LzhCompressionMethod::Store,
+        );
         writer
             .add_directory(std::path::Path::new("docs"))
             .expect("docs directory should be added");
@@ -1252,7 +1263,10 @@ mod tests {
             raw_lzh_component_display("你好.txt".as_bytes())
         );
 
-        let mut writer = LzhWriter::new(std::io::Cursor::new(Vec::new()));
+        let mut writer = LzhWriter::new(
+            std::io::Cursor::new(Vec::new()),
+            LzhCompressionMethod::Store,
+        );
         writer
             .add_entry_from_reader(
                 std::path::Path::new(archive_path),
@@ -1276,7 +1290,10 @@ mod tests {
     #[test]
     fn lzh_writer_rejects_overlong_level0_pathnames() {
         let long_name = "a".repeat(LZH_LEVEL0_MAX_PATH_LEN + 1);
-        let mut writer = LzhWriter::new(std::io::Cursor::new(Vec::new()));
+        let mut writer = LzhWriter::new(
+            std::io::Cursor::new(Vec::new()),
+            LzhCompressionMethod::Store,
+        );
         let err = writer
             .add_entry_from_reader(
                 std::path::Path::new(&long_name),
@@ -1322,7 +1339,10 @@ mod tests {
 
     #[test]
     fn lzh_writer_rejects_invalid_path_before_reading_payload() {
-        let mut writer = LzhWriter::new(std::io::Cursor::new(Vec::new()));
+        let mut writer = LzhWriter::new(
+            std::io::Cursor::new(Vec::new()),
+            LzhCompressionMethod::Store,
+        );
         let err = writer
             .add_entry_from_reader(std::path::Path::new("../evil.txt"), &mut PanicReader)
             .expect_err("invalid path should fail before reading payload");
@@ -1363,7 +1383,8 @@ mod tests {
         let temp = tempfile::TempDir::new().unwrap();
         let archive_path = temp.path().join("writer.lzh");
         let file = std::fs::File::create(&archive_path).unwrap();
-        let mut writer: Box<dyn ArchiveWriter> = Box::new(LzhWriter::new(file));
+        let mut writer: Box<dyn ArchiveWriter> =
+            Box::new(LzhWriter::new(file, LzhCompressionMethod::Lh5));
         writer
             .add_directory(std::path::Path::new("empty"))
             .expect("directory should be added");
