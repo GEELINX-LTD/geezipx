@@ -72,7 +72,14 @@ pub enum ArchiveFormat {
     /// ARC/PAK archive (extension-based — `.arc`, `.pak`; no stable magic header).
     Arc,
     /// Unix compress stream (`.Z`) — LZW compression (extension-based; no stable magic header).
+    /// ALZ archive (extension-based — `.alz`; no stable magic header).
+    Alz,
+    /// Unix compress stream (`.Z`) — LZW compression (extension-based; no stable magic header).
     Z,
+    /// UU/UUE encoded file (extension-based — `.uu`, `.uue`).
+    Uu,
+    /// XXE encoded file (extension-based — `.xxe`).
+    Xxe,
     /// Unknown or unrecognised format.
     Unknown,
 }
@@ -109,6 +116,9 @@ impl fmt::Display for ArchiveFormat {
             ArchiveFormat::Ace => write!(f, "ace"),
             ArchiveFormat::Arc => write!(f, "arc"),
             ArchiveFormat::Z => write!(f, "z"),
+            ArchiveFormat::Alz => write!(f, "alz"),
+            ArchiveFormat::Uu => write!(f, "uu"),
+            ArchiveFormat::Xxe => write!(f, "xxe"),
             ArchiveFormat::Unknown => write!(f, "unknown"),
         }
     }
@@ -172,6 +182,14 @@ const EXTENSION_MAP: &[(&str, ArchiveFormat)] = &[
     (".swm", ArchiveFormat::Wim),
     (".zpaq", ArchiveFormat::Zpaq),
     (".zpq", ArchiveFormat::Zpaq),
+    (".arj", ArchiveFormat::Arj),
+    (".ace", ArchiveFormat::Ace),
+    (".arc", ArchiveFormat::Arc),
+    (".Z", ArchiveFormat::Z),
+    (".alz", ArchiveFormat::Alz),
+    (".uu", ArchiveFormat::Uu),
+    (".uue", ArchiveFormat::Uu),
+    (".xxe", ArchiveFormat::Xxe),
 ];
 
 // ---------------------------------------------------------------------------

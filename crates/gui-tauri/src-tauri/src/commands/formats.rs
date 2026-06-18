@@ -219,6 +219,7 @@ pub fn get_formats() -> Vec<FormatInfo> {
     };
 
     // Retro/historical formats (read-only)
+    let mut formats = formats;
     formats.push(FormatInfo {
         name: "arj".into(),
         can_compress: false,
@@ -247,6 +248,28 @@ pub fn get_formats() -> Vec<FormatInfo> {
         supports_encryption: false,
         level_hint: None,
     });
+    formats.push(FormatInfo {
+        name: "alz".into(),
+        can_compress: false,
+        can_decompress: true,
+        supports_encryption: false,
+        level_hint: None,
+    });
+    formats.push(FormatInfo {
+        name: "uu".into(),
+        can_compress: false,
+        can_decompress: true,
+        supports_encryption: false,
+        level_hint: None,
+    });
+    formats.push(FormatInfo {
+        name: "xxe".into(),
+        can_compress: false,
+        can_decompress: true,
+        supports_encryption: false,
+        level_hint: None,
+    });
+    #[cfg(feature = "zpaq")]
     formats
 }
 
@@ -257,7 +280,7 @@ mod tests {
     #[test]
     fn get_formats_returns_expected_count() {
         let formats = get_formats();
-        let expected = if cfg!(feature = "zpaq") { 26 } else { 25 };
+        let expected = if cfg!(feature = "zpaq") { 29 } else { 28 };
         assert_eq!(formats.len(), expected, "unexpected supported format count");
     }
 

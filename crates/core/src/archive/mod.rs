@@ -13,6 +13,7 @@
 //! - **Object-safe** — both traits use `&mut self` / `self: Box<Self>`
 //!   receivers so they can be used through `Box<dyn ArchiveReader>` etc.
 pub mod ace;
+pub mod alz;
 pub mod arc;
 pub mod arj;
 pub mod asar;
@@ -35,15 +36,16 @@ pub mod targz;
 pub mod tarlz4;
 pub mod tarxz;
 pub mod tarzst;
+pub mod uu;
+#[cfg(feature = "wim")]
+pub mod wim;
+pub mod xxe;
 pub mod xz;
-pub mod z_compress;
 pub mod zip;
 #[cfg(feature = "zpaq")]
 pub mod zpaq;
 pub mod zstd;
 
-#[cfg(feature = "wim")]
-pub mod wim;
 use std::io::{Read, Write};
 use std::path::Path;
 
