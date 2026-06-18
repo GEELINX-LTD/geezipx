@@ -2064,6 +2064,7 @@ dependencies = [
  "isomage",
  "log",
  "lz4_flex",
+ "lzma-rust2",
  "lzxd",
  "oxiarc-lzhuf",
  "sevenz-rust2 0.21.0",

@@ -42,6 +42,8 @@ pub enum ArchiveFormat {
     /// Tar archive compressed with Zstandard (extension-based — `.tar.zst`, `.tzst`).
     TarZst,
     /// LZMA Alone compressed stream (no magic — extension-based).
+    Lz,
+    /// Lzip compressed stream (`.lz`) — LZMA-based container with CRC-32 integrity checking.
     Lzma,
     /// Tar archive compressed with XZ (extension-based — `.tar.xz`, `.txz`).
     TarXz,
@@ -102,6 +104,7 @@ impl fmt::Display for ArchiveFormat {
             ArchiveFormat::TarZst => write!(f, "tar.zst"),
             ArchiveFormat::TarXz => write!(f, "tar.xz"),
             ArchiveFormat::Lzma => write!(f, "lzma"),
+            ArchiveFormat::Lz => write!(f, "lz"),
             ArchiveFormat::SevenZip => write!(f, "7z"),
             ArchiveFormat::Rar => write!(f, "rar"),
             ArchiveFormat::Cab => write!(f, "cab"),
@@ -168,6 +171,7 @@ const EXTENSION_MAP: &[(&str, ArchiveFormat)] = &[
     (".zst", ArchiveFormat::Zstd),
     (".zstd", ArchiveFormat::Zstd),
     (".lzma", ArchiveFormat::Lzma),
+    (".lz", ArchiveFormat::Lz),
     (".gzip", ArchiveFormat::Gzip),
     (".7z", ArchiveFormat::SevenZip),
     (".rar", ArchiveFormat::Rar),

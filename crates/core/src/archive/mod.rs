@@ -24,6 +24,7 @@ pub mod cpio;
 pub mod deb;
 pub mod gzip;
 pub mod iso;
+pub mod lz;
 pub mod lz4;
 pub mod lzh;
 #[cfg(feature = "rar")]
