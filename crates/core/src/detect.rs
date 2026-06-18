@@ -65,6 +65,14 @@ pub enum ArchiveFormat {
     Zpaq,
     /// WIM (Windows Imaging Format) — extension-based (`.wim`, `.swm`).
     Wim,
+    /// ARJ archive (extension-based — `.arj`; no stable magic header).
+    Arj,
+    /// ACE archive (extension-based — `.ace`; no stable magic header).
+    Ace,
+    /// ARC/PAK archive (extension-based — `.arc`, `.pak`; no stable magic header).
+    Arc,
+    /// Unix compress stream (`.Z`) — LZW compression (extension-based; no stable magic header).
+    Z,
     /// Unknown or unrecognised format.
     Unknown,
 }
@@ -97,6 +105,10 @@ impl fmt::Display for ArchiveFormat {
             ArchiveFormat::Cpio => write!(f, "cpio"),
             ArchiveFormat::Wim => write!(f, "wim"),
             ArchiveFormat::Zpaq => write!(f, "zpaq"),
+            ArchiveFormat::Arj => write!(f, "arj"),
+            ArchiveFormat::Ace => write!(f, "ace"),
+            ArchiveFormat::Arc => write!(f, "arc"),
+            ArchiveFormat::Z => write!(f, "z"),
             ArchiveFormat::Unknown => write!(f, "unknown"),
         }
     }

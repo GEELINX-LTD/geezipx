@@ -45,6 +45,8 @@ xpress-huffman = "0.1"
 sevenz-rust2 = { version = "0.21", default-features = false, features = ["compress", "aes256", "bzip2", "ppmd", "deflate"] }
 # Optional: RAR read-only (feature-gated, requires C++ compiler)
 unrar = { version = "0.5.8", optional = true }
+# Retro archive formats (read-only via unarc-rs unified API)
+unarc-rs = "0.6"
 # Optional: ZPAQ read-only (feature-gated, requires Rust 1.85+ and a C++17 compiler)
 zpaq_rs = { version = "1.0", optional = true }
 

@@ -218,6 +218,35 @@ pub fn get_formats() -> Vec<FormatInfo> {
         formats
     };
 
+    // Retro/historical formats (read-only)
+    formats.push(FormatInfo {
+        name: "arj".into(),
+        can_compress: false,
+        can_decompress: true,
+        supports_encryption: false,
+        level_hint: None,
+    });
+    formats.push(FormatInfo {
+        name: "ace".into(),
+        can_compress: false,
+        can_decompress: true,
+        supports_encryption: false,
+        level_hint: None,
+    });
+    formats.push(FormatInfo {
+        name: "arc".into(),
+        can_compress: false,
+        can_decompress: true,
+        supports_encryption: false,
+        level_hint: None,
+    });
+    formats.push(FormatInfo {
+        name: "z".into(),
+        can_compress: false,
+        can_decompress: true,
+        supports_encryption: false,
+        level_hint: None,
+    });
     formats
 }
 

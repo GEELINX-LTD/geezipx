@@ -479,7 +479,7 @@ fn create_gui_writer(
                 writer.set_password(pwd).map_err(|e| e.to_string())?;
             }
             Ok(Box::new(writer))
-        }
+        },
         ArchiveFormat::TarGz => Ok(Box::new(TarGzWriter::new_with_options(file, options))),
         ArchiveFormat::TarBz2 => Ok(Box::new(TarBz2Writer::new_with_options(file, options))),
         ArchiveFormat::TarBr => Ok(Box::new(

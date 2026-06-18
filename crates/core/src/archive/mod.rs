@@ -12,6 +12,9 @@
 //!   [`Write`] so large files never need to be fully buffered.
 //! - **Object-safe** — both traits use `&mut self` / `self: Box<Self>`
 //!   receivers so they can be used through `Box<dyn ArchiveReader>` etc.
+pub mod ace;
+pub mod arc;
+pub mod arj;
 pub mod asar;
 pub mod brotli;
 pub mod bzip2;
@@ -33,6 +36,7 @@ pub mod tarlz4;
 pub mod tarxz;
 pub mod tarzst;
 pub mod xz;
+pub mod z_compress;
 pub mod zip;
 #[cfg(feature = "zpaq")]
 pub mod zpaq;
