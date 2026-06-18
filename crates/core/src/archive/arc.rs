@@ -1,7 +1,7 @@
 //! ARC/PAK archive reader (`.arc`, `.pak`).
 //!
 //! GeeZipX exposes ARC as a read-only archive format backed by the
-//! [`unarc-rs`] crate.  The reader supports listing and extraction;
+//! `unarc-rs` crate.  The reader supports listing and extraction;
 //! XOR-based encryption is handled transparently by `unarc-rs`.
 //!
 //! # Design notes

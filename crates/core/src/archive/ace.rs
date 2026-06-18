@@ -1,7 +1,7 @@
 //! ACE archive reader (`.ace`).
 //!
 //! GeeZipX exposes ACE as a read-only archive format backed by the
-//! [`unarc-rs`] crate.  The reader supports listing and extraction;
+//! `unarc-rs` crate.  The reader supports listing and extraction;
 //! Blowfish-based encryption is supported through `unarc-rs`.
 //!
 //! # Design notes
