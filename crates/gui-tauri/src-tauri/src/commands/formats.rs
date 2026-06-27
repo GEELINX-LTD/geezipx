@@ -191,6 +191,13 @@ pub fn get_formats() -> Vec<FormatInfo> {
             level_hint: None,
         },
         FormatInfo {
+            name: "udf".into(),
+            can_compress: true,
+            can_decompress: true,
+            supports_encryption: false,
+            level_hint: None,
+        },
+        FormatInfo {
             name: "cpio".into(),
             can_compress: true,
             can_decompress: true,
@@ -287,7 +294,7 @@ mod tests {
     #[test]
     fn get_formats_returns_expected_count() {
         let formats = get_formats();
-        let expected = if cfg!(feature = "zpaq") { 33 } else { 32 };
+        let expected = if cfg!(feature = "zpaq") { 34 } else { 33 };
         assert_eq!(formats.len(), expected, "unexpected supported format count");
     }
 

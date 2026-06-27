@@ -172,6 +172,7 @@ CLI 和后续 Tauri GUI 只负责：
 - DEB（只读，Debian 包）；
 - LZH / LHA（读写，lh0-lh7）；
 - ISO（读写，含 Joliet Unicode 文件名 + Rock Ridge POSIX 属性）；
+- UDF（读写，Universal Disk Format DVD/Blu-ray 文件系统）；
 - CPIO（读写，newc/odc）；
 - ZPAQ（读写）；
 - WIM（只读）；

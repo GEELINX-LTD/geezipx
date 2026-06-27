@@ -105,7 +105,6 @@ impl fmt::Display for ArchiveFormat {
             ArchiveFormat::Zstd => write!(f, "zstd"),
             ArchiveFormat::TarZst => write!(f, "tar.zst"),
             ArchiveFormat::Udf => write!(f, "udf"),
-            ArchiveFormat::Udf => write!(f, "udf"),
             ArchiveFormat::TarXz => write!(f, "tar.xz"),
             ArchiveFormat::Lzma => write!(f, "lzma"),
             ArchiveFormat::Lz => write!(f, "lz"),

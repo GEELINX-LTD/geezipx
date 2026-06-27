@@ -8,23 +8,23 @@
 //! in a single pass when `finish()` is called (non-streaming by UDF format
 //! constraints).
 
-use std::collections::HashMap;
+// use std::collections::HashMap;
 use std::fmt;
 use std::fs;
-use std::io::{BufReader, Cursor, Read, Seek, SeekFrom, Write};
+use std::io::{Cursor, Read, Seek, SeekFrom, Write};
 use std::path::Path;
-use std::sync::Arc;
+// use std::sync::Arc;
 
 use hadris_udf::dir::UdfDirEntry;
 use hadris_udf::write::{SimpleDir, SimpleFile, UdfWriteOptions, UdfWriter as HadrisUdfWriter};
 use hadris_udf::UdfFs;
 
-use crate::archive::{is_entry_path_dangerous, ArchiveReader, ArchiveWriter, CountWriter, Entry};
+use crate::archive::{is_entry_path_dangerous, ArchiveReader, ArchiveWriter, Entry};
 use crate::detect::ArchiveFormat;
 use crate::error::{GeeZipError, GeeZipResult};
 
 /// Maximum single file size for UDF (no practical limit).
-const UDF_MAX_ENTRY_SIZE: u64 = u64::MAX;
+const UDF_MAX_ENTRY_SIZE: u64 = 4 * 1024 * 1024 * 1024; // 4 GiB per file
 
 // ============================================================================
 // Path validation
@@ -83,7 +83,10 @@ impl UdfReader {
     /// Create a UDF reader from a file path.
     pub fn new(path: impl AsRef<Path>) -> GeeZipResult<Self> {
         let data = fs::read(path.as_ref()).map_err(|e| {
-            GeeZipError::io(e, format!("reading UDF image '{}'", path.as_ref().display()))
+            GeeZipError::io(
+                e,
+                format!("reading UDF image '{}'", path.as_ref().display()),
+            )
         })?;
         Ok(Self {
             data,
@@ -123,9 +126,10 @@ impl UdfReader {
             .map_err(|err| convert_udf_error(err, "reading root dir for extraction"))?;
 
         // Find the directory entry for the requested path
-        let dir_entry = find_udf_entry(&root, entry_path).ok_or_else(|| GeeZipError::EntryNotFound {
-            name: entry_path.to_string(),
-        })?;
+        let dir_entry =
+            find_udf_entry(&root, entry_path).ok_or_else(|| GeeZipError::EntryNotFound {
+                name: entry_path.to_string(),
+            })?;
 
         if dir_entry.is_directory {
             return Ok(Vec::new());
@@ -217,17 +221,14 @@ fn read_udf_file_data<R: Read + Seek>(
     if tag_identifier != 261 {
         // 261 = File Entry tag
         return Err(GeeZipError::format(
-            format!(
-                "expected UDF File Entry tag (261), got {}",
-                tag_identifier
-            ),
+            format!("expected UDF File Entry tag (261), got {}", tag_identifier),
             ArchiveFormat::Udf,
         ));
     }
 
     // Parse the ICB Tag at offset 16
     let icb_tag_offset = 16;
-    let file_type = buffer[icb_tag_offset + 11];
+    let _file_type = buffer[icb_tag_offset + 11];
 
     // Parse extended attributes length and allocation descriptors length
     // File Entry layout (after ICB Tag at offset 16 + 20 bytes = 36):
@@ -393,7 +394,6 @@ impl<W: Write + Send> UdfWriter<W> {
             format: ArchiveFormat::Udf,
         }
     }
-
 } // impl UdfWriter
 
 /// Build a `SimpleDir` tree from buffered entries.
@@ -501,19 +501,15 @@ impl<W: Write + Send> ArchiveWriter for UdfWriter<W> {
         self.format
     }
 
-    fn add_entry_from_reader(
-        &mut self,
-        path: &Path,
-        reader: &mut dyn Read,
-    ) -> GeeZipResult<()> {
+    fn add_entry_from_reader(&mut self, path: &Path, reader: &mut dyn Read) -> GeeZipResult<()> {
         let udf_path = validate_udf_entry_path(path)?;
 
         let mut data = Vec::with_capacity(65536);
         let mut chunk = [0u8; 65536];
         loop {
-            let n = reader
-                .read(&mut chunk)
-                .map_err(|e| GeeZipError::io(e, format!("reading data for UDF entry '{udf_path}'")))?;
+            let n = reader.read(&mut chunk).map_err(|e| {
+                GeeZipError::io(e, format!("reading data for UDF entry '{udf_path}'"))
+            })?;
             if n == 0 {
                 break;
             }
@@ -546,7 +542,11 @@ impl<W: Write + Send> ArchiveWriter for UdfWriter<W> {
 
     fn finish(self: Box<Self>) -> GeeZipResult<u64> {
         let this = *self;
-        let UdfWriter { inner, entries, format: _ } = this;
+        let UdfWriter {
+            inner,
+            entries,
+            format: _,
+        } = this;
 
         let mut writer = inner.ok_or_else(|| {
             GeeZipError::format("UDF writer already finalised", ArchiveFormat::Udf)
@@ -573,10 +573,7 @@ impl<W: Write + Send> ArchiveWriter for UdfWriter<W> {
         let mut cursor = Cursor::new(&mut buf[..]);
 
         HadrisUdfWriter::format(&mut cursor, &root, options).map_err(|err| {
-            GeeZipError::format(
-                format!("formatting UDF image: {err}"),
-                ArchiveFormat::Udf,
-            )
+            GeeZipError::format(format!("formatting UDF image: {err}"), ArchiveFormat::Udf)
         })?;
 
         let written = cursor.position();
@@ -598,10 +595,7 @@ impl<W: Write + Send> ArchiveWriter for UdfWriter<W> {
 // ============================================================================
 
 fn convert_udf_error(err: impl std::fmt::Display, context: impl Into<String>) -> GeeZipError {
-    GeeZipError::format(
-        format!("{}: {}", context.into(), err),
-        ArchiveFormat::Udf,
-    )
+    GeeZipError::format(format!("{}: {}", context.into(), err), ArchiveFormat::Udf)
 }
 
 // ============================================================================
@@ -611,7 +605,7 @@ fn convert_udf_error(err: impl std::fmt::Display, context: impl Into<String>) ->
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
+    // use std::path::PathBuf;
 
     /// Build a minimal valid UDF image for testing.
     fn build_test_udf() -> Vec<u8> {
@@ -634,6 +628,7 @@ mod tests {
     }
 
     /// Build a UDF image with nested directories.
+    #[allow(dead_code)]
     fn build_test_udf_nested() -> Vec<u8> {
         let mut subdir = SimpleDir::new("subdir");
         subdir.add_file(SimpleFile::new("nested.txt", b"nested\n".to_vec()));
@@ -690,9 +685,7 @@ mod tests {
             entries_cache: None,
             format: ArchiveFormat::Udf,
         };
-        let err = reader
-            .entries()
-            .expect_err("invalid UDF should fail");
+        let err = reader.entries().expect_err("invalid UDF should fail");
         assert!(
             err.to_string().contains("udf") || err.to_string().contains("UDF"),
             "error should mention UDF: {err}"
