@@ -61,7 +61,7 @@ geezipx/
 - core 只保留格式逻辑、I/O 包装、错误模型与安全检查；
 - CLI 负责参数解析、TTY 进度、stdout/stderr 呈现；
 - Tauri GUI 负责图形交互、任务管理、事件桥接；
-- RAR / CAB / ASAR / DEB / CPIO 在当前版本中保持只读语义（`list` / `decompress` / `test`）；WIM 为只读（`list` / `extract` / `test`，XPRESS/LZX/LZMS 解压，多映像支持，MVP 默认第一映像）；LZH/LHA 已支持 store-only 写入 MVP；7z 已支持基础读写与 AES-256 密码写入；ISO 与 ZPAQ 已支持完整读写。SFX 自解压 ZIP 创建位于独立 `core::sfx` 模块。
+- RAR / DEB / WIM 在当前版本中保持只读语义（RAR/DEB：`list` / `decompress` / `test`；WIM：`list` / `extract` / `test`，XPRESS/LZX/LZMS 解压，多映像支持，MVP 默认第一映像）；CAB / ASAR / CPIO 已支持完整读写；LZH/LHA 已支持 lh4-lh7 压缩写入；7z 已支持基础读写与 AES-256 密码写入；ISO 与 ZPAQ 已支持完整读写。SFX 自解压 ZIP 创建位于独立 `core::sfx` 模块。LZ（Lzip）已支持单流压缩/解压（通过 `lzma-rust2`）。
 
 ## 2. 模块设计
 
@@ -117,10 +117,11 @@ pub trait ArchiveWriter: Send {
 | `archive::lz4` | LZ4 单流压缩/解压 helper（frame only） |
 | `archive::zstd` | ZSTD/ZST 单流压缩/解压 helper |
 | `archive::xz` | XZ/LZMA 单流压缩/解压 helper |
-| `archive::asar` | ASAR 只读（`list` / `extract` / `test`） |
+| `archive::lz` | LZ（Lzip）单流压缩/解压 helper（通过 `lzma-rust2` lzip feature） |
+| `archive::asar` | ASAR 读写（`compress` / `list` / `extract` / `test`）；reader/writer 基于 `asar` crate） |
 | `archive::deb` | DEB 只读（`data.tar*` payload 视图） |
-| `archive::cab` | CAB 只读（`list` / `extract` / `test`；path-based 读取，当前面向单卷 cabinet） |
-| `archive::cpio` | CPIO 只读（`list` / `extract` / `test`；path-based 读取，MVP 支持 `newc` / `odc`，不创建宿主 symlink/device/FIFO/socket） |
+| `archive::cab` | CAB 读写（`compress` / `list` / `extract` / `test`；reader 基于 `cab` crate，writer 基于 `cab` crate 实现 MSZIP 压缩写入） |
+| `archive::cpio` | CPIO 读写（`compress` / `list` / `extract` / `test`；reader/writer 基于 `cpio-archive` crate，MVP 支持 `newc` / `odc`，不创建宿主 symlink/device/FIFO/socket） |
 | `archive::lzh` | LZH/LHA 读写（`compress` / `list` / `extract` / `test`）；reader 基于 `delharc`，writer 为项目内实现（store-only level-0：文件 `-lh0-`，目录 `-lhd-`）|
 | `archive::iso` | ISO 读写（`compress` / `list` / `extract` / `test`）；reader 基于 `isomage`（ISO9660/Rock Ridge/Joliet），writer 基于 `hadris-iso`（ISO 9660 Level 1） |
 | `archive::zpaq` | ZPAQ 读写（`compress` / `list` / `extract` / `test`）；writer 基于 `zpaq_rs::archive_from_entries`，压缩级别 1-5；不含增量 journaling/dedup |
@@ -284,12 +285,12 @@ CLI 当前子命令为：
 | `gzp` 0.11 | tar.gz 并行 gzip 压缩 |
 | `xz2` 0.1 | xz / lzma / tar.xz |
 | `zstd` 0.13 | zstd / tar.zst，多线程支持 `zstdmt` |
-| `cab` 0.6 | CAB 只读支持（单卷 cabinet 浏览、提取、验证） |
-| `asar` 0.3 | ASAR 只读支持（Electron 归档） |
+| `cab` 0.6 | CAB 读写支持（单卷 cabinet 浏览、提取、验证、MSZIP 压缩创建） |
+| `asar` 0.3 | ASAR 读写支持（Electron 归档，JSON header + 内容写入） |
 | `ar` 0.9 | ar 归档只读支持（DEB 包解析） |
 | `delharc` 0.6 | LZH/LHA 只读 reader 支持（writer 为项目内实现，store-only level-0） |
 | `isomage` 2.1 | ISO 读取（ISO9660 / Rock Ridge / Joliet 解析与流式读取）；`hadris-iso` 1.1 提供 ISO 9660 Level 1 写入 |
-| `cpio-archive` 0.10 | CPIO 只读支持（`newc` / `odc` 读取；MPL-2.0，作为未修改 Cargo 依赖使用） |
+| `cpio-archive` 0.10 | CPIO 读写支持（`newc` / `odc` 读写；MPL-2.0，作为未修改 Cargo 依赖使用） |
 | `zpaq_rs` 1.0 | ZPAQ 读写支持（writer 基于 `archive_from_entries`，压缩级别 1-5；optional, default-enabled；需 Rust 1.85+ 与 C++17 编译器） |
 | `sevenz-rust2` 0.21 | 7z 读写支持（当前 writer 走默认 non-solid LZMA2，可选 AES-256 密码写入） |
 | `lzxd` 0.2 | WIM LZX 解压（pull 依赖） |
@@ -429,7 +430,7 @@ crates/gui-tauri/
 | GUI bundle 发布尚未经历真实 tag release 演练 | 发布路径可能存在流程性缺口 | 保守表述为“已配置，待验证” |
 | 大文件压缩进度依赖预扫描总量 | 首次开始任务前会有扫描延迟 | UI 上明确扫描阶段 |
 | Windows 长路径/符号链接差异 | 个别归档场景行为与 Unix 不完全一致 | 持续测试 + 文档限制说明 |
-|| RAR / CAB / ASAR / DEB / CPIO 仍为只读 | GUI 不能创建这些格式 | 在产品文档中明确范围 |
+| RAR / DEB / WIM 仍为只读 | GUI 不能创建这些格式 | 在产品文档中明确范围 |
 || WIM 为只读（XPRESS/LZX/LZMS 解压，多映像，MVP 默认第一映像） | GUI 可浏览提取 .wim 文件，不能创建 | 在产品文档中明确限制范围 |
 | LZH/LHA writer 为 store-only level-0 缓冲写入 | 不支持 lh5/lh6/lh7 压缩、加密、多卷、extended header；单个 entry payload 会缓冲 | 在产品文档中明确限制范围 |
 ## 附录：Cargo Workspace 配置

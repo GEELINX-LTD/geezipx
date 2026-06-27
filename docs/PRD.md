@@ -42,8 +42,7 @@ GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开�
 
 | 特性 | 说明 | 状态 |
 |------|------|------|
-| 格式支持 | `.tar.gz`/`.tgz`, `.tar.bz2`/`.tbz`/`.tbz2`, `.tar.br`, `.tar.lz4`, `.zip`（含 `.zipx`/`.jar`/`.war`/`.apk`/`.ipa`/`.xpi` ZIP 兼容别名）, `.tar`, `.gz`/`.gzip`, `.bz2`, `.br`, `.lz4`, `.tar.zst`/`.tzst`, `.zst`/`.zstd`, `.tar.xz`/`.txz`, `.xz`, `.lzma`, `.7z`（读/写）；LZH/LHA（lh4-lh7 压缩）；ISO/ZPAQ/CPIO（读写）；RAR/CAB/ASAR/DEB（只读） | **已完成** |
-| 流式处理 | 文件流读写，内存占用与文件大小解耦 | **已完成** |
+| 格式支持 | `.tar.gz`/`.tgz`, `.tar.bz2`/`.tbz`/`.tbz2`, `.tar.br`, `.tar.lz4`, `.zip`（含 `.zipx`/`.jar`/`.war`/`.apk`/`.ipa`/`.xpi` ZIP 兼容别名）, `.tar`, `.gz`/`.gzip`, `.bz2`, `.br`, `.lz4`, `.tar.zst`/`.tzst`, `.zst`/`.zstd`, `.tar.xz`/`.txz`, `.xz`, `.lzma`, `.7z`（读/写）；LZH/LHA（lh4-lh7 压缩）；ISO/ZPAQ/CPIO/CAB/ASAR（读写）；RAR/DEB/WIM（只读）；LZ（Lzip 压缩/解压） | **已完成** |
 | 进度显示 | TTY 下默认显示进度，可用 `--no-progress` 禁用 | **已完成** |
 | 格式自动检测 | 根据文件魔数（magic bytes）自动检测归档格式 | **已完成** |
 | 压缩级别 | `--level 0-9`（gzip/bzip2/tar.gz/tar.bz2/xz/lzma/tar.xz，bzip2 的 level 0 映射为默认级别）；`--level 0-11`（brotli/tar.br）；`--level 0-22`（zstd/tar.zst）；`lz4`/`tar.lz4` 仅接受 `0` 或省略 | **已完成** |
@@ -83,7 +82,7 @@ GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开�
 | LZMA | .lzma | ✅ 已支持 | — |
 | 7Z | .7z | ✅ 已支持（MVP） | 支持文件/多文件/目录压缩与 AES-256 密码写入；当前不含多线程调优或 tar.7z |
 | RAR | .rar | 📖 只读 | 受 UnRAR 许可限制，不规划写入 |
-| CAB | .cab | 📖 只读 | 当前支持 `list` / `decompress` / `test`；MVP 面向单卷 cabinet，不做写入、密码或 multi-volume cabinet set |
+| CAB | .cab | ✅ 已支持 | 支持 `compress` / `list` / `decompress` / `test`；通过 `cab` crate 实现 MSZIP 压缩写入。MVP 面向单卷 cabinet，不做密码或 multi-volume cabinet set |
 | LZH/LHA | .lzh, .lha | ✅ 已支持 | 支持 `compress` / `list` / `decompress` / `test`；文件 entry 为 level-0 `-lh0-` / lh4 / lh5 / lh6 / lh7 压缩（通过 oxiarc-lzhuf），目录 entry 为 `-lhd-`。不含密码/加密、多卷、扩展属性、长路径/level 1/2/3 extended header |
 | ISO | .iso | ✅ 已支持 | 支持 `compress` / `list` / `decompress` / `test`；ISO 9660 Level 1（小写文件名），通过 `hadris-iso` 实现。不含 Joliet / Rock Ridge / El Torito 写入。 |
 | CPIO | .cpio | ✅ 已支持 | 支持 `compress` / `list` / `decompress` / `test`；支持 `newc` / `odc`。不含 `bin` / `crc`、密码/加密、宿主 symlink/device/FIFO/socket 创建 |
@@ -101,14 +100,14 @@ GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开�
 | ARJ, ACE, ARC | ✅ 已支持 | 历史/专有格式，通过 unarc-rs 适配器 |
 | ALZ | ✅ 已支持 | ALZip 格式，通过 unalz-rs |
 | BH, PMA, PEA, EGG | 📋 规划中 | 历史/专有格式，待评估 |
-| LZ (.lz) | 📋 规划中 | Lzip |
+| LZ (.lz) | ✅ 已支持 | Lzip 格式，支持 `compress` / `decompress`；通过 `lzma-rust2` 实现 LZMA 压缩 |
 | UU (.uu/.uue) | ✅ 已支持 | 自实现解码器 |
 | XXE (.xxe) | ✅ 已支持 | 自实现解码器 |
 | Z (.Z) | ✅ 已支持 | Unix compress，通过 unarc-rs |
 | AES | 📋 规划中 | AES 加密容器 |
 | JAR, WAR, APK, IPA, XPI | ✅ 已支持 | 本质为 ZIP 容器，复用 ZIP 引擎 |
 | DEB | 📖 只读 | Debian 包（ar 容器 + `data.tar*` payload 视图；忽略 `control.tar.*`） |
-| ASAR | 📖 只读 | Electron 归档 |
+| ASAR | ✅ 已支持 | Electron 归档，支持 `compress` / `list` / `decompress` / `test`；通过 `asar` crate 实现写入 |
 | IMG, ISZ, UDF | 📋 规划中 | 磁盘镜像格式 |
 | BIN, I00 | 📋 规划中 | 原始二进制 / 分卷索引 |
 | 001 | 📋 规划中 | 分卷文件（部分解压场景） |
