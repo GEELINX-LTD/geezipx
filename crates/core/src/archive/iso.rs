@@ -20,10 +20,10 @@ use crate::error::{GeeZipError, GeeZipResult};
 
 use std::sync::Arc;
 
-use hadris_iso::read::PathSeparator;
-use hadris_iso::write::options::{BaseIsoLevel, CreationFeatures, FormatOptions};
 use hadris_iso::joliet::JolietLevel;
+use hadris_iso::read::PathSeparator;
 use hadris_iso::rrip::RripOptions;
+use hadris_iso::write::options::{BaseIsoLevel, CreationFeatures, FormatOptions};
 use hadris_iso::write::{File as HadrisFile, InputFiles, IsoImageWriter};
 
 /// Maximum single file size for ISO 9660 Level 1 (4 GiB).
