@@ -135,6 +135,13 @@ pub fn get_formats() -> Vec<FormatInfo> {
             level_hint: Some("6 (0-9)".into()),
         },
         FormatInfo {
+            name: "lz".into(),
+            can_compress: true,
+            can_decompress: true,
+            supports_encryption: false,
+            level_hint: Some("6 (0-9)".into()),
+        },
+        FormatInfo {
             name: "7z".into(),
             can_compress: true,
             can_decompress: true,
@@ -150,14 +157,14 @@ pub fn get_formats() -> Vec<FormatInfo> {
         },
         FormatInfo {
             name: "cab".into(),
-            can_compress: false,
+            can_compress: true,
             can_decompress: true,
             supports_encryption: false,
             level_hint: None,
         },
         FormatInfo {
             name: "asar".into(),
-            can_compress: false,
+            can_compress: true,
             can_decompress: true,
             supports_encryption: false,
             level_hint: None,
@@ -280,7 +287,7 @@ mod tests {
     #[test]
     fn get_formats_returns_expected_count() {
         let formats = get_formats();
-        let expected = if cfg!(feature = "zpaq") { 29 } else { 28 };
+        let expected = if cfg!(feature = "zpaq") { 33 } else { 32 };
         assert_eq!(formats.len(), expected, "unexpected supported format count");
     }
 
