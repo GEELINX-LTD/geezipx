@@ -54,6 +54,7 @@ pub struct SevenZipReader {
     path: PathBuf,
     format: ArchiveFormat,
     password: Password,
+    thread_count: u32,
 }
 
 impl fmt::Debug for SevenZipReader {
@@ -72,6 +73,9 @@ impl SevenZipReader {
             path: path.into(),
             format: ArchiveFormat::SevenZip,
             password: Password::empty(),
+            thread_count: std::thread::available_parallelism()
+                .map(|n| n.get() as u32)
+                .unwrap_or(1),
         }
     }
 
@@ -80,10 +84,18 @@ impl SevenZipReader {
         self.password = Password::from(password);
     }
 
+    /// Set the number of threads for LZMA2 multi-threaded decompression.
+    ///
+    /// Defaults to the number of available CPUs, or 1 if detection fails.
+    pub fn set_thread_count(&mut self, count: u32) {
+        self.thread_count = count;
+    }
+
     /// Open an [`sevenz_rust2::ArchiveReader`] for the stored file.
     fn open_reader(&self) -> GeeZipResult<sevenz_rust2::ArchiveReader<File>> {
-        let reader = sevenz_rust2::ArchiveReader::open(&self.path, self.password.clone())
+        let mut reader = sevenz_rust2::ArchiveReader::open(&self.path, self.password.clone())
             .map_err(convert_7z_error)?;
+        reader.set_thread_count(self.thread_count);
         Ok(reader)
     }
 
@@ -315,6 +327,7 @@ impl ArchiveReader for SevenZipReader {
         // Use for_each_entries for single-pass decoding
         let mut reader =
             sevenz_rust2::ArchiveReader::open(&path, password).map_err(convert_7z_error)?;
+        reader.set_thread_count(self.thread_count);
 
         let mut report = ExtractReport::default();
 
@@ -425,8 +438,9 @@ impl ArchiveReader for SevenZipReader {
         let password = self.password.clone();
         let path = self.path.clone();
 
-        let reader =
+        let mut reader =
             sevenz_rust2::ArchiveReader::open(&path, password).map_err(convert_7z_error)?;
+        reader.set_thread_count(self.thread_count);
 
         let mut report = ExtractReport::default();
 
@@ -444,6 +458,7 @@ impl ArchiveReader for SevenZipReader {
         // Use a second reader for actual extraction
         let mut extract_reader = sevenz_rust2::ArchiveReader::open(&path, self.password.clone())
             .map_err(convert_7z_error)?;
+        extract_reader.set_thread_count(self.thread_count);
 
         let mut entry_index = 0usize;
 
