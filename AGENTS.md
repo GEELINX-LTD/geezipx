@@ -171,7 +171,7 @@ CLI 和后续 Tauri GUI 只负责：
 - ASAR（读写，Electron 归档）；
 - DEB（只读，Debian 包）；
 - LZH / LHA（读写，lh0-lh7）；
-- ISO（读写，ISO 9660 Level 1）；
+- ISO（读写，含 Joliet Unicode 文件名 + Rock Ridge POSIX 属性）；
 - CPIO（读写，newc/odc）；
 - ZPAQ（读写）；
 - WIM（只读）；
@@ -185,7 +185,6 @@ CLI 和后续 Tauri GUI 只负责：
 - BH / PMA / PEA / EGG / ISZ / AES 容器等格式；
 - WIM 写入（许可兼容性评估中）；
 - CPIO bin/crc 格式支持；
-- ISO Joliet / Rock Ridge / El Torito 写入；
 - ZPAQ 增量日志/去重。
 
 当前阶段不承诺完整替代 7-Zip / WinRAR。
