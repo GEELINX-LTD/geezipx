@@ -40,7 +40,7 @@ ar = "0.9"
 delharc = "0.6"
 oxiarc-lzhuf = "0.3"
 isomage = "2.1"
-hadris-iso = "1.1"
+hadris-iso = { version = "1.1", features = ["joliet"] }
 lzxd = "0.2"
 xpress-huffman = "0.1"
 sevenz-rust2 = { version = "0.21", default-features = false, features = ["compress", "aes256", "bzip2", "ppmd", "deflate"] }

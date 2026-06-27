@@ -7,7 +7,7 @@
 //! Writing produces ISO 9660 Level 1 images via `hadris-iso`. Entries are
 //! buffered in memory during `add_entry_from_reader` and written in a single
 //! pass when `finish()` is called (non-streaming by ISO format constraints).
-//! Joliet, Rock Ridge, and El Torito are not currently exposed.
+//! Joliet (Unicode filenames) and Rock Ridge (POSIX attributes) are enabled.
 
 use std::fmt;
 use std::io::{Read, Seek, SeekFrom, Write};
@@ -22,6 +22,8 @@ use std::sync::Arc;
 
 use hadris_iso::read::PathSeparator;
 use hadris_iso::write::options::{BaseIsoLevel, CreationFeatures, FormatOptions};
+use hadris_iso::joliet::JolietLevel;
+use hadris_iso::rrip::RripOptions;
 use hadris_iso::write::{File as HadrisFile, InputFiles, IsoImageWriter};
 
 /// Maximum single file size for ISO 9660 Level 1 (4 GiB).
@@ -269,11 +271,11 @@ impl<W: std::io::Write + Send> IsoWriter<W> {
             features: CreationFeatures {
                 filenames: BaseIsoLevel::Level1 {
                     supports_lowercase: true,
-                    supports_rrip: false,
+                    supports_rrip: true,
                 },
                 long_filenames: false,
-                joliet: None,
-                rock_ridge: None,
+                joliet: Some(JolietLevel::Level3),
+                rock_ridge: Some(RripOptions::default()),
                 el_torito: None,
                 hybrid_boot: None,
             },
