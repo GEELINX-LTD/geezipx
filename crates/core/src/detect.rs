@@ -78,6 +78,8 @@ pub enum ArchiveFormat {
     Alz,
     /// Unix compress stream (`.Z`) — LZW compression (extension-based; no stable magic header).
     Z,
+    /// UDF disc image (`.udf`) — extension-based; no reliable magic in first 8 bytes.
+    Udf,
     /// UU/UUE encoded file (extension-based — `.uu`, `.uue`).
     Uu,
     /// XXE encoded file (extension-based — `.xxe`).
@@ -102,6 +104,8 @@ impl fmt::Display for ArchiveFormat {
             ArchiveFormat::Xz => write!(f, "xz"),
             ArchiveFormat::Zstd => write!(f, "zstd"),
             ArchiveFormat::TarZst => write!(f, "tar.zst"),
+            ArchiveFormat::Udf => write!(f, "udf"),
+            ArchiveFormat::Udf => write!(f, "udf"),
             ArchiveFormat::TarXz => write!(f, "tar.xz"),
             ArchiveFormat::Lzma => write!(f, "lzma"),
             ArchiveFormat::Lz => write!(f, "lz"),
@@ -191,6 +195,7 @@ const EXTENSION_MAP: &[(&str, ArchiveFormat)] = &[
     (".arc", ArchiveFormat::Arc),
     (".Z", ArchiveFormat::Z),
     (".alz", ArchiveFormat::Alz),
+    (".udf", ArchiveFormat::Udf),
     (".uu", ArchiveFormat::Uu),
     (".uue", ArchiveFormat::Uu),
     (".xxe", ArchiveFormat::Xxe),
