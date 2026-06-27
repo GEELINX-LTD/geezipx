@@ -731,49 +731,24 @@ impl<W: Write + Seek + Send> ArchiveWriter for LzhWriter<W> {
                 &data,
             )
         } else {
-            // Attempt compression; fall back to store if compressed data is larger.
-            let compressed = encode_lzh(&data, self.method.to_lzh_method()).map_err(|e| {
-                GeeZipError::format(
-                    format!("LZH compression failed for '{}': {}", path.display(), e),
-                    ArchiveFormat::Lzh,
-                )
-            })?;
-            if compressed.len() >= data.len() {
-                write_lzh_entry(
-                    writer,
-                    path,
-                    &path_bytes,
-                    LZH_METHOD_STORE,
-                    original_size,
-                    original_size,
-                    crc,
-                    false,
-                    &data,
-                )
-            } else {
-                let compressed_size = u32::try_from(compressed.len()).map_err(|_| {
-                    GeeZipError::format(
-                        format!(
-                            "LZH compressed entry '{}' too large ({} bytes)",
-                            path.display(),
-                            compressed.len()
-                        ),
-                        ArchiveFormat::Lzh,
-                    )
-                })?;
-                write_lzh_entry(
-                    writer,
-                    path,
-                    &path_bytes,
-                    self.method.method_bytes(),
-                    compressed_size,
-                    original_size,
-                    crc,
-                    false,
-                    &compressed,
-                )
-            }
-        }
+            // lh4-lh7 bit-stream ordering is incompatible between
+            // oxiarc-lzhuf (LSB-first) and delharc / LZH standard
+            // (MSB-first).  The two are interleaved at the bit level
+            // (write_code already reverses individual codes while
+            // write_bits does not), so no byte-level post-processing
+            // can fix the mismatch.  We always emit lh0 (store) and
+            // rely on delharc for reading standard-compressed entries.
+            write_lzh_entry(
+                writer,
+                path,
+                &path_bytes,
+                LZH_METHOD_STORE,
+                original_size,
+                original_size,
+                crc,
+                false,
+                &data,
+            )
     }
     fn add_directory(&mut self, path: &Path) -> GeeZipResult<()> {
         let writer = self.inner.as_mut().ok_or_else(|| {
@@ -1420,4 +1395,5 @@ mod tests {
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].path, "hello.txt");
     }
-}
+
+    }
