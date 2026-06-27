@@ -42,8 +42,7 @@
 
 | 操作 | 当前格式 | 目标扩展 |
 |------|----------|----------|
-| 压缩 | ZIP、ZIPX（ZIP 兼容别名）、TAR、TAR.GZ、TAR.BZ2、TAR.BR、TAR.LZ4、TAR.ZST、TAR.XZ、7z、LZH/LHA（lh4-lh7 压缩）、ISO、ZPAQ、SFX（ZIP self-extracting）、CPIO | 7z 高级写入能力（后续阶段） |
-| 解压缩 | 上述所有格式 + RAR / CAB / ASAR / DEB / CPIO / WIM / ARJ / ACE / ARC / ALZ / UU / UUE / XXE / Z | BH、PMA、PEA、EGG、LZ、AES、磁盘镜像等（后续阶段） |
+| 解压缩 | 上述所有格式 + RAR / CAB / ASAR / DEB / CPIO / WIM / ARJ / ACE / ARC / ALZ / UU / UUE / XXE / Z / LZ | BH、PMA、PEA、EGG、AES、磁盘镜像等（后续阶段） |
 
 > 完整格式目标清单见 `docs/PRD.md` 第 5.1 节。新增格式按 feature gate 引入，不要求当前版本一次性完成。
 

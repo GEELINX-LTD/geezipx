@@ -163,25 +163,30 @@ CLI 和后续 Tauri GUI 只负责：
 - LZ4；
 - XZ；
 - LZMA；
+- LZ / Lzip（读写，LZMA 容器）；
 - Zstandard / ZST / ZSTD；
 - 7z（读写，含 AES-256 加密）；
 - RAR（只读）；
-- CAB（只读）；
-- ASAR（只读，Electron 归档）；
+- CAB（读写）；
+- ASAR（读写，Electron 归档）；
 - DEB（只读，Debian 包）；
-- LZH / LHA（读写，store-only）；
-|- ISO（读写，ISO 9660 Level 1）；
-- CPIO（只读）；
-|- ZPAQ（读写）；
-|- WIM（只读）；
-|- SFX（自解压 ZIP 读取）；
+- LZH / LHA（读写，lh0-lh7）；
+- ISO（读写，ISO 9660 Level 1）；
+- CPIO（读写，newc/odc）；
+- ZPAQ（读写）；
+- WIM（只读）；
+- SFX（自解压 ZIP 读写）；
+- UU / UUE（只读，CLI 解压/list/test）；
+- XXE（只读，CLI 解压/list/test）；
 
 后续可扩展现：
 
-- 分卷压缩；
-- RAR 写入；
-- LZH/LHA 压缩条目（lh5/lh6/lh7）；
-- 完整 7z 多线程调优。
+- 完整 7z 多线程调优；
+- BH / PMA / PEA / EGG / ISZ / AES 容器等格式；
+- WIM 写入（许可兼容性评估中）；
+- CPIO bin/crc 格式支持；
+- ISO Joliet / Rock Ridge / El Torito 写入；
+- ZPAQ 增量日志/去重。
 
 当前阶段不承诺完整替代 7-Zip / WinRAR。
 
