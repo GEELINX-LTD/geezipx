@@ -4,7 +4,7 @@
 
 GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开发。
 
-第一阶段 CLI 已开发完成并进入成熟阶段（v0.1.0）。当前为第二阶段：基于 Tauri 的桌面 GUI（已发布 v0.5.0），复用已有 Rust core 引擎。
+第一阶段 CLI 已开发完成并进入成熟阶段（v0.1.0）。当前为第二阶段：基于 Tauri 的桌面 GUI（已发布 v0.6.0），复用已有 Rust core 引擎。
 
 > **核心理念**：压缩操作通常位于自动化脚本、服务器运维、CI/CD 流水线中，CLI 是先发价值；GUI 提供附加便捷，不牺牲底层性能。
 
@@ -36,7 +36,7 @@ GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开�
 
 ## 5. MVP 范围（Phase 1 — CLI MVP）
 
-> **当前状态**：Phase 1（CLI MVP）已全部完成并成熟。当前为 Phase 2（桌面 GUI via Tauri，v0.5.0），复用 core 引擎。
+> **当前状态**：Phase 1（CLI MVP）已全部完成并成熟。当前为 Phase 2（桌面 GUI via Tauri，v0.6.0），复用 core 引擎。
 
 严格限定为 **命令行高性能压缩/解压缩**：
 
@@ -99,16 +99,17 @@ GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开�
 | WIM | ✅ 已支持 (纯 Rust) | 只读，支持 XPRESS/LZX 解压 |
 | ARJ, ACE, ARC | ✅ 已支持 | 历史/专有格式，通过 unarc-rs 适配器 |
 | ALZ | ✅ 已支持 | ALZip 格式，通过 unalz-rs |
-| BH, PMA, PEA, EGG | 📋 规划中 | 历史/专有格式，待评估 |
+| BH, PMA, PEA, EGG | ⛔ 无Rust生态 | 历史/专有格式，crates.io 无可用库 |
 | LZ (.lz) | ✅ 已支持 | Lzip 格式，支持 `compress` / `decompress`；通过 `lzma-rust2` 实现 LZMA 压缩 |
 | UU (.uu/.uue) | ✅ 已支持 | 自实现解码器 |
 | XXE (.xxe) | ✅ 已支持 | 自实现解码器 |
 | Z (.Z) | ✅ 已支持 | Unix compress，通过 unarc-rs |
-| AES | 📋 规划中 | AES 加密容器 |
+| AES | 📋 Phase 3 | AES 加密容器（aerovault/mismall 已评估，MIT/Apache-2.0）|
 | JAR, WAR, APK, IPA, XPI | ✅ 已支持 | 本质为 ZIP 容器，复用 ZIP 引擎 |
 | DEB | 📖 只读 | Debian 包（ar 容器 + `data.tar*` payload 视图；忽略 `control.tar.*`） |
 | ASAR | ✅ 已支持 | Electron 归档，支持 `compress` / `list` / `decompress` / `test`；通过 `asar` crate 实现写入 |
-| IMG, ISZ, UDF | 📋 规划中 | 磁盘镜像格式 |
+| IMG, ISZ | 📋 Phase 3 | 磁盘镜像格式（ISZ 无 Rust crate；IMG 为 raw 格式）|
+| UDF | ✅ 已支持 | Universal Disk Format，支持 `compress` / `list` / `decompress` / `test`；通过 `hadris-udf` 实现 |
 | BIN, I00 | 📋 规划中 | 原始二进制 / 分卷索引 |
 | 001 | 📋 规划中 | 分卷文件（部分解压场景） |
 
@@ -142,7 +143,7 @@ GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开�
 - **Feature gate**：每种格式按独立 feature 引入，用户可按需编译。
 - **优先级**：由用户需求与社区反馈驱动，不做全格式一次性覆盖。
 |- **读/写分离**：一种格式可先实现只读（如当前 RAR），写入能力后续补充。7z 当前已交付基础写入与 AES-256 密码写入 MVP。ZPAQ 已从只读升级为完整读写（压缩级别 1-5）。
-- **历史格式**：ARJ、ACE、ARC（via unarc-rs）、ALZ（via unalz-rs）、UU/UUE/XXE（自实现）、Z/Unix compress（via unarc-rs）等历史/专有格式已通过适配器层接入；LZH/LHA 已交付 lh4-lh7 压缩写入（via oxiarc-lzhuf），更完整兼容能力后续补充（如扩展 header、metadata）。
+- **历史格式**：ARJ、ACE、ARC（via unarc-rs）、ALZ（via unalz-rs）、UU/UUE/XXE（自实现）、Z/Unix compress（via unarc-rs）等历史/专有格式已通过适配器层接入；LZH/LHA 的 lh5-lh7 compressed write 因 oxiarc-lzhuf（LSB-first）与 delharc/LZH 标准（MSB-first）bit 顺序不兼容，当前仅 lh0 store 模式写入可互通（读端全部方法支持）。
 |- **Journaling 格式**：ZPAQ 当前已升级为完整读写（压缩级别 1-5）；其追加/版本化写入路径与现有"从零创建归档"模型不同，需单独架构设计。
 
 ## 7. 功能需求（Feature Requirements）
@@ -219,7 +220,7 @@ Phase 1 (MVP — CLI)              ← ✅ 已完成并成熟
     ├── 7z 读写 MVP / RAR 只读
     └── stdin/stdout 管道
 
-Phase 2 (Desktop GUI via Tauri)  ← 🚀 当前阶段（v0.5.0）
+Phase 2 (Desktop GUI via Tauri)  ← 🚀 当前阶段（v0.6.0）
 ├── Tauri + TypeScript/Vite 项目骨架            ── ✅ 已完成
 ├── Core 引擎命令桥接 (command bridge)        ── ✅ 已完成
 ├── 文件浏览器 + 拖拽支持                     ── ✅ 已完成

@@ -70,8 +70,8 @@ GeeZipX 是一个使用 Rust 开发的跨平台压缩/解压缩工具。
 ### 语言与平台
 
 - 主语言：Rust。
-- 第一阶段（CLI）：已在 v0.1.0 达成并保持成熟稳定；当前项目整体版本已演进到 v0.5.0。
-- 第二阶段（GUI）：Tauri，当前阶段（v0.5.0）。
+- 第一阶段（CLI）：已在 v0.1.0 达成并保持成熟稳定；当前项目整体版本已演进到 v0.6.0。
+- 第二阶段（GUI）：Tauri，当前阶段（v0.6.0）。
 - 目标平台：
   - macOS
   - Linux 终端
@@ -182,11 +182,13 @@ CLI 和后续 Tauri GUI 只负责：
 
 后续可扩展现：
 
-- 完整 7z 多线程调优；
-- BH / PMA / PEA / EGG / ISZ / AES 容器等格式；
-- WIM 写入（许可兼容性评估中）；
-- CPIO bin/crc 格式支持；
-- ZPAQ 增量日志/去重。
+- 分卷压缩；
+- RAR 写入（许可限制）；
+- LZH/LHA compressed write lh5-lh7（oxiarc-lzhuf LSB-first 与 delharc MSB-first bit 顺序不兼容）；
+- WIM 写入（EUPL-1.2 许可兼容性评估中）；
+- CPIO bin/crc 格式支持（无 Rust crate）；
+- ZPAQ 增量日志/去重；
+- ISZ / AES 容器 / IMG 等格式评估与支持（Phase 3 规划中）。
 
 当前阶段不承诺完整替代 7-Zip / WinRAR。
 
@@ -511,10 +513,11 @@ archive/compress pipeline
 
 以下能力在当前 GUI 阶段不做优先考虑：
 
+以下能力在当前 GUI 阶段不做优先考虑：
+
 - 右键菜单集成；
 - 自动更新；
-- 完整 7z 写入；
-- RAR 创建；
+- RAR 创建（许可限制）；
 - 分卷压缩；
 - 云同步；
 - 插件系统。
@@ -523,7 +526,7 @@ archive/compress pipeline
 
 当前最高优先级：
 
-1. **GUI 迭代（Tauri）** — 桌面 GUI 已达 v0.5.0，继续迭代增强，复用 core 引擎。详见 `docs/GUI_MVP_PLAN.md`。
+1. **GUI 迭代（Tauri）** — 桌面 GUI 已达 v0.6.0，继续迭代增强，复用 core 引擎。详见 `docs/GUI_MVP_PLAN.md`。
 2. **GUI 相关测试** — 仅针对 GUI 实现添加必要的测试；不主动推进 core/CLI 基准测试基线或覆盖率补测。
 3. **文档同步** — GUI 实现过程中的文档跟随更新。
 

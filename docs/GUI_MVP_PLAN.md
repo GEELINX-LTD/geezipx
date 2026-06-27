@@ -4,13 +4,12 @@
 >
 > **前置依赖**：Phase 1 CLI 已完成并成熟，core 引擎库 API 稳定，crates.io 已发布。
 >
-> **已完成（v0.5.0）**：GUI 应用骨架、core 引擎桥接、归档浏览器、选择性提取、文件预览、
-> 拖拽/拖出、文件关联、单实例、侧边栏、密码输入、任务进度、取消操作、窗口状态持久化、
-> i18n 中英文、自动格式检测、最近路径 chips、SFX（ZIP self-extracting）、ZPAQ 写入。
+> **已完成（v0.6.0）**：GUI 应用骨架、core 引擎桥接、归档浏览器、选择性提取、文件预览、
+> 7z 多线程解压、ISO Joliet+Rock Ridge、UDF 读写。
 >
 > **当前状态**：独立 `gui-windows.yml` 已可手动构建 Windows GUI；`release.yml` 已配置三平台 GUI bundle 构建并上传 `.AppImage` / `.dmg` / `.msi`。首个真实 tag release 仍待实战验证。
 >
-> **剩余**：更多发布验证与细节打磨项。
+> **剩余**：发布验证、LZH compressed write (lh5-lh7) 完善。
 
 ---
 
@@ -29,7 +28,7 @@
 - 云同步
 - 插件系统
 - 分卷压缩
-- 7z 高级写入能力（高级编码器/多线程、tar.7z 等）— 当前已交付基础 7z 创建与 AES-256 密码写入 MVP
+- tar.7z 复合格式
 - RAR 创建 — 受 UnRAR 许可限制，仅保持只读
 - 文件管理器集成（双面板、标签页等）
 - 批量任务队列（仅单次任务，后续可扩展）
