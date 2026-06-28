@@ -4,6 +4,12 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry-run (build & verify artifacts but skip release creation)'
+        type: boolean
+        default: false
 
 env:
   CARGO_TERM_COLOR: always
