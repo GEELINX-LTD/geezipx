@@ -118,8 +118,8 @@ jobs:
       - name: Collect artifacts
         run: |
           mkdir -p dist
-          cp crates/gui-tauri/src-tauri/target/release/bundle/appimage/*.AppImage dist/ 2>/dev/null || true
-          cp crates/gui-tauri/src-tauri/target/release/bundle/deb/*.deb dist/ 2>/dev/null || true
+          cp target/release/bundle/appimage/*.AppImage dist/ 2>/dev/null || true
+          cp target/release/bundle/deb/*.deb dist/ 2>/dev/null || true
       - uses: actions/upload-artifact@v7
         with:
           name: geezipx-gui-linux-x86_64
@@ -148,7 +148,7 @@ jobs:
       - name: Collect artifacts
         run: |
           mkdir -p dist
-          cp crates/gui-tauri/src-tauri/target/release/bundle/dmg/*.dmg dist/ 2>/dev/null || true
+          cp target/release/bundle/dmg/*.dmg dist/ 2>/dev/null || true
       - uses: actions/upload-artifact@v7
         with:
           name: geezipx-gui-macos-x86_64
@@ -182,7 +182,7 @@ jobs:
         shell: pwsh
         run: |
           mkdir -p dist
-          Copy-Item crates/gui-tauri/src-tauri/target/release/bundle/msi/*.msi dist/ -ErrorAction SilentlyContinue
+          Copy-Item target/release/bundle/msi/*.msi dist/ -ErrorAction SilentlyContinue
       - uses: actions/upload-artifact@v7
         with:
           name: geezipx-gui-windows-x86_64
