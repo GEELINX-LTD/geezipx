@@ -13,6 +13,7 @@
 //! - **Object-safe** — both traits use `&mut self` / `self: Box<Self>`
 //!   receivers so they can be used through `Box<dyn ArchiveReader>` etc.
 pub mod ace;
+#[cfg(feature = "alz")]
 pub mod alz;
 pub mod arc;
 pub mod arj;
