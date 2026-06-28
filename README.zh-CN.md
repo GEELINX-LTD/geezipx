@@ -50,7 +50,7 @@
 | 阶段 | 主题 | 状态 |
 |------|------|------|
 | 1 | CLI MVP | **已完成** -- crates.io 上已发布 `geezipx` 与 `geezipx-core` |
-| 2 | 桌面 GUI (Tauri) | **开发中** -- v0.5.0 已包含归档浏览器、拖拽、进度显示、选择性提取等能力 |
+| 2 | 桌面 GUI (Tauri) | **开发中** -- v0.6.0 已包含归档浏览器、拖拽、进度显示、选择性提取等能力 |
 
 详见 [`docs/GUI_MVP_PLAN.md`](docs/GUI_MVP_PLAN.md) 了解详细规划和剩余任务。
 
@@ -655,7 +655,7 @@ cargo build --release --workspace
 - [x] ZIP / 7z AES-256 密码加密
 - [x] stdin/stdout 管道（单流 + tar-based 格式）
 
-### 第二阶段（桌面 GUI via Tauri）— 当前开发重心（v0.5.0）
+### 第二阶段（桌面 GUI via Tauri）— 当前开发重心（v0.6.0）
 
 - [x] Tauri v2 项目骨架 + TypeScript/Vite 前端
 - [x] Core 引擎桥接（Tauri commands）

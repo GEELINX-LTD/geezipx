@@ -13,6 +13,129 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - First end-to-end tagged release still needs real-world verification.
 
+## [0.6.0] - 2026-06-28
+
+### Added
+
+- **Format support — UDF read/write**:
+  - Added UDF (Universal Disk Format) read/write for DVD and Blu-ray file systems.
+  - Full CLI round-trip support (`compress`, `decompress`, `list`, `test`) with GUI format metadata updated.
+
+- **Format support — CAB write** (upgraded from read-only in 0.5.0):
+  - Added `CabWriter` enabling creation of cabinet archives.
+  - CLI `compress -f cab` now succeeds alongside existing `list`, `decompress`, and `test` flows.
+
+- **Format support — ASAR write** (upgraded from read-only in 0.5.0):
+  - Added `AsarWriter` enabling creation of Electron ASAR archives.
+  - CLI `compress -f asar` now succeeds alongside existing `list`, `decompress`, and `test` flows.
+
+- **Format support — LZ / Lzip single-stream**:
+  - Added `.lz` / `.lzip` single-stream compression read/write via the `lzip` crate.
+  - CLI `compress`, `decompress`, `list`, `test` support with automatic format detection.
+
+- **Format support — UU / UUE (read-only)**:
+  - Added Unix-to-Unix encoding `.uu` / `.uue` read-only support for legacy text-encoded binaries.
+  - CLI `decompress`, `list`, and `test` supported; `compress` fails early with a read-only error.
+
+- **Format support — XXE (read-only)**:
+  - Added XXEncoded `.xxe` read-only support.
+  - CLI `decompress`, `list`, and `test` supported; `compress` fails early with a read-only error.
+
+- **Format support — ALZ, ARJ, ACE, ARC (read-only)**:
+  - Added read-only support for legacy formats: ALZ (Korean ALZip), ARJ (DOS-era), ACE (WinACE), and ARC (SEA ARC).
+  - CLI `list`, `decompress`, and `test` support with automatic magic-byte detection.
+
+- **Format support — Unix compress (.Z) (read-only)**:
+  - Added LZW decompression for legacy Unix `compress` (.Z) files.
+  - CLI `decompress`, `list`, and `test` support with automatic format detection.
+
+- **Format support — ISO 9660 Joliet + Rock Ridge**:
+  - Extended ISO writer and reader with Joliet Unicode filename support (up to 206 characters).
+  - Added Rock Ridge POSIX attribute support (permissions, ownership, timestamps).
+  - Improved cross-platform interoperability for disc image creation and extraction.
+
+- **Format support — LZH/LHA compressed write (lh4-lh7)**:
+  - Extended `LzhWriter` from store-only (`-lh0-`) to Huffman-compressed entries (`-lh4-` through `-lh7-`).
+  - Decompressor remains compatible with all existing LZH/LHA variants.
+  - Fixed LZH bit-ordering incompatibility between oxiarc-lzhuf (LSB-first) and delharc (MSB-first).
+
+- **Format support — CPIO write** (upgraded from read-only in 0.5.0):
+  - Added `CpioWriter` enabling creation of `newc`/`odc` CPIO archives.
+  - CLI `compress -f cpio` now succeeds alongside existing `list`, `decompress`, and `test` flows.
+
+- **Format support — WIM pure Rust reader**:
+  - Replaced wimlib (C library) dependency with a pure Rust WIM reader for `.wim` / `.swm` images.
+  - Supports XPRESS, LZX, and LZMS decompression without native dependencies.
+  - List, extract, and test support for multi-image WIM archives.
+
+- **Format support — 7z multi-threaded LZMA2 decompression**:
+  - Multi-threaded LZMA2 decompression for significantly faster extraction of large 7z archives.
+  - Automatic thread detection with configurable job count.
+  - 7z compression level mapping (0-9) with dictionary size optimization.
+
+- **Format support — SFX ZIP creation**:
+  - Self-extracting ZIP archive creation via CLI `--sfx` / `--sfx-target` flags.
+  - Three platform targets: Linux (ELF), macOS (Mach-O), Windows (PE).
+  - End-to-end test suite with stub build integration in CI.
+
+- **Desktop GUI — Internationalization (i18n)**:
+  - Chinese (zh-CN) and English (en) locale switching in the Tauri frontend.
+  - Runtime locale detection with user preference persistence.
+
+- **Desktop GUI — Task progress reporting**:
+  - Progress dialog with real-time progress bar, speed, and remaining time display.
+  - Cancel support integrated with the core cancellation mechanism for both compress and extract operations.
+
+- **Desktop GUI — Sidebar navigation**:
+  - Persistent sidebar with navigation between compress, extract, and archive browse views.
+  - Recent file/path history with `localStorage` persistence (up to 10 entries).
+
+- **Desktop GUI — Extraction progress dialog**:
+  - Dedicated extraction dialog with per-file progress display and cancel support.
+  - Smart default output directory selection based on archive file location.
+
+- **Desktop GUI — Window state persistence**:
+  - Window size and position saved and restored across sessions via `tauri-plugin-window-state`.
+
+- **Desktop GUI — Improved drag-out UX**:
+  - Dedicated drag handle column in archive browser rows for more reliable drag behavior.
+  - Improved temp directory management and cleanup on drag completion.
+
+- **Desktop GUI — Archive browser merged into extract panel**:
+  - Unified archive browsing and extraction experience in a single panel view.
+
+- **Desktop GUI — Svelte 5 frontend architecture**:
+  - Frontend rewritten to Svelte 5 runes-based component architecture.
+  - Improved reactivity, performance, and maintainability.
+  - Resolved a11y warnings and stale element reference issues.
+
+- **Desktop GUI — Application icons updated**:
+  - High-resolution application icons for all platforms.
+
+- **Desktop GUI — Format list synced**:
+  - Updated format selection and archive detection metadata to include all new read/write formats (UDF, CAB, ASAR, LZ, CPIO, SFX, LZH compressed, and legacy read-only formats).
+
+- **Desktop GUI — Release builds**:
+  - Cross-platform desktop bundles: AppImage (Linux), DMG (macOS), MSI (Windows).
+  - Automated build and publishing workflow via GitHub Actions.
+
+### Fixed
+
+- **LZH bit-ordering incompatibility**: Fixed incompatible bit ordering between oxiarc-lzhuf (LSB-first) and delharc (MSB-first) implementations, enabling correct compressed LZH/LHA archive creation readable by standard decompressors.
+- **unrar_sys LNK2038 on Windows**: Vendored `unrar_sys` with static CRT linkage to resolve MSVC runtime library mismatch (LNK2038) on Windows builds.
+- **SFX e2e test reliability**: Fixed path resolution, subprocess spawning, and temp directory cleanup in SFX end-to-end tests for consistent CI execution.
+- **7z relative output path in GUI**: Fixed 7z extraction with relative output paths producing incorrect directory nesting in the archive browser.
+- **GUI progress dialog flash**: Eliminated spurious dialog flash during rapid task completion.
+- **GUI sidebar crash on stale references**: Fixed crash caused by stale Svelte component references in sidebar navigation after view switches.
+- **GUI drag-and-drop interaction**: Fixed drag behavior to correctly drag individual files rather than the parent folder when dragging archive entries.
+- **GUI drag-out folder naming and extension alignment**: Fixed inconsistent folder naming and file extension stripping in drag-out operations.
+- **GUI Windows build CRT**: Added static CRT flag to GUI Windows build configuration to resolve runtime library dependencies.
+- **Windows CRT mismatch in CI**: Fixed MSVC runtime library mismatch in Windows CI check workflows.
+
+### Changed
+
+- **Documentation comprehensive cleanup**: Removed stale items, marked completed milestones, and updated format support status across `docs/PRD.md`, `docs/TECH_ARCHITECTURE.md`, `docs/GUI_MVP_PLAN.md`, and `README.md` to reflect all new formats (UDF, CAB, ASAR, LZ, CPIO, SFX, WIM, LZH compressed, ISO Joliet/Rock Ridge, and all legacy read-only formats plus GUI progress milestones).
+
 ## [0.5.0] - 2026-06-05
 
 ### Added
@@ -435,7 +558,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Benchmark compile check on every push/PR
   - Manual trigger benchmark workflow with optional filter parameter
 
-[Unreleased]: https://github.com/GEELINX-LTD/geezipx/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/GEELINX-LTD/geezipx/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/GEELINX-LTD/geezipx/releases/tag/v0.6.0
 [0.5.0]: https://github.com/GEELINX-LTD/geezipx/releases/tag/v0.5.0
 [0.4.0]: https://github.com/GEELINX-LTD/geezipx/releases/tag/v0.4.0
 [0.3.0]: https://github.com/GEELINX-LTD/geezipx/releases/tag/v0.3.0

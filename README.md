@@ -50,7 +50,7 @@ Phase 2 (Desktop GUI via Tauri) is **now the active development focus**.
 | Phase | Theme | Status |
 |-------|-------|--------|
 | 1 | CLI MVP | **Complete** -- crates.io releases `geezipx` and `geezipx-core` are available |
-| 2 | Desktop GUI (Tauri) | **In development** -- v0.5.0 already includes archive browsing, drag/drop, progress reporting, and selective extraction |
+| 2 | Desktop GUI (Tauri) | **In development** -- v0.6.0 already includes archive browsing, drag/drop, progress reporting, and selective extraction |
 
 See [`docs/GUI_MVP_PLAN.md`](docs/GUI_MVP_PLAN.md) for detailed planning and remaining tasks.
 
@@ -674,7 +674,7 @@ All core features and the applicable format-specific subcommands are implemented
 - [x] ZIP / 7z AES-256 password encryption
 - [x] stdin/stdout pipelines for single-stream and tar-based formats
 
-### Phase 2 (Desktop GUI via Tauri) — Current Development (v0.5.0)
+### Phase 2 (Desktop GUI via Tauri) — Current Development (v0.6.0)
 
 - [x] Tauri v2 project skeleton + TypeScript/Vite frontend
 - [x] Core engine bridge via Tauri commands

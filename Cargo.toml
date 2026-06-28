@@ -9,7 +9,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.5.0"
+version = "0.6.0"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/GEELINX-LTD/geezipx"
@@ -18,7 +18,7 @@ homepage = "https://github.com/GEELINX-LTD/geezipx"
 rust-version = "1.96"
 
 [workspace.dependencies]
-geezipx-core = { version = "0.5.0", path = "crates/core", default-features = false }
+geezipx-core = { version = "0.6.0", path = "crates/core", default-features = false }
 
 [patch.crates-io]
 unrar_sys = { path = "crates/vendor/unrar-sys" }
