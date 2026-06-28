@@ -57,7 +57,12 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: echo "RUSTFLAGS=-C target-feature=+crt-static" >> $env:GITHUB_ENV
-      - run: cargo clippy --workspace --exclude geezipx-gui --all-targets --all-features -- -D warnings
+      - name: Clippy (macOS, exclude zpaq for LLVM compat)
+        if: runner.os == 'macOS'
+        run: cargo clippy --workspace --exclude geezipx-gui --all-targets --no-default-features -F rar,wim,sfx -- -D warnings
+      - name: Clippy (Linux / Windows)
+        if: runner.os != 'macOS'
+        run: cargo clippy --workspace --exclude geezipx-gui --all-targets --all-features -- -D warnings
 
   test:
     needs: fmt
@@ -90,7 +95,12 @@ jobs:
           cargo build -p geezipx-sfx-stub --release
           mkdir -p crates/core/stubs/${{ matrix.stub_target }}
           cp target/release/${{ matrix.stub_binary }} crates/core/stubs/${{ matrix.stub_target }}/${{ matrix.stub_binary }}
-      - run: cargo test --workspace --exclude geezipx-gui --all-features
+      - name: Test (macOS, exclude zpaq for LLVM compat)
+        if: runner.os == 'macOS'
+        run: cargo test --workspace --exclude geezipx-gui --no-default-features -F rar,wim,sfx
+      - name: Test (Linux / Windows)
+        if: runner.os != 'macOS'
+        run: cargo test --workspace --exclude geezipx-gui --all-features
 
   build:
     needs: [fmt, clippy, test]
@@ -130,7 +140,12 @@ jobs:
           mkdir -p crates/core/stubs/${{ matrix.stub_target }}
           cp target/release/${{ matrix.stub_binary }} crates/core/stubs/${{ matrix.stub_target }}/${{ matrix.stub_binary }}
           echo "${{ matrix.stub_target }} stub: $(stat -c%s crates/core/stubs/${{ matrix.stub_target }}/${{ matrix.stub_binary }} 2>/dev/null || stat -f%z crates/core/stubs/${{ matrix.stub_target }}/${{ matrix.stub_binary }} 2>/dev/null || echo '?') bytes"
-      - run: cargo build --release --workspace --exclude geezipx-gui
+      - name: Build (macOS, exclude zpaq for LLVM compat)
+        if: runner.os == 'macOS'
+        run: cargo build --release --workspace --exclude geezipx-gui --no-default-features -F rar,wim,sfx
+      - name: Build (Linux / Windows)
+        if: runner.os != 'macOS'
+        run: cargo build --release --workspace --exclude geezipx-gui
       - uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.artifact }}
