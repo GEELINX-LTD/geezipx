@@ -24,9 +24,10 @@ tauri-plugin-drag = "2.1.1"
 tauri-plugin-window-state = "2"
 
 [features]
-default = ["rar", "zpaq"]
+default = ["rar", "zpaq", "wim"]
 rar = ["geezipx-core/rar"]
 zpaq = ["geezipx-core/zpaq"]
+wim = ["geezipx-core/wim"]
 
 [dev-dependencies]
 zpaq_rs = "1.0"

@@ -49,6 +49,10 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: echo "RUSTFLAGS=-C target-feature=+crt-static" >> $env:GITHUB_ENV
+      - name: Disable LTO on macOS (zpaq_rs bitcode incompatibility)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: echo "CARGO_PROFILE_RELEASE_LTO=false" >> $GITHUB_ENV
       - name: Build SFX stub
         shell: bash
         run: |
