@@ -59,7 +59,12 @@ jobs:
           cargo build -p geezipx-sfx-stub --release
           mkdir -p crates/core/stubs/${{ matrix.stub_target }}
           cp target/release/${{ matrix.stub_binary }} crates/core/stubs/${{ matrix.stub_target }}/${{ matrix.stub_binary }}
-      - run: cargo build --release --workspace --exclude geezipx-gui
+      - name: Build CLI (macOS, exclude zpaq for LLVM compat)
+        if: runner.os == 'macOS'
+        run: cargo build --release --workspace --exclude geezipx-gui --no-default-features -F rar,wim,sfx
+      - name: Build CLI (Linux / Windows)
+        if: runner.os != 'macOS'
+        run: cargo build --release --workspace --exclude geezipx-gui
 
       # Package and checksum — Unix (Linux / macOS)
       - name: Package archive and checksum
@@ -158,6 +163,10 @@ jobs:
         with:
           toolchain: stable
           cache: true
+      - name: Use static CRT on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: echo "RUSTFLAGS=-C target-feature=+crt-static" >> $env:GITHUB_ENV
       - uses: actions/setup-node@v6
         with:
           node-version: 20
