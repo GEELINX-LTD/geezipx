@@ -15,7 +15,6 @@ categories = ["compression"]
 [features]
 rar = ["dep:unrar"]
 zpaq = ["dep:zpaq_rs"]
-alz = ["dep:unalz-rs"]
 sfx = []
 wim = []
 default = ["rar", "zpaq", "wim"]
@@ -52,8 +51,8 @@ unrar = { version = "0.5.8", optional = true }
 unarc-rs = "0.6"
 # Optional: ZPAQ read-only (feature-gated, requires Rust 1.85+ and a C++17 compiler)
 zpaq_rs = { version = "1.0", optional = true }
-# ALZ archive reader (git dependency, not yet published on crates.io)
-unalz-rs = { git = "https://github.com/OctopusET/unalz-rs", optional = true }
+# TODO: ALZ archive reader — unalz-rs is not yet published on crates.io.
+# Re-add when published: unalz-rs = { version = "...", optional = true }
 # UU/UUE decode
 
 [dev-dependencies]
