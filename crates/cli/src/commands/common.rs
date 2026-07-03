@@ -1216,6 +1216,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "zpaq")]
     fn create_writer_zpaq_is_writable() {
         let temp = tempfile::TempDir::new().unwrap();
         let output = temp.path().join("out.zpaq");
