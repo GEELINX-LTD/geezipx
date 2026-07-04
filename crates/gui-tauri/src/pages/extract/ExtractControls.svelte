@@ -1,6 +1,7 @@
 <script lang="ts">
   import { open } from '@tauri-apps/plugin-dialog';
   import { localeStore } from '../../stores/localeStore.svelte';
+  import { settingsStore } from '../../stores/settingsStore.svelte';
   import { extractArchive, extractEntries, cancelTask } from '../../bridge';
   import { archiveStore } from '../../stores/archiveStore.svelte';
   import { taskStore } from '../../stores/taskStore.svelte';
@@ -17,6 +18,13 @@
     }
   });
   let overwrite = $state(true);
+
+  // Apply saved defaults
+  settingsStore.get('overwrite_strategy').then((strategy) => {
+    if (strategy === 'overwrite') overwrite = true;
+    else if (strategy === 'skip') overwrite = false;
+    // 'prompt' leaves default
+  });
   let extractPassword = $state('');
   let result: string | null = $state(null);
   let error: string | null = $state(null);

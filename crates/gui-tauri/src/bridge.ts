@@ -85,6 +85,17 @@ export interface TaskProgressPayload {
   total_entries: number | null;
 }
 
+/** Full settings structure persisted via tauri-plugin-store. */
+export interface GeeZipXSettings {
+  locale: 'en' | 'zh-CN';
+  default_output_dir: string | null;
+  overwrite_strategy: 'prompt' | 'skip' | 'overwrite';
+  default_format: string;
+  default_level: number | null;
+  recursive: boolean;
+  theme: 'system' | 'light' | 'dark';
+}
+
 // ---------------------------------------------------------------------------
 // Wrapper functions
 // ---------------------------------------------------------------------------

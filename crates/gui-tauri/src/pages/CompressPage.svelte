@@ -4,6 +4,7 @@
   import { save } from '@tauri-apps/plugin-dialog';
   import { compressArchive, getFormats, type FormatInfo } from '../bridge';
   import { localeStore } from '../stores/localeStore.svelte';
+  import { settingsStore } from '../stores/settingsStore.svelte';
   import type { CompressArchiveResult } from '../bridge';
   import { taskStore } from '../stores/taskStore.svelte';
   import { appStore } from '../stores/appStore.svelte';
@@ -29,6 +30,15 @@
   );
 
   getFormats().then((f) => (formats = f));
+
+  // Apply saved defaults
+  Promise.all([
+    settingsStore.get('default_format'),
+    settingsStore.get('default_level'),
+  ]).then(([fmt, lvl]) => {
+    if (fmt) format = fmt;
+    if (lvl !== undefined && lvl !== null) level = lvl;
+  });
 
   onMount(() => {
     const pending = appStore.consumePendingSourcePaths();

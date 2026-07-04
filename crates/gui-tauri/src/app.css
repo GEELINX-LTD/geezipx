@@ -3,7 +3,7 @@
    ============================================ */
 
 /* ---------- Design Tokens ---------- */
-:root {
+:root, :root[data-theme="light"] {
   /* Spacing (8px grid) */
   --space-1: 4px;
   --space-2: 8px;
@@ -72,9 +72,44 @@
   --color-dropzone-active-bg: #dceeff;
 }
 
-/* ===== DARK THEME ===== */
+/* ===== DARK THEME (explicit) ===== */
+:root[data-theme="dark"] {
+  --color-bg: #1e1e1e;
+  --color-surface: #252525;
+  --color-surface-alt: #2d2d2d;
+  --color-border: #3d3d3d;
+  --color-border-light: #353535;
+
+  --color-text: #e0e0e0;
+  --color-text-secondary: #a0a0a0;
+  --color-text-muted: #707070;
+
+  --color-accent: #409eff;
+  --color-accent-hover: #66b1ff;
+  --color-accent-light: #1a3a5c;
+
+  --color-success: #3fb950;
+  --color-success-bg: #162c18;
+  --color-error: #f85149;
+  --color-error-bg: #2d1214;
+  --color-warning: #d29922;
+  --color-warning-bg: #2d2410;
+
+  --color-input-bg: #2d2d2d;
+  --color-input-border: #3d3d3d;
+  --color-input-focus: #409eff;
+
+  --color-progress-bg: #3d3d3d;
+  --color-progress-fill: #409eff;
+
+  --color-dropzone-bg: #1a2d40;
+  --color-dropzone-border: #409eff;
+  --color-dropzone-active-bg: #1e3450;
+}
+
+/* ===== DARK THEME (system preference) ===== */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]):not([data-theme="dark"]) {
     --color-bg: #1e1e1e;
     --color-surface: #252525;
     --color-surface-alt: #2d2d2d;

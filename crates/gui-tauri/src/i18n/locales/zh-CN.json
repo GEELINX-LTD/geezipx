@@ -104,11 +104,43 @@
   },
   "settings": {
     "title": "设置",
+    "general": "通用",
+    "compression": "压缩",
+    "appearance": "外观",
     "locale": {
       "label": "界面语言",
-      "help": "语言偏好会保存到本地。"
+      "help": "保存后立即生效。"
     },
-    "moreComing": "更多设置将在后续版本中添加。"
+    "defaultOutputDir": {
+      "label": "默认输出目录",
+      "help": "留空则每次操作时询问。",
+      "browse": "浏览"
+    },
+    "overwriteStrategy": {
+      "label": "文件已存在时的策略",
+      "prompt": "每次询问",
+      "skip": "跳过",
+      "overwrite": "覆盖"
+    },
+    "defaultFormat": {
+      "label": "默认压缩格式"
+    },
+    "defaultLevel": {
+      "label": "默认压缩级别",
+      "help": "留空使用格式默认值。范围取决于格式（ZIP 0-9，ZST 0-22）。"
+    },
+    "recursive": {
+      "label": "递归添加目录"
+    },
+    "theme": {
+      "label": "主题",
+      "system": "跟随系统",
+      "light": "浅色",
+      "dark": "深色"
+    },
+    "cancel": "取消",
+    "save": "保存",
+    "saved": "设置已保存"
   },
   "about": {
     "title": "关于 GeeZipX",

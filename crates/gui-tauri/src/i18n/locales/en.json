@@ -104,11 +104,43 @@
   },
   "settings": {
     "title": "Settings",
+    "general": "General",
+    "compression": "Compression",
+    "appearance": "Appearance",
     "locale": {
       "label": "Language",
-      "help": "Your language preference is saved locally."
+      "help": "Changes take effect immediately after saving."
     },
-    "moreComing": "More settings coming in future versions."
+    "defaultOutputDir": {
+      "label": "Default output directory",
+      "help": "Leave empty to be prompted each time.",
+      "browse": "Browse"
+    },
+    "overwriteStrategy": {
+      "label": "When files already exist",
+      "prompt": "Ask each time",
+      "skip": "Skip",
+      "overwrite": "Overwrite"
+    },
+    "defaultFormat": {
+      "label": "Default compression format"
+    },
+    "defaultLevel": {
+      "label": "Default compression level",
+      "help": "Leave empty to use format default. Range depends on format (0-9 for ZIP, 0-22 for ZST)."
+    },
+    "recursive": {
+      "label": "Add directories recursively"
+    },
+    "theme": {
+      "label": "Theme",
+      "system": "Follow system",
+      "light": "Light",
+      "dark": "Dark"
+    },
+    "cancel": "Cancel",
+    "save": "Save",
+    "saved": "Settings saved."
   },
   "about": {
     "title": "About GeeZipX",
