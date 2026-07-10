@@ -31,6 +31,7 @@ fn is_single_stream_format(format: ArchiveFormat) -> bool {
             | ArchiveFormat::Xz
             | ArchiveFormat::Lzma
             | ArchiveFormat::Lz
+            | ArchiveFormat::Img
     )
 }
 
