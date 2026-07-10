@@ -64,31 +64,206 @@ struct Def {
 }
 
 const DEFS: &[Def] = &[
-    Def { ext: ".zip", exts: &[".zip", ".zipx"], mime: "application/zip", uti: "public.zip-archive", name: "ZIP Archive", description: "ZIP / ZIPX Archive" },
-    Def { ext: ".tar", exts: &[".tar"], mime: "application/x-tar", uti: "public.tar-archive", name: "TAR Archive", description: "TAR Archive" },
-    Def { ext: ".gz", exts: &[".gz"], mime: "application/gzip", uti: "public.gzip", name: "GZip File", description: "GZip Compressed File" },
-    Def { ext: ".tar.gz", exts: &[".tar.gz", ".tgz"], mime: "application/gzip", uti: "com.geelinx.geezipx.targz", name: "TAR.GZ Archive", description: "GZip-Compressed TAR Archive" },
-    Def { ext: ".bz2", exts: &[".bz2"], mime: "application/x-bzip2", uti: "public.bzip2", name: "BZip2 File", description: "BZip2 Compressed File" },
-    Def { ext: ".tar.bz2", exts: &[".tar.bz2", ".tbz", ".tbz2"], mime: "application/x-bzip2", uti: "com.geelinx.geezipx.tarbz2", name: "TAR.BZ2 Archive", description: "BZip2-Compressed TAR Archive" },
-    Def { ext: ".br", exts: &[".br"], mime: "application/x-brotli", uti: "com.geelinx.geezipx.brotli", name: "Brotli File", description: "Brotli Compressed File" },
-    Def { ext: ".tar.br", exts: &[".tar.br", ".tbr"], mime: "application/x-brotli", uti: "com.geelinx.geezipx.tarbr", name: "TAR.BR Archive", description: "Brotli-Compressed TAR Archive" },
-    Def { ext: ".lz4", exts: &[".lz4"], mime: "application/x-lz4", uti: "com.geelinx.geezipx.lz4", name: "LZ4 File", description: "LZ4 Compressed File" },
-    Def { ext: ".tar.lz4", exts: &[".tar.lz4"], mime: "application/x-lz4", uti: "com.geelinx.geezipx.tarlz4", name: "TAR.LZ4 Archive", description: "LZ4-Compressed TAR Archive" },
-    Def { ext: ".zst", exts: &[".zst"], mime: "application/zstd", uti: "com.geelinx.geezipx.zstd", name: "Zstandard File", description: "Zstandard Compressed File" },
-    Def { ext: ".tar.zst", exts: &[".tar.zst", ".tzst"], mime: "application/zstd", uti: "com.geelinx.geezipx.tarzst", name: "TAR.ZST Archive", description: "Zstandard-Compressed TAR Archive" },
-    Def { ext: ".xz", exts: &[".xz"], mime: "application/x-xz", uti: "com.geelinx.geezipx.xz", name: "XZ File", description: "XZ Compressed File" },
-    Def { ext: ".tar.xz", exts: &[".tar.xz", ".txz"], mime: "application/x-xz", uti: "com.geelinx.geezipx.tarxz", name: "TAR.XZ Archive", description: "XZ-Compressed TAR Archive" },
-    Def { ext: ".lzma", exts: &[".lzma"], mime: "application/x-lzma", uti: "com.geelinx.geezipx.lzma", name: "LZMA File", description: "LZMA Compressed File" },
-    Def { ext: ".lz", exts: &[".lz"], mime: "application/x-lzip", uti: "com.geelinx.geezipx.lz", name: "LZ File", description: "LZ Compressed File" },
-    Def { ext: ".7z", exts: &[".7z"], mime: "application/x-7z-compressed", uti: "com.geelinx.geezipx.sevenzip", name: "7-Zip Archive", description: "7-Zip Archive" },
-    Def { ext: ".rar", exts: &[".rar"], mime: "application/vnd.rar", uti: "com.geelinx.geezipx.rar", name: "RAR Archive", description: "RAR Archive" },
-    Def { ext: ".cab", exts: &[".cab"], mime: "application/vnd.ms-cab-compressed", uti: "com.geelinx.geezipx.cab", name: "CAB Archive", description: "Microsoft Cabinet Archive" },
-    Def { ext: ".asar", exts: &[".asar"], mime: "application/octet-stream", uti: "com.geelinx.geezipx.asar", name: "ASAR Archive", description: "Electron ASAR Archive" },
-    Def { ext: ".deb", exts: &[".deb"], mime: "application/vnd.debian.binary-package", uti: "com.geelinx.geezipx.deb", name: "Debian Package", description: "Debian Package" },
-    Def { ext: ".cpio", exts: &[".cpio"], mime: "application/x-cpio", uti: "com.geelinx.geezipx.cpio", name: "CPIO Archive", description: "CPIO Archive" },
-    Def { ext: ".iso", exts: &[".iso"], mime: "application/x-iso9660-image", uti: "com.geelinx.geezipx.iso", name: "ISO Image", description: "ISO 9660 Disc Image" },
-    Def { ext: ".udf", exts: &[".udf"], mime: "application/x-udf", uti: "com.geelinx.geezipx.udf", name: "UDF Image", description: "UDF Disc Image" },
-    Def { ext: ".lzh", exts: &[".lzh", ".lha"], mime: "application/x-lzh", uti: "com.geelinx.geezipx.lzh", name: "LZH Archive", description: "LZH / LHA Archive" },
+    Def {
+        ext: ".zip",
+        exts: &[".zip", ".zipx"],
+        mime: "application/zip",
+        uti: "public.zip-archive",
+        name: "ZIP Archive",
+        description: "ZIP / ZIPX Archive",
+    },
+    Def {
+        ext: ".tar",
+        exts: &[".tar"],
+        mime: "application/x-tar",
+        uti: "public.tar-archive",
+        name: "TAR Archive",
+        description: "TAR Archive",
+    },
+    Def {
+        ext: ".gz",
+        exts: &[".gz"],
+        mime: "application/gzip",
+        uti: "public.gzip",
+        name: "GZip File",
+        description: "GZip Compressed File",
+    },
+    Def {
+        ext: ".tar.gz",
+        exts: &[".tar.gz", ".tgz"],
+        mime: "application/gzip",
+        uti: "com.geelinx.geezipx.targz",
+        name: "TAR.GZ Archive",
+        description: "GZip-Compressed TAR Archive",
+    },
+    Def {
+        ext: ".bz2",
+        exts: &[".bz2"],
+        mime: "application/x-bzip2",
+        uti: "public.bzip2",
+        name: "BZip2 File",
+        description: "BZip2 Compressed File",
+    },
+    Def {
+        ext: ".tar.bz2",
+        exts: &[".tar.bz2", ".tbz", ".tbz2"],
+        mime: "application/x-bzip2",
+        uti: "com.geelinx.geezipx.tarbz2",
+        name: "TAR.BZ2 Archive",
+        description: "BZip2-Compressed TAR Archive",
+    },
+    Def {
+        ext: ".br",
+        exts: &[".br"],
+        mime: "application/x-brotli",
+        uti: "com.geelinx.geezipx.brotli",
+        name: "Brotli File",
+        description: "Brotli Compressed File",
+    },
+    Def {
+        ext: ".tar.br",
+        exts: &[".tar.br", ".tbr"],
+        mime: "application/x-brotli",
+        uti: "com.geelinx.geezipx.tarbr",
+        name: "TAR.BR Archive",
+        description: "Brotli-Compressed TAR Archive",
+    },
+    Def {
+        ext: ".lz4",
+        exts: &[".lz4"],
+        mime: "application/x-lz4",
+        uti: "com.geelinx.geezipx.lz4",
+        name: "LZ4 File",
+        description: "LZ4 Compressed File",
+    },
+    Def {
+        ext: ".tar.lz4",
+        exts: &[".tar.lz4"],
+        mime: "application/x-lz4",
+        uti: "com.geelinx.geezipx.tarlz4",
+        name: "TAR.LZ4 Archive",
+        description: "LZ4-Compressed TAR Archive",
+    },
+    Def {
+        ext: ".zst",
+        exts: &[".zst"],
+        mime: "application/zstd",
+        uti: "com.geelinx.geezipx.zstd",
+        name: "Zstandard File",
+        description: "Zstandard Compressed File",
+    },
+    Def {
+        ext: ".tar.zst",
+        exts: &[".tar.zst", ".tzst"],
+        mime: "application/zstd",
+        uti: "com.geelinx.geezipx.tarzst",
+        name: "TAR.ZST Archive",
+        description: "Zstandard-Compressed TAR Archive",
+    },
+    Def {
+        ext: ".xz",
+        exts: &[".xz"],
+        mime: "application/x-xz",
+        uti: "com.geelinx.geezipx.xz",
+        name: "XZ File",
+        description: "XZ Compressed File",
+    },
+    Def {
+        ext: ".tar.xz",
+        exts: &[".tar.xz", ".txz"],
+        mime: "application/x-xz",
+        uti: "com.geelinx.geezipx.tarxz",
+        name: "TAR.XZ Archive",
+        description: "XZ-Compressed TAR Archive",
+    },
+    Def {
+        ext: ".lzma",
+        exts: &[".lzma"],
+        mime: "application/x-lzma",
+        uti: "com.geelinx.geezipx.lzma",
+        name: "LZMA File",
+        description: "LZMA Compressed File",
+    },
+    Def {
+        ext: ".lz",
+        exts: &[".lz"],
+        mime: "application/x-lzip",
+        uti: "com.geelinx.geezipx.lz",
+        name: "LZ File",
+        description: "LZ Compressed File",
+    },
+    Def {
+        ext: ".7z",
+        exts: &[".7z"],
+        mime: "application/x-7z-compressed",
+        uti: "com.geelinx.geezipx.sevenzip",
+        name: "7-Zip Archive",
+        description: "7-Zip Archive",
+    },
+    Def {
+        ext: ".rar",
+        exts: &[".rar"],
+        mime: "application/vnd.rar",
+        uti: "com.geelinx.geezipx.rar",
+        name: "RAR Archive",
+        description: "RAR Archive",
+    },
+    Def {
+        ext: ".cab",
+        exts: &[".cab"],
+        mime: "application/vnd.ms-cab-compressed",
+        uti: "com.geelinx.geezipx.cab",
+        name: "CAB Archive",
+        description: "Microsoft Cabinet Archive",
+    },
+    Def {
+        ext: ".asar",
+        exts: &[".asar"],
+        mime: "application/octet-stream",
+        uti: "com.geelinx.geezipx.asar",
+        name: "ASAR Archive",
+        description: "Electron ASAR Archive",
+    },
+    Def {
+        ext: ".deb",
+        exts: &[".deb"],
+        mime: "application/vnd.debian.binary-package",
+        uti: "com.geelinx.geezipx.deb",
+        name: "Debian Package",
+        description: "Debian Package",
+    },
+    Def {
+        ext: ".cpio",
+        exts: &[".cpio"],
+        mime: "application/x-cpio",
+        uti: "com.geelinx.geezipx.cpio",
+        name: "CPIO Archive",
+        description: "CPIO Archive",
+    },
+    Def {
+        ext: ".iso",
+        exts: &[".iso"],
+        mime: "application/x-iso9660-image",
+        uti: "com.geelinx.geezipx.iso",
+        name: "ISO Image",
+        description: "ISO 9660 Disc Image",
+    },
+    Def {
+        ext: ".udf",
+        exts: &[".udf"],
+        mime: "application/x-udf",
+        uti: "com.geelinx.geezipx.udf",
+        name: "UDF Image",
+        description: "UDF Disc Image",
+    },
+    Def {
+        ext: ".lzh",
+        exts: &[".lzh", ".lha"],
+        mime: "application/x-lzh",
+        uti: "com.geelinx.geezipx.lzh",
+        name: "LZH Archive",
+        description: "LZH / LHA Archive",
+    },
 ];
 
 fn platform_name() -> &'static str {
@@ -188,8 +363,9 @@ mod platform {
             .unwrap_or_else(|| "geezipx".into());
         let identifier = "com.geelinx.geezipx";
 
-        let data_home = std::env::var("XDG_DATA_HOME")
-            .unwrap_or_else(|_| format!("{}/.local/share", std::env::var("HOME").unwrap_or_default()));
+        let data_home = std::env::var("XDG_DATA_HOME").unwrap_or_else(|_| {
+            format!("{}/.local/share", std::env::var("HOME").unwrap_or_default())
+        });
         let dirs = [
             std::path::Path::new(&data_home).join("applications"),
             std::path::Path::new("/usr/local/share/applications").to_path_buf(),
@@ -221,7 +397,9 @@ mod platform {
         if !out.status.success() {
             return None;
         }
-        String::from_utf8(out.stdout).ok().map(|s| s.trim().to_string())
+        String::from_utf8(out.stdout)
+            .ok()
+            .map(|s| s.trim().to_string())
     }
 
     pub fn query_state(mime: &str, _ext: &str, _uti: &str) -> AssocState {
@@ -265,7 +443,9 @@ mod platform {
             .and_then(|mut b| b.remove(mime))
         {
             // Restore the previous default if we recorded one.
-            let _ = Command::new("xdg-mime").args(["default", &prev, mime]).status();
+            let _ = Command::new("xdg-mime")
+                .args(["default", &prev, mime])
+                .status();
         }
         Ok(())
     }
@@ -299,10 +479,7 @@ mod platform {
             contentType: CFStringRef,
             role: u32,
         ) -> CFStringRef;
-        fn LSCopyAllRoleHandlersForContentType(
-            contentType: CFStringRef,
-            role: u32,
-        ) -> CFArrayRef;
+        fn LSCopyAllRoleHandlersForContentType(contentType: CFStringRef, role: u32) -> CFArrayRef;
         fn LSSetDefaultRoleHandlerForContentType(
             contentType: CFStringRef,
             role: u32,
@@ -320,7 +497,8 @@ mod platform {
         let bid = bundle_id();
 
         let is_default = unsafe {
-            let def = LSCopyDefaultRoleHandlerForContentType(uti_cf.as_concrete_TypeRef(), ROLE_VIEWER);
+            let def =
+                LSCopyDefaultRoleHandlerForContentType(uti_cf.as_concrete_TypeRef(), ROLE_VIEWER);
             if def.is_null() {
                 Some(false)
             } else {
@@ -330,11 +508,13 @@ mod platform {
         };
 
         let is_registered = unsafe {
-            let all = LSCopyAllRoleHandlersForContentType(uti_cf.as_concrete_TypeRef(), ROLE_VIEWER);
+            let all =
+                LSCopyAllRoleHandlersForContentType(uti_cf.as_concrete_TypeRef(), ROLE_VIEWER);
             if all.is_null() {
                 is_default.unwrap_or(false)
             } else {
-                let arr = core_foundation::array::CFArray::<CFStringRef>::wrap_under_create_rule(all);
+                let arr =
+                    core_foundation::array::CFArray::<CFStringRef>::wrap_under_create_rule(all);
                 (0..arr.len()).any(|i| {
                     let item = unsafe { arr.get_unchecked(i) };
                     let s = CFString::wrap_under_get_rule(*item);
@@ -367,7 +547,9 @@ mod platform {
                 )
             };
             if status != 0 {
-                return Err(format!("LSSetDefaultRoleHandlerForContentType failed: {status}"));
+                return Err(format!(
+                    "LSSetDefaultRoleHandlerForContentType failed: {status}"
+                ));
             }
         } else {
             // There is no supported way to "unset" a default on modern macOS.
@@ -435,7 +617,8 @@ mod platform {
             "/v",
             &pid,
         ]);
-        let registered = out.status.success() && String::from_utf8_lossy(&out.stdout).contains(&pid);
+        let registered =
+            out.status.success() && String::from_utf8_lossy(&out.stdout).contains(&pid);
         // Windows does not expose the default handler reliably, so we only
         // report whether we are registered as a handler.
         AssocState {
@@ -457,7 +640,16 @@ mod platform {
         if enabled {
             // 1) ProgID -> open command.
             let prog_key = format!(r"HKCU\Software\Classes\{pid}");
-            let _ = reg(&["add", &prog_key, "/ve", "/t", "REG_SZ", "/d", "GeeZipX Archive", "/f"]);
+            let _ = reg(&[
+                "add",
+                &prog_key,
+                "/ve",
+                "/t",
+                "REG_SZ",
+                "/d",
+                "GeeZipX Archive",
+                "/f",
+            ]);
             let cmd_key = format!(r"{prog_key}\shell\open\command");
             let cmd = format!("\"{exe}\" \"%1\"");
             let _ = reg(&["add", &cmd_key, "/ve", "/t", "REG_SZ", "/d", &cmd, "/f"]);
@@ -479,7 +671,17 @@ mod platform {
                 &pid,
                 "/f",
             ]);
-            let _ = reg(&["add", cap_key, "/v", "ApplicationName", "/t", "REG_SZ", "/d", "GeeZipX", "/f"]);
+            let _ = reg(&[
+                "add",
+                cap_key,
+                "/v",
+                "ApplicationName",
+                "/t",
+                "REG_SZ",
+                "/d",
+                "GeeZipX",
+                "/f",
+            ]);
             let _ = reg(&[
                 "add",
                 cap_key,
