@@ -143,7 +143,7 @@ GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开�
 - **Feature gate**：每种格式按独立 feature 引入，用户可按需编译。
 - **优先级**：由用户需求与社区反馈驱动，不做全格式一次性覆盖。
 |- **读/写分离**：一种格式可先实现只读（如当前 RAR），写入能力后续补充。7z 当前已交付基础写入与 AES-256 密码写入 MVP。ZPAQ 已从只读升级为完整读写（压缩级别 1-5）。
-- **历史格式**：ARJ、ACE、ARC（via unarc-rs）、ALZ（via unalz-rs）、UU/UUE/XXE（自实现）、Z/Unix compress（via unarc-rs）等历史/专有格式已通过适配器层接入；LZH/LHA 的 lh5-lh7 compressed write 因 oxiarc-lzhuf（LSB-first）与 delharc/LZH 标准（MSB-first）bit 顺序不兼容，当前仅 lh0 store 模式写入可互通（读端全部方法支持）。
+- **历史格式**：ARJ、ACE、ARC（via unarc-rs）、ALZ（via unalz-rs）、UU/UUE/XXE（自实现）、Z/Unix compress（via unarc-rs）等历史/专有格式已通过适配器层接入；LZH/LHA 的 lh5-lh7 compressed write 已通过升级 oxiarc-lzhuf ≥ v0.3.5（使用 MSB-first 标准位填充）修复，当前 lh0-lh7 压缩写入均与 delharc/LZH 标准互通。
 |- **Journaling 格式**：ZPAQ 当前已升级为完整读写（压缩级别 1-5）；其追加/版本化写入路径与现有"从零创建归档"模型不同，需单独架构设计。
 
 ## 7. 功能需求（Feature Requirements）
