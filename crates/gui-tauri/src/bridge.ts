@@ -12,6 +12,27 @@ import { revealItemInDir, openPath } from "@tauri-apps/plugin-opener";
 // Types (mirrors of Rust #[derive(Serialize)] structs)
 // ---------------------------------------------------------------------------
 
+/** One bindable archive format returned by `get_file_associations`. */
+export interface AssocItem {
+  ext: string;
+  exts: string[];
+  mime: string;
+  name: string;
+  description: string;
+  /** Whether GeeZipX is the OS default handler. `null` = OS does not expose it (Windows). */
+  is_default: boolean | null;
+  /** Whether GeeZipX is registered as a handler at all. */
+  is_registered: boolean;
+}
+
+/** Result of `get_file_associations`. */
+export interface AssociationsResult {
+  platform: string;
+  /** Whether toggling can make GeeZipX the OS default directly (false on Windows). */
+  can_set_default: boolean;
+  items: AssocItem[];
+}
+
 /** Information about a single archive/compression format. */
 export interface FormatInfo {
   name: string;
@@ -172,6 +193,21 @@ export async function cancelTask(taskId: string): Promise<void> {
 /** Retrieve pending archive paths received via file association / open-with. */
 export async function getOpenedArchives(): Promise<string[]> {
   return invoke<string[]>("get_opened_archives");
+}
+
+/** Return the list of bindable archive formats and their current OS binding state. */
+export async function getFileAssociations(): Promise<AssociationsResult> {
+  return invoke<AssociationsResult>("get_file_associations");
+}
+
+/** Enable or disable GeeZipX as the handler/default for the given extension. */
+export async function setFileAssociation(ext: string, enabled: boolean): Promise<void> {
+  return invoke<void>("set_file_association", { ext, enabled });
+}
+
+/** Open the OS "Default Apps" settings page (mainly needed on Windows). */
+export async function openAssociationSettings(ext?: string): Promise<void> {
+  return invoke<void>("open_association_settings", { ext: ext ?? null });
 }
 
 /** Selectively extract specific entries from an archive. */

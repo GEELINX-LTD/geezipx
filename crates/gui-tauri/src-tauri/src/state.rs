@@ -17,6 +17,9 @@ pub struct AppState {
     /// Archive file paths received via file association / open-with.
     /// The frontend pulls these on startup via `get_opened_archives`.
     pub pending_archives: Mutex<Vec<String>>,
+    /// Previous OS default handler per MIME type, captured when the user binds a
+    /// format on Linux so we can restore it on unbind.
+    pub assoc_backup: Mutex<HashMap<String, String>>,
 }
 
 impl Default for AppState {
@@ -31,6 +34,7 @@ impl AppState {
         Self {
             cancel_tokens: Mutex::new(HashMap::new()),
             pending_archives: Mutex::new(Vec::new()),
+            assoc_backup: Mutex::new(HashMap::new()),
         }
     }
 }

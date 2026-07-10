@@ -46,6 +46,9 @@ pub fn run() {
         .manage(state::AppState::new())
         .invoke_handler(tauri::generate_handler![
             commands::formats::get_formats,
+            commands::associations::get_file_associations,
+            commands::associations::set_file_association,
+            commands::associations::open_association_settings,
             commands::list::list_archive,
             commands::test::test_archive,
             commands::extract::extract_archive,

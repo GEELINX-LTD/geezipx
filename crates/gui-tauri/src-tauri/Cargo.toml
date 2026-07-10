@@ -30,6 +30,11 @@ rar = ["geezipx-core/rar"]
 zpaq = ["geezipx-core/zpaq"]
 wim = ["geezipx-core/wim"]
 
+# macOS Launch Services FFI (used by commands/associations.rs).
+[target.'cfg(target_os = "macos")'.dependencies]
+core-foundation = "0.10"
+core-foundation-sys = "0.8"
+
 [dev-dependencies]
 zpaq_rs = "1.0"
 tempfile = "3"

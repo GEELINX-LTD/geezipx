@@ -156,6 +156,17 @@
       "light": "Light",
       "dark": "Dark"
     },
+    "fileAssociations": {
+      "label": "File Associations",
+      "help": "Bind archive formats so the OS opens them in GeeZipX by default. Toggle a format on, then double-click a file to open it here.",
+      "windowsNote": "Windows does not let an app set itself as the default handler. Enable a format, then click \"Set as default\" to finish in System Settings.",
+      "default": "Default app",
+      "registered": "Registered",
+      "notBound": "Not bound",
+      "bind": "Bind",
+      "setDefault": "Set as default",
+      "openSettings": "Open system settings"
+    },
     "reset": "Reset to defaults",
     "dirty": "Unsaved changes",
     "unsavedConfirm": "Settings have not been saved. Leave and discard changes?",

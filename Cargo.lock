@@ -2076,6 +2076,8 @@ dependencies = [
 name = "geezipx-gui"
 version = "0.6.0"
 dependencies = [
+ "core-foundation",
+ "core-foundation-sys",
  "geezipx-core",
  "serde",
  "serde_json",

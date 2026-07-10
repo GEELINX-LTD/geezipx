@@ -4,6 +4,7 @@
 //! and return a serialisable result.  No compression logic lives here.
 
 pub mod app;
+pub mod associations;
 pub mod cancel;
 pub mod compress;
 pub mod drag;

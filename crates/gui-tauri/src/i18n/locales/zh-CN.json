@@ -156,6 +156,17 @@
       "light": "浅色",
       "dark": "深色"
     },
+    "fileAssociations": {
+      "label": "文件关联",
+      "help": "绑定归档格式，使操作系统默认用 GeeZipX 打开它们。开启某个格式后，双击文件即可在此打开。",
+      "windowsNote": "Windows 不允许程序自行设为默认打开程序。请先开启某个格式，再点击“设为默认”在系统设置中完成绑定。",
+      "default": "默认程序",
+      "registered": "已注册",
+      "notBound": "未绑定",
+      "bind": "绑定",
+      "setDefault": "设为默认",
+      "openSettings": "打开系统设置"
+    },
     "reset": "恢复默认",
     "dirty": "有未保存的更改",
     "unsavedConfirm": "设置尚未保存，确定要离开并放弃更改吗？",

@@ -39,89 +39,288 @@
     ],
     "fileAssociations": [
       {
-        "ext": [".zip"],
-        "description": "ZIP Archive",
-        "mimeType": "application/zip"
+        "ext": [".zip", ".zipx"],
+        "name": "ZIP Archive",
+        "description": "ZIP / ZIPX Archive",
+        "mimeType": "application/zip",
+        "role": "Viewer",
+        "rank": "Alternate"
       },
       {
         "ext": [".tar"],
+        "name": "TAR Archive",
         "description": "TAR Archive",
-        "mimeType": "application/x-tar"
+        "mimeType": "application/x-tar",
+        "role": "Viewer",
+        "rank": "Alternate"
       },
       {
         "ext": [".gz"],
+        "name": "GZip Compressed File",
         "description": "GZip Compressed File",
-        "mimeType": "application/gzip"
+        "mimeType": "application/gzip",
+        "role": "Viewer",
+        "rank": "Alternate"
       },
       {
-        "ext": [".tgz"],
+        "ext": [".tar.gz", ".tgz"],
+        "name": "GZip-Compressed TAR Archive",
         "description": "GZip-Compressed TAR Archive",
-        "mimeType": "application/gzip"
+        "mimeType": "application/gzip",
+        "role": "Viewer",
+        "rank": "Alternate",
+        "exportedType": {
+          "identifier": "com.geelinx.geezipx.targz",
+          "conformsTo": ["public.data", "public.archive"]
+        }
       },
       {
-        "ext": [".tar.gz"],
-        "description": "GZip-Compressed TAR Archive",
-        "mimeType": "application/gzip"
+        "ext": [".bz2"],
+        "name": "BZip2 Compressed File",
+        "description": "BZip2 Compressed File",
+        "mimeType": "application/x-bzip2",
+        "role": "Viewer",
+        "rank": "Alternate"
+      },
+      {
+        "ext": [".tar.bz2", ".tbz", ".tbz2"],
+        "name": "BZip2-Compressed TAR Archive",
+        "description": "BZip2-Compressed TAR Archive",
+        "mimeType": "application/x-bzip2",
+        "role": "Viewer",
+        "rank": "Alternate",
+        "exportedType": {
+          "identifier": "com.geelinx.geezipx.tarbz2",
+          "conformsTo": ["public.data", "public.archive"]
+        }
+      },
+      {
+        "ext": [".br"],
+        "name": "Brotli Compressed File",
+        "description": "Brotli Compressed File",
+        "mimeType": "application/x-brotli",
+        "role": "Viewer",
+        "rank": "Alternate",
+        "exportedType": {
+          "identifier": "com.geelinx.geezipx.brotli",
+          "conformsTo": ["public.data"]
+        }
+      },
+      {
+        "ext": [".tar.br", ".tbr"],
+        "name": "Brotli-Compressed TAR Archive",
+        "description": "Brotli-Compressed TAR Archive",
+        "mimeType": "application/x-brotli",
+        "role": "Viewer",
+        "rank": "Alternate",
+        "exportedType": {
+          "identifier": "com.geelinx.geezipx.tarbr",
+          "conformsTo": ["public.data", "public.archive"]
+        }
+      },
+      {
+        "ext": [".lz4"],
+        "name": "LZ4 Compressed File",
+        "description": "LZ4 Compressed File",
+        "mimeType": "application/x-lz4",
+        "role": "Viewer",
+        "rank": "Alternate",
+        "exportedType": {
+          "identifier": "com.geelinx.geezipx.lz4",
+          "conformsTo": ["public.data"]
+        }
+      },
+      {
+        "ext": [".tar.lz4"],
+        "name": "LZ4-Compressed TAR Archive",
+        "description": "LZ4-Compressed TAR Archive",
+        "mimeType": "application/x-lz4",
+        "role": "Viewer",
+        "rank": "Alternate",
+        "exportedType": {
+          "identifier": "com.geelinx.geezipx.tarlz4",
+          "conformsTo": ["public.data", "public.archive"]
+        }
       },
       {
         "ext": [".zst"],
+        "name": "Zstandard Compressed File",
         "description": "Zstandard Compressed File",
-        "mimeType": "application/zstd"
+        "mimeType": "application/zstd",
+        "role": "Viewer",
+        "rank": "Alternate",
+        "exportedType": {
+          "identifier": "com.geelinx.geezipx.zstd",
+          "conformsTo": ["public.data"]
+        }
       },
       {
-        "ext": [".tzst"],
+        "ext": [".tar.zst", ".tzst"],
+        "name": "Zstandard-Compressed TAR Archive",
         "description": "Zstandard-Compressed TAR Archive",
-        "mimeType": "application/zstd"
-      },
-      {
-        "ext": [".tar.zst"],
-        "description": "Zstandard-Compressed TAR Archive",
-        "mimeType": "application/zstd"
+        "mimeType": "application/zstd",
+        "role": "Viewer",
+        "rank": "Alternate",
+        "exportedType": {
+          "identifier": "com.geelinx.geezipx.tarzst",
+          "conformsTo": ["public.data", "public.archive"]
+        }
       },
       {
         "ext": [".xz"],
+        "name": "XZ Compressed File",
         "description": "XZ Compressed File",
-        "mimeType": "application/x-xz"
+        "mimeType": "application/x-xz",
+        "role": "Viewer",
+        "rank": "Alternate",
+        "exportedType": {
+          "identifier": "com.geelinx.geezipx.xz",
+          "conformsTo": ["public.data"]
+        }
       },
       {
-        "ext": [".txz"],
+        "ext": [".tar.xz", ".txz"],
+        "name": "XZ-Compressed TAR Archive",
         "description": "XZ-Compressed TAR Archive",
-        "mimeType": "application/x-xz"
+        "mimeType": "application/x-xz",
+        "role": "Viewer",
+        "rank": "Alternate",
+        "exportedType": {
+          "identifier": "com.geelinx.geezipx.tarxz",
+          "conformsTo": ["public.data", "public.archive"]
+        }
       },
       {
-        "ext": [".tar.xz"],
-        "description": "XZ-Compressed TAR Archive",
-        "mimeType": "application/x-xz"
+        "ext": [".lzma"],
+        "name": "LZMA Compressed File",
+        "description": "LZMA Compressed File",
+        "mimeType": "application/x-lzma",
+        "role": "Viewer",
+        "rank": "Alternate",
+        "exportedType": {
+          "identifier": "com.geelinx.geezipx.lzma",
+          "conformsTo": ["public.data"]
+        }
+      },
+      {
+        "ext": [".lz"],
+        "name": "LZ Compressed File",
+        "description": "LZ Compressed File",
+        "mimeType": "application/x-lzip",
+        "role": "Viewer",
+        "rank": "Alternate",
+        "exportedType": {
+          "identifier": "com.geelinx.geezipx.lz",
+          "conformsTo": ["public.data"]
+        }
       },
       {
         "ext": [".7z"],
+        "name": "7-Zip Archive",
         "description": "7-Zip Archive",
-        "mimeType": "application/x-7z-compressed"
+        "mimeType": "application/x-7z-compressed",
+        "role": "Viewer",
+        "rank": "Alternate",
+        "exportedType": {
+          "identifier": "com.geelinx.geezipx.sevenzip",
+          "conformsTo": ["public.data", "public.archive"]
+        }
       },
       {
         "ext": [".rar"],
+        "name": "RAR Archive",
         "description": "RAR Archive",
-        "mimeType": "application/vnd.rar"
+        "mimeType": "application/vnd.rar",
+        "role": "Viewer",
+        "rank": "Alternate",
+        "exportedType": {
+          "identifier": "com.geelinx.geezipx.rar",
+          "conformsTo": ["public.data", "public.archive"]
+        }
       },
       {
         "ext": [".cab"],
+        "name": "Microsoft Cabinet Archive",
         "description": "Microsoft Cabinet Archive",
-        "mimeType": "application/vnd.ms-cab-compressed"
+        "mimeType": "application/vnd.ms-cab-compressed",
+        "role": "Viewer",
+        "rank": "Alternate",
+        "exportedType": {
+          "identifier": "com.geelinx.geezipx.cab",
+          "conformsTo": ["public.data", "public.archive"]
+        }
       },
       {
         "ext": [".asar"],
+        "name": "Electron ASAR Archive",
         "description": "Electron ASAR Archive",
-        "mimeType": "application/octet-stream"
+        "mimeType": "application/octet-stream",
+        "role": "Viewer",
+        "rank": "Alternate",
+        "exportedType": {
+          "identifier": "com.geelinx.geezipx.asar",
+          "conformsTo": ["public.data", "public.archive"]
+        }
       },
       {
         "ext": [".deb"],
+        "name": "Debian Package",
         "description": "Debian Package",
-        "mimeType": "application/vnd.debian.binary-package"
+        "mimeType": "application/vnd.debian.binary-package",
+        "role": "Viewer",
+        "rank": "Alternate",
+        "exportedType": {
+          "identifier": "com.geelinx.geezipx.deb",
+          "conformsTo": ["public.data", "public.archive"]
+        }
       },
       {
         "ext": [".cpio"],
+        "name": "CPIO Archive",
         "description": "CPIO Archive",
-        "mimeType": "application/x-cpio"
+        "mimeType": "application/x-cpio",
+        "role": "Viewer",
+        "rank": "Alternate",
+        "exportedType": {
+          "identifier": "com.geelinx.geezipx.cpio",
+          "conformsTo": ["public.data", "public.archive"]
+        }
+      },
+      {
+        "ext": [".iso"],
+        "name": "ISO Disc Image",
+        "description": "ISO 9660 Disc Image",
+        "mimeType": "application/x-iso9660-image",
+        "role": "Viewer",
+        "rank": "Alternate",
+        "exportedType": {
+          "identifier": "com.geelinx.geezipx.iso",
+          "conformsTo": ["public.data", "public.disk-image"]
+        }
+      },
+      {
+        "ext": [".udf"],
+        "name": "UDF Disc Image",
+        "description": "UDF Disc Image",
+        "mimeType": "application/x-udf",
+        "role": "Viewer",
+        "rank": "Alternate",
+        "exportedType": {
+          "identifier": "com.geelinx.geezipx.udf",
+          "conformsTo": ["public.data", "public.disk-image"]
+        }
+      },
+      {
+        "ext": [".lzh", ".lha"],
+        "name": "LZH Archive",
+        "description": "LZH / LHA Archive",
+        "mimeType": "application/x-lzh",
+        "role": "Viewer",
+        "rank": "Alternate",
+        "exportedType": {
+          "identifier": "com.geelinx.geezipx.lzh",
+          "conformsTo": ["public.data", "public.archive"]
+        }
       }
     ]
   }

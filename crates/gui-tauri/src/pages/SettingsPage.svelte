@@ -3,10 +3,10 @@
   import { settingsGuard } from '../stores/settingsGuard.svelte';
   import { localeStore } from '../stores/localeStore.svelte';
   import type { GeeZipXSettings } from '../bridge';
-  import { getFormats, type FormatInfo } from '../bridge';
+  import { getFormats, getFileAssociations, setFileAssociation, openAssociationSettings, type FormatInfo, type AssociationsResult } from '../bridge';
   import { open } from '@tauri-apps/plugin-dialog';
 
-  type Tab = 'general' | 'compression' | 'appearance';
+  type Tab = 'general' | 'compression' | 'appearance' | 'associations';
 
   let activeTab = $state<Tab>('general');
   let formData = $state<GeeZipXSettings>(settingsStore.DEFAULTS);
@@ -14,6 +14,8 @@
   let loaded = $state(false);
   let saved = $state(false);
   let formats = $state<FormatInfo[]>([]);
+  let associations = $state<AssociationsResult | null>(null);
+  let assocBusy = $state<Record<string, boolean>>({});
   let levelInput = $state('');
 
   /** True when the current form differs from the last loaded/saved snapshot. */
@@ -28,11 +30,13 @@
     Promise.all([
       settingsStore.loadAll(),
       getFormats(),
-    ]).then(([d, f]) => {
+      getFileAssociations().catch(() => null),
+    ]).then(([d, f, a]) => {
       formData = { ...d };
       levelInput = d.default_level != null ? String(d.default_level) : '';
       original = { ...d };
       formats = f;
+      associations = a;
       loaded = true;
     });
   });
@@ -122,6 +126,26 @@
   function handleReset() {
     formData = { ...settingsStore.DEFAULTS };
   }
+
+  async function toggleAssociation(item: AssocItem, enabled: boolean) {
+    assocBusy = { ...assocBusy, [item.ext]: true };
+    try {
+      await setFileAssociation(item.ext, enabled);
+      associations = await getFileAssociations();
+    } catch (e) {
+      console.error('setFileAssociation failed', e);
+    } finally {
+      assocBusy = { ...assocBusy, [item.ext]: false };
+    }
+  }
+
+  async function openAssocSettings(ext?: string) {
+    try {
+      await openAssociationSettings(ext);
+    } catch (e) {
+      console.error('openAssociationSettings failed', e);
+    }
+  }
 </script>
 
 <div class="page">
@@ -140,6 +164,9 @@
       </button>
       <button class="tab-btn" class:active={activeTab === 'appearance'} onclick={() => (activeTab = 'appearance')}>
         {localeStore.t('settings.appearance')}
+      </button>
+      <button class="tab-btn" class:active={activeTab === 'associations'} onclick={() => (activeTab = 'associations')}>
+        {localeStore.t('settings.fileAssociations.label')}
       </button>
     </nav>
 
@@ -346,6 +373,63 @@
             </label>
           </div>
         </fieldset>
+      {:else if activeTab === 'associations'}
+        {#if !associations}
+          <p class="loading">{localeStore.t('common.loading')}</p>
+        {:else}
+          <p class="field-help">{localeStore.t('settings.fileAssociations.help')}</p>
+
+          {#if !associations.can_set_default}
+            <div class="notice">
+              <p>{localeStore.t('settings.fileAssociations.windowsNote')}</p>
+              <button class="btn-secondary" onclick={() => openAssocSettings()}>
+                {localeStore.t('settings.fileAssociations.openSettings')}
+              </button>
+            </div>
+          {/if}
+
+          <div class="assoc-list">
+            {#each associations.items as item (item.ext)}
+              {@const bound = item.is_default ?? item.is_registered}
+              <div class="assoc-row">
+                <div class="assoc-info">
+                  <div class="assoc-name">
+                    {item.name}
+                    {#each item.exts as e}
+                      <span class="chip">{e}</span>
+                    {/each}
+                  </div>
+                  <div class="assoc-desc">{item.description}</div>
+                  <div class="assoc-status">
+                    {#if item.is_default === true}
+                      <span class="badge badge-default">{localeStore.t('settings.fileAssociations.default')}</span>
+                    {:else if item.is_registered}
+                      <span class="badge badge-reg">{localeStore.t('settings.fileAssociations.registered')}</span>
+                    {:else}
+                      <span class="badge badge-none">{localeStore.t('settings.fileAssociations.notBound')}</span>
+                    {/if}
+                  </div>
+                </div>
+                <div class="assoc-actions">
+                  <label class="checkbox-row">
+                    <input
+                      type="checkbox"
+                      checked={bound}
+                      disabled={assocBusy[item.ext]}
+                      onchange={(e) => toggleAssociation(item, (e.currentTarget as HTMLInputElement).checked)}
+                    />
+                    <span>{localeStore.t('settings.fileAssociations.bind')}</span>
+                  </label>
+                  {#if !associations.can_set_default}
+                    <button class="btn-tertiary" onclick={() => openAssocSettings(item.ext)}>
+                      {localeStore.t('settings.fileAssociations.setDefault')}
+                    </button>
+                  {/if}
+                </div>
+              </div>
+            {/each}
+          </div>
+        {/if}
       {/if}
     </div>
 
@@ -583,5 +667,102 @@
   .btn-tertiary:disabled {
     opacity: 0.4;
     cursor: not-allowed;
+  }
+
+  /* --- File associations tab --- */
+  .notice {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    padding: var(--space-3);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    background: var(--color-surface-alt);
+    margin-bottom: var(--space-4);
+  }
+
+  .notice p {
+    font-size: var(--text-xs);
+    color: var(--color-text-muted);
+    margin: 0;
+  }
+
+  .assoc-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+
+  .assoc-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-4);
+    padding: var(--space-3);
+    border: 1px solid var(--color-border-light);
+    border-radius: var(--radius-md);
+  }
+
+  .assoc-info {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+  }
+
+  .assoc-name {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    font-size: var(--text-sm);
+    font-weight: 600;
+    color: var(--color-text);
+  }
+
+  .chip {
+    font-size: var(--text-xs);
+    font-weight: 500;
+    color: var(--color-text-secondary);
+    background: var(--color-surface-alt);
+    border: 1px solid var(--color-border-light);
+    border-radius: var(--radius-sm);
+    padding: 1px var(--space-2);
+  }
+
+  .assoc-desc {
+    font-size: var(--text-xs);
+    color: var(--color-text-muted);
+  }
+
+  .assoc-status {
+    display: flex;
+    gap: var(--space-2);
+  }
+
+  .badge {
+    font-size: var(--text-xs);
+    padding: 1px var(--space-2);
+    border-radius: var(--radius-sm);
+    font-weight: 500;
+  }
+
+  .badge-default {
+    color: var(--color-success, #2f855a);
+    background: color-mix(in srgb, var(--color-success, #2f855a) 15%, transparent);
+  }
+
+  .badge-reg {
+    color: var(--color-warning, #b7791f);
+    background: color-mix(in srgb, var(--color-warning, #b7791f) 15%, transparent);
+  }
+
+  .badge-none {
+    color: var(--color-text-muted);
+    background: var(--color-surface-alt);
+  }
+
+  .assoc-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
   }
 </style>
