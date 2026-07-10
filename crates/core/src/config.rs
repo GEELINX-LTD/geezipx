@@ -69,7 +69,6 @@ impl std::fmt::Debug for CompressOptions {
     }
 }
 
-
 impl CompressOptions {
     /// Return the effective number of worker threads.
     ///
