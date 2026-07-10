@@ -33,7 +33,7 @@ use sevenz_rust2::{
         PpmdOptions,
     },
     ArchiveEntry as SevenZArchiveEntry, ArchiveWriter as SevenZArchiveWriter, EncoderConfiguration,
-    EncoderMethod, Password,
+    EncoderMethod, Password, SourceReader,
 };
 
 use crate::archive::{
@@ -146,6 +146,8 @@ pub struct SevenZipWriter<W: Write + Seek> {
     compression_jobs: u32,
     method_string: String,
     encrypt_filenames: bool,
+    solid: bool,
+    solid_buffer: Vec<(SevenZArchiveEntry, Vec<u8>)>,
 }
 
 impl<W: Write + Seek> fmt::Debug for SevenZipWriter<W> {
@@ -211,6 +213,8 @@ impl<W: Write + Seek> SevenZipWriter<W> {
             compression_jobs: jobs,
             method_string: method.to_string(),
             encrypt_filenames,
+            solid: seven_z_opts.solid.unwrap_or(false),
+            solid_buffer: Vec::new(),
         })
     }
 
@@ -280,10 +284,26 @@ impl<W: Write + Seek> SevenZipWriter<W> {
     /// Finalise the 7z archive and return the inner writer alongside the
     /// total number of bytes written.
     pub fn finalize(mut self) -> GeeZipResult<(u64, W)> {
-        let writer = self.inner.take().ok_or_else(|| GeeZipError::Format {
+        let mut writer = self.inner.take().ok_or_else(|| GeeZipError::Format {
             message: "7z writer already finalised".into(),
             format: ArchiveFormat::SevenZip,
         })?;
+
+        // Flush solid buffer: push all buffered entries as one solid block.
+        if self.solid && !self.solid_buffer.is_empty() {
+            let (entries, readers): (Vec<_>, Vec<_>) = self
+                .solid_buffer
+                .into_iter()
+                .map(|(entry, data)| {
+                    let reader: SourceReader<_> = SourceReader::new(std::io::Cursor::new(data));
+                    (entry, reader)
+                })
+                .unzip();
+            writer
+                .push_archive_entries(entries, readers)
+                .map_err(convert_7z_error)?;
+        }
+
         let mut writer = writer
             .finish()
             .map_err(|e| GeeZipError::io(e, "finalising 7z archive"))?;
@@ -304,6 +324,18 @@ impl<W: Write + Seek + Send> ArchiveWriter for SevenZipWriter<W> {
             message: format!("non-UTF-8 path: {}", path.display()),
             format: ArchiveFormat::SevenZip,
         })?;
+
+        if self.solid {
+            let mut data = Vec::new();
+            reader
+                .read_to_end(&mut data)
+                .map_err(|e| GeeZipError::io(e, format!("reading entry '{}'", name)))?;
+            let mut entry = SevenZArchiveEntry::new_file(name);
+            entry.size = data.len() as u64;
+            self.solid_buffer.push((entry, data));
+            self.entries_written = true;
+            return Ok(());
+        }
 
         let writer = self.inner.as_mut().ok_or_else(|| GeeZipError::Format {
             message: "7z writer not initialised (already consumed)".into(),
@@ -1406,5 +1438,82 @@ mod tests {
             reader.extract(&entries[0], &mut out).unwrap();
             assert_eq!(out, content, "level {} content mismatch", level);
         }
+    }
+
+    #[test]
+    fn seven_zip_writer_solid_roundtrip() {
+        let options = CompressOptions {
+            level: Some(6),
+            ..Default::default()
+        };
+        let sz_opts = SevenZipOptions {
+            solid: Some(true),
+            ..Default::default()
+        };
+        let mut buf = std::io::Cursor::new(Vec::new());
+        {
+            let mut writer = SevenZipWriter::new(&mut buf, &options, &sz_opts).unwrap();
+            writer
+                .add_entry_from_reader(Path::new("a.txt"), &mut "aaa".as_bytes())
+                .unwrap();
+            writer
+                .add_entry_from_reader(Path::new("b.txt"), &mut "bbb".as_bytes())
+                .unwrap();
+            Box::new(writer).finish().unwrap();
+        }
+        let archive = buf.into_inner();
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("test.7z");
+        std::fs::write(&path, &archive).unwrap();
+        let mut reader = SevenZipReader::new(&path);
+        let entries = reader.entries().unwrap();
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].path, "a.txt");
+        assert_eq!(entries[1].path, "b.txt");
+        let mut out = Vec::new();
+        reader.extract(&entries[0], &mut out).unwrap();
+        assert_eq!(out, b"aaa");
+        out.clear();
+        reader.extract(&entries[1], &mut out).unwrap();
+        assert_eq!(out, b"bbb");
+    }
+
+    #[test]
+    fn seven_zip_writer_solid_encrypted_roundtrip() {
+        let options = CompressOptions {
+            level: Some(6),
+            password: Some("test-pass".to_string()),
+            ..Default::default()
+        };
+        let sz_opts = SevenZipOptions {
+            solid: Some(true),
+            ..Default::default()
+        };
+        let mut buf = std::io::Cursor::new(Vec::new());
+        {
+            let mut writer = SevenZipWriter::new(&mut buf, &options, &sz_opts).unwrap();
+            writer.set_password("test-pass").unwrap();
+            writer
+                .add_entry_from_reader(Path::new("secret.txt"), &mut "encrypted".as_bytes())
+                .unwrap();
+            writer
+                .add_entry_from_reader(Path::new("secret2.txt"), &mut "more".as_bytes())
+                .unwrap();
+            Box::new(writer).finish().unwrap();
+        }
+        let archive = buf.into_inner();
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("test.7z");
+        std::fs::write(&path, &archive).unwrap();
+        let mut reader = SevenZipReader::new(&path);
+        reader.set_password("test-pass");
+        let entries = reader.entries().unwrap();
+        assert_eq!(entries.len(), 2);
+        let mut out = Vec::new();
+        reader.extract(&entries[0], &mut out).unwrap();
+        assert_eq!(out, b"encrypted");
+        out.clear();
+        reader.extract(&entries[1], &mut out).unwrap();
+        assert_eq!(out, b"more");
     }
 }

@@ -72,6 +72,7 @@ pub fn execute(
     dict_size: Option<&str>,
     encrypt_filenames: bool,
     no_encrypt_filenames: bool,
+    solid: bool,
 ) -> Result<()> {
     let compress_options = CompressOptions {
         level,
@@ -119,6 +120,7 @@ pub fn execute(
             method: seven_z_method.map(|s| s.to_string()),
             dictionary_size: dict_size_parsed,
             encrypt_filenames: encrypt_filenames_val,
+            solid: if solid { Some(true) } else { None },
         })
     } else if seven_z_method.is_some() || dict_size.is_some() {
         anyhow::bail!("--7z-method and --dict-size are only valid for 7z format; got '{format}'");

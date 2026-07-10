@@ -56,6 +56,10 @@ pub struct SevenZipOptions {
     /// If `true`, encrypt file names in addition to content.
     /// `None` = use default (encrypt when password is set).
     pub encrypt_filenames: Option<bool>,
+    /// If `true`, enable solid archive mode (all files compressed together
+    /// in one block for better compression ratios, especially for small files).
+    /// Default: `false` (non-solid, each file compressed independently).
+    pub solid: Option<bool>,
 }
 
 impl std::fmt::Debug for CompressOptions {

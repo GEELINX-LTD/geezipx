@@ -98,6 +98,11 @@ enum Commands {
         #[arg(long = "no-encrypt-filenames", action = clap::ArgAction::SetTrue, conflicts_with = "encrypt_filenames")]
         no_encrypt_filenames: bool,
 
+        /// Enable solid archive mode for 7z (compress all files together in one block).
+        /// Improves compression ratios, especially for many small files.
+        #[arg(long = "solid", action = clap::ArgAction::SetTrue)]
+        solid: bool,
+
         /// Read uncompressed data from stdin (single-stream and tar-based formats: gzip, bzip2, brotli, lz4, zstd, xz, lzma, tar.gz, tar.bz2, tar.br, tar.lz4, tar.zst, tar.xz)
         #[arg(long = "stdin")]
         stdin: bool,
@@ -249,6 +254,7 @@ fn run() -> anyhow::Result<()> {
             dict_size,
             encrypt_filenames,
             no_encrypt_filenames,
+            solid,
         } => {
             let password = common::resolve_password(password, password_file, password_stdin)?;
 
@@ -296,6 +302,7 @@ fn run() -> anyhow::Result<()> {
                 dict_size.as_deref(),
                 encrypt_filenames,
                 no_encrypt_filenames,
+                solid,
             )?
         }
         Commands::Decompress {

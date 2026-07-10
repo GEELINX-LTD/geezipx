@@ -6139,6 +6139,50 @@ fn compress_7z_with_password_stdin_roundtrip() {
 }
 
 #[test]
+fn compress_7z_solid_roundtrip() {
+    let td = TestDir::new();
+    td.write("a.txt", "aaaa");
+    td.write("b.txt", "bbbb");
+
+    let archive = td.join("solid.7z");
+    let out_dir = td.join("out");
+
+    geezipx()
+        .args([
+            "compress",
+            td.path().join("a.txt").to_str().unwrap(),
+            td.path().join("b.txt").to_str().unwrap(),
+            "-f",
+            "7z",
+            "--solid",
+            "-o",
+            archive.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    // Decompress and verify
+    geezipx()
+        .args([
+            "decompress",
+            archive.to_str().unwrap(),
+            "-o",
+            out_dir.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    assert_eq!(
+        std::fs::read_to_string(out_dir.join("a.txt")).unwrap(),
+        "aaaa"
+    );
+    assert_eq!(
+        std::fs::read_to_string(out_dir.join("b.txt")).unwrap(),
+        "bbbb"
+    );
+}
+
+#[test]
 fn list_7z_table_output() {
     let (_dir, archive) =
         create_7z_archive(&[("hello.txt", b"hello world"), ("data.bin", b"\x00\x01\x02")]);
