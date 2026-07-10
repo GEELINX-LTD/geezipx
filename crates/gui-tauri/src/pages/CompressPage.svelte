@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { open } from '@tauri-apps/plugin-dialog';
   import { save } from '@tauri-apps/plugin-dialog';
-  import { compressArchive, getFormats, type FormatInfo } from '../bridge';
+  import { compressArchive, getFormats, openFolder, type FormatInfo } from '../bridge';
   import { localeStore } from '../stores/localeStore.svelte';
   import { settingsStore } from '../stores/settingsStore.svelte';
   import type { CompressArchiveResult } from '../bridge';
@@ -18,6 +18,11 @@
   let formats = $state<FormatInfo[]>([]);
   let result: CompressArchiveResult | null = $state(null);
   let error = $state<string | null>(null);
+
+  // Settings-backed behavior (loaded below).
+  let defaultOutputDir: string | null = null;
+  let recursiveFlag = true;
+  let onComplete: 'nothing' | 'open_output' = 'nothing';
 
   let isRunning = $derived(taskStore.isVisible && taskStore.activeTask?.kind === 'compress');
 
@@ -35,9 +40,18 @@
   Promise.all([
     settingsStore.get('default_format'),
     settingsStore.get('default_level'),
-  ]).then(([fmt, lvl]) => {
+    settingsStore.get('default_output_dir'),
+    settingsStore.get('recursive'),
+    settingsStore.get('default_password'),
+    settingsStore.get('remember_password'),
+    settingsStore.get('on_complete'),
+  ]).then(([fmt, lvl, outDir, rec, pwd, remember, onComp]) => {
     if (fmt) format = fmt;
     if (lvl !== undefined && lvl !== null) level = lvl;
+    defaultOutputDir = outDir ?? null;
+    recursiveFlag = rec ?? true;
+    onComplete = onComp ?? 'nothing';
+    if (remember && pwd) password = pwd;
   });
 
   onMount(() => {
@@ -53,9 +67,11 @@
     const first = sourcePaths[0].replace(/\/$/, '');
     const base = first.split('/').pop() || 'archive';
     const ext = format === 'tar.gz' ? '.tar.gz' : `.${format}`;
-    // Use the source file's parent directory so the output is created next to the source
-    const parent = first.substring(0, first.lastIndexOf('/') + 1);
-    outputPath = parent + base + ext;
+    // Prefer the configured default output directory; fall back to the source's parent.
+    const baseDir = defaultOutputDir
+      ? defaultOutputDir.endsWith('/') ? defaultOutputDir : `${defaultOutputDir}/`
+      : first.substring(0, first.lastIndexOf('/') + 1) || './';
+    outputPath = baseDir + base + ext;
   }
 
   async function browseFiles() {
@@ -83,7 +99,10 @@
 
   async function browseOutput() {
     const ext = format === 'tar.gz' ? 'tar.gz' : format;
-    const selected = await save({ filters: [{ name: 'Archive', extensions: [ext] }] });
+    const selected = await save({
+      filters: [{ name: 'Archive', extensions: [ext] }],
+      defaultPath: defaultOutputDir ?? undefined,
+    });
     if (selected) outputPath = selected;
   }
 
@@ -96,18 +115,28 @@
     taskStore.startTask(taskId, 'compress');
 
     try {
+      // Only pass a password for formats that support encryption, otherwise the
+      // engine rejects the request.
+      const effectivePassword = showPassword ? (password || undefined) : undefined;
       const res = await compressArchive(
         sourcePaths,
         outputPath,
         format,
         level,
         undefined,
-        password || undefined,
+        effectivePassword,
+        recursiveFlag,
         taskId,
       );
       taskStore.finishTask('finished');
       result = res;
       appStore.addRecent(outputPath);
+      if (onComplete === 'open_output') {
+        const dir = outputPath.includes('/')
+          ? outputPath.substring(0, outputPath.lastIndexOf('/'))
+          : '.';
+        await openFolder(dir);
+      }
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       taskStore.finishTask('failed', msg);

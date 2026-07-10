@@ -54,6 +54,23 @@ Phase 2 (Desktop GUI via Tauri) is **now the active development focus**.
 
 See [`docs/GUI_MVP_PLAN.md`](docs/GUI_MVP_PLAN.md) for detailed planning and remaining tasks.
 
+### GUI Settings
+
+The desktop GUI exposes the following settings (persisted locally via the Tauri store):
+
+| Setting | Scope | Description |
+|---------|-------|-------------|
+| Language | General | UI language; applied immediately after saving. |
+| Default output directory | General | Base directory used to suggest compress/extract output paths. Empty = next to the source. |
+| Overwrite strategy | General | `Ask each time` (prompts before overwriting), `Skip`, or `Overwrite`. |
+| Behavior after completion | General | `Do nothing` or `Open output directory` after a successful task. |
+| Default format / level | Compression | Pre-selected archive format and compression level. |
+| Add directories recursively | Compression | When off, a folder source contributes only its immediate files (subfolders are skipped). |
+| Default password / Remember | Compression | Pre-fills encryption and extraction password fields. Password is stored in plaintext in the local settings file. |
+| Theme | Appearance | `Follow system`, `Light`, or `Dark`. |
+
+Unsaved setting changes are flagged; navigating away from the Settings tab prompts for confirmation before discarding.
+
 ## Install
 
 ### From source

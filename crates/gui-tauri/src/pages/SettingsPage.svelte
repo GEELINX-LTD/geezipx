@@ -1,5 +1,6 @@
 <script lang="ts">
   import { settingsStore } from '../stores/settingsStore.svelte';
+  import { settingsGuard } from '../stores/settingsGuard.svelte';
   import { localeStore } from '../stores/localeStore.svelte';
   import type { GeeZipXSettings } from '../bridge';
   import { getFormats, type FormatInfo } from '../bridge';
@@ -13,6 +14,14 @@
   let loaded = $state(false);
   let saved = $state(false);
   let formats = $state<FormatInfo[]>([]);
+
+  /** True when the current form differs from the last loaded/saved snapshot. */
+  let dirty = $derived(JSON.stringify(formData) !== JSON.stringify(original));
+
+  // Keep the shared guard in sync so TabBar can prompt before navigating away.
+  $effect(() => {
+    settingsGuard.dirty = dirty;
+  });
 
   $effect(() => {
     Promise.all([
@@ -37,9 +46,42 @@
     formData = { ...formData, default_output_dir: null };
   }
 
+  function onLevelInput(e: Event) {
+    const raw = (e.currentTarget as HTMLInputElement).value;
+    if (raw === '') {
+      formData = { ...formData, default_level: null };
+      return;
+    }
+    const n = parseInt(raw, 10);
+    formData = { ...formData, default_level: Number.isNaN(n) ? null : n };
+  }
+
   async function handleSave() {
+    // --- Validation / normalization ---
+    const next = { ...formData };
+
+    // Clamp compression level to the engine's accepted range.
+    if (next.default_level !== null) {
+      let lvl = Math.round(next.default_level);
+      if (lvl < 0) lvl = 0;
+      if (lvl > 22) lvl = 22;
+      next.default_level = lvl;
+    }
+
+    // Fall back to a valid format if the stored one was removed.
+    if (!formats.some((f) => f.can_compress && f.name === next.default_format)) {
+      next.default_format = 'zip';
+    }
+
+    // Do not persist the password unless the user opted in.
+    if (!next.remember_password) {
+      next.default_password = null;
+    }
+
+    formData = next;
     await settingsStore.saveAll(formData);
     original = { ...formData };
+    settingsGuard.dirty = false;
 
     // Apply theme immediately
     const d = document.documentElement;
@@ -62,6 +104,11 @@
 
   function handleCancel() {
     formData = { ...original };
+    settingsGuard.dirty = false;
+  }
+
+  function handleReset() {
+    formData = { ...settingsStore.DEFAULTS };
   }
 </script>
 
@@ -118,8 +165,8 @@
         </div>
 
         <!-- Overwrite strategy -->
-        <div class="field">
-          <span class="field-label">{localeStore.t('settings.overwriteStrategy.label')}</span>
+        <fieldset class="radio-fieldset">
+          <legend class="field-label">{localeStore.t('settings.overwriteStrategy.label')}</legend>
           <div class="radio-group">
             <label class="radio-item">
               <input
@@ -152,7 +199,35 @@
               <span>{localeStore.t('settings.overwriteStrategy.overwrite')}</span>
             </label>
           </div>
-        </div>
+        </fieldset>
+
+        <!-- On complete -->
+        <fieldset class="radio-fieldset">
+          <legend class="field-label">{localeStore.t('settings.onComplete.label')}</legend>
+          <p class="field-help">{localeStore.t('settings.onComplete.help')}</p>
+          <div class="radio-group">
+            <label class="radio-item">
+              <input
+                type="radio"
+                name="on-complete"
+                value="nothing"
+                checked={formData.on_complete === 'nothing'}
+                onchange={() => (formData = { ...formData, on_complete: 'nothing' })}
+              />
+              <span>{localeStore.t('settings.onComplete.nothing')}</span>
+            </label>
+            <label class="radio-item">
+              <input
+                type="radio"
+                name="on-complete"
+                value="open_output"
+                checked={formData.on_complete === 'open_output'}
+                onchange={() => (formData = { ...formData, on_complete: 'open_output' })}
+              />
+              <span>{localeStore.t('settings.onComplete.openOutput')}</span>
+            </label>
+          </div>
+        </fieldset>
 
       {:else if activeTab === 'compression'}
         <!-- Default format -->
@@ -180,10 +255,7 @@
             max="22"
             value={formData.default_level ?? ''}
             placeholder="Auto"
-            oninput={(e) => {
-              const v = (e.currentTarget as HTMLInputElement).value;
-              formData = { ...formData, default_level: v ? parseInt(v, 10) : null };
-            }}
+            oninput={onLevelInput}
           />
         </div>
 
@@ -199,10 +271,35 @@
           </label>
         </div>
 
+        <!-- Default password -->
+        <div class="field">
+          <label class="field-label" for="setting-password">{localeStore.t('settings.defaultPassword.label')}</label>
+          <p class="field-help">{localeStore.t('settings.defaultPassword.help')}</p>
+          <input
+            type="password"
+            id="setting-password"
+            placeholder="••••••"
+            value={formData.default_password ?? ''}
+            oninput={(e) => (formData = { ...formData, default_password: (e.currentTarget as HTMLInputElement).value || null })}
+          />
+        </div>
+
+        <!-- Remember password -->
+        <div class="field">
+          <label class="checkbox-row">
+            <input
+              type="checkbox"
+              checked={formData.remember_password}
+              onchange={(e) => (formData = { ...formData, remember_password: (e.currentTarget as HTMLInputElement).checked })}
+            />
+            <span>{localeStore.t('settings.rememberPassword.label')}</span>
+          </label>
+        </div>
+
       {:else if activeTab === 'appearance'}
         <!-- Theme -->
-        <div class="field">
-          <span class="field-label">{localeStore.t('settings.theme.label')}</span>
+        <fieldset class="radio-fieldset">
+          <legend class="field-label">{localeStore.t('settings.theme.label')}</legend>
           <div class="radio-group">
             <label class="radio-item">
               <input
@@ -235,17 +332,21 @@
               <span>{localeStore.t('settings.theme.dark')}</span>
             </label>
           </div>
-        </div>
+        </fieldset>
       {/if}
     </div>
 
     <!-- Action buttons -->
     <div class="action-bar">
+      {#if dirty}
+        <span class="dirty-msg">{localeStore.t('settings.dirty')}</span>
+      {/if}
       {#if saved}
         <span class="saved-msg">{localeStore.t('settings.saved')}</span>
       {/if}
-      <button class="btn-secondary" onclick={handleCancel}>{localeStore.t('settings.cancel')}</button>
-      <button class="btn-primary" onclick={handleSave}>{localeStore.t('settings.save')}</button>
+      <button class="btn-tertiary" onclick={handleReset} disabled={!dirty}>{localeStore.t('settings.reset')}</button>
+      <button class="btn-secondary" onclick={handleCancel} disabled={!dirty}>{localeStore.t('settings.cancel')}</button>
+      <button class="btn-primary" onclick={handleSave} disabled={!dirty}>{localeStore.t('settings.save')}</button>
     </div>
   {/if}
 </div>
@@ -343,6 +444,21 @@
     max-width: 120px;
   }
 
+  /* --- Radio fieldset --- */
+  .radio-fieldset {
+    border: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+  }
+
+  .radio-fieldset > legend {
+    padding: 0;
+    margin-bottom: var(--space-1);
+  }
+
   /* --- Radio group --- */
   .radio-group {
     display: flex;
@@ -392,6 +508,12 @@
     border-top: 1px solid var(--color-border-light);
   }
 
+  .dirty-msg {
+    font-size: var(--text-sm);
+    color: var(--color-warning, #b7791f);
+    margin-right: auto;
+  }
+
   .saved-msg {
     font-size: var(--text-sm);
     color: var(--color-success);
@@ -411,6 +533,11 @@
     background: var(--color-accent-hover);
   }
 
+  .btn-primary:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
   .btn-secondary {
     padding: var(--space-2) var(--space-3);
     background: var(--color-surface);
@@ -423,15 +550,25 @@
     background: var(--color-surface-alt);
   }
 
+  .btn-secondary:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
   .btn-tertiary {
-    padding: var(--space-1) var(--space-2);
+    padding: var(--space-2) var(--space-3);
     color: var(--color-text-muted);
     font-size: var(--text-sm);
     border-radius: var(--radius-sm);
   }
 
   .btn-tertiary:hover {
-    color: var(--color-error);
-    background: var(--color-error-bg);
+    color: var(--color-text);
+    background: var(--color-surface-alt);
+  }
+
+  .btn-tertiary:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
   }
 </style>

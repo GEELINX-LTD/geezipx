@@ -78,6 +78,7 @@ pub async fn compress_archive(
     level: Option<u32>,
     jobs: Option<u32>,
     password: Option<String>,
+    recursive: bool,
     task_id: Option<String>,
 ) -> Result<CompressArchiveResult, String> {
     if source_paths.is_empty() {
@@ -116,6 +117,7 @@ pub async fn compress_archive(
         let emitter = emitter.clone();
         let cancel_token = cancel_token.clone();
         let out = output.clone();
+        let recursive = recursive;
         spawn_blocking(move || {
             let task_result = (|| -> Result<CompressArchiveResult, String> {
                 let out_dir = match out.parent() {
@@ -135,7 +137,7 @@ pub async fn compress_archive(
                     }
                 }
                 let mut skipped = 0u64;
-                let entries = collect_gui_inputs(&sources, &cancel_token, &mut skipped)?;
+                let entries = collect_gui_inputs(&sources, &cancel_token, &mut skipped, recursive)?;
                 let total_input_bytes = entries
                     .iter()
                     .filter(|entry| !entry.is_dir)
@@ -352,11 +354,14 @@ fn parse_gui_compress_format(s: &str) -> Result<ArchiveFormat, String> {
         )),
     }
 }
-/// Collect source paths into `FileEntry` items, recursing into directories.
+/// Collect source paths into `FileEntry` items, recursing into directories
+/// when `recursive` is true. When `recursive` is false, a directory source only
+/// contributes its immediate files; subdirectories are skipped entirely.
 fn collect_gui_inputs(
     sources: &[PathBuf],
     cancel_token: &Arc<AtomicBool>,
     skipped: &mut u64,
+    recursive: bool,
 ) -> Result<Vec<FileEntry>, String> {
     let mut entries = Vec::new();
     for source in sources {
@@ -383,7 +388,7 @@ fn collect_gui_inputs(
                 is_dir: true,
                 size: 0,
             });
-            collect_dir_contents(&canonical, &prefix, &mut entries, cancel_token, skipped)?;
+            collect_dir_contents(&canonical, &prefix, &mut entries, cancel_token, skipped, recursive)?;
         } else if meta.is_file() {
             let name = canonical
                 .file_name()
@@ -401,13 +406,18 @@ fn collect_gui_inputs(
     }
     Ok(entries)
 }
-/// Recursively walk `dir` and append entries, prepending `prefix`.
+/// Walk `dir` and append entries, prepending `prefix`.
+///
+/// When `recursive` is false, subdirectories are not descended into (and are
+/// not emitted as empty directory entries either); only immediate files are
+/// collected. When `recursive` is true, the walk descends fully.
 fn collect_dir_contents(
     dir: &Path,
     prefix: &Path,
     entries: &mut Vec<FileEntry>,
     cancel_token: &Arc<AtomicBool>,
     skipped: &mut u64,
+    recursive: bool,
 ) -> Result<(), String> {
     let read_dir = fs::read_dir(dir)
         .map_err(|e| format!("Cannot read directory '{}': {}", dir.display(), e))?;
@@ -430,13 +440,16 @@ fn collect_dir_contents(
             continue;
         }
         if meta.is_dir() {
-            entries.push(FileEntry {
-                real_path: path.clone(),
-                archive_path: relative.clone(),
-                is_dir: true,
-                size: 0,
-            });
-            collect_dir_contents(&path, &relative, entries, cancel_token, skipped)?;
+            if recursive {
+                entries.push(FileEntry {
+                    real_path: path.clone(),
+                    archive_path: relative.clone(),
+                    is_dir: true,
+                    size: 0,
+                });
+                collect_dir_contents(&path, &relative, entries, cancel_token, skipped, recursive)?;
+            }
+            // When `recursive` is false, skip subdirectories entirely.
         } else if meta.is_file() {
             entries.push(FileEntry {
                 real_path: path,

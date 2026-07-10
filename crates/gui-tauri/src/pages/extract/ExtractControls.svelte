@@ -2,7 +2,7 @@
   import { open } from '@tauri-apps/plugin-dialog';
   import { localeStore } from '../../stores/localeStore.svelte';
   import { settingsStore } from '../../stores/settingsStore.svelte';
-  import { extractArchive, extractEntries, cancelTask } from '../../bridge';
+  import { extractArchive, extractEntries, openFolder, cancelTask } from '../../bridge';
   import { archiveStore } from '../../stores/archiveStore.svelte';
   import { taskStore } from '../../stores/taskStore.svelte';
 
@@ -10,20 +10,37 @@
   let lastArchivePath = '';
   let outputDir = $state('');
 
+  // Settings-backed behavior.
+  let defaultOutputDir = $state<string | null>(null);
+  let strategy = $state<'prompt' | 'skip' | 'overwrite'>('prompt');
+  let onComplete = $state<'nothing' | 'open_output'>('nothing');
+  let showPrompt = $state(false);
+  let pendingKind = $state<'all' | 'selected'>('all');
+
   $effect(() => {
     const current = archiveStore.archivePath;
     if (current && current !== lastArchivePath) {
       lastArchivePath = current;
-      outputDir = archiveStore.suggestedOutputDir;
+      // Prefer the configured default output directory; fall back to the suggestion.
+      outputDir = defaultOutputDir ?? archiveStore.suggestedOutputDir;
     }
   });
   let overwrite = $state(true);
 
   // Apply saved defaults
-  settingsStore.get('overwrite_strategy').then((strategy) => {
-    if (strategy === 'overwrite') overwrite = true;
-    else if (strategy === 'skip') overwrite = false;
-    // 'prompt' leaves default
+  Promise.all([
+    settingsStore.get('overwrite_strategy'),
+    settingsStore.get('default_output_dir'),
+    settingsStore.get('default_password'),
+    settingsStore.get('remember_password'),
+    settingsStore.get('on_complete'),
+  ]).then(([strat, outDir, pwd, remember, onComp]) => {
+    strategy = strat ?? 'prompt';
+    defaultOutputDir = outDir ?? null;
+    onComplete = onComp ?? 'nothing';
+    if (remember && pwd) extractPassword = pwd;
+    // Initialize the per-run overwrite checkbox from the strategy.
+    overwrite = strategy !== 'skip';
   });
   let extractPassword = $state('');
   let result: string | null = $state(null);
@@ -36,31 +53,42 @@
     }
   }
 
-  async function runExtractAll() {
+  // Entry point for the action buttons. When the strategy is "prompt", ask the
+  // user how to handle existing files before running.
+  function startExtract(kind: 'all' | 'selected') {
+    if (kind === 'selected' && archiveStore.selectedCount === 0) return;
+    if (strategy === 'prompt') {
+      pendingKind = kind;
+      showPrompt = true;
+      return;
+    }
+    runExtract(kind);
+  }
+
+  function confirmPrompt(choice: 'overwrite' | 'skip') {
+    overwrite = choice === 'overwrite';
+    showPrompt = false;
+    runExtract(pendingKind);
+  }
+
+  function cancelPrompt() {
+    showPrompt = false;
+  }
+
+  async function runExtract(kind: 'all' | 'selected') {
     if (!archiveStore.archivePath || !outputDir) return;
     error = null; result = null;
     const taskId = `extract-${Date.now()}`;
     taskStore.startTask(taskId, 'extract');
     try {
-      const res = await extractArchive(archiveStore.archivePath, outputDir, overwrite, extractPassword || undefined, taskId);
+      const res = kind === 'all'
+        ? await extractArchive(archiveStore.archivePath, outputDir, overwrite, extractPassword || undefined, taskId)
+        : await extractEntries(archiveStore.archivePath, [...archiveStore.selectedPaths], outputDir, overwrite, extractPassword || undefined, taskId);
       taskStore.finishTask('finished');
       result = localeStore.t('extract.result', { files: res.files_extracted, bytes: res.bytes_extracted, skipped: res.files_skipped > 0 ? localeStore.t('extract.resultSkipped', { count: res.files_skipped }) : '' });
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e);
-      taskStore.finishTask('failed', msg);
-      error = localeStore.t('extract.errorPrefix', { message: msg });
-    }
-  }
-
-  async function runExtractSelected() {
-    if (!archiveStore.archivePath || !outputDir || archiveStore.selectedCount === 0) return;
-    error = null; result = null;
-    const taskId = `extract-${Date.now()}`;
-    taskStore.startTask(taskId, 'extract');
-    try {
-      const res = await extractEntries(archiveStore.archivePath, [...archiveStore.selectedPaths], outputDir, overwrite, extractPassword || undefined, taskId);
-      taskStore.finishTask('finished');
-      result = localeStore.t('extract.result', { files: res.files_extracted, bytes: 0, skipped: '' });
+      if (onComplete === 'open_output') {
+        await openFolder(outputDir);
+      }
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       taskStore.finishTask('failed', msg);
@@ -99,12 +127,26 @@
     {/if}
 
     <div class="controls-actions">
-      <button class="btn-primary" onclick={runExtractAll} disabled={disabled || !outputDir}>{localeStore.t('extract.extractAll')}</button>
-      <button class="btn-secondary" onclick={runExtractSelected} disabled={disabled || !outputDir || archiveStore.selectedCount === 0}>
+      <button class="btn-primary" onclick={() => startExtract('all')} disabled={disabled || !outputDir}>{localeStore.t('extract.extractAll')}</button>
+      <button class="btn-secondary" onclick={() => startExtract('selected')} disabled={disabled || !outputDir || archiveStore.selectedCount === 0}>
         {localeStore.t('extract.extractSelected')} ({archiveStore.selectedCount})
       </button>
     </div>
   </div>
+
+  {#if showPrompt}
+    <div class="prompt-overlay" role="dialog" aria-modal="true">
+      <div class="prompt-box">
+        <p class="prompt-title">{localeStore.t('extract.promptTitle')}</p>
+        <p class="prompt-text">{localeStore.t('extract.promptText', { dir: outputDir })}</p>
+        <div class="prompt-actions">
+          <button class="btn-tertiary" onclick={cancelPrompt}>{localeStore.t('extract.promptCancel')}</button>
+          <button class="btn-secondary" onclick={() => confirmPrompt('skip')}>{localeStore.t('extract.promptSkip')}</button>
+          <button class="btn-primary" onclick={() => confirmPrompt('overwrite')}>{localeStore.t('extract.promptOverwrite')}</button>
+        </div>
+      </div>
+    </div>
+  {/if}
 {/if}
 
 <style>
@@ -168,4 +210,49 @@
   }
   .btn-secondary:hover { background: var(--color-border); }
   .btn-secondary:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn-tertiary {
+    padding: var(--space-2) var(--space-3);
+    color: var(--color-text-muted);
+    font-size: var(--text-sm);
+    border-radius: var(--radius-sm);
+  }
+  .btn-tertiary:hover { color: var(--color-text); background: var(--color-surface-alt); }
+
+  /* --- Prompt overlay --- */
+  .prompt-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.45);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+  }
+  .prompt-box {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    padding: var(--space-4);
+    max-width: 360px;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+  }
+  .prompt-title {
+    font-size: var(--text-base);
+    font-weight: 600;
+    color: var(--color-text);
+  }
+  .prompt-text {
+    font-size: var(--text-sm);
+    color: var(--color-text-secondary);
+    word-break: break-all;
+    white-space: pre-line;
+  }
+  .prompt-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--space-2);
+  }
 </style>

@@ -1,12 +1,27 @@
 <script lang="ts">
   import { appStore } from '../stores/appStore.svelte';
   import { localeStore } from '../stores/localeStore.svelte';
+  import { settingsGuard } from '../stores/settingsGuard.svelte';
+  import { ask } from '@tauri-apps/plugin-dialog';
 
   const tabs = [
     { id: 'home', key: 'nav.home' },
     { id: 'compress', key: 'nav.compress' },
     { id: 'extract', key: 'nav.extract' },
   ] as const;
+
+  // Guard navigation away from the settings page when there are unsaved edits.
+  async function navTo(tab: string): Promise<void> {
+    if (appStore.activeTab === 'settings' && tab !== 'settings' && settingsGuard.dirty) {
+      const confirmed = await ask(localeStore.t('settings.unsavedConfirm'), {
+        title: localeStore.t('settings.unsavedTitle'),
+        kind: 'warning',
+      });
+      if (!confirmed) return;
+      settingsGuard.dirty = false;
+    }
+    appStore.switchTab(tab);
+  }
 </script>
 
 <nav class="tab-bar">
@@ -14,7 +29,7 @@
     <button
       class="tab"
       class:active={appStore.activeTab === tab.id}
-      onclick={() => appStore.switchTab(tab.id)}
+      onclick={() => navTo(tab.id)}
     >
       {localeStore.t(tab.key)}
     </button>
@@ -23,7 +38,7 @@
   <button
     class="tab"
     class:active={appStore.activeTab === 'settings'}
-    onclick={() => appStore.switchTab('settings')}
+    onclick={() => navTo('settings')}
   >
     {localeStore.t('nav.settings')}
   </button>
