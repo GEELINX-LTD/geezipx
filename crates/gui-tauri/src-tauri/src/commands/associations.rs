@@ -719,7 +719,7 @@ mod platform {
         // (Windows 11 2023-04+). Falls back to the generic page.
         let url = "ms-settings:defaultapps?registeredAppUser=GeeZipX";
         let status = Command::new("cmd")
-            .args(["/c", "start", "", &format("\"{url}\"")])
+            .args(["/c", "start", "", &format!("\"{url}\"")])
             .status()
             .map_err(|e| e.to_string())?;
         if !status.success() {
