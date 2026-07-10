@@ -30,16 +30,32 @@
 ///   compression only applies during archive-mode (`compress -f tar.gz
 ///   files...`).
 ///
-///   Other formats accept the parameter for forward compatibility but ignore it.
-///
 /// * `password` — optional password for ZIP and 7z AES-256 encryption.
 ///   Only ZIP and 7z formats support this option; using `--password` with
 ///   other formats will produce an error.
+///
+/// * `seven_zip` — optional 7z-specific advanced options (compression method,
+///   dictionary size, filename encryption toggle).
 #[derive(Clone, Default)]
 pub struct CompressOptions {
     pub level: Option<u32>,
     pub jobs: Option<u32>,
     pub password: Option<String>,
+    /// 7z-specific advanced options.
+    pub seven_zip: Option<SevenZipOptions>,
+}
+
+/// 7z-specific compression options.
+#[derive(Debug, Clone, Default)]
+pub struct SevenZipOptions {
+    /// Compression method: "lzma2" (default), "lzma", "bzip2", "ppmd", "deflate", "copy".
+    pub method: Option<String>,
+    /// LZMA2 dictionary size in bytes (e.g., 16777216 for 16 MiB).
+    /// `None` = use level-based default.
+    pub dictionary_size: Option<u32>,
+    /// If `true`, encrypt file names in addition to content.
+    /// `None` = use default (encrypt when password is set).
+    pub encrypt_filenames: Option<bool>,
 }
 
 impl std::fmt::Debug for CompressOptions {
@@ -48,9 +64,11 @@ impl std::fmt::Debug for CompressOptions {
             .field("level", &self.level)
             .field("jobs", &self.jobs)
             .field("password_set", &self.password.is_some())
+            .field("seven_zip", &self.seven_zip)
             .finish()
     }
 }
+
 
 impl CompressOptions {
     /// Return the effective number of worker threads.
@@ -99,6 +117,7 @@ mod tests {
             level: None,
             jobs: None,
             password: None,
+            seven_zip: None,
         };
         assert_eq!(opts.effective_jobs(), 1);
     }
@@ -109,6 +128,7 @@ mod tests {
             level: None,
             jobs: Some(1),
             password: None,
+            seven_zip: None,
         };
         assert_eq!(opts.effective_jobs(), 1);
     }
@@ -119,6 +139,7 @@ mod tests {
             level: None,
             jobs: Some(2),
             password: None,
+            seven_zip: None,
         };
         assert_eq!(opts.effective_jobs(), 2);
     }
@@ -129,6 +150,7 @@ mod tests {
             level: None,
             jobs: Some(4),
             password: None,
+            seven_zip: None,
         };
         assert_eq!(opts.effective_jobs(), 4);
     }
@@ -139,6 +161,7 @@ mod tests {
             level: None,
             jobs: Some(0),
             password: None,
+            seven_zip: None,
         };
         assert!(opts.effective_jobs() >= 1, "jobs=0 should yield >=1");
     }
@@ -150,6 +173,7 @@ mod tests {
             level: None,
             jobs: None,
             password: None,
+            seven_zip: None,
         };
         assert_eq!(opts.level(), None);
 
@@ -158,6 +182,7 @@ mod tests {
             level: Some(6),
             jobs: None,
             password: None,
+            seven_zip: None,
         };
         assert_eq!(opts.level(), Some(6));
     }
@@ -188,6 +213,7 @@ mod tests {
             level: Some(6),
             jobs: Some(2),
             password: Some("secret-value".to_string()),
+            seven_zip: None,
         };
 
         let debug = format!("{opts:?}");

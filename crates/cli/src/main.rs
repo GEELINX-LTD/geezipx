@@ -82,6 +82,22 @@ enum Commands {
         #[arg(long = "password-stdin")]
         password_stdin: bool,
 
+        /// 7z compression method: lzma2, lzma, bzip2, ppmd, deflate, copy
+        #[arg(long = "7z-method", value_name = "METHOD")]
+        seven_z_method: Option<String>,
+
+        /// LZMA2 dictionary size (e.g., 16M, 64M, 256M). Only for 7z.
+        #[arg(long = "dict-size", value_name = "SIZE")]
+        dict_size: Option<String>,
+
+        /// Encrypt file names in 7z archives (default: yes when password set)
+        #[arg(long = "encrypt-filenames", action = clap::ArgAction::SetTrue)]
+        encrypt_filenames: bool,
+
+        /// Disable file name encryption in 7z archives
+        #[arg(long = "no-encrypt-filenames", action = clap::ArgAction::SetTrue, conflicts_with = "encrypt_filenames")]
+        no_encrypt_filenames: bool,
+
         /// Read uncompressed data from stdin (single-stream and tar-based formats: gzip, bzip2, brotli, lz4, zstd, xz, lzma, tar.gz, tar.bz2, tar.br, tar.lz4, tar.zst, tar.xz)
         #[arg(long = "stdin")]
         stdin: bool,
@@ -229,6 +245,10 @@ fn run() -> anyhow::Result<()> {
             stdout,
             sfx,
             sfx_target,
+            seven_z_method,
+            dict_size,
+            encrypt_filenames,
+            no_encrypt_filenames,
         } => {
             let password = common::resolve_password(password, password_file, password_stdin)?;
 
@@ -272,6 +292,10 @@ fn run() -> anyhow::Result<()> {
                 stdout,
                 sfx,
                 sfx_target.as_deref(),
+                seven_z_method.as_deref(),
+                dict_size.as_deref(),
+                encrypt_filenames,
+                no_encrypt_filenames,
             )?
         }
         Commands::Decompress {

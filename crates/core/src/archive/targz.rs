@@ -1018,6 +1018,7 @@ mod tests {
             level: Some(6),
             jobs: Some(2),
             password: None,
+            ..Default::default()
         };
         let buf = Vec::new();
         let mut writer = TarGzWriter::new_with_options(buf, opts);
@@ -1059,6 +1060,7 @@ mod tests {
             level: Some(6),
             jobs: Some(4),
             password: None,
+            seven_zip: None,
         };
         let buf = Vec::new();
         let mut writer = TarGzWriter::new_with_options(buf, opts);
@@ -1089,6 +1091,7 @@ mod tests {
             level: None,
             jobs: Some(2),
             password: None,
+            ..Default::default()
         };
         let buf = Vec::new();
         let mut writer = TarGzWriter::new_with_options(buf, opts);
@@ -1118,6 +1121,7 @@ mod tests {
             level: None,
             jobs: Some(0),
             password: None,
+            ..Default::default()
         };
         let buf = Vec::new();
         let mut writer = TarGzWriter::new_with_options(buf, opts);
@@ -1148,6 +1152,7 @@ mod tests {
             level: None,
             jobs: Some(2),
             password: None,
+            ..Default::default()
         };
         let buf = Vec::new();
         let mut writer = TarGzWriter::new_with_options(buf, opts);

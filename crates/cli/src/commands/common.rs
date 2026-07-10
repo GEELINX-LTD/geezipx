@@ -41,7 +41,7 @@ use geezipx_core::archive::zip::ZipWriter;
 #[cfg(feature = "zpaq")]
 use geezipx_core::archive::zpaq::ZpaqReader;
 use geezipx_core::archive::{ArchiveReader, ArchiveWriter};
-use geezipx_core::config::CompressOptions;
+use geezipx_core::config::{CompressOptions, SevenZipOptions};
 use geezipx_core::detect::{self, ArchiveFormat};
 
 // ---------------------------------------------------------------------------
@@ -437,7 +437,9 @@ pub fn create_writer(
         }
         ArchiveFormat::Tar => Ok(Box::new(TarWriter::new(file))),
         ArchiveFormat::SevenZip => {
-            let mut writer = SevenZipWriter::new(file, &options)?;
+            let default_sz = SevenZipOptions::default();
+            let sz_opts = options.seven_zip.as_ref().unwrap_or(&default_sz);
+            let mut writer = SevenZipWriter::new(file, &options, sz_opts)?;
             if let Some(pwd) = &options.password {
                 writer.set_password(pwd)?;
             }

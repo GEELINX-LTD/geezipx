@@ -295,6 +295,7 @@ mod tests {
             level: Some(9),
             jobs: None,
             password: None,
+            ..Default::default()
         };
         let compressed = {
             let mut buf = Vec::new();
@@ -329,6 +330,7 @@ mod tests {
             level: None,
             jobs: Some(2),
             password: None,
+            ..Default::default()
         };
         let compressed = {
             let mut buf = Vec::new();

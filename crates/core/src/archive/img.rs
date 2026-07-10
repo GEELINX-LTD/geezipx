@@ -128,6 +128,7 @@ mod tests {
                     level: Some(9),
                     jobs: None,
                     password: None,
+                    ..Default::default()
                 },
             )
             .unwrap();

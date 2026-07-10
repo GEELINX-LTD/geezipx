@@ -14,7 +14,7 @@ use geezipx_core::archive::lz;
 use geezipx_core::archive::lz4;
 use geezipx_core::archive::xz;
 use geezipx_core::archive::zstd;
-use geezipx_core::config::CompressOptions;
+use geezipx_core::config::{CompressOptions, SevenZipOptions};
 use geezipx_core::detect::ArchiveFormat;
 
 use crate::render::progress::{ProgressBarWrapper, SharedCallback};
@@ -66,11 +66,16 @@ pub fn execute(
     use_stdout: bool,
     sfx: bool,
     sfx_target: Option<&str>,
+    seven_z_method: Option<&str>,
+    dict_size: Option<&str>,
+    encrypt_filenames: bool,
+    no_encrypt_filenames: bool,
 ) -> Result<()> {
     let compress_options = CompressOptions {
         level,
         jobs: if jobs == 1 { None } else { Some(jobs) },
         password,
+        seven_zip: None, // built after format resolution
     };
 
     // Resolve format: when using --stdin or --stdout without --output, --format is required.
@@ -94,6 +99,34 @@ pub fn execute(
     }
 
     let cancel_token = crate::signal::CancellationToken::new();
+
+    // Build 7z-specific options and validate
+    let seven_z_opts = if format == ArchiveFormat::SevenZip {
+        let dict_size_parsed = match dict_size {
+            Some(s) => Some(parse_dict_size(s)?),
+            None => None,
+        };
+        let encrypt_filenames_val = if no_encrypt_filenames {
+            Some(false)
+        } else if encrypt_filenames {
+            Some(true)
+        } else {
+            None
+        };
+        Some(SevenZipOptions {
+            method: seven_z_method.map(|s| s.to_string()),
+            dictionary_size: dict_size_parsed,
+            encrypt_filenames: encrypt_filenames_val,
+        })
+    } else if seven_z_method.is_some() || dict_size.is_some() {
+        anyhow::bail!("--7z-method and --dict-size are only valid for 7z format; got '{format}'");
+    } else {
+        None
+    };
+
+    let mut compress_options = compress_options;
+    compress_options.seven_zip = seven_z_opts;
+
     validate_compress_inputs(inputs, format, &compress_options, use_stdin, use_stdout)?;
 
     if is_single_stream_format(format) || (is_tar_wrapped_format(format) && use_stdin) {
@@ -660,4 +693,44 @@ fn compress_single_stream<R: Read, W: Write>(
         }
         _ => anyhow::bail!("cannot compress '{}' as a single stream", format),
     }
+}
+
+/// Parse a human-readable dictionary size string (e.g., "16M", "64M", "1G") into bytes.
+fn parse_dict_size(s: &str) -> anyhow::Result<u32> {
+    let s = s.trim();
+    if s.is_empty() {
+        anyhow::bail!("--dict-size cannot be empty");
+    }
+
+    // Check for suffix
+    let (num_part, multiplier) =
+        if let Some(rest) = s.strip_suffix(|c: char| c.is_ascii_alphabetic()) {
+            let suffix = &s[s.len() - rest.len()..];
+            let m = match suffix.to_ascii_uppercase().as_str() {
+                "K" => 1024u64,
+                "M" => 1024 * 1024,
+                "G" => 1024 * 1024 * 1024,
+                _ => anyhow::bail!(
+                    "unsupported --dict-size suffix '{}'; use K, M, or G",
+                    suffix
+                ),
+            };
+            (rest, m)
+        } else {
+            (s, 1u64)
+        };
+
+    let num: u64 = num_part
+        .parse()
+        .map_err(|_| anyhow::anyhow!("invalid --dict-size value '{}'", s))?;
+
+    let bytes = num
+        .checked_mul(multiplier)
+        .ok_or_else(|| anyhow::anyhow!("--dict-size value '{}' is too large", s))?;
+
+    if bytes > u32::MAX as u64 {
+        anyhow::bail!("--dict-size value '{}' exceeds maximum (4 GiB)", s);
+    }
+
+    Ok(bytes as u32)
 }

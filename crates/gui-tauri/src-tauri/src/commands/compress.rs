@@ -21,7 +21,7 @@ use geezipx_core::archive::tarxz::TarXzWriter;
 use geezipx_core::archive::tarzst::TarZstWriter;
 use geezipx_core::archive::zip::ZipWriter;
 use geezipx_core::archive::ArchiveWriter;
-use geezipx_core::config::CompressOptions;
+use geezipx_core::config::{CompressOptions, SevenZipOptions};
 use geezipx_core::detect::ArchiveFormat;
 use geezipx_core::ProgressReader;
 use serde::Serialize;
@@ -494,7 +494,12 @@ fn create_gui_writer(
         }
         ArchiveFormat::Tar => Ok(Box::new(TarWriter::new(file))),
         ArchiveFormat::SevenZip => {
-            let mut writer = SevenZipWriter::new(file, &options).map_err(|e| e.to_string())?;
+            let sz_opts = options
+                .seven_zip
+                .as_ref()
+                .unwrap_or(&SevenZipOptions::default());
+            let mut writer =
+                SevenZipWriter::new(file, &options, sz_opts).map_err(|e| e.to_string())?;
             if let Some(ref pwd) = options.password {
                 writer.set_password(pwd).map_err(|e| e.to_string())?;
             }
