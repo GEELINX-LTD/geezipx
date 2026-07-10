@@ -388,7 +388,14 @@ fn collect_gui_inputs(
                 is_dir: true,
                 size: 0,
             });
-            collect_dir_contents(&canonical, &prefix, &mut entries, cancel_token, skipped, recursive)?;
+            collect_dir_contents(
+                &canonical,
+                &prefix,
+                &mut entries,
+                cancel_token,
+                skipped,
+                recursive,
+            )?;
         } else if meta.is_file() {
             let name = canonical
                 .file_name()
