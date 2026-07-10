@@ -1,9 +1,11 @@
-//! Debian package (`.deb`) archive reader.
+//! Debian package (`.deb`) archive reader and writer.
 //!
-//! GeeZipX treats a DEB as a read-only container backed by an outer Unix `ar`
-//! archive whose useful payload lives in a single `data.tar*` member.
-//! `debian-binary` and `control.tar.*` are intentionally ignored in this
-//! phase so the behavior matches `dpkg-deb -x/-c` style payload extraction.
+//! GeeZipX supports both reading and writing DEB archives.  The DEB format
+//! wraps an outer Unix `ar` archive whose useful payload lives in a single
+//! `data.tar*` member.  When reading, `debian-binary` and `control.tar.*` are
+//! intentionally ignored so the behavior matches `dpkg-deb -x/-c` style
+//! payload extraction.  When writing, a minimal `control.tar.gz` is generated
+//! automatically.
 
 use std::fmt;
 use std::io::{Read, Seek, SeekFrom, Write};
@@ -502,6 +504,7 @@ Architecture: all
 Maintainer: GeeZipX <geezipx@example.com>
 Description: Package created by GeeZipX
 ";
+// NOTE: trailing newline above is required by Debian policy.
 
 /// Build a minimal control.tar.gz as a byte vector.
 fn build_control_tar() -> GeeZipResult<Vec<u8>> {
@@ -1052,6 +1055,45 @@ mod tests {
         let file = std::fs::File::create(&output_path).unwrap();
         let mut writer: Box<dyn ArchiveWriter> = Box::new(DebWriter::new(file));
         _use_writer(&mut *writer);
+    }
+
+    #[test]
+    fn deb_writer_roundtrip_bzip2() {
+        let deb = build_deb_writer(
+            DataPayloadCodec::Bzip2,
+            &[("bzip.txt", b"bzip2-compressed")],
+            &[],
+        );
+        let mut reader = DebReader::from_buf(deb);
+        let entries = reader.entries().unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].path, "bzip.txt");
+    }
+
+    #[test]
+    fn deb_writer_roundtrip_lzma() {
+        let deb = build_deb_writer(
+            DataPayloadCodec::Lzma,
+            &[("lzma.txt", b"lzma-compressed")],
+            &[],
+        );
+        let mut reader = DebReader::from_buf(deb);
+        let entries = reader.entries().unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].path, "lzma.txt");
+    }
+
+    #[test]
+    fn deb_writer_roundtrip_tar() {
+        let deb = build_deb_writer(
+            DataPayloadCodec::Tar,
+            &[("raw.txt", b"no-compression")],
+            &[],
+        );
+        let mut reader = DebReader::from_buf(deb);
+        let entries = reader.entries().unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].path, "raw.txt");
     }
 
     #[test]
