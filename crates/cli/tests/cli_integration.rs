@@ -8109,6 +8109,43 @@ fn deb_test_valid() {
 }
 
 #[test]
+fn img_compress_decompress_roundtrip() {
+    let td = TestDir::new();
+    td.write("payload.bin", "raw image data test");
+
+    // Compress
+    geezipx()
+        .args([
+            "compress",
+            "-f",
+            "img",
+            td.join("payload.bin").to_str().unwrap(),
+            "-o",
+            td.join("out.img").to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+    assert!(td.join("out.img").exists());
+
+    // Decompress — output filename is archive stem (strips .img)
+    let out_dir = td.join("extracted");
+    std::fs::create_dir(&out_dir).unwrap();
+    geezipx()
+        .args([
+            "decompress",
+            td.join("out.img").to_str().unwrap(),
+            "-o",
+            out_dir.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    // IMG is pass-through: content must be byte-identical
+    let extracted = std::fs::read(out_dir.join("out")).unwrap();
+    assert_eq!(extracted, b"raw image data test");
+}
+
+#[test]
 fn deb_compress_basic() {
     let td = TestDir::new();
     td.write("payload.txt", "deb write test");

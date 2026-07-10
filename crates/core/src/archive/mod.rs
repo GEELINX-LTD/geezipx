@@ -24,6 +24,7 @@ pub mod cab;
 pub mod cpio;
 pub mod deb;
 pub mod gzip;
+pub mod img;
 pub mod iso;
 pub mod lz;
 pub mod lz4;

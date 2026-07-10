@@ -108,7 +108,8 @@ GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开�
 | JAR, WAR, APK, IPA, XPI | ✅ 已支持 | 本质为 ZIP 容器，复用 ZIP 引擎 |
 | DEB | 📖 只读 | Debian 包（ar 容器 + `data.tar*` payload 视图；忽略 `control.tar.*`） |
 | ASAR | ✅ 已支持 | Electron 归档，支持 `compress` / `list` / `decompress` / `test`；通过 `asar` crate 实现写入 |
-| IMG, ISZ | 📋 Phase 3 | 磁盘镜像格式（ISZ 无 Rust crate；IMG 为 raw 格式）|
+| IMG | ✅ 已支持 | 原始磁盘镜像，透传（无变换），扩展名 .img/.ima |
+| ISZ | 📋 Phase 3 |
 | UDF | ✅ 已支持 | Universal Disk Format，支持 `compress` / `list` / `decompress` / `test`；通过 `hadris-udf` 实现 |
 | BIN, I00 | 📋 规划中 | 原始二进制 / 分卷索引 |
 | 001 | 📋 规划中 | 分卷文件（部分解压场景） |

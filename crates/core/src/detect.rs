@@ -84,6 +84,8 @@ pub enum ArchiveFormat {
     Uu,
     /// XXE encoded file (extension-based — `.xxe`).
     Xxe,
+    /// Raw disk image (`.img`/`.ima`) — identity pass-through, no compression.
+    Img,
     /// Unknown or unrecognised format.
     Unknown,
 }
@@ -125,6 +127,7 @@ impl fmt::Display for ArchiveFormat {
             ArchiveFormat::Alz => write!(f, "alz"),
             ArchiveFormat::Uu => write!(f, "uu"),
             ArchiveFormat::Xxe => write!(f, "xxe"),
+            ArchiveFormat::Img => write!(f, "img"),
             ArchiveFormat::Unknown => write!(f, "unknown"),
         }
     }
@@ -195,6 +198,8 @@ const EXTENSION_MAP: &[(&str, ArchiveFormat)] = &[
     (".Z", ArchiveFormat::Z),
     (".alz", ArchiveFormat::Alz),
     (".udf", ArchiveFormat::Udf),
+    (".img", ArchiveFormat::Img),
+    (".ima", ArchiveFormat::Img),
     (".uu", ArchiveFormat::Uu),
     (".uue", ArchiveFormat::Uu),
     (".xxe", ArchiveFormat::Xxe),
@@ -401,6 +406,22 @@ mod tests {
         assert_eq!(
             detect_from_extension(Path::new("package.deb")),
             Some(ArchiveFormat::Deb)
+        );
+    }
+
+    #[test]
+    fn detect_img_is_extension_only() {
+        assert_eq!(
+            detect_format(b"any arbitrary bytes with no magic"),
+            None
+        );
+        assert_eq!(
+            detect_from_extension(Path::new("disk.img")),
+            Some(ArchiveFormat::Img)
+        );
+        assert_eq!(
+            detect_from_extension(Path::new("floppy.ima")),
+            Some(ArchiveFormat::Img)
         );
     }
 
