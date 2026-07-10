@@ -84,6 +84,8 @@ pub enum ArchiveFormat {
     Uu,
     /// XXE encoded file (extension-based — `.xxe`).
     Xxe,
+    /// Raw disk image (`.img`/`.ima`) — identity pass-through, no compression.
+    Img,
     /// Unknown or unrecognised format.
     Unknown,
 }
@@ -125,6 +127,7 @@ impl fmt::Display for ArchiveFormat {
             ArchiveFormat::Alz => write!(f, "alz"),
             ArchiveFormat::Uu => write!(f, "uu"),
             ArchiveFormat::Xxe => write!(f, "xxe"),
+            ArchiveFormat::Img => write!(f, "img"),
             ArchiveFormat::Unknown => write!(f, "unknown"),
         }
     }

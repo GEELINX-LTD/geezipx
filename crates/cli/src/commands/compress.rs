@@ -8,6 +8,7 @@ use anyhow::{Context, Result};
 use geezipx_core::archive::brotli;
 use geezipx_core::archive::bzip2;
 use geezipx_core::archive::gzip;
+use geezipx_core::archive::img;
 use geezipx_core::archive::lz;
 use geezipx_core::archive::lz4;
 use geezipx_core::archive::xz;
@@ -645,6 +646,8 @@ fn compress_single_stream<R: Read, W: Write>(
             .map_err(|e| anyhow::anyhow!("lzma compression error: {}", e)),
         ArchiveFormat::Lz => lz::lz_compress_with_options(reader, writer, &options)
             .map_err(|e| anyhow::anyhow!("lz compression error: {}", e)),
+        ArchiveFormat::Img => img::img_compress(reader, writer)
+            .map_err(|e| anyhow::anyhow!("img pass-through error: {}", e)),
         _ => anyhow::bail!("cannot compress '{}' as a single stream", format),
     }
 }

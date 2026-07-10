@@ -12,8 +12,8 @@ use crate::error::{GeeZipError, GeeZipResult};
 /// "Compress" (pass through) — IMG is raw bytes, no transformation.
 ///
 /// Returns the number of bytes read from the source.
-pub fn img_compress<R: Read, W: Write>(reader: &mut R, writer: &mut W) -> GeeZipResult<u64> {
-    std::io::copy(reader, writer).map_err(|e| GeeZipError::io(e, "IMG pass-through failed"))
+pub fn img_compress<R: Read, W: Write>(reader: &mut R, mut writer: W) -> GeeZipResult<u64> {
+    std::io::copy(reader, &mut writer).map_err(|e| GeeZipError::io(e, "IMG pass-through failed"))
 }
 
 /// Compress with options — provided for dispatch consistency.
@@ -22,7 +22,7 @@ pub fn img_compress<R: Read, W: Write>(reader: &mut R, writer: &mut W) -> GeeZip
 /// pass-through format).  Delegates to [`img_compress`].
 pub fn img_compress_with_options<R: Read, W: Write>(
     reader: &mut R,
-    writer: &mut W,
+    writer: W,
     _options: CompressOptions,
 ) -> GeeZipResult<u64> {
     img_compress(reader, writer)
@@ -31,8 +31,8 @@ pub fn img_compress_with_options<R: Read, W: Write>(
 /// "Decompress" (pass through) — IMG is raw bytes, no transformation.
 ///
 /// Returns the number of bytes written to the output.
-pub fn img_decompress<R: Read, W: Write>(reader: &mut R, writer: &mut W) -> GeeZipResult<u64> {
-    std::io::copy(reader, writer).map_err(|e| GeeZipError::io(e, "IMG pass-through failed"))
+pub fn img_decompress<R: Read, W: Write>(reader: &mut R, mut writer: W) -> GeeZipResult<u64> {
+    std::io::copy(reader, &mut writer).map_err(|e| GeeZipError::io(e, "IMG pass-through failed"))
 }
 
 // ---------------------------------------------------------------------------
