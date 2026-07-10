@@ -649,9 +649,7 @@ fn decompress_stdin_mode(
             ArchiveFormat::Xz | ArchiveFormat::TarXz => {
                 xz::xz_decompress(&mut reader, &mut writer)?
             }
-            ArchiveFormat::Img => {
-                img::img_decompress(&mut reader, &mut writer)?
-            }
+            ArchiveFormat::Img => img::img_decompress(&mut reader, &mut writer)?,
             ArchiveFormat::Uu => {
                 let mut content = String::new();
                 reader.read_to_string(&mut content)?;

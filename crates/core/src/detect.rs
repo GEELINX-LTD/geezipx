@@ -411,10 +411,7 @@ mod tests {
 
     #[test]
     fn detect_img_is_extension_only() {
-        assert_eq!(
-            detect_format(b"any arbitrary bytes with no magic"),
-            None
-        );
+        assert_eq!(detect_format(b"any arbitrary bytes with no magic"), None);
         assert_eq!(
             detect_from_extension(Path::new("disk.img")),
             Some(ArchiveFormat::Img)

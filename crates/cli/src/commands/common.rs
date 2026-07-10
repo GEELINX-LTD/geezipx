@@ -1142,8 +1142,11 @@ mod tests {
         let output = temp.path().join("out.deb");
         let file = fs::File::create(&output).unwrap();
         let mut w = create_writer(file, ArchiveFormat::Deb, CompressOptions::default()).unwrap();
-        w.add_entry_from_reader(Path::new("cli-deb-test.txt"), &mut "cli deb test".as_bytes())
-            .unwrap();
+        w.add_entry_from_reader(
+            Path::new("cli-deb-test.txt"),
+            &mut "cli deb test".as_bytes(),
+        )
+        .unwrap();
         let bytes = w.finish().unwrap();
         assert!(bytes > 0);
 

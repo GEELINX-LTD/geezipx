@@ -11,7 +11,7 @@ use std::fmt;
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::Path;
 
-use crate::archive::{ArchiveReader, ArchiveWriter, Entry, is_entry_path_dangerous, CountWriter};
+use crate::archive::{is_entry_path_dangerous, ArchiveReader, ArchiveWriter, CountWriter, Entry};
 use crate::detect::ArchiveFormat;
 use crate::error::{GeeZipError, GeeZipResult};
 
@@ -467,13 +467,12 @@ impl<W: Write + Send> ArchiveWriter for DebWriter<W> {
 
             // debian-binary
             let header = ar::Header::new(b"debian-binary".to_vec(), 4);
-            builder.append(&header, &b"2.0\n"[..]).map_err(convert_deb_ar_error)?;
+            builder
+                .append(&header, &b"2.0\n"[..])
+                .map_err(convert_deb_ar_error)?;
 
             // control.tar.gz
-            let header = ar::Header::new(
-                b"control.tar.gz".to_vec(),
-                control_tar_gz.len() as u64,
-            );
+            let header = ar::Header::new(b"control.tar.gz".to_vec(), control_tar_gz.len() as u64);
             builder
                 .append(&header, &control_tar_gz[..])
                 .map_err(convert_deb_ar_error)?;
@@ -511,10 +510,12 @@ fn build_control_tar() -> GeeZipResult<Vec<u8>> {
     let tar_buf = Vec::new();
     let mut tar_builder = tar::Builder::new(tar_buf);
     let mut header = tar::Header::new_gnu();
-    header.set_path("./control").map_err(|e| GeeZipError::Format {
-        message: format!("setting control tar path: {e}"),
-        format: ArchiveFormat::Deb,
-    })?;
+    header
+        .set_path("./control")
+        .map_err(|e| GeeZipError::Format {
+            message: format!("setting control tar path: {e}"),
+            format: ArchiveFormat::Deb,
+        })?;
     header.set_size(MINIMAL_CONTROL.len() as u64);
     header.set_cksum();
     tar_builder
@@ -526,8 +527,7 @@ fn build_control_tar() -> GeeZipResult<Vec<u8>> {
 
     // gzip compress
     let mut out = Vec::new();
-    let mut encoder =
-        flate2::write::GzEncoder::new(&mut out, flate2::Compression::default());
+    let mut encoder = flate2::write::GzEncoder::new(&mut out, flate2::Compression::default());
     encoder
         .write_all(&tar_bytes)
         .map_err(|e| GeeZipError::io(e, "gzipping control.tar for DEB writer"))?;
@@ -563,12 +563,10 @@ fn build_data_tar(entries: &[(String, Vec<u8>)], directories: &[String]) -> GeeZ
     // File entries.
     for (name, data) in entries {
         let mut header = tar::Header::new_gnu();
-        header
-            .set_path(name)
-            .map_err(|e| GeeZipError::Format {
-                message: format!("setting path for '{name}': {e}"),
-                format: ArchiveFormat::Deb,
-            })?;
+        header.set_path(name).map_err(|e| GeeZipError::Format {
+            message: format!("setting path for '{name}': {e}"),
+            format: ArchiveFormat::Deb,
+        })?;
         header.set_size(data.len() as u64);
         header.set_cksum();
         tar_builder
@@ -589,12 +587,12 @@ fn compress_tar(codec: DataPayloadCodec, data: &[u8]) -> GeeZipResult<Vec<u8>> {
             let mut out = Vec::new();
             let mut encoder =
                 flate2::write::GzEncoder::new(&mut out, flate2::Compression::default());
-            encoder.write_all(data).map_err(|e| {
-                GeeZipError::io(e, "gzipping data.tar for DEB writer")
-            })?;
-            encoder.finish().map_err(|e| {
-                GeeZipError::io(e, "finishing data.tar.gz for DEB writer")
-            })?;
+            encoder
+                .write_all(data)
+                .map_err(|e| GeeZipError::io(e, "gzipping data.tar for DEB writer"))?;
+            encoder
+                .finish()
+                .map_err(|e| GeeZipError::io(e, "finishing data.tar.gz for DEB writer"))?;
             Ok(out)
         }
         DataPayloadCodec::Xz => {
@@ -610,27 +608,26 @@ fn compress_tar(codec: DataPayloadCodec, data: &[u8]) -> GeeZipResult<Vec<u8>> {
         }
         DataPayloadCodec::Zstd => {
             let mut out = Vec::new();
-            let mut encoder = zstd::stream::write::Encoder::new(&mut out, 0).map_err(|e| {
-                GeeZipError::io(e, "initialising zstd encoder for data.tar")
-            })?;
-            encoder.write_all(data).map_err(|e| {
-                GeeZipError::io(e, "zstd compressing data.tar for DEB writer")
-            })?;
-            encoder.finish().map_err(|e| {
-                GeeZipError::io(e, "finishing data.tar.zst for DEB writer")
-            })?;
+            let mut encoder = zstd::stream::write::Encoder::new(&mut out, 0)
+                .map_err(|e| GeeZipError::io(e, "initialising zstd encoder for data.tar"))?;
+            encoder
+                .write_all(data)
+                .map_err(|e| GeeZipError::io(e, "zstd compressing data.tar for DEB writer"))?;
+            encoder
+                .finish()
+                .map_err(|e| GeeZipError::io(e, "finishing data.tar.zst for DEB writer"))?;
             Ok(out)
         }
         DataPayloadCodec::Bzip2 => {
             let mut out = Vec::new();
             let mut encoder =
                 ::bzip2::write::BzEncoder::new(&mut out, ::bzip2::Compression::default());
-            encoder.write_all(data).map_err(|e| {
-                GeeZipError::io(e, "bzip2 compressing data.tar for DEB writer")
-            })?;
-            encoder.finish().map_err(|e| {
-                GeeZipError::io(e, "finishing data.tar.bz2 for DEB writer")
-            })?;
+            encoder
+                .write_all(data)
+                .map_err(|e| GeeZipError::io(e, "bzip2 compressing data.tar for DEB writer"))?;
+            encoder
+                .finish()
+                .map_err(|e| GeeZipError::io(e, "finishing data.tar.bz2 for DEB writer"))?;
             Ok(out)
         }
         DataPayloadCodec::Lzma => {
@@ -956,7 +953,10 @@ mod tests {
     fn deb_writer_roundtrip_gzip() {
         let deb = build_deb_writer(
             DataPayloadCodec::Gzip,
-            &[("usr/bin/hello", b"hello"), ("usr/share/doc/readme.txt", b"docs")],
+            &[
+                ("usr/bin/hello", b"hello"),
+                ("usr/share/doc/readme.txt", b"docs"),
+            ],
             &[],
         );
         let mut reader = DebReader::from_buf(deb);
@@ -975,11 +975,7 @@ mod tests {
 
     #[test]
     fn deb_writer_roundtrip_xz() {
-        let deb = build_deb_writer(
-            DataPayloadCodec::Xz,
-            &[("file.txt", b"content")],
-            &[],
-        );
+        let deb = build_deb_writer(DataPayloadCodec::Xz, &[("file.txt", b"content")], &[]);
         let mut reader = DebReader::from_buf(deb);
         let entries = reader.entries().unwrap();
         assert_eq!(entries.len(), 1);
@@ -988,11 +984,7 @@ mod tests {
 
     #[test]
     fn deb_writer_roundtrip_zstd() {
-        let deb = build_deb_writer(
-            DataPayloadCodec::Zstd,
-            &[("a.txt", b"aaa")],
-            &[],
-        );
+        let deb = build_deb_writer(DataPayloadCodec::Zstd, &[("a.txt", b"aaa")], &[]);
         let mut reader = DebReader::from_buf(deb);
         let entries = reader.entries().unwrap();
         assert_eq!(entries.len(), 1);
@@ -1008,15 +1000,15 @@ mod tests {
 
     #[test]
     fn deb_writer_directories_only() {
-        let deb = build_deb_writer(
-            DataPayloadCodec::Tar,
-            &[],
-            &["usr/bin", "usr/share"],
-        );
+        let deb = build_deb_writer(DataPayloadCodec::Tar, &[], &["usr/bin", "usr/share"]);
         let mut reader = DebReader::from_buf(deb);
         let entries = reader.entries().unwrap();
         assert_eq!(entries.len(), 2);
-        let dirs: Vec<_> = entries.iter().filter(|e| e.is_dir).map(|e| &e.path).collect();
+        let dirs: Vec<_> = entries
+            .iter()
+            .filter(|e| e.is_dir)
+            .map(|e| &e.path)
+            .collect();
         assert!(dirs.contains(&&"usr/bin/".to_string()));
         assert!(dirs.contains(&&"usr/share/".to_string()));
     }
