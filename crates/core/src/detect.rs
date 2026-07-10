@@ -86,6 +86,9 @@ pub enum ArchiveFormat {
     Xxe,
     /// Raw disk image (`.img`/`.ima`) — identity pass-through, no compression.
     Img,
+    /// AES encrypted container (`.enc`) — AES-256-GCM-SIV with Argon2id KDF.
+    /// Extension-only detection (CBOR header precludes magic-byte sniffing).
+    Aes,
     /// Unknown or unrecognised format.
     Unknown,
 }
@@ -128,6 +131,7 @@ impl fmt::Display for ArchiveFormat {
             ArchiveFormat::Uu => write!(f, "uu"),
             ArchiveFormat::Xxe => write!(f, "xxe"),
             ArchiveFormat::Img => write!(f, "img"),
+            ArchiveFormat::Aes => write!(f, "aes"),
             ArchiveFormat::Unknown => write!(f, "unknown"),
         }
     }
@@ -200,6 +204,7 @@ const EXTENSION_MAP: &[(&str, ArchiveFormat)] = &[
     (".udf", ArchiveFormat::Udf),
     (".img", ArchiveFormat::Img),
     (".ima", ArchiveFormat::Img),
+    (".enc", ArchiveFormat::Aes),
     (".uu", ArchiveFormat::Uu),
     (".uue", ArchiveFormat::Uu),
     (".xxe", ArchiveFormat::Xxe),
@@ -420,6 +425,21 @@ mod tests {
             detect_from_extension(Path::new("floppy.ima")),
             Some(ArchiveFormat::Img)
         );
+    }
+
+    #[test]
+    fn detect_aes_is_extension_only() {
+        // enc_file uses CBOR encoding; no fixed magic at offset 0.
+        assert_eq!(detect_format(b"any bytes including ENCFILE\0"), None);
+        assert_eq!(
+            detect_from_extension(Path::new("data.enc")),
+            Some(ArchiveFormat::Aes)
+        );
+    }
+
+    #[test]
+    fn display_aes() {
+        assert_eq!(ArchiveFormat::Aes.to_string(), "aes");
     }
 
     #[test]
