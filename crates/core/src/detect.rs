@@ -86,7 +86,8 @@ pub enum ArchiveFormat {
     Xxe,
     /// Raw disk image (`.img`/`.ima`) — identity pass-through, no compression.
     Img,
-    /// AES encrypted container (`.enc`) — AES-256-GCM-SIV with Argon2id KDF, magic "ENCFILE\0".
+    /// AES encrypted container (`.enc`) — AES-256-GCM-SIV with Argon2id KDF.
+    /// Extension-only detection (CBOR header precludes magic-byte sniffing).
     Aes,
     /// Unknown or unrecognised format.
     Unknown,
@@ -160,8 +161,6 @@ pub const MAGIC_SEVENZIP: &[u8] = &[0x37, 0x7A, 0xBC, 0xAF, 0x27, 0x1C];
 pub const MAGIC_RAR: &[u8] = b"Rar!\x1A\x07";
 /// CAB magic: `MSCF`.
 pub const MAGIC_CAB: &[u8] = b"MSCF";
-/// AES encrypted container magic: `ENCFILE\0`.
-pub const MAGIC_AES: &[u8] = b"ENCFILE\0";
 
 /// Map of well-known single extensions to their archive format.
 const EXTENSION_MAP: &[(&str, ArchiveFormat)] = &[
@@ -264,9 +263,6 @@ pub fn detect_format(data: &[u8]) -> Option<ArchiveFormat> {
     }
     if data.starts_with(MAGIC_XZ) {
         return Some(ArchiveFormat::Xz);
-    }
-    if data.starts_with(MAGIC_AES) {
-        return Some(ArchiveFormat::Aes);
     }
     None
 }
@@ -432,13 +428,9 @@ mod tests {
     }
 
     #[test]
-    fn detect_aes_magic() {
-        // enc_file format starts with ENCFILE\0
-        assert_eq!(
-            detect_format(b"ENCFILE\0..."),
-            Some(ArchiveFormat::Aes)
-        );
-        // Extension-based fallback
+    fn detect_aes_is_extension_only() {
+        // enc_file uses CBOR encoding; no fixed magic at offset 0.
+        assert_eq!(detect_format(b"any bytes including ENCFILE\0"), None);
         assert_eq!(
             detect_from_extension(Path::new("data.enc")),
             Some(ArchiveFormat::Aes)

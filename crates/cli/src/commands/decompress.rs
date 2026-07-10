@@ -12,11 +12,11 @@ use anyhow::{Context, Result};
 
 use super::common;
 use crate::render::progress::{ProgressBarWrapper, SharedCallback};
+use geezipx_core::archive::aes;
 use geezipx_core::archive::brotli;
 use geezipx_core::archive::bzip2;
 use geezipx_core::archive::gzip;
 use geezipx_core::archive::img;
-use geezipx_core::archive::aes;
 use geezipx_core::archive::lz;
 use geezipx_core::archive::lz4;
 use geezipx_core::archive::uu;
@@ -907,7 +907,11 @@ fn decompress_img_to_file(
 }
 
 /// Decrypt an AES-encrypted stream to stdout.
-fn decompress_aes_stdout(archive: &Path, password: &str, cancel_flag: Arc<AtomicBool>) -> Result<()> {
+fn decompress_aes_stdout(
+    archive: &Path,
+    password: &str,
+    cancel_flag: Arc<AtomicBool>,
+) -> Result<()> {
     let file_size = std::fs::metadata(archive).map(|m| m.len()).unwrap_or(0);
     let file =
         fs::File::open(archive).with_context(|| format!("opening '{}'", archive.display()))?;
@@ -921,9 +925,7 @@ fn decompress_aes_stdout(archive: &Path, password: &str, cancel_flag: Arc<Atomic
 
     let bytes = aes::aes_decrypt(&mut reader, &mut stdout, password)
         .with_context(|| format!("decrypting '{}'", archive.display()))?;
-    stdout
-        .flush()
-        .context("flushing stdout after decryption")?;
+    stdout.flush().context("flushing stdout after decryption")?;
     eprintln!("Decrypted {} bytes to stdout", bytes);
     Ok(())
 }
