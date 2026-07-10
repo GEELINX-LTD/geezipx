@@ -579,6 +579,7 @@ mod platform {
 #[cfg(target_os = "windows")]
 mod platform {
     use super::*;
+    use std::process::ExitStatusExt;
 
     pub struct AssocState {
         pub is_default: Option<bool>,
@@ -603,7 +604,7 @@ mod platform {
             .args(args)
             .output()
             .unwrap_or_else(|_| std::process::Output {
-                status: std::process::ExitStatus::from_raw(1),
+                status: ExitStatusExt::from_raw(1),
                 stdout: Vec::new(),
                 stderr: Vec::new(),
             })
