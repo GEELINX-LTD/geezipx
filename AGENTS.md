@@ -184,7 +184,6 @@ CLI 和后续 Tauri GUI 只负责：
 
 - 分卷压缩；
 - RAR 写入（许可限制）；
-- LZH/LHA compressed write lh5-lh7（oxiarc-lzhuf LSB-first 与 delharc MSB-first bit 顺序不兼容）；
 - WIM 写入（EUPL-1.2 许可兼容性评估中）；
 - CPIO bin/crc 格式支持（无 Rust crate）；
 - ZPAQ 增量日志/去重；

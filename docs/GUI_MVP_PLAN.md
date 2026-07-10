@@ -9,7 +9,7 @@
 >
 > **当前状态**：独立 `gui-windows.yml` 已可手动构建 Windows GUI；`release.yml` 已配置三平台 GUI bundle 构建并上传 `.AppImage` / `.dmg` / `.msi`。首个真实 tag release 仍待实战验证。
 >
-> **剩余**：发布验证、LZH compressed write (lh5-lh7) 完善。
+> **剩余**：发布验证（LZH compressed write 已通过升级 oxiarc-lzhuf ≥ v0.3.5 修复）。
 
 ---
 

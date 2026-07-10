@@ -1,9 +1,15 @@
 //! LZH/LHA (`.lzh`, `.lha`) archive reader and writer.
 //!
 //! GeeZipX exposes LZH/LHA reading via the `delharc` decoder and writing
-//! via `oxiarc-lzhuf` for compression methods lh0 (store) through lh7
-//! (64 KB window, static Huffman). The writer supports configurable
+//! via `oxiarc-lzhuf` (≥ v0.3.5) for compression methods lh0 (store) through
+//! lh7 (64 KB window, static Huffman).  The writer supports configurable
 //! compression levels 0-4 mapping to lh0-lh7.
+//!
+//! **Important**: `oxiarc-lzhuf` v0.3.4+ uses MSB-first bit packing
+//! (the canonical LZH convention), making the compressed output compatible
+//! with standard LZH decoders like `delharc`.  Versions ≤ 0.3.3 used a
+//! non-standard LSB-first packing that could not be decoded by `delharc`.
+//! The project requires ≥ 0.3.5 to ensure write-read compatibility.
 //!
 //! Path handling notes:
 //! - `delharc`'s parsed pathname helpers intentionally normalise separators and
@@ -1422,50 +1428,84 @@ mod tests {
     }
 
     #[test]
-    fn lzh_writer_lh5_compression_fallback_to_store_small_data() {
-        // lh4-lh7 write is implemented via oxiarc-lzhuf but produces
-        // LSB-first bit-packed streams.  delharc and the LZH standard
-        // require MSB-first.  For small data, compression may be larger
-        // than the original, so the writer silently falls back to lh0
-        // (store), which is always compatible.
-        let data = "small data that won't compress well";
-        let archive = build_lzh(&[FixtureEntry::file("s.txt", data.as_bytes())]);
-        let mut reader = LzhReader::from_buf(archive);
+    fn lzh_writer_lh5_compress_repetitive_data_roundtrip() {
+        // Use the LzhWriter with Lh5 compression to produce a real LZH archive
+        // and verify the compressed data can be read back correctly via delharc.
+        let data = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".repeat(100);
+        let mut writer =
+            LzhWriter::new(std::io::Cursor::new(Vec::new()), LzhCompressionMethod::Lh5);
+        writer
+            .add_entry_from_reader(
+                std::path::Path::new("big.txt"),
+                &mut std::io::Cursor::new(data.as_bytes().to_vec()),
+            )
+            .expect("lh5 writer should accept entry");
+        let (_, cursor) = writer.finalize().expect("writer should finalize");
+        let archive_bytes = cursor.into_inner();
+
+        // Read back with delharc via LzhReader
+        let mut reader = LzhReader::from_buf(archive_bytes);
         let entries = reader.entries().expect("should parse");
         assert_eq!(entries.len(), 1);
         let mut out = Vec::new();
-        reader.extract(&entries[0], &mut out).expect("extract");
+        reader
+            .extract(&entries[0], &mut out)
+            .expect("lh5 compressed entry should extract correctly");
         assert_eq!(
             out,
             data.as_bytes(),
-            "store fallback should preserve content"
+            "lh5 compressed roundtrip should produce identical content"
         );
     }
 
     #[test]
-    fn lzh_writer_lh7_compression_and_readback() {
-        // With sufficiently large and repetitive data, lh7 may produce
+    fn lzh_writer_lh7_compression_roundtrip() {
+        // With sufficiently large and repetitive data, lh7 typically produces
         // a smaller compressed output than the store fallback.
-        // This test verifies whether the compressed output (if produced)
-        // can be read back by delharc.
+        // This test verifies the LSB-first → MSB-first bit-reversal fix
+        // allows delharc to decode the compressed stream correctly.
         let data = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".repeat(300);
-        let archive = build_lzh(&[FixtureEntry::file("big.txt", data.as_bytes())]);
-        let mut reader = LzhReader::from_buf(archive);
+
+        let mut writer =
+            LzhWriter::new(std::io::Cursor::new(Vec::new()), LzhCompressionMethod::Lh7);
+        writer
+            .add_entry_from_reader(
+                std::path::Path::new("big.txt"),
+                &mut std::io::Cursor::new(data.as_bytes().to_vec()),
+            )
+            .expect("lh7 writer should accept entry");
+        let (bytes_written, cursor) = writer.finalize().expect("writer should finalize");
+        let archive_bytes = cursor.into_inner();
+        let archive_total = archive_bytes.len();
+
+        // Compute archive overhead: header + end marker (header_len + checksum + header + terminator)
+        let header_overhead = 2u64 + 22 + 8 + 1; // approx min header size + "big.txt" path + null
+        let real_compression = bytes_written < data.len() as u64 + header_overhead;
+
+        // Read back with delharc via LzhReader
+        let mut reader = LzhReader::from_buf(archive_bytes);
         let entries = reader.entries().expect("should parse");
         assert_eq!(entries.len(), 1);
         let mut out = Vec::new();
-        reader.extract(&entries[0], &mut out).expect("extract");
-        // NOTE: If the compressed stream uses LSB-first bit packing
-        // (oxiarc-lzhuf), delharc may fail to decode it.  This test
-        // documents the known compatibility gap.
-        if out != data.as_bytes() {
-            // Store fallback produced correct bytes; compressed path
-            // produced incompatible bytes.
+        reader
+            .extract(&entries[0], &mut out)
+            .expect("lh7 compressed entry should extract correctly");
+        assert_eq!(
+            out,
+            data.as_bytes(),
+            "lh7 compressed roundtrip should produce identical content"
+        );
+
+        if real_compression {
             eprintln!(
-                "lh7 roundtrip mismatch: expected {} bytes, got {} bytes",
+                "lh7 compressed {} → {} bytes (archive total: {}), ratio: {:.1}%",
                 data.len(),
-                out.len()
+                bytes_written,
+                archive_total,
+                bytes_written as f64 / data.len() as f64 * 100.0
             );
+        } else {
+            eprintln!("lh7 fell back to store; roundtrip still correct");
         }
     }
 }

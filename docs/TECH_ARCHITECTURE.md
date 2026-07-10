@@ -432,7 +432,7 @@ crates/gui-tauri/
 | Windows 长路径/符号链接差异 | 个别归档场景行为与 Unix 不完全一致 | 持续测试 + 文档限制说明 |
 | RAR / DEB / WIM 仍为只读 | GUI 不能创建这些格式 | 在产品文档中明确范围 |
 || WIM 为只读（XPRESS/LZX/LZMS 解压，多映像，MVP 默认第一映像） | GUI 可浏览提取 .wim 文件，不能创建 | 在产品文档中明确限制范围 |
-| LZH/LHA writer 为 store-only level-0 缓冲写入 | 不支持 lh5/lh6/lh7 压缩、加密、多卷、extended header；单个 entry payload 会缓冲 | 在产品文档中明确限制范围 |
+| LZH/LHA writer 为缓冲写入（lh0-lh7 压缩均支持） | 不支持加密、多卷、extended header；单个 entry payload 会缓冲 | 在产品文档中明确限制范围 |
 ## 附录：Cargo Workspace 配置
 
 ```toml
