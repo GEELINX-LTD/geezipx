@@ -14,6 +14,7 @@
   let loaded = $state(false);
   let saved = $state(false);
   let formats = $state<FormatInfo[]>([]);
+  let levelInput = $state('');
 
   /** True when the current form differs from the last loaded/saved snapshot. */
   let dirty = $derived(JSON.stringify(formData) !== JSON.stringify(original));
@@ -29,6 +30,7 @@
       getFormats(),
     ]).then(([d, f]) => {
       formData = { ...d };
+      levelInput = d.default_level != null ? String(d.default_level) : '';
       original = { ...d };
       formats = f;
       loaded = true;
@@ -47,13 +49,23 @@
   }
 
   function onLevelInput(e: Event) {
-    const raw = (e.currentTarget as HTMLInputElement).value;
-    if (raw === '') {
+    levelInput = (e.currentTarget as HTMLInputElement).value;
+  }
+
+  function onLevelBlur() {
+    if (levelInput.trim() === '') {
       formData = { ...formData, default_level: null };
       return;
     }
-    const n = parseInt(raw, 10);
-    formData = { ...formData, default_level: Number.isNaN(n) ? null : n };
+    const n = parseInt(levelInput, 10);
+    if (Number.isNaN(n)) {
+      // Revert to the last valid value instead of clearing.
+      levelInput = formData.default_level != null ? String(formData.default_level) : '';
+      return;
+    }
+    const c = Math.max(0, Math.min(22, Math.round(n)));
+    levelInput = String(c);
+    formData = { ...formData, default_level: c };
   }
 
   async function handleSave() {
@@ -253,9 +265,10 @@
             id="setting-level"
             min="0"
             max="22"
-            value={formData.default_level ?? ''}
+            value={levelInput}
             placeholder="Auto"
             oninput={onLevelInput}
+            onblur={onLevelBlur}
           />
         </div>
 
