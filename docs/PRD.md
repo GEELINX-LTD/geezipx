@@ -80,7 +80,7 @@ GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开�
 | XZ | .xz | ✅ 已支持 | — |
 | TAR.XZ | .tar.xz, .txz | ✅ 已支持 | — |
 | LZMA | .lzma | ✅ 已支持 | — |
-| 7Z | .7z | ✅ 已支持（MVP） | 支持文件/多文件/目录压缩与 AES-256 密码写入；当前不含多线程调优或 tar.7z |
+| 7Z | .7z | ✅ 已支持 | 支持文件/多文件/目录压缩与 AES-256 密码写入；支持 LZMA/LZMA2/BZip2/PPMd/Deflate/COPY 方法选择、自定义字典大小、--solid 实心模式 |
 | RAR | .rar | 📖 只读 | 受 UnRAR 许可限制，不规划写入 |
 | CAB | .cab | ✅ 已支持 | 支持 `compress` / `list` / `decompress` / `test`；通过 `cab` crate 实现 MSZIP 压缩写入。MVP 面向单卷 cabinet，不做密码或 multi-volume cabinet set |
 | LZH/LHA | .lzh, .lha | ✅ 已支持 | 支持 `compress` / `list` / `decompress` / `test`；文件 entry 为 level-0 `-lh0-` / lh4 / lh5 / lh6 / lh7 压缩（通过 oxiarc-lzhuf），目录 entry 为 `-lhd-`。不含密码/加密、多卷、扩展属性、长路径/level 1/2/3 extended header |
@@ -104,14 +104,15 @@ GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开�
 | UU (.uu/.uue) | ✅ 已支持 | 自实现解码器 |
 | XXE (.xxe) | ✅ 已支持 | 自实现解码器 |
 | Z (.Z) | ✅ 已支持 | Unix compress，通过 unarc-rs |
-| AES | 📋 Phase 3 | AES 加密容器（aerovault/mismall 已评估，MIT/Apache-2.0）|
+| AES | ✅ 已支持 | AES 加密容器（AES-256-GCM-SIV + Argon2id，enc_file crate，MIT/Apache-2.0）|
 | JAR, WAR, APK, IPA, XPI | ✅ 已支持 | 本质为 ZIP 容器，复用 ZIP 引擎 |
-| DEB | 📖 只读 | Debian 包（ar 容器 + `data.tar*` payload 视图；忽略 `control.tar.*`） |
+| DEB | ✅ 已支持 | Debian 包，支持创建与读取（ar 容器 + control.tar.gz + data.tar.*）|
 | ASAR | ✅ 已支持 | Electron 归档，支持 `compress` / `list` / `decompress` / `test`；通过 `asar` crate 实现写入 |
 | IMG | ✅ 已支持 | 原始磁盘镜像，透传（无变换），扩展名 .img/.ima |
 | ISZ | 📋 Phase 3 |
 | UDF | ✅ 已支持 | Universal Disk Format，支持 `compress` / `list` / `decompress` / `test`；通过 `hadris-udf` 实现 |
-| BIN, I00 | 📋 规划中 | BIN 已支持 ✅
+| BIN | ✅ 已支持 | 原始二进制透传（identity pass-through，扩展名 .bin）|
+| I00 | 📋 规划中 | 待评估 |
 | 001 | 📋 规划中 | 分卷文件（部分解压场景） |
 
 **依赖与交付策略：**
@@ -127,7 +128,7 @@ GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开�
 
 以下能力在 Phase 1（CLI MVP）和 Phase 2（桌面 GUI）阶段明确不做：
 
-- 7z 高级写入能力（高级编码器/多线程、tar.7z）— 当前已交付基础 7z 创建与 AES-256 密码写入 MVP
+- 7z 高级写入能力（tar.7z 复合格式）— 当前已交付 LZMA/LZMA2/BZip2/PPMd/Deflate/COPY 方法选择、自定义字典大小、--solid 实心模式
 - RAR 创建 — 受 UnRAR 许可限制，仅保持只读
 - 分卷压缩
 - 右键菜单集成
@@ -143,7 +144,7 @@ GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开�
 - **依赖策略**：按格式决定。优先 Rust 原生 crate（如 `zip`、`flate2`、`zstd`、`xz2`），仅在无合适实现时评估外部工具或系统库。
 - **Feature gate**：每种格式按独立 feature 引入，用户可按需编译。
 - **优先级**：由用户需求与社区反馈驱动，不做全格式一次性覆盖。
-|- **读/写分离**：一种格式可先实现只读（如当前 RAR），写入能力后续补充。7z 当前已交付基础写入与 AES-256 密码写入 MVP。ZPAQ 已从只读升级为完整读写（压缩级别 1-5）。
+|- **读/写分离**：一种格式可先实现只读（如当前 RAR），写入能力后续补充。7z 当前已交付 LZMA/LZMA2/BZip2/PPMd/Deflate/COPY 方法选择与 AES-256 密码写入。ZPAQ 已从只读升级为完整读写（压缩级别 1-5）。DEB 已从只读升级为完整读写。
 - **历史格式**：ARJ、ACE、ARC（via unarc-rs）、ALZ（via unalz-rs）、UU/UUE/XXE（自实现）、Z/Unix compress（via unarc-rs）等历史/专有格式已通过适配器层接入；LZH/LHA 的 lh5-lh7 compressed write 已通过升级 oxiarc-lzhuf ≥ v0.3.5（使用 MSB-first 标准位填充）修复，当前 lh0-lh7 压缩写入均与 delharc/LZH 标准互通。
 |- **Journaling 格式**：ZPAQ 当前已升级为完整读写（压缩级别 1-5）；其追加/版本化写入路径与现有"从零创建归档"模型不同，需单独架构设计。
 
@@ -185,7 +186,7 @@ GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开�
 - 各格式校验方式：
   - ZIP：逐 entry 触发 CRC-32 校验。
   - TAR：验证头结构、截断和压缩层，无 per-file CRC。
-  - 加密 ZIP / 7z AES-256 password 保护已支持：`compress --password / --password-file / --password-stdin`。其它格式暂不支持
+  - 加密 ZIP / 7z AES-256 password 保护以及 AES 加密容器（.enc）已支持：`compress --password / --password-file / --password-stdin`。其它格式暂不支持
 - 当前已支持：
   - `--stdout` 将 gzip/bzip2/zstd/xz/lzma 等**单流格式**解压到标准输出，便于脚本串联。
   - `--stdout` 将 tar.gz/tar.bz2/tar.zst/tar.xz 等 **tar-based 压缩归档**解压缩层并输出裸 tar 流，便于 `decompress --stdout archive.tar.gz | tar tf -` 管道串联。
@@ -218,6 +219,7 @@ Phase 1 (MVP — CLI)              ← ✅ 已完成并成熟
 └── CLI 增强特性                 ── ✅ 已完成
     ├── 多线程压缩 (-j/--jobs)
     ├── 加密 ZIP / 7z (AES-256)
+    ├── AES 加密容器（.enc，AES-256-GCM-SIV + Argon2id）
     ├── 7z 读写 MVP / RAR 只读
     └── stdin/stdout 管道
 
@@ -241,7 +243,7 @@ Phase 2 (Desktop GUI via Tauri)  ← 🚀 当前阶段（v0.6.0）
 Phase 3 (生态 + 格式扩展)
 ├── Homebrew / winget / APT 仓库
 ├── 压缩格式扩展
-│   ├── 7z 高级写入能力 — 高级编码器/进一步性能优化
+│   ├── 7z 高级写入能力 — ✅ LZMA/LZMA2/BZip2/PPMd/Deflate/COPY 方法选择、自定义字典大小、--solid 实心模式；tar.7z 复合格式待评估
 │   ├── ZIPX 高级方法矩阵评估 — `.zipx` alias 已支持；JPEG 预压缩等 WinZip 专有高级方法另行评估
 │   ├── LZH/LHA 更完整兼容 — lh4-lh7 压缩写入已完成（oxiarc-lzhuf），后续补齐扩展 header、metadata
 │   └── 其他按用户需求驱动的格式
@@ -250,7 +252,7 @@ Phase 3 (生态 + 格式扩展)
 │   ├── DEB、ASAR — 应用包格式
 │   ├── ARJ、ACE、ARC、ALZ — ✅ 已支持（unarc-rs / unalz-rs 适配器）
 │   ├── UU/UUE/XXE、.Z — ✅ 已支持（自实现解码器 / unarc-rs）
-│   ├── PEA、PMA、AES、EGG — 专有格式按需评估
+│   ├── AES 加密容器 — ✅ 已支持；PEA、PMA、EGG — 专有格式按需评估
 │   ├── IMG、ISZ、UDF — 磁盘镜像格式
 │   └── JAR/WAR/APK/IPA/XPI — ZIP 容器格式（复用引擎）
 └── 更多格式按社区反馈渐进补充

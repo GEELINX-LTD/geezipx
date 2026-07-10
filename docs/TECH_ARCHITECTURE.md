@@ -61,7 +61,7 @@ geezipx/
 - core 只保留格式逻辑、I/O 包装、错误模型与安全检查；
 - CLI 负责参数解析、TTY 进度、stdout/stderr 呈现；
 - Tauri GUI 负责图形交互、任务管理、事件桥接；
-- RAR / DEB / WIM 在当前版本中保持只读语义（RAR/DEB：`list` / `decompress` / `test`；WIM：`list` / `extract` / `test`，XPRESS/LZX/LZMS 解压，多映像支持，MVP 默认第一映像）；CAB / ASAR / CPIO 已支持完整读写；LZH/LHA 已支持 lh4-lh7 压缩写入；7z 已支持基础读写与 AES-256 密码写入；ISO 与 ZPAQ 已支持完整读写。SFX 自解压 ZIP 创建位于独立 `core::sfx` 模块。LZ（Lzip）已支持单流压缩/解压（通过 `lzma-rust2`）。
+- RAR / WIM 在当前版本中保持只读语义（RAR：`list` / `decompress` / `test`；WIM：`list` / `extract` / `test`，XPRESS/LZX/LZMS 解压，多映像支持，MVP 默认第一映像）；DEB 已升级为完整读写；CAB / ASAR / CPIO 已支持完整读写；LZH/LHA 已支持 lh4-lh7 压缩写入；7z 已支持 LZMA/LZMA2/BZip2/PPMd/Deflate/COPY 方法选择与 AES-256 密码写入；ISO 与 ZPAQ 已支持完整读写。SFX 自解压 ZIP 创建位于独立 `core::sfx` 模块。LZ（Lzip）已支持单流压缩/解压（通过 `lzma-rust2`）。
 
 ## 2. 模块设计
 
@@ -119,7 +119,7 @@ pub trait ArchiveWriter: Send {
 | `archive::xz` | XZ/LZMA 单流压缩/解压 helper |
 | `archive::lz` | LZ（Lzip）单流压缩/解压 helper（通过 `lzma-rust2` lzip feature） |
 | `archive::asar` | ASAR 读写（`compress` / `list` / `extract` / `test`）；reader/writer 基于 `asar` crate） |
-| `archive::deb` | DEB 只读（`data.tar*` payload 视图） |
+| `archive::deb` | DEB 读写（ar 容器 + control.tar.gz + data.tar.*） |
 | `archive::cab` | CAB 读写（`compress` / `list` / `extract` / `test`；reader 基于 `cab` crate，writer 基于 `cab` crate 实现 MSZIP 压缩写入） |
 | `archive::cpio` | CPIO 读写（`compress` / `list` / `extract` / `test`；reader/writer 基于 `cpio-archive` crate，MVP 支持 `newc` / `odc`，不创建宿主 symlink/device/FIFO/socket） |
 | `archive::lzh` | LZH/LHA 读写（`compress` / `list` / `extract` / `test`）；reader 基于 `delharc`，writer 为项目内实现（store-only level-0：文件 `-lh0-`，目录 `-lhd-`）|
@@ -430,7 +430,7 @@ crates/gui-tauri/
 | GUI bundle 发布尚未经历真实 tag release 演练 | 发布路径可能存在流程性缺口 | 保守表述为“已配置，待验证” |
 | 大文件压缩进度依赖预扫描总量 | 首次开始任务前会有扫描延迟 | UI 上明确扫描阶段 |
 | Windows 长路径/符号链接差异 | 个别归档场景行为与 Unix 不完全一致 | 持续测试 + 文档限制说明 |
-| RAR / DEB / WIM 仍为只读 | GUI 不能创建这些格式 | 在产品文档中明确范围 |
+| RAR / WIM 仍为只读 | GUI 不能创建这些格式 | 在产品文档中明确范围 |
 || WIM 为只读（XPRESS/LZX/LZMS 解压，多映像，MVP 默认第一映像） | GUI 可浏览提取 .wim 文件，不能创建 | 在产品文档中明确限制范围 |
 | LZH/LHA writer 为缓冲写入（lh0-lh7 压缩均支持） | 不支持加密、多卷、extended header；单个 entry payload 会缓冲 | 在产品文档中明确限制范围 |
 ## 附录：Cargo Workspace 配置

@@ -169,7 +169,7 @@ CLI 和后续 Tauri GUI 只负责：
 - RAR（只读）；
 - CAB（读写）；
 - ASAR（读写，Electron 归档）；
-- DEB（只读，Debian 包）；
+- DEB（读写，Debian 包）；
 - LZH / LHA（读写，lh0-lh7）；
 - ISO（读写，含 Joliet Unicode 文件名 + Rock Ridge POSIX 属性）；
 - UDF（读写，Universal Disk Format DVD/Blu-ray 文件系统）；
@@ -179,6 +179,9 @@ CLI 和后续 Tauri GUI 只负责：
 - SFX（自解压 ZIP 读写）；
 - UU / UUE（只读，CLI 解压/list/test）；
 - XXE（只读，CLI 解压/list/test）；
+- IMG（透传，identity pass-through，扩展名 .img/.ima）；
+- BIN（透传，identity pass-through，扩展名 .bin）；
+- AES 加密容器（.enc，AES-256-GCM-SIV + Argon2id）；
 
 后续可扩展现：
 
@@ -187,7 +190,7 @@ CLI 和后续 Tauri GUI 只负责：
 - WIM 写入（EUPL-1.2 许可兼容性评估中）；
 - CPIO bin/crc 格式支持（无 Rust crate）；
 - ZPAQ 增量日志/去重；
-- ISZ / AES 容器 / IMG 等格式评估与支持（Phase 3 规划中）。
+- ISZ 等格式评估与支持（后续规划中）。
 
 当前阶段不承诺完整替代 7-Zip / WinRAR。
 
