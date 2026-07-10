@@ -12,7 +12,7 @@ use anyhow::{Context, Result};
 use geezipx_core::archive::asar::{AsarReader, AsarWriter};
 use geezipx_core::archive::cab::{CabReader, CabWriter};
 use geezipx_core::archive::cpio::{CpioReader, CpioWriter};
-use geezipx_core::archive::deb::DebReader;
+use geezipx_core::archive::deb::{DebReader, DebWriter};
 use geezipx_core::archive::iso::IsoReader;
 use geezipx_core::archive::iso::IsoWriter;
 use geezipx_core::archive::lzh::{LzhCompressionMethod, LzhReader, LzhWriter};
@@ -461,7 +461,8 @@ pub fn create_writer(
         ArchiveFormat::Udf => Ok(Box::new(UdfWriter::new(file))),
         ArchiveFormat::Asar => Ok(Box::new(AsarWriter::new(file))),
         ArchiveFormat::Cab => Ok(Box::new(CabWriter::new(file))),
-        ArchiveFormat::Deb | ArchiveFormat::Wim => {
+        ArchiveFormat::Deb => Ok(Box::new(DebWriter::new(file))),
+        ArchiveFormat::Wim => {
             anyhow::bail!("'{format}' is a read-only archive format; writing is not supported")
         }
         ArchiveFormat::Cpio => Ok(Box::new(CpioWriter::new(file))),
@@ -1121,14 +1122,24 @@ mod tests {
     }
 
     #[test]
-    fn create_writer_deb_is_read_only() {
+    fn create_writer_deb_is_writable() {
         let temp = tempfile::TempDir::new().unwrap();
         let output = temp.path().join("out.deb");
         let file = fs::File::create(&output).unwrap();
-        match create_writer(file, ArchiveFormat::Deb, CompressOptions::default()) {
-            Ok(_) => panic!("deb writer should be rejected"),
-            Err(err) => assert!(err.to_string().contains("read-only archive format")),
-        }
+        let mut w = create_writer(file, ArchiveFormat::Deb, CompressOptions::default()).unwrap();
+        w.add_entry_from_reader(Path::new("cli-deb-test.txt"), &mut "cli deb test".as_bytes())
+            .unwrap();
+        let bytes = w.finish().unwrap();
+        assert!(bytes > 0);
+
+        let data = std::fs::read(&output).unwrap();
+        let mut reader = DebReader::from_buf(data);
+        let entries = reader.entries().unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].path, "cli-deb-test.txt");
+        let mut out = Vec::new();
+        reader.extract(&entries[0], &mut out).unwrap();
+        assert_eq!(out, b"cli deb test");
     }
 
     #[test]
