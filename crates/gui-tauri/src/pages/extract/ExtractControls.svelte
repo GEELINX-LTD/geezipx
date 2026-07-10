@@ -37,6 +37,9 @@
   ]).then(([strat, outDir, pwd, remember, onComp]) => {
     strategy = strat ?? 'prompt';
     defaultOutputDir = outDir ?? null;
+    // If the output dir hasn't been set yet (e.g. the archive was already open at
+    // mount, before settings resolved), seed it from the configured default.
+    if (outDir && !outputDir) outputDir = outDir;
     onComplete = onComp ?? 'nothing';
     if (remember && pwd) extractPassword = pwd;
     // Initialize the per-run overwrite checkbox from the strategy.
