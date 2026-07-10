@@ -74,6 +74,7 @@ pub fn parse_format(s: &str) -> Result<ArchiveFormat> {
         "lzma" => Ok(ArchiveFormat::Lzma),
         "img" | "ima" => Ok(ArchiveFormat::Img),
         "aes" | "enc" => Ok(ArchiveFormat::Aes),
+        "bin" => Ok(ArchiveFormat::Bin),
         "lz" => Ok(ArchiveFormat::Lz),
         "7z" => Ok(ArchiveFormat::SevenZip),
         "rar" => Ok(ArchiveFormat::Rar),
@@ -495,6 +496,17 @@ pub fn create_writer(
         ArchiveFormat::TarXz => Ok(Box::new(TarXzWriter::new_with_options(file, options))),
         _ => anyhow::bail!("unsupported format for writing: {format}"),
     }
+}
+
+/// Infer the decompressed filename for a BIN file by stripping `.bin` from
+/// the filename.
+pub fn bin_output_filename(archive: &Path) -> PathBuf {
+    let name = archive
+        .file_name()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_else(|| "output".to_string());
+    let stripped = name.strip_suffix(".bin").unwrap_or(&name);
+    PathBuf::from(stripped)
 }
 
 /// Infer the decompressed filename for an IMG file by stripping `.img` or

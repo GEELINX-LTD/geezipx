@@ -19,6 +19,7 @@ pub mod aes;
 pub mod arc;
 pub mod arj;
 pub mod asar;
+pub mod bin;
 pub mod brotli;
 pub mod bzip2;
 pub mod cab;

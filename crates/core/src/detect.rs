@@ -89,6 +89,8 @@ pub enum ArchiveFormat {
     /// AES encrypted container (`.enc`) — AES-256-GCM-SIV with Argon2id KDF.
     /// Extension-only detection (CBOR header precludes magic-byte sniffing).
     Aes,
+    /// Raw binary data (`.bin`) — identity pass-through, no compression.
+    Bin,
     /// Unknown or unrecognised format.
     Unknown,
 }
@@ -132,6 +134,7 @@ impl fmt::Display for ArchiveFormat {
             ArchiveFormat::Xxe => write!(f, "xxe"),
             ArchiveFormat::Img => write!(f, "img"),
             ArchiveFormat::Aes => write!(f, "aes"),
+            ArchiveFormat::Bin => write!(f, "bin"),
             ArchiveFormat::Unknown => write!(f, "unknown"),
         }
     }
@@ -205,6 +208,7 @@ const EXTENSION_MAP: &[(&str, ArchiveFormat)] = &[
     (".img", ArchiveFormat::Img),
     (".ima", ArchiveFormat::Img),
     (".enc", ArchiveFormat::Aes),
+    (".bin", ArchiveFormat::Bin),
     (".uu", ArchiveFormat::Uu),
     (".uue", ArchiveFormat::Uu),
     (".xxe", ArchiveFormat::Xxe),
@@ -434,6 +438,15 @@ mod tests {
         assert_eq!(
             detect_from_extension(Path::new("data.enc")),
             Some(ArchiveFormat::Aes)
+        );
+    }
+
+    #[test]
+    fn detect_bin_is_extension_only() {
+        assert_eq!(detect_format(b"any arbitrary bytes with no magic"), None);
+        assert_eq!(
+            detect_from_extension(Path::new("data.bin")),
+            Some(ArchiveFormat::Bin)
         );
     }
 

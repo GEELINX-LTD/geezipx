@@ -6,6 +6,7 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 use geezipx_core::archive::aes;
+use geezipx_core::archive::bin;
 use geezipx_core::archive::brotli;
 use geezipx_core::archive::bzip2;
 use geezipx_core::archive::gzip;
@@ -35,6 +36,7 @@ fn is_single_stream_format(format: ArchiveFormat) -> bool {
             | ArchiveFormat::Lz
             | ArchiveFormat::Img
             | ArchiveFormat::Aes
+            | ArchiveFormat::Bin
     )
 }
 
@@ -691,6 +693,8 @@ fn compress_single_stream<R: Read, W: Write>(
             aes::aes_encrypt(reader, writer, password)
                 .map_err(|e| anyhow::anyhow!("aes encryption error: {}", e))
         }
+        ArchiveFormat::Bin => bin::bin_compress(reader, writer)
+            .map_err(|e| anyhow::anyhow!("bin pass-through error: {}", e)),
         _ => anyhow::bail!("cannot compress '{}' as a single stream", format),
     }
 }

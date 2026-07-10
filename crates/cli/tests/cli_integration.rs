@@ -8136,6 +8136,43 @@ fn img_compress_decompress_roundtrip() {
 }
 
 #[test]
+fn bin_compress_decompress_roundtrip() {
+    let td = TestDir::new();
+    td.write("payload.raw", "raw bin format test");
+
+    // Compress
+    geezipx()
+        .args([
+            "compress",
+            "-f",
+            "bin",
+            td.join("payload.raw").to_str().unwrap(),
+            "-o",
+            td.join("out.bin").to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+    assert!(td.join("out.bin").exists());
+
+    // Decompress — output filename is archive stem (strips .bin)
+    let out_dir = td.join("extracted");
+    std::fs::create_dir(&out_dir).unwrap();
+    geezipx()
+        .args([
+            "decompress",
+            td.join("out.bin").to_str().unwrap(),
+            "-o",
+            out_dir.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    // BIN is pass-through: content must be byte-identical
+    let extracted = std::fs::read(out_dir.join("out")).unwrap();
+    assert_eq!(extracted, b"raw bin format test");
+}
+
+#[test]
 fn aes_encrypt_decrypt_roundtrip() {
     let td = TestDir::new();
     td.write("secret.txt", "top secret content for AES encryption");
