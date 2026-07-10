@@ -73,6 +73,7 @@ pub fn parse_format(s: &str) -> Result<ArchiveFormat> {
         "xz" => Ok(ArchiveFormat::Xz),
         "lzma" => Ok(ArchiveFormat::Lzma),
         "img" | "ima" => Ok(ArchiveFormat::Img),
+        "aes" | "enc" => Ok(ArchiveFormat::Aes),
         "lz" => Ok(ArchiveFormat::Lz),
         "7z" => Ok(ArchiveFormat::SevenZip),
         "rar" => Ok(ArchiveFormat::Rar),
@@ -505,6 +506,17 @@ pub fn img_output_filename(archive: &Path) -> PathBuf {
         .strip_suffix(".img")
         .or_else(|| name.strip_suffix(".ima"))
         .unwrap_or(&name);
+    PathBuf::from(stripped)
+}
+
+/// Infer the decrypted filename for an AES file by stripping `.enc` from the
+/// filename.
+pub fn aes_output_filename(archive: &Path) -> PathBuf {
+    let name = archive
+        .file_name()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_else(|| "output".to_string());
+    let stripped = name.strip_suffix(".enc").unwrap_or(&name);
     PathBuf::from(stripped)
 }
 

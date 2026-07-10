@@ -86,6 +86,8 @@ pub enum ArchiveFormat {
     Xxe,
     /// Raw disk image (`.img`/`.ima`) — identity pass-through, no compression.
     Img,
+    /// AES encrypted container (`.enc`) — AES-256-GCM-SIV with Argon2id KDF, magic "ENCFILE\0".
+    Aes,
     /// Unknown or unrecognised format.
     Unknown,
 }
@@ -128,6 +130,7 @@ impl fmt::Display for ArchiveFormat {
             ArchiveFormat::Uu => write!(f, "uu"),
             ArchiveFormat::Xxe => write!(f, "xxe"),
             ArchiveFormat::Img => write!(f, "img"),
+            ArchiveFormat::Aes => write!(f, "aes"),
             ArchiveFormat::Unknown => write!(f, "unknown"),
         }
     }
@@ -157,6 +160,8 @@ pub const MAGIC_SEVENZIP: &[u8] = &[0x37, 0x7A, 0xBC, 0xAF, 0x27, 0x1C];
 pub const MAGIC_RAR: &[u8] = b"Rar!\x1A\x07";
 /// CAB magic: `MSCF`.
 pub const MAGIC_CAB: &[u8] = b"MSCF";
+/// AES encrypted container magic: `ENCFILE\0`.
+pub const MAGIC_AES: &[u8] = b"ENCFILE\0";
 
 /// Map of well-known single extensions to their archive format.
 const EXTENSION_MAP: &[(&str, ArchiveFormat)] = &[
@@ -200,6 +205,7 @@ const EXTENSION_MAP: &[(&str, ArchiveFormat)] = &[
     (".udf", ArchiveFormat::Udf),
     (".img", ArchiveFormat::Img),
     (".ima", ArchiveFormat::Img),
+    (".enc", ArchiveFormat::Aes),
     (".uu", ArchiveFormat::Uu),
     (".uue", ArchiveFormat::Uu),
     (".xxe", ArchiveFormat::Xxe),
@@ -258,6 +264,9 @@ pub fn detect_format(data: &[u8]) -> Option<ArchiveFormat> {
     }
     if data.starts_with(MAGIC_XZ) {
         return Some(ArchiveFormat::Xz);
+    }
+    if data.starts_with(MAGIC_AES) {
+        return Some(ArchiveFormat::Aes);
     }
     None
 }
@@ -420,6 +429,25 @@ mod tests {
             detect_from_extension(Path::new("floppy.ima")),
             Some(ArchiveFormat::Img)
         );
+    }
+
+    #[test]
+    fn detect_aes_magic() {
+        // enc_file format starts with ENCFILE\0
+        assert_eq!(
+            detect_format(b"ENCFILE\0..."),
+            Some(ArchiveFormat::Aes)
+        );
+        // Extension-based fallback
+        assert_eq!(
+            detect_from_extension(Path::new("data.enc")),
+            Some(ArchiveFormat::Aes)
+        );
+    }
+
+    #[test]
+    fn display_aes() {
+        assert_eq!(ArchiveFormat::Aes.to_string(), "aes");
     }
 
     #[test]

@@ -16,6 +16,7 @@ use geezipx_core::archive::brotli;
 use geezipx_core::archive::bzip2;
 use geezipx_core::archive::gzip;
 use geezipx_core::archive::img;
+use geezipx_core::archive::aes;
 use geezipx_core::archive::lz;
 use geezipx_core::archive::lz4;
 use geezipx_core::archive::uu;
@@ -51,7 +52,7 @@ pub fn execute(
     }
     let format = common::detect_archive_format(archive)?;
 
-    // Validate password: single-stream formats (gzip, bzip2, zstd, xz, lzma) do not support encryption.
+    // Validate password: single-stream formats (gzip, bzip2, zstd, xz, lzma) do not support encryption (except AES).
     if password.is_some()
         && matches!(
             format,
@@ -69,7 +70,7 @@ pub fn execute(
         )
     {
         anyhow::bail!(
-            "--password is only supported for ZIP, 7z, and RAR formats; '{}' does not support encryption",
+            "--password is only supported for ZIP, 7z, RAR, and AES formats; '{}' does not support encryption",
             format
         );
     }
@@ -398,6 +399,43 @@ pub fn execute(
                         std::process::exit(130);
                     }
                     return Err(anyhow::anyhow!("img pass-through error: {}", e));
+                }
+            }
+        }
+
+        ArchiveFormat::Aes => {
+            let cancel_flag = cancel_token.clone().into_inner();
+            let aes_password = password.clone().unwrap_or_default();
+
+            let result = if stdout {
+                decompress_aes_stdout(archive, &aes_password, cancel_flag)
+            } else {
+                decompress_aes_to_file(archive, output_dir, overwrite, &aes_password, cancel_flag)
+            };
+
+            let spinner = if show_progress {
+                Some(crate::render::progress::ProgressBarWrapper::spinner(
+                    "Decrypting...",
+                ))
+            } else {
+                None
+            };
+
+            match result {
+                Ok(()) => {
+                    if let Some(s) = &spinner {
+                        s.finish("Decrypted");
+                    }
+                }
+                Err(e) => {
+                    if let Some(s) = &spinner {
+                        s.finish("Decryption failed");
+                    }
+                    if cancel_token.is_cancelled() {
+                        eprintln!("Cancelled");
+                        std::process::exit(130);
+                    }
+                    return Err(anyhow::anyhow!("aes decryption error: {}", e));
                 }
             }
         }
@@ -861,6 +899,68 @@ fn decompress_img_to_file(
 
     eprintln!(
         "Decompressed {} -> {} ({} bytes)",
+        archive.display(),
+        output_path.display(),
+        bytes,
+    );
+    Ok(())
+}
+
+/// Decrypt an AES-encrypted stream to stdout.
+fn decompress_aes_stdout(archive: &Path, password: &str, cancel_flag: Arc<AtomicBool>) -> Result<()> {
+    let file_size = std::fs::metadata(archive).map(|m| m.len()).unwrap_or(0);
+    let file =
+        fs::File::open(archive).with_context(|| format!("opening '{}'", archive.display()))?;
+    let mut stdout = std::io::stdout().lock();
+
+    let wrapper = crate::render::progress::ProgressBarWrapper::hidden();
+    let shared = crate::render::progress::SharedCallback::new(wrapper, cancel_flag);
+    let mut reader = geezipx_core::ProgressReader::new(file)
+        .with_total(file_size)
+        .with_callback(Box::new(shared));
+
+    let bytes = aes::aes_decrypt(&mut reader, &mut stdout, password)
+        .with_context(|| format!("decrypting '{}'", archive.display()))?;
+    stdout
+        .flush()
+        .context("flushing stdout after decryption")?;
+    eprintln!("Decrypted {} bytes to stdout", bytes);
+    Ok(())
+}
+
+/// Decrypt an AES-encrypted file to a new file in the output directory.
+fn decompress_aes_to_file(
+    archive: &Path,
+    output_dir: &Path,
+    overwrite: bool,
+    password: &str,
+    cancel_flag: Arc<AtomicBool>,
+) -> Result<()> {
+    let output_name = common::aes_output_filename(archive);
+    let output_path = output_dir.join(&output_name);
+
+    let input_file =
+        fs::File::open(archive).with_context(|| format!("opening '{}'", archive.display()))?;
+    if !overwrite && output_path.exists() {
+        eprintln!(
+            "Warning: '{}' already exists, skipping (use --force to overwrite)",
+            output_path.display()
+        );
+        return Ok(());
+    }
+
+    let mut output_file = fs::File::create(&output_path)
+        .with_context(|| format!("creating '{}'", output_path.display()))?;
+
+    let wrapper = ProgressBarWrapper::hidden();
+    let shared = SharedCallback::new(wrapper, cancel_flag);
+    let mut reader = ProgressReader::new(input_file).with_callback(Box::new(shared));
+
+    let bytes = aes::aes_decrypt(&mut reader, &mut output_file, password)
+        .with_context(|| format!("decrypting '{}'", archive.display()))?;
+
+    eprintln!(
+        "Decrypted {} -> {} ({} bytes)",
         archive.display(),
         output_path.display(),
         bytes,

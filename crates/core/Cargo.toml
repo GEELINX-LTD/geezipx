@@ -39,6 +39,8 @@ asar = { version = "0.3", default-features = false, features = ["write"] }
 ar = "0.9"
 delharc = "0.6"
 oxiarc-lzhuf = "0.3"
+enc_file = "0.6"
+secrecy = "0.10"
 isomage = "2.1"
 hadris-iso = { version = "1.1", features = ["joliet"] }
 hadris-udf = { version = "1.2", default-features = false, features = ["read", "write", "std"] }

@@ -15,6 +15,7 @@
 pub mod ace;
 // TODO: re-add when unalz-rs is published to crates.io:
 // #[cfg(feature = "alz")] pub mod alz;
+pub mod aes;
 pub mod arc;
 pub mod arj;
 pub mod asar;

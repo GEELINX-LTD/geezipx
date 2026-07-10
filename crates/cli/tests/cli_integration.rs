@@ -8146,6 +8146,81 @@ fn img_compress_decompress_roundtrip() {
 }
 
 #[test]
+fn aes_encrypt_decrypt_roundtrip() {
+    let td = TestDir::new();
+    td.write("secret.txt", "top secret content for AES encryption");
+
+    // Encrypt
+    geezipx()
+        .args([
+            "compress",
+            "-f",
+            "aes",
+            "--password",
+            "testpw",
+            td.join("secret.txt").to_str().unwrap(),
+            "-o",
+            td.join("secret.enc").to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+    assert!(td.join("secret.enc").exists());
+
+    // Decrypt
+    let out_dir = td.join("extracted");
+    std::fs::create_dir(&out_dir).unwrap();
+    geezipx()
+        .args([
+            "decompress",
+            "--password",
+            "testpw",
+            td.join("secret.enc").to_str().unwrap(),
+            "-o",
+            out_dir.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    // Verify roundtrip (output file name is derived from the archive name, stripping .enc)
+    let decrypted = std::fs::read(out_dir.join("secret")).unwrap();
+    assert_eq!(decrypted, b"top secret content for AES encryption");
+}
+
+#[test]
+fn aes_wrong_password_fails() {
+    let td = TestDir::new();
+    td.write("data.txt", "encrypted data");
+
+    geezipx()
+        .args([
+            "compress",
+            "-f",
+            "aes",
+            "--password",
+            "pw1",
+            td.join("data.txt").to_str().unwrap(),
+            "-o",
+            td.join("data.enc").to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    let out_dir = td.join("extracted");
+    std::fs::create_dir(&out_dir).unwrap();
+    geezipx()
+        .args([
+            "decompress",
+            "--password",
+            "wrongpw",
+            td.join("data.enc").to_str().unwrap(),
+            "-o",
+            out_dir.to_str().unwrap(),
+        ])
+        .assert()
+        .failure();
+}
+
+#[test]
 fn deb_compress_basic() {
     let td = TestDir::new();
     td.write("payload.txt", "deb write test");

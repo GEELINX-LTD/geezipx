@@ -5,6 +5,7 @@ use std::io::{BufReader, Read, Write};
 use std::path::Path;
 
 use anyhow::{Context, Result};
+use geezipx_core::archive::aes;
 use geezipx_core::archive::brotli;
 use geezipx_core::archive::bzip2;
 use geezipx_core::archive::gzip;
@@ -33,6 +34,7 @@ fn is_single_stream_format(format: ArchiveFormat) -> bool {
             | ArchiveFormat::Lzma
             | ArchiveFormat::Lz
             | ArchiveFormat::Img
+            | ArchiveFormat::Aes
     )
 }
 
@@ -582,11 +584,14 @@ fn validate_compress_inputs(
         }
     }
 
-    // Password-protected archive creation is currently supported for ZIP and 7z.
+    // Password-protected archive creation is currently supported for ZIP, 7z, and AES.
     if let Some(password) = options.password.as_deref() {
-        if format != ArchiveFormat::Zip && format != ArchiveFormat::SevenZip {
+        if format != ArchiveFormat::Zip
+            && format != ArchiveFormat::SevenZip
+            && format != ArchiveFormat::Aes
+        {
             anyhow::bail!(
-                "--password is only supported for ZIP and 7z formats; '{}' does not support encryption",
+                "--password is only supported for ZIP, 7z, and AES formats; '{}' does not support encryption",
                 format
             );
         }
@@ -648,6 +653,11 @@ fn compress_single_stream<R: Read, W: Write>(
             .map_err(|e| anyhow::anyhow!("lz compression error: {}", e)),
         ArchiveFormat::Img => img::img_compress(reader, writer)
             .map_err(|e| anyhow::anyhow!("img pass-through error: {}", e)),
+        ArchiveFormat::Aes => {
+            let password = options.password.as_deref().unwrap_or("");
+            aes::aes_encrypt(reader, writer, password)
+                .map_err(|e| anyhow::anyhow!("aes encryption error: {}", e))
+        }
         _ => anyhow::bail!("cannot compress '{}' as a single stream", format),
     }
 }
