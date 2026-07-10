@@ -81,9 +81,13 @@
     } catch { /* silent */ }
   }
 
+  function childPath(c: { name: string; isDir: boolean; entry: { path: string } }): string {
+    return c.isDir ? archiveStore.currentDir + c.name : c.entry.path;
+  }
+
   let allSelected = $derived(
     archiveStore.currentChildren.length > 0 &&
-    archiveStore.currentChildren.every(c => archiveStore.selectedPaths.has(c.entry.path))
+    archiveStore.currentChildren.every(c => archiveStore.selectedPaths.has(childPath(c)))
   );
 
   function toggleSelectAll() {
@@ -111,23 +115,23 @@
         </tr>
       </thead>
       <tbody>
-        {#each archiveStore.currentChildren as child (child.entry.path)}
+        {#each archiveStore.currentChildren as child (childPath(child))}
           <tr
             class="browser-row"
-            class:selected={archiveStore.selectedPaths.has(child.entry.path)}
+            class:selected={archiveStore.selectedPaths.has(childPath(child))}
           >
             <td class="col-check" onclick={(e) => e.stopPropagation()}>
               <input
                 type="checkbox"
-                checked={archiveStore.selectedPaths.has(child.entry.path)}
-                onchange={() => archiveStore.toggleSelection(child.entry.path)}
+                checked={archiveStore.selectedPaths.has(childPath(child))}
+                onchange={() => archiveStore.toggleSelection(childPath(child))}
               />
             </td>
-            <td class="col-drag" onmousedown={(e) => onDragHandleDown(e, child.entry.path)}>
+            <td class="col-drag" onmousedown={(e) => onDragHandleDown(e, childPath(child))}>
               <span class="drag-handle" title={localeStore.t('browser.table.dragHandle')} aria-label={localeStore.t('browser.table.dragHandle')}>⋮⋮</span>
             </td>
             <td class="col-name">
-              <button class="row-name-btn" onclick={() => handleRowClick(child.entry.path, child.isDir)} ondblclick={() => handleRowDblClick(child.entry.path, child.isDir)}>
+              <button class="row-name-btn" onclick={() => handleRowClick(childPath(child), child.isDir)} ondblclick={() => handleRowDblClick(childPath(child), child.isDir)}>
                 <span class="row-icon">{child.isDir ? '📁' : '📄'}</span>
                 <span class="row-name-text truncate">{child.name}</span>
               </button>
