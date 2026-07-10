@@ -579,7 +579,24 @@ mod platform {
 #[cfg(target_os = "windows")]
 mod platform {
     use super::*;
+    use std::os::windows::process::CommandExt;
     use std::os::windows::process::ExitStatusExt;
+
+    const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+    extern "system" {
+        /// Opens a file, URL, or folder via the Windows shell. Returns a value
+        /// greater than 32 on success, or an error code ≤ 32 on failure.
+        /// <https://learn.microsoft.com/en-us/windows/win32/api/shellapi/nf-shellapi-shellexecutew>
+        fn ShellExecuteW(
+            hwnd: isize,
+            operation: *const u16,
+            file: *const u16,
+            parameters: *const u16,
+            directory: *const u16,
+            show_cmd: i32,
+        ) -> isize;
+    }
 
     pub struct AssocState {
         pub is_default: Option<bool>,
@@ -602,6 +619,7 @@ mod platform {
         Command::new("cmd")
             .args(["/c", "reg"])
             .args(args)
+            .creation_flags(CREATE_NO_WINDOW)
             .output()
             .unwrap_or_else(|_| std::process::Output {
                 status: ExitStatusExt::from_raw(1),
@@ -715,17 +733,35 @@ mod platform {
     }
 
     pub fn open_settings(_ext: Option<&str>) -> Result<(), String> {
-        // Official, supported deep link that scrolls to our app in Default Apps
-        // (Windows 11 2023-04+). Falls back to the generic page.
+        // Use ShellExecuteW to open ms-settings deep links. This avoids:
+        // - visible terminal windows (cmd /c start)
+        // - "Windows cannot find" error dialogs when the app isn't registered
+        // Returns > 32 on success; ≤ 32 is an error code.
         let url = "ms-settings:defaultapps?registeredAppUser=GeeZipX";
-        let status = Command::new("cmd")
-            .args(["/c", "start", "", &format!("\"{url}\"")])
-            .status()
-            .map_err(|e| e.to_string())?;
-        if !status.success() {
-            let _ = Command::new("cmd")
-                .args(["/c", "start", "", "ms-settings:defaultapps"])
-                .status();
+        let op: Vec<u16> = "open\0".encode_utf16().collect();
+        let url_wide: Vec<u16> = format!("{url}\0").encode_utf16().collect();
+
+        unsafe {
+            let result = ShellExecuteW(
+                0,
+                op.as_ptr(),
+                url_wide.as_ptr(),
+                std::ptr::null(),
+                std::ptr::null(),
+                1, // SW_SHOWNORMAL
+            );
+            if result <= 32 {
+                // Deep link failed (app not registered) — fall back silently.
+                let fallback: Vec<u16> = "ms-settings:defaultapps\0".encode_utf16().collect();
+                ShellExecuteW(
+                    0,
+                    op.as_ptr(),
+                    fallback.as_ptr(),
+                    std::ptr::null(),
+                    std::ptr::null(),
+                    1,
+                );
+            }
         }
         Ok(())
     }
