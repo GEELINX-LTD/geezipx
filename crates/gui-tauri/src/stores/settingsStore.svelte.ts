@@ -11,6 +11,9 @@ const DEFAULTS: GeeZipXSettings = {
   default_level: null,
   recursive: true,
   theme: 'system',
+  on_complete: 'nothing',
+  default_password: null,
+  remember_password: false,
 };
 
 let store: Store | null = null;

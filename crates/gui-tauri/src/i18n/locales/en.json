@@ -67,7 +67,12 @@
     "resultSkipped": ", {{count}} skipped",
     "run": "Extract",
     "cancel": "Cancel",
-    "progressTitle": "Extracting..."
+    "progressTitle": "Extracting...",
+    "promptTitle": "Files already exist",
+    "promptText": "The output directory already contains files: {{dir}}\nHow should existing files be handled?",
+    "promptCancel": "Cancel",
+    "promptSkip": "Skip",
+    "promptOverwrite": "Overwrite"
   },
   "browser": {
     "info": "Showing {{current}} items · Archive: {{total}} entries",
@@ -132,12 +137,29 @@
     "recursive": {
       "label": "Add directories recursively"
     },
+    "onComplete": {
+      "label": "Behavior after completion",
+      "help": "Default action after a compress or extract task succeeds.",
+      "nothing": "Do nothing",
+      "openOutput": "Open output directory"
+    },
+    "defaultPassword": {
+      "label": "Default password",
+      "help": "Pre-fills encryption and extraction password fields. Note: stored in plaintext in the local settings file."
+    },
+    "rememberPassword": {
+      "label": "Remember default password"
+    },
     "theme": {
       "label": "Theme",
       "system": "Follow system",
       "light": "Light",
       "dark": "Dark"
     },
+    "reset": "Reset to defaults",
+    "dirty": "Unsaved changes",
+    "unsavedConfirm": "Settings have not been saved. Leave and discard changes?",
+    "unsavedTitle": "Unsaved changes",
     "cancel": "Cancel",
     "save": "Save",
     "saved": "Settings saved."

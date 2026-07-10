@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **GUI settings improvements**:
+  - Wired previously inert settings into real behavior: `Default output directory` now seeds compress/extract output paths; `Add directories recursively` controls directory traversal in compression (Rust `compress_archive` gained a `recursive` flag); `Overwrite strategy = Ask each time` now shows a confirm dialog before extraction.
+  - New settings: `Behavior after completion` (open output directory) and `Default password` / `Remember default password` (pre-fill encryption & extraction fields).
+  - Settings UX: dirty-state indicator, `Reset to defaults` button, and a leave-confirmation prompt when navigating away with unsaved changes.
+  - Hardened `Default compression level` input (rejects non-numeric / out-of-range values) and validates the stored default format on load.
+
 ### Notes
 
 - First end-to-end tagged release still needs real-world verification.

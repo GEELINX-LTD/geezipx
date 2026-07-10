@@ -67,7 +67,12 @@
     "resultSkipped": "，跳过 {{count}} 个",
     "run": "解压",
     "cancel": "取消",
-    "progressTitle": "正在提取..."
+    "progressTitle": "正在提取...",
+    "promptTitle": "文件已存在",
+    "promptText": "输出目录已存在文件：{{dir}}\n要如何处理已有文件？",
+    "promptCancel": "取消",
+    "promptSkip": "跳过",
+    "promptOverwrite": "覆盖"
   },
   "browser": {
     "info": "显示 {{current}} 项 · 归档共 {{total}} 项",
@@ -132,12 +137,29 @@
     "recursive": {
       "label": "递归添加目录"
     },
+    "onComplete": {
+      "label": "完成后的行为",
+      "help": "压缩或解压成功后的默认动作。",
+      "nothing": "无操作",
+      "openOutput": "打开输出目录"
+    },
+    "defaultPassword": {
+      "label": "默认密码",
+      "help": "用于预填加密与解压密码。注意：密码以明文保存在本地设置文件中。"
+    },
+    "rememberPassword": {
+      "label": "记住默认密码"
+    },
     "theme": {
       "label": "主题",
       "system": "跟随系统",
       "light": "浅色",
       "dark": "深色"
     },
+    "reset": "恢复默认",
+    "dirty": "有未保存的更改",
+    "unsavedConfirm": "设置尚未保存，确定要离开并放弃更改吗？",
+    "unsavedTitle": "未保存的更改",
     "cancel": "取消",
     "save": "保存",
     "saved": "设置已保存"
