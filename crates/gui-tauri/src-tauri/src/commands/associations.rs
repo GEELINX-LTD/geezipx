@@ -579,7 +579,7 @@ mod platform {
 #[cfg(target_os = "windows")]
 mod platform {
     use super::*;
-    use std::process::ExitStatusExt;
+    use std::os::windows::process::ExitStatusExt;
 
     pub struct AssocState {
         pub is_default: Option<bool>,
