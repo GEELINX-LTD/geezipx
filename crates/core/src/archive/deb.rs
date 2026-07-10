@@ -1,14 +1,17 @@
-//! Debian package (`.deb`) archive reader.
+//! Debian package (`.deb`) archive reader and writer.
 //!
-//! GeeZipX treats a DEB as a read-only container backed by an outer Unix `ar`
-//! archive whose useful payload lives in a single `data.tar*` member.
-//! `debian-binary` and `control.tar.*` are intentionally ignored in this
-//! phase so the behavior matches `dpkg-deb -x/-c` style payload extraction.
+//! GeeZipX supports both reading and writing DEB archives.  The DEB format
+//! wraps an outer Unix `ar` archive whose useful payload lives in a single
+//! `data.tar*` member.  When reading, `debian-binary` and `control.tar.*` are
+//! intentionally ignored so the behavior matches `dpkg-deb -x/-c` style
+//! payload extraction.  When writing, a minimal `control.tar.gz` is generated
+//! automatically.
 
 use std::fmt;
 use std::io::{Read, Seek, SeekFrom, Write};
+use std::path::Path;
 
-use crate::archive::{ArchiveReader, Entry};
+use crate::archive::{ArchiveReader, ArchiveWriter, Entry, is_entry_path_dangerous, CountWriter};
 use crate::detect::ArchiveFormat;
 use crate::error::{GeeZipError, GeeZipResult};
 
@@ -43,9 +46,10 @@ impl DebReader<std::io::Cursor<Vec<u8>>> {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum DataPayloadCodec {
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum DataPayloadCodec {
     Tar,
+    #[default]
     Gzip,
     Xz,
     Zstd,
@@ -366,6 +370,295 @@ impl<R: Read + Seek + Send> ArchiveReader for DebReader<R> {
     }
 }
 
+// ---------------------------------------------------------------------------
+// DebWriter
+// ---------------------------------------------------------------------------
+
+/// Debian package (`.deb`) archive writer.
+///
+/// Creates a DEB archive consisting of a `debian-binary` version marker,
+/// a minimal `control.tar.gz`, and a `data.tar.{ext}` payload containing
+/// the user-specified entries.  The data payload compression can be
+/// controlled via [`DataPayloadCodec`]; the default is Gzip.
+pub struct DebWriter<W: Write + Send> {
+    writer: Option<W>,
+    codec: DataPayloadCodec,
+    format: ArchiveFormat,
+    entries: Vec<(String, Vec<u8>)>,
+    directories: Vec<String>,
+}
+
+impl<W: Write + Send> fmt::Debug for DebWriter<W> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("DebWriter")
+            .field("format", &self.format)
+            .field("codec", &self.codec)
+            .finish_non_exhaustive()
+    }
+}
+
+impl<W: Write + Send> DebWriter<W> {
+    /// Create a new DEB writer with default Gzip data payload compression.
+    pub fn new(writer: W) -> Self {
+        DebWriter {
+            writer: Some(writer),
+            codec: DataPayloadCodec::Gzip,
+            format: ArchiveFormat::Deb,
+            entries: Vec::new(),
+            directories: Vec::new(),
+        }
+    }
+
+    /// Create a new DEB writer with the given data payload compression codec.
+    pub fn new_with_codec(writer: W, codec: DataPayloadCodec) -> Self {
+        DebWriter {
+            writer: Some(writer),
+            codec,
+            format: ArchiveFormat::Deb,
+            entries: Vec::new(),
+            directories: Vec::new(),
+        }
+    }
+}
+
+impl<W: Write + Send> ArchiveWriter for DebWriter<W> {
+    fn format(&self) -> ArchiveFormat {
+        self.format
+    }
+
+    fn add_entry_from_reader(&mut self, path: &Path, reader: &mut dyn Read) -> GeeZipResult<()> {
+        let name = validate_deb_write_path(path)?;
+        let mut data = Vec::new();
+        reader
+            .read_to_end(&mut data)
+            .map_err(|e| GeeZipError::io(e, format!("reading data for DEB entry '{name}'")))?;
+        self.entries.push((name, data));
+        Ok(())
+    }
+
+    fn add_directory(&mut self, path: &Path) -> GeeZipResult<()> {
+        let name = validate_deb_write_path(path)?;
+        self.directories.push(name);
+        Ok(())
+    }
+
+    fn finish(self: Box<Self>) -> GeeZipResult<u64> {
+        let writer = self.writer.ok_or_else(|| GeeZipError::Format {
+            message: "DEB writer not initialised (already consumed)".into(),
+            format: ArchiveFormat::Deb,
+        })?;
+
+        // Build the control.tar.gz payload.
+        let control_tar_gz = build_control_tar()?;
+
+        // Build the data.tar.{codec} payload.
+        let data_tar = build_data_tar(&self.entries, &self.directories)?;
+        let data_compressed = compress_tar(self.codec, &data_tar)?;
+
+        // Write the ar archive through a CountWriter.
+        let mut counter = CountWriter {
+            inner: writer,
+            count: 0,
+        };
+
+        let member_name = self.codec.member_name();
+        {
+            let mut builder = ar::Builder::new(&mut counter);
+
+            // debian-binary
+            let header = ar::Header::new(b"debian-binary".to_vec(), 4);
+            builder.append(&header, &b"2.0\n"[..]).map_err(convert_deb_ar_error)?;
+
+            // control.tar.gz
+            let header = ar::Header::new(
+                b"control.tar.gz".to_vec(),
+                control_tar_gz.len() as u64,
+            );
+            builder
+                .append(&header, &control_tar_gz[..])
+                .map_err(convert_deb_ar_error)?;
+
+            // data.tar.{ext}
+            let header = ar::Header::new(
+                member_name.as_bytes().to_vec(),
+                data_compressed.len() as u64,
+            );
+            builder
+                .append(&header, &data_compressed[..])
+                .map_err(convert_deb_ar_error)?;
+        }
+
+        Ok(counter.count)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Helper functions
+// ---------------------------------------------------------------------------
+
+/// Minimal `control` file content for generated DEB packages.
+const MINIMAL_CONTROL: &str = "\
+Package: geezipx-package
+Version: 1.0
+Architecture: all
+Maintainer: GeeZipX <geezipx@example.com>
+Description: Package created by GeeZipX
+";
+// NOTE: trailing newline above is required by Debian policy.
+
+/// Build a minimal control.tar.gz as a byte vector.
+fn build_control_tar() -> GeeZipResult<Vec<u8>> {
+    let tar_buf = Vec::new();
+    let mut tar_builder = tar::Builder::new(tar_buf);
+    let mut header = tar::Header::new_gnu();
+    header.set_path("./control").map_err(|e| GeeZipError::Format {
+        message: format!("setting control tar path: {e}"),
+        format: ArchiveFormat::Deb,
+    })?;
+    header.set_size(MINIMAL_CONTROL.len() as u64);
+    header.set_cksum();
+    tar_builder
+        .append(&header, std::io::Cursor::new(MINIMAL_CONTROL))
+        .map_err(|e| GeeZipError::io(e, "building control.tar for DEB writer"))?;
+    let tar_bytes = tar_builder
+        .into_inner()
+        .map_err(|e| GeeZipError::io(e, "finalising control.tar for DEB writer"))?;
+
+    // gzip compress
+    let mut out = Vec::new();
+    let mut encoder =
+        flate2::write::GzEncoder::new(&mut out, flate2::Compression::default());
+    encoder
+        .write_all(&tar_bytes)
+        .map_err(|e| GeeZipError::io(e, "gzipping control.tar for DEB writer"))?;
+    encoder
+        .finish()
+        .map_err(|e| GeeZipError::io(e, "finishing control.tar.gz for DEB writer"))?;
+    Ok(out)
+}
+
+/// Build the uncompressed data.tar as a byte vector.
+fn build_data_tar(entries: &[(String, Vec<u8>)], directories: &[String]) -> GeeZipResult<Vec<u8>> {
+    let tar_buf = Vec::new();
+    let mut tar_builder = tar::Builder::new(tar_buf);
+
+    // Directories first.
+    for dir in directories {
+        let mut header = tar::Header::new_gnu();
+        let dir_path = format!("{dir}/");
+        header
+            .set_path(&dir_path)
+            .map_err(|e| GeeZipError::Format {
+                message: format!("setting dir path for '{dir_path}': {e}"),
+                format: ArchiveFormat::Deb,
+            })?;
+        header.set_entry_type(tar::EntryType::Directory);
+        header.set_size(0);
+        header.set_cksum();
+        tar_builder
+            .append_data(&mut header, &dir_path, std::io::empty())
+            .map_err(|e| GeeZipError::io(e, format!("writing dir entry '{dir_path}'")))?;
+    }
+
+    // File entries.
+    for (name, data) in entries {
+        let mut header = tar::Header::new_gnu();
+        header
+            .set_path(name)
+            .map_err(|e| GeeZipError::Format {
+                message: format!("setting path for '{name}': {e}"),
+                format: ArchiveFormat::Deb,
+            })?;
+        header.set_size(data.len() as u64);
+        header.set_cksum();
+        tar_builder
+            .append_data(&mut header, name, std::io::Cursor::new(data))
+            .map_err(|e| GeeZipError::io(e, format!("writing data.tar entry '{name}'")))?;
+    }
+
+    tar_builder
+        .into_inner()
+        .map_err(|e| GeeZipError::io(e, "finalising data.tar for DEB writer"))
+}
+
+/// Compress raw tar bytes using the chosen codec.
+fn compress_tar(codec: DataPayloadCodec, data: &[u8]) -> GeeZipResult<Vec<u8>> {
+    match codec {
+        DataPayloadCodec::Tar => Ok(data.to_vec()),
+        DataPayloadCodec::Gzip => {
+            let mut out = Vec::new();
+            let mut encoder =
+                flate2::write::GzEncoder::new(&mut out, flate2::Compression::default());
+            encoder.write_all(data).map_err(|e| {
+                GeeZipError::io(e, "gzipping data.tar for DEB writer")
+            })?;
+            encoder.finish().map_err(|e| {
+                GeeZipError::io(e, "finishing data.tar.gz for DEB writer")
+            })?;
+            Ok(out)
+        }
+        DataPayloadCodec::Xz => {
+            let mut out = Vec::new();
+            let mut reader = std::io::Cursor::new(data);
+            crate::archive::xz::xz_compress(&mut reader, &mut out).map_err(|e| {
+                GeeZipError::Format {
+                    message: format!("xz compressing data.tar: {e}"),
+                    format: ArchiveFormat::Deb,
+                }
+            })?;
+            Ok(out)
+        }
+        DataPayloadCodec::Zstd => {
+            let mut out = Vec::new();
+            let mut encoder = zstd::stream::write::Encoder::new(&mut out, 0).map_err(|e| {
+                GeeZipError::io(e, "initialising zstd encoder for data.tar")
+            })?;
+            encoder.write_all(data).map_err(|e| {
+                GeeZipError::io(e, "zstd compressing data.tar for DEB writer")
+            })?;
+            encoder.finish().map_err(|e| {
+                GeeZipError::io(e, "finishing data.tar.zst for DEB writer")
+            })?;
+            Ok(out)
+        }
+        DataPayloadCodec::Bzip2 => {
+            let mut out = Vec::new();
+            let mut encoder =
+                ::bzip2::write::BzEncoder::new(&mut out, ::bzip2::Compression::default());
+            encoder.write_all(data).map_err(|e| {
+                GeeZipError::io(e, "bzip2 compressing data.tar for DEB writer")
+            })?;
+            encoder.finish().map_err(|e| {
+                GeeZipError::io(e, "finishing data.tar.bz2 for DEB writer")
+            })?;
+            Ok(out)
+        }
+        DataPayloadCodec::Lzma => {
+            let mut out = Vec::new();
+            let mut reader = std::io::Cursor::new(data);
+            crate::archive::xz::lzma_compress(&mut reader, &mut out).map_err(|e| {
+                GeeZipError::Format {
+                    message: format!("lzma compressing data.tar: {e}"),
+                    format: ArchiveFormat::Deb,
+                }
+            })?;
+            Ok(out)
+        }
+    }
+}
+
+/// Validate a path for DEB write. Rejects paths that would escape the
+/// archive root (absolute, `..`, Windows drive/UNC).
+fn validate_deb_write_path(path: &Path) -> GeeZipResult<String> {
+    if is_entry_path_dangerous(path) {
+        return Err(GeeZipError::PathTraversal {
+            entry: path.to_string_lossy().into_owned(),
+            target: "DEB archive root".into(),
+        });
+    }
+    Ok(path.to_string_lossy().into_owned())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -628,5 +921,190 @@ mod tests {
         assert_eq!(report.files_extracted, 2);
         assert!(out_dir.join(Path::new("usr/bin")).is_dir());
         assert!(out_dir.join(Path::new("usr/share/doc")).is_dir());
+    }
+
+    // -----------------------------------------------------------------------
+    // Writer tests
+    // -----------------------------------------------------------------------
+
+    /// Convenience helper: create a DebWriter, add entries, finish,
+    /// and return the resulting file bytes.
+    fn build_deb_writer(
+        codec: DataPayloadCodec,
+        entries: &[(&str, &[u8])],
+        dirs: &[&str],
+    ) -> Vec<u8> {
+        let tmp = tempfile::tempdir().unwrap();
+        let output_path = tmp.path().join("test.deb");
+        let file = std::fs::File::create(&output_path).unwrap();
+        let writer = DebWriter::new_with_codec(file, codec);
+        let mut writer: Box<dyn ArchiveWriter> = Box::new(writer);
+        for dir in dirs {
+            writer.add_directory(Path::new(dir)).unwrap();
+        }
+        for (name, data) in entries {
+            writer
+                .add_entry_from_reader(Path::new(name), &mut std::io::Cursor::new(data))
+                .unwrap();
+        }
+        let bytes = writer.finish().unwrap();
+        assert!(bytes > 0, "expected non-zero archive size");
+        std::fs::read(&output_path).unwrap()
+    }
+
+    #[test]
+    fn deb_writer_roundtrip_gzip() {
+        let deb = build_deb_writer(
+            DataPayloadCodec::Gzip,
+            &[("usr/bin/hello", b"hello"), ("usr/share/doc/readme.txt", b"docs")],
+            &[],
+        );
+        let mut reader = DebReader::from_buf(deb);
+        let entries = reader.entries().unwrap();
+        assert_eq!(entries.len(), 2);
+        let hello = entries
+            .iter()
+            .find(|e| e.path == "usr/bin/hello")
+            .unwrap()
+            .clone();
+        let mut out = Vec::new();
+        let n = reader.extract(&hello, &mut out).unwrap();
+        assert_eq!(n, 5);
+        assert_eq!(out, b"hello");
+    }
+
+    #[test]
+    fn deb_writer_roundtrip_xz() {
+        let deb = build_deb_writer(
+            DataPayloadCodec::Xz,
+            &[("file.txt", b"content")],
+            &[],
+        );
+        let mut reader = DebReader::from_buf(deb);
+        let entries = reader.entries().unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].path, "file.txt");
+    }
+
+    #[test]
+    fn deb_writer_roundtrip_zstd() {
+        let deb = build_deb_writer(
+            DataPayloadCodec::Zstd,
+            &[("a.txt", b"aaa")],
+            &[],
+        );
+        let mut reader = DebReader::from_buf(deb);
+        let entries = reader.entries().unwrap();
+        assert_eq!(entries.len(), 1);
+    }
+
+    #[test]
+    fn deb_writer_empty() {
+        let deb = build_deb_writer(DataPayloadCodec::Gzip, &[], &[]);
+        let mut reader = DebReader::from_buf(deb);
+        let entries = reader.entries().unwrap();
+        assert!(entries.is_empty());
+    }
+
+    #[test]
+    fn deb_writer_directories_only() {
+        let deb = build_deb_writer(
+            DataPayloadCodec::Tar,
+            &[],
+            &["usr/bin", "usr/share"],
+        );
+        let mut reader = DebReader::from_buf(deb);
+        let entries = reader.entries().unwrap();
+        assert_eq!(entries.len(), 2);
+        let dirs: Vec<_> = entries.iter().filter(|e| e.is_dir).map(|e| &e.path).collect();
+        assert!(dirs.contains(&&"usr/bin/".to_string()));
+        assert!(dirs.contains(&&"usr/share/".to_string()));
+    }
+
+    #[test]
+    fn deb_writer_unicode_paths() {
+        let deb = build_deb_writer(
+            DataPayloadCodec::Gzip,
+            &[("cafe_☕/menu.txt", b"latte")],
+            &[],
+        );
+        let mut reader = DebReader::from_buf(deb);
+        let entries = reader.entries().unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].path, "cafe_☕/menu.txt");
+    }
+
+    #[test]
+    fn deb_writer_path_traversal_rejected() {
+        let tmp = tempfile::tempdir().unwrap();
+        let output_path = tmp.path().join("traversal.deb");
+        let file = std::fs::File::create(&output_path).unwrap();
+        let mut writer: Box<dyn ArchiveWriter> = Box::new(DebWriter::new(file));
+        let err = writer
+            .add_entry_from_reader(Path::new("../escape.txt"), &mut "owned".as_bytes())
+            .unwrap_err();
+        assert!(matches!(err, GeeZipError::PathTraversal { .. }));
+    }
+
+    #[test]
+    fn deb_writer_trait_object() {
+        fn _use_writer(_w: &mut dyn ArchiveWriter) {}
+
+        let tmp = tempfile::tempdir().unwrap();
+        let output_path = tmp.path().join("trait.deb");
+        let file = std::fs::File::create(&output_path).unwrap();
+        let mut writer: Box<dyn ArchiveWriter> = Box::new(DebWriter::new(file));
+        _use_writer(&mut *writer);
+    }
+
+    #[test]
+    fn deb_writer_roundtrip_bzip2() {
+        let deb = build_deb_writer(
+            DataPayloadCodec::Bzip2,
+            &[("bzip.txt", b"bzip2-compressed")],
+            &[],
+        );
+        let mut reader = DebReader::from_buf(deb);
+        let entries = reader.entries().unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].path, "bzip.txt");
+    }
+
+    #[test]
+    fn deb_writer_roundtrip_lzma() {
+        let deb = build_deb_writer(
+            DataPayloadCodec::Lzma,
+            &[("lzma.txt", b"lzma-compressed")],
+            &[],
+        );
+        let mut reader = DebReader::from_buf(deb);
+        let entries = reader.entries().unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].path, "lzma.txt");
+    }
+
+    #[test]
+    fn deb_writer_roundtrip_tar() {
+        let deb = build_deb_writer(
+            DataPayloadCodec::Tar,
+            &[("raw.txt", b"no-compression")],
+            &[],
+        );
+        let mut reader = DebReader::from_buf(deb);
+        let entries = reader.entries().unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].path, "raw.txt");
+    }
+
+    #[test]
+    fn deb_writer_path_traversal_absolute_rejected() {
+        let tmp = tempfile::tempdir().unwrap();
+        let output_path = tmp.path().join("abs.deb");
+        let file = std::fs::File::create(&output_path).unwrap();
+        let mut writer: Box<dyn ArchiveWriter> = Box::new(DebWriter::new(file));
+        let err = writer
+            .add_entry_from_reader(Path::new("/etc/passwd"), &mut "bad".as_bytes())
+            .unwrap_err();
+        assert!(matches!(err, GeeZipError::PathTraversal { .. }));
     }
 }

@@ -8109,9 +8109,9 @@ fn deb_test_valid() {
 }
 
 #[test]
-fn deb_compress_is_rejected() {
+fn deb_compress_basic() {
     let td = TestDir::new();
-    td.write("payload.txt", "deb write should fail");
+    td.write("payload.txt", "deb write test");
 
     geezipx()
         .args([
@@ -8123,8 +8123,26 @@ fn deb_compress_is_rejected() {
             td.join("out.deb").to_str().unwrap(),
         ])
         .assert()
-        .failure()
-        .stderr(predicate::str::contains("deb writing is not supported"));
+        .success();
+
+    // Verify the output file exists and is valid.
+    assert!(td.join("out.deb").exists());
+
+    // Roundtrip: decompress and check content.
+    let out_dir = td.join("extracted");
+    std::fs::create_dir(&out_dir).unwrap();
+    geezipx()
+        .args([
+            "decompress",
+            td.join("out.deb").to_str().unwrap(),
+            "-o",
+            out_dir.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    let extracted = std::fs::read_to_string(out_dir.join("payload.txt")).unwrap();
+    assert_eq!(extracted, "deb write test");
 }
 
 #[test]
