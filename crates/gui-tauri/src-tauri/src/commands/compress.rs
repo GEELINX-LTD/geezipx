@@ -19,6 +19,7 @@ use geezipx_core::archive::targz::TarGzWriter;
 use geezipx_core::archive::tarlz4::TarLz4Writer;
 use geezipx_core::archive::tarxz::TarXzWriter;
 use geezipx_core::archive::tarzst::TarZstWriter;
+use geezipx_core::archive::wim::WimWriter;
 use geezipx_core::archive::zip::ZipWriter;
 use geezipx_core::archive::ArchiveWriter;
 use geezipx_core::config::{CompressOptions, SevenZipOptions};
@@ -152,6 +153,7 @@ pub async fn compress_archive(
                     level,
                     jobs,
                     password: pwd,
+                    seven_zip: None,
                 };
                 let mut writer: Box<dyn ArchiveWriter> =
                     create_gui_writer(output_file, af, options)?;
@@ -494,10 +496,11 @@ fn create_gui_writer(
         }
         ArchiveFormat::Tar => Ok(Box::new(TarWriter::new(file))),
         ArchiveFormat::SevenZip => {
+            let default_sz = SevenZipOptions::default();
             let sz_opts = options
                 .seven_zip
                 .as_ref()
-                .unwrap_or(&SevenZipOptions::default());
+                .unwrap_or(&default_sz);
             let mut writer =
                 SevenZipWriter::new(file, &options, sz_opts).map_err(|e| e.to_string())?;
             if let Some(ref pwd) = options.password {
@@ -551,6 +554,7 @@ fn create_gui_writer(
                 Err("'zpaq' support is disabled in this build; rebuild with --features zpaq".to_string())
             }
         }
+        ArchiveFormat::Wim => Ok(Box::new(WimWriter::new(file))),
         ArchiveFormat::Cab => Err(
             "cab writing is not supported; use list, test, or decompress for read-only cab support"
                 .to_string(),

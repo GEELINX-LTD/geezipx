@@ -134,6 +134,41 @@ impl WimHeader {
         }
         CompressionType::None
     }
+
+    /// Serialize to a 208-byte on-disk header (little-endian).
+    pub(crate) fn to_bytes(&self) -> [u8; 208] {
+        let mut buf = [0u8; 208];
+        // Magic
+        buf[0..8].copy_from_slice(WIM_MAGIC);
+        // header_size = 208
+        buf[8..12].copy_from_slice(&208u32.to_le_bytes());
+        // version = 0x10D00
+        buf[12..16].copy_from_slice(&0x10D00u32.to_le_bytes());
+        // flags
+        buf[16..20].copy_from_slice(&self.flags.to_le_bytes());
+        // chunk_size
+        buf[20..24].copy_from_slice(&self.chunk_size.to_le_bytes());
+        // guid
+        buf[24..40].copy_from_slice(&self.guid);
+        // part_number
+        buf[40..42].copy_from_slice(&self.part_number.to_le_bytes());
+        // total_parts
+        buf[42..44].copy_from_slice(&self.total_parts.to_le_bytes());
+        // image_count
+        buf[44..48].copy_from_slice(&self.image_count.to_le_bytes());
+        // offset_table
+        buf[48..72].copy_from_slice(&self.offset_table.to_bytes());
+        // xml_data
+        buf[72..96].copy_from_slice(&self.xml_data.to_bytes());
+        // boot_metadata
+        buf[96..120].copy_from_slice(&self.boot_metadata.to_bytes());
+        // boot_index
+        buf[120..124].copy_from_slice(&self.boot_index.to_le_bytes());
+        // integrity
+        buf[124..148].copy_from_slice(&self.integrity.to_bytes());
+        // bytes 148..208 are reserved (zeros)
+        buf
+    }
 }
 
 impl ResourceDescriptor {
@@ -176,6 +211,17 @@ impl ResourceDescriptor {
     /// Returns true if this resource contains metadata (flag 0x02 set).
     pub fn is_metadata(&self) -> bool {
         self.flags & 0x02 != 0
+    }
+
+    /// Serialize to a 24-byte little-endian buffer.
+    pub(crate) fn to_bytes(self) -> [u8; 24] {
+        let mut buf = [0u8; 24];
+        let flags_and_size: u64 =
+            ((self.flags as u64) << 56) | (self.compressed_size & 0x00FF_FFFF_FFFF_FFFF);
+        buf[0..8].copy_from_slice(&flags_and_size.to_le_bytes());
+        buf[8..16].copy_from_slice(&self.offset.to_le_bytes());
+        buf[16..24].copy_from_slice(&self.original_size.to_le_bytes());
+        buf
     }
 }
 
@@ -221,15 +267,26 @@ mod tests {
 
     #[test]
     fn resource_descriptor_roundtrip() {
-        let _rd = ResourceDescriptor {
+        let original = ResourceDescriptor {
             flags: 0x06, // metadata + compressed
             compressed_size: 1024,
             offset: 512,
             original_size: 2048,
         };
-        // We can't serialize, but we test parsing of a known-good pattern
+        let bytes = original.to_bytes();
+        let parsed = ResourceDescriptor::parse(&bytes).unwrap();
+        assert_eq!(parsed.flags, 0x06);
+        assert!(parsed.is_metadata());
+        assert!(parsed.is_compressed());
+        assert_eq!(parsed.compressed_size, 1024);
+        assert_eq!(parsed.offset, 512);
+        assert_eq!(parsed.original_size, 2048);
+    }
+
+    #[test]
+    fn resource_descriptor_to_bytes_known_pattern() {
+        // Also test against a known-good raw pattern
         let mut raw = [0u8; 24];
-        // flags_and_size: flags=0x06 in top byte, size=1024 in lower
         let fns: u64 = (0x06u64 << 56) | 1024;
         raw[0..8].copy_from_slice(&fns.to_le_bytes());
         raw[8..16].copy_from_slice(&512u64.to_le_bytes());
@@ -237,10 +294,61 @@ mod tests {
 
         let parsed = ResourceDescriptor::parse(&raw).unwrap();
         assert_eq!(parsed.flags, 0x06);
-        assert!(parsed.is_metadata());
-        assert!(parsed.is_compressed());
-        assert_eq!(parsed.compressed_size, 1024);
-        assert_eq!(parsed.offset, 512);
-        assert_eq!(parsed.original_size, 2048);
+    }
+
+    #[test]
+    fn header_roundtrip() {
+        let mut guid = [0u8; 16];
+        guid[0] = 0x42;
+        let original = WimHeader {
+            image_count: 1,
+            flags: 0,
+            chunk_size: 32768,
+            guid,
+            part_number: 1,
+            total_parts: 1,
+            offset_table: ResourceDescriptor {
+                flags: 0,
+                compressed_size: 100,
+                offset: 500,
+                original_size: 100,
+            },
+            xml_data: ResourceDescriptor {
+                flags: 0,
+                compressed_size: 200,
+                offset: 600,
+                original_size: 200,
+            },
+            boot_metadata: ResourceDescriptor {
+                flags: 0,
+                compressed_size: 0,
+                offset: 0,
+                original_size: 0,
+            },
+            boot_index: 0,
+            integrity: ResourceDescriptor {
+                flags: 0,
+                compressed_size: 0,
+                offset: 0,
+                original_size: 0,
+            },
+        };
+
+        let bytes = original.to_bytes();
+        let parsed = WimHeader::parse(&bytes).unwrap();
+
+        assert_eq!(parsed.image_count, 1);
+        assert_eq!(parsed.flags, 0);
+        assert_eq!(parsed.chunk_size, 32768);
+        assert_eq!(parsed.guid[0], 0x42);
+        assert_eq!(parsed.part_number, 1);
+        assert_eq!(parsed.total_parts, 1);
+        assert_eq!(parsed.offset_table.compressed_size, 100);
+        assert_eq!(parsed.offset_table.offset, 500);
+        assert_eq!(parsed.offset_table.original_size, 100);
+        assert_eq!(parsed.xml_data.compressed_size, 200);
+        assert_eq!(parsed.xml_data.offset, 600);
+        assert_eq!(parsed.xml_data.original_size, 200);
+        assert_eq!(parsed.compression_type(), CompressionType::None);
     }
 }
