@@ -11,6 +11,7 @@ use geezipx_core::archive::brotli;
 use geezipx_core::archive::bzip2;
 use geezipx_core::archive::gzip;
 use geezipx_core::archive::img;
+use geezipx_core::archive::isz;
 use geezipx_core::archive::lz;
 use geezipx_core::archive::lz4;
 use geezipx_core::archive::xz;
@@ -37,6 +38,7 @@ fn is_single_stream_format(format: ArchiveFormat) -> bool {
             | ArchiveFormat::Img
             | ArchiveFormat::Aes
             | ArchiveFormat::Bin
+            | ArchiveFormat::Isz
     )
 }
 
@@ -697,6 +699,8 @@ fn compress_single_stream<R: Read, W: Write>(
         }
         ArchiveFormat::Bin => bin::bin_compress(reader, writer)
             .map_err(|e| anyhow::anyhow!("bin pass-through error: {}", e)),
+        ArchiveFormat::Isz => isz::isz_compress(reader, writer, &options)
+            .map_err(|e| anyhow::anyhow!("isz compression error: {}", e)),
         _ => anyhow::bail!("cannot compress '{}' as a single stream", format),
     }
 }
