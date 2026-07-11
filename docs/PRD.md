@@ -128,7 +128,7 @@ GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开�
 
 以下能力在 Phase 1（CLI MVP）和 Phase 2（桌面 GUI）阶段明确不做：
 
-- 7z 高级写入能力（tar.7z 复合格式）— 当前已交付 LZMA/LZMA2/BZip2/PPMd/Deflate/COPY 方法选择、自定义字典大小、--solid 实心模式
+- 7z 高级写入能力 — 当前已交付 LZMA/LZMA2/BZip2/PPMd/Deflate/COPY 方法选择、自定义字典大小、--solid 实心模式
 - RAR 创建 — 受 UnRAR 许可限制，仅保持只读
 - 分卷压缩
 - 右键菜单集成
@@ -243,7 +243,7 @@ Phase 2 (Desktop GUI via Tauri)  ← 🚀 当前阶段（v0.6.0）
 Phase 3 (生态 + 格式扩展)
 ├── Homebrew / winget / APT 仓库
 ├── 压缩格式扩展
-│   ├── 7z 高级写入能力 — ✅ LZMA/LZMA2/BZip2/PPMd/Deflate/COPY 方法选择、自定义字典大小、--solid 实心模式；tar.7z 复合格式待评估
+│   ├── 7z 高级写入能力 — ✅ LZMA/LZMA2/BZip2/PPMd/Deflate/COPY 方法选择、自定义字典大小、--solid 实心模式
 │   ├── ZIPX 高级方法矩阵评估 — `.zipx` alias 已支持；JPEG 预压缩等 WinZip 专有高级方法另行评估
 │   ├── LZH/LHA 更完整兼容 — lh4-lh7 压缩写入已完成（oxiarc-lzhuf），后续补齐扩展 header、metadata
 │   └── 其他按用户需求驱动的格式
