@@ -4,7 +4,7 @@ use std::sync::atomic::Ordering;
 use std::fs;
 use std::io::Read;
 use std::io::Write;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use geezipx_core::detect::ArchiveFormat;
 
@@ -18,6 +18,7 @@ use geezipx_core::archive::brotli;
 use geezipx_core::archive::bzip2;
 use geezipx_core::archive::gzip;
 use geezipx_core::archive::img;
+use geezipx_core::archive::isz;
 use geezipx_core::archive::lz;
 use geezipx_core::archive::lz4;
 use geezipx_core::archive::uu;
@@ -67,6 +68,7 @@ pub fn execute(
                 | ArchiveFormat::Lzma
                 | ArchiveFormat::Img
                 | ArchiveFormat::Bin
+                | ArchiveFormat::Isz
                 | ArchiveFormat::Uu
                 | ArchiveFormat::Xxe
         )
@@ -437,6 +439,42 @@ pub fn execute(
                         std::process::exit(130);
                     }
                     return Err(anyhow::anyhow!("bin pass-through error: {}", e));
+                }
+            }
+        }
+
+        ArchiveFormat::Isz => {
+            let cancel_flag = cancel_token.clone().into_inner();
+
+            let result = if stdout {
+                decompress_isz_stdout(archive, cancel_flag)
+            } else {
+                decompress_isz_to_file(archive, output_dir, overwrite, cancel_flag)
+            };
+
+            let spinner = if show_progress {
+                Some(crate::render::progress::ProgressBarWrapper::spinner(
+                    "Decompressing...",
+                ))
+            } else {
+                None
+            };
+
+            match result {
+                Ok(()) => {
+                    if let Some(s) = &spinner {
+                        s.finish("Decompressed");
+                    }
+                }
+                Err(e) => {
+                    if let Some(s) = &spinner {
+                        s.finish("Decompression failed");
+                    }
+                    if cancel_token.is_cancelled() {
+                        eprintln!("Cancelled");
+                        std::process::exit(130);
+                    }
+                    return Err(anyhow::anyhow!("isz decompression error: {}", e));
                 }
             }
         }
@@ -1571,6 +1609,66 @@ fn decompress_lzma_to_file(
     let mut reader = ProgressReader::new(input_file).with_callback(Box::new(shared));
 
     let bytes = xz::lzma_decompress(&mut reader, &mut output_file)
+        .with_context(|| format!("decompressing '{}'", archive.display()))?;
+
+    eprintln!(
+        "Decompressed {} -> {} ({} bytes)",
+        archive.display(),
+        output_path.display(),
+        bytes,
+    );
+    Ok(())
+}
+
+/// Determine the output filename for an ISZ — strip `.isz` and append `.iso`.
+fn isz_output_filename(archive: &Path) -> PathBuf {
+    let name = archive
+        .file_stem()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_else(|| "output".to_string());
+    PathBuf::from(format!("{}.iso", name))
+}
+
+/// Decompress an ISZ stream to stdout.
+fn decompress_isz_stdout(archive: &Path, cancel_flag: Arc<AtomicBool>) -> Result<()> {
+    let file =
+        fs::File::open(archive).with_context(|| format!("opening '{}'", archive.display()))?;
+    let mut stdout = std::io::stdout().lock();
+
+    let _cancel = cancel_flag; // ISZ requires seeking, progress wrapper not used
+    let bytes = isz::isz_decompress(&mut &file, &mut stdout).map_err(|e| anyhow::anyhow!("{e}"))?;
+    stdout
+        .flush()
+        .context("flushing stdout after decompression")?;
+    eprintln!("Decompressed {} bytes to stdout", bytes);
+    Ok(())
+}
+
+/// Decompress an ISZ file to `.iso` in the output directory.
+fn decompress_isz_to_file(
+    archive: &Path,
+    output_dir: &Path,
+    overwrite: bool,
+    cancel_flag: Arc<AtomicBool>,
+) -> Result<()> {
+    let output_name = isz_output_filename(archive);
+    let output_path = output_dir.join(&output_name);
+
+    if output_path.exists() && !overwrite {
+        eprintln!(
+            "Warning: '{}' already exists, skipping (use --force to overwrite)",
+            output_path.display()
+        );
+        return Ok(());
+    }
+
+    let _cancel = cancel_flag; // ISZ requires seeking, progress wrapper not used
+    let input_file =
+        fs::File::open(archive).with_context(|| format!("opening '{}'", archive.display()))?;
+    let output_file = fs::File::create(&output_path)
+        .with_context(|| format!("creating '{}'", output_path.display()))?;
+
+    let bytes = isz::isz_decompress(&mut &input_file, output_file)
         .with_context(|| format!("decompressing '{}'", archive.display()))?;
 
     eprintln!(

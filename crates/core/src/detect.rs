@@ -91,6 +91,8 @@ pub enum ArchiveFormat {
     Aes,
     /// Raw binary data (`.bin`) — identity pass-through, no compression.
     Bin,
+    /// ISZ compressed ISO image (`.isz`) — block-compressed ISO wrapper.
+    Isz,
     /// Unknown or unrecognised format.
     Unknown,
 }
@@ -135,6 +137,7 @@ impl fmt::Display for ArchiveFormat {
             ArchiveFormat::Img => write!(f, "img"),
             ArchiveFormat::Aes => write!(f, "aes"),
             ArchiveFormat::Bin => write!(f, "bin"),
+            ArchiveFormat::Isz => write!(f, "isz"),
             ArchiveFormat::Unknown => write!(f, "unknown"),
         }
     }
@@ -209,6 +212,7 @@ const EXTENSION_MAP: &[(&str, ArchiveFormat)] = &[
     (".ima", ArchiveFormat::Img),
     (".enc", ArchiveFormat::Aes),
     (".bin", ArchiveFormat::Bin),
+    (".isz", ArchiveFormat::Isz),
     (".uu", ArchiveFormat::Uu),
     (".uue", ArchiveFormat::Uu),
     (".xxe", ArchiveFormat::Xxe),
@@ -267,6 +271,9 @@ pub fn detect_format(data: &[u8]) -> Option<ArchiveFormat> {
     }
     if data.starts_with(MAGIC_XZ) {
         return Some(ArchiveFormat::Xz);
+    }
+    if data.len() >= 4 && &data[0..4] == b"IsZ!" {
+        return Some(ArchiveFormat::Isz);
     }
     None
 }

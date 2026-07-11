@@ -198,6 +198,13 @@ pub fn get_formats() -> Vec<FormatInfo> {
             level_hint: None,
         },
         FormatInfo {
+            name: "isz".into(),
+            can_compress: false,
+            can_decompress: true,
+            supports_encryption: true,
+            level_hint: None,
+        },
+        FormatInfo {
             name: "cpio".into(),
             can_compress: true,
             can_decompress: true,
@@ -294,7 +301,7 @@ mod tests {
     #[test]
     fn get_formats_returns_expected_count() {
         let formats = get_formats();
-        let expected = if cfg!(feature = "zpaq") { 34 } else { 33 };
+        let expected = if cfg!(feature = "zpaq") { 35 } else { 34 };
         assert_eq!(formats.len(), expected, "unexpected supported format count");
     }
 

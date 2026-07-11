@@ -72,10 +72,11 @@ pub fn parse_format(s: &str) -> Result<ArchiveFormat> {
         "tar.xz" | "txz" => Ok(ArchiveFormat::TarXz),
         "xz" => Ok(ArchiveFormat::Xz),
         "lzma" => Ok(ArchiveFormat::Lzma),
+        "lz" => Ok(ArchiveFormat::Lz),
         "img" | "ima" => Ok(ArchiveFormat::Img),
         "aes" | "enc" => Ok(ArchiveFormat::Aes),
         "bin" => Ok(ArchiveFormat::Bin),
-        "lz" => Ok(ArchiveFormat::Lz),
+        "isz" => Ok(ArchiveFormat::Isz),
         "7z" => Ok(ArchiveFormat::SevenZip),
         "rar" => Ok(ArchiveFormat::Rar),
         "cab" => Ok(ArchiveFormat::Cab),
@@ -90,7 +91,7 @@ pub fn parse_format(s: &str) -> Result<ArchiveFormat> {
         "uu" | "uue" => Ok(ArchiveFormat::Uu),
         "xxe" => Ok(ArchiveFormat::Xxe),
         other => Err(anyhow::anyhow!(
-            "unsupported format '{other}'; expected: zip, zipx, jar, war, apk, ipa, xpi, tar, tar.gz, tgz, tar.bz2, tbz, tbz2, tar.br, gz, gzip, bz2, bzip2, br, brotli, lz4, tar.lz4, zst, zstd, tar.zst, tzst, tar.xz, txz, xz, lzma, lz, 7z, rar, cab, asar, deb, lzh, lha, iso, udf, cpio, zpaq, zpq, wim, swm, uu, uue, xxe"
+            "unsupported format '{other}'; expected: zip, zipx, jar, war, apk, ipa, xpi, tar, tar.gz, tgz, tar.bz2, tbz, tbz2, tar.br, gz, gzip, bz2, bzip2, br, brotli, lz4, tar.lz4, zst, zstd, tar.zst, tzst, tar.xz, txz, xz, lzma, lz, 7z, rar, cab, asar, deb, lzh, lha, iso, udf, cpio, zpaq, zpq, wim, swm, uu, uue, xxe, isz"
         )),
     }
 }
