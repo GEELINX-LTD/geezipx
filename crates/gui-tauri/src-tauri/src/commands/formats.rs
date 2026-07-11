@@ -278,14 +278,14 @@ pub fn get_formats() -> Vec<FormatInfo> {
     });
     formats.push(FormatInfo {
         name: "uu".into(),
-        can_compress: false,
+        can_compress: true,
         can_decompress: true,
         supports_encryption: false,
         level_hint: None,
     });
     formats.push(FormatInfo {
         name: "xxe".into(),
-        can_compress: false,
+        can_compress: true,
         can_decompress: true,
         supports_encryption: false,
         level_hint: None,
