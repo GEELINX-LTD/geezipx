@@ -8,6 +8,7 @@
   import type { CompressArchiveResult } from '../bridge';
   import { taskStore } from '../stores/taskStore.svelte';
   import { appStore } from '../stores/appStore.svelte';
+  import { toastStore } from '../stores/toastStore.svelte.ts';
   import ProgressDialog from '../components/ProgressDialog.svelte';
 
   let sourcePaths = $state<string[]>([]);
@@ -130,6 +131,7 @@
       );
       taskStore.finishTask('finished');
       result = res;
+      toastStore.show(localeStore.t('compress.result', { files: res.files_added, bytes: res.bytes_written }), 'success', 5000);
       appStore.addRecent(outputPath);
       if (onComplete === 'open_output') {
         const dir = outputPath.includes('/')
@@ -141,6 +143,7 @@
       const msg = e instanceof Error ? e.message : String(e);
       taskStore.finishTask('failed', msg);
       error = msg;
+      toastStore.show(localeStore.t('compress.errorPrefix', { message: msg }), 'error');
     }
   }
 
