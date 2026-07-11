@@ -4,7 +4,7 @@
 //! Chains volumes into a single Read + Seek stream.
 
 use std::fs::File;
-use std::io::{self, BufReader, Read, Seek, SeekFrom};
+use std::io::{self, BufReader, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
 /// Pattern for volume file naming.
@@ -90,6 +90,142 @@ impl MultiVolumeReader {
         self.current_reader = None;
         self.global_position = self.total_size;
         Ok(self.total_size)
+    }
+}
+
+/// Writer that splits output across multiple volume files.
+///
+/// Each volume is limited to `max_part_size` bytes (except possibly the
+/// last).  When a volume fills up a new file is created automatically,
+/// following the naming convention of `VolumePattern::Nnn` (`.001`,
+/// `.002`, …).
+///
+/// # Example
+///
+/// ```no_run
+/// use geezipx_core::volume::{MultiVolumeWriter, VolumePattern};
+/// use std::io::Write;
+///
+/// let mut w = MultiVolumeWriter::new(
+///     "archive.zip".as_ref(),
+///     VolumePattern::Nnn,
+///     10 * 1024 * 1024, // 10 MiB per volume
+///     1,
+/// ).unwrap();
+/// w.write_all(b"data").unwrap();
+/// let paths = w.finish().unwrap();
+/// ```
+pub struct MultiVolumeWriter {
+    base_path: PathBuf,
+    pattern: VolumePattern,
+    max_part_size: u64,
+    current_index: u32,
+    current_file: Option<File>,
+    current_bytes: u64,
+    created_paths: Vec<PathBuf>,
+}
+
+impl MultiVolumeWriter {
+    /// Create a new volume writer.
+    ///
+    /// * `base_path` — full path of the desired output (e.g. `"archive.zip"`).
+    ///   The first volume will be written to `"archive.zip.001"` etc.
+    /// * `pattern` — volume naming convention.
+    /// * `max_part_size` — maximum bytes per volume.
+    /// * `start_num` — starting index (usually `1` for Nnn, `0` for INn).
+    pub fn new(
+        base_path: &Path,
+        pattern: VolumePattern,
+        max_part_size: u64,
+        start_num: u32,
+    ) -> io::Result<Self> {
+        let dir = base_path.parent().unwrap_or(Path::new("."));
+        let base = base_path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("archive");
+        let vol_path = format_volume_path(dir, base, pattern, start_num);
+        let file = File::create(&vol_path)?;
+
+        Ok(MultiVolumeWriter {
+            base_path: base_path.to_path_buf(),
+            pattern,
+            max_part_size,
+            current_index: start_num,
+            current_file: Some(file),
+            current_bytes: 0,
+            created_paths: vec![vol_path],
+        })
+    }
+
+    /// Finish writing and return the list of created volume paths.
+    pub fn finish(mut self) -> io::Result<Vec<PathBuf>> {
+        if let Some(ref f) = self.current_file {
+            f.sync_all()?;
+        }
+        self.current_file = None;
+        Ok(self.created_paths)
+    }
+}
+
+impl Write for MultiVolumeWriter {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        if self.max_part_size == 0 {
+            // No splitting — write everything to current file
+            let file = self.current_file.as_mut().unwrap();
+            let n = file.write(buf)?;
+            self.current_bytes += n as u64;
+            return Ok(n);
+        }
+
+        let mut total_written = 0usize;
+        let mut remaining = buf;
+
+        while !remaining.is_empty() {
+            let file = self.current_file.as_mut().unwrap();
+            let space_left = self.max_part_size.saturating_sub(self.current_bytes);
+
+            if space_left == 0 {
+                // Current volume is full — advance to next
+                self.current_index += 1;
+                let dir = self.base_path.parent().unwrap_or(Path::new("."));
+                let base = self.base_path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("archive");
+                let next_path = format_volume_path(dir, base, self.pattern, self.current_index);
+                self.current_file = Some(File::create(&next_path)?);
+                self.current_bytes = 0;
+                self.created_paths.push(next_path);
+                continue;
+            }
+
+            let chunk = if (remaining.len() as u64) <= space_left {
+                remaining
+            } else {
+                &remaining[..space_left as usize]
+            };
+
+            let n = file.write(chunk)?;
+            self.current_bytes += n as u64;
+            total_written += n;
+            if n < chunk.len() {
+                // Short write — try again (don't advance volume)
+                remaining = &remaining[n..];
+                continue;
+            }
+            remaining = &remaining[n..];
+        }
+
+        Ok(total_written)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        if let Some(ref mut f) = self.current_file {
+            f.flush()
+        } else {
+            Ok(())
+        }
     }
 }
 
