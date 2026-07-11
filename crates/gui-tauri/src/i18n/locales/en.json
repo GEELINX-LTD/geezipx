@@ -32,7 +32,8 @@
     "hint": "Archives open in Extract · Files go to Compress"
   },
   "recent": {
-    "label": "Recent"
+    "label": "Recent",
+    "empty": "No recent files yet — drag and drop an archive to get started."
   },
   "compress": {
     "sourceFiles": "Source Files",
