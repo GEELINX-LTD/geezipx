@@ -199,10 +199,10 @@ pub fn get_formats() -> Vec<FormatInfo> {
         },
         FormatInfo {
             name: "isz".into(),
-            can_compress: false,
+            can_compress: true,
             can_decompress: true,
-            supports_encryption: true,
-            level_hint: None,
+            supports_encryption: false,
+            level_hint: Some("6 (0-9)".into()),
         },
         FormatInfo {
             name: "cpio".into(),
