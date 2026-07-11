@@ -189,7 +189,8 @@ impl Write for MultiVolumeWriter {
                 // Current volume is full — advance to next
                 self.current_index += 1;
                 let dir = self.base_path.parent().unwrap_or(Path::new("."));
-                let base = self.base_path
+                let base = self
+                    .base_path
                     .file_name()
                     .and_then(|n| n.to_str())
                     .unwrap_or("archive");
