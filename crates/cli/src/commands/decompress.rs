@@ -25,9 +25,11 @@ use geezipx_core::archive::uu;
 use geezipx_core::archive::xxe;
 use geezipx_core::archive::xz;
 use geezipx_core::archive::zstd;
+use geezipx_core::volume::{self, MultiVolumeReader};
 use geezipx_core::ProgressReader;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
+use tempfile::NamedTempFile;
 
 /// Execute the `decompress` subcommand.
 #[allow(clippy::too_many_arguments)]
@@ -52,6 +54,20 @@ pub fn execute(
     if !archive.exists() {
         anyhow::bail!("archive '{}' does not exist", archive.display());
     }
+
+    // ---- split volume detection ----
+    if volume::is_volume_filename(archive) {
+        return execute_decompress_volume(
+            archive,
+            output_dir,
+            stdout,
+            overwrite,
+            no_progress,
+            verbose,
+            password.as_deref(),
+        );
+    }
+
     let format = common::detect_archive_format(archive)?;
 
     // Validate password: single-stream formats (gzip, bzip2, zstd, xz, lzma) do not support encryption (except AES).
@@ -1678,4 +1694,197 @@ fn decompress_isz_to_file(
         bytes,
     );
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Split volume decompression
+// ---------------------------------------------------------------------------
+
+/// Execute decompression for a split volume set (e.g. archive.001, archive.002 ...).
+#[allow(clippy::too_many_arguments)]
+fn execute_decompress_volume(
+    archive: &Path,
+    output_dir: &Path,
+    stdout: bool,
+    overwrite: bool,
+    no_progress: bool,
+    verbose: bool,
+    password: Option<&str>,
+) -> Result<()> {
+    let mut reader = MultiVolumeReader::open(archive)
+        .with_context(|| format!("opening split volume '{}'", archive.display()))?;
+    let base_name = reader.base_name().to_string();
+    let format = common::detect_archive_format_from_reader(&mut reader, None)?;
+
+    // Validate password
+    if password.is_some()
+        && !matches!(
+            format,
+            ArchiveFormat::Zip | ArchiveFormat::SevenZip | ArchiveFormat::Rar
+        )
+    {
+        anyhow::bail!(
+            "--password is only supported for ZIP, 7z, and RAR formats; '{}' does not support encryption",
+            format
+        );
+    }
+
+    let cancel_token = crate::signal::CancellationToken::new();
+
+    if !stdout {
+        fs::create_dir_all(output_dir)
+            .with_context(|| format!("creating output directory '{}'", output_dir.display()))?;
+    }
+
+    match format {
+        ArchiveFormat::Gzip
+        | ArchiveFormat::Bzip2
+        | ArchiveFormat::Brotli
+        | ArchiveFormat::Lz4
+        | ArchiveFormat::Zstd
+        | ArchiveFormat::Xz
+        | ArchiveFormat::Lzma
+        | ArchiveFormat::Lz
+        | ArchiveFormat::Img
+        | ArchiveFormat::Bin => {
+            let show_progress =
+                !no_progress && !verbose && crate::render::progress::progress_bar_enabled();
+            let spinner = if show_progress {
+                Some(crate::render::progress::ProgressBarWrapper::spinner(
+                    "Decompressing...",
+                ))
+            } else {
+                None
+            };
+
+            let result = if stdout {
+                let mut writer = std::io::stdout().lock();
+                let bytes = decompress_single_stream(&mut reader, format, &mut writer)
+                    .with_context(|| format!("decompressing volume set '{}'", archive.display()))?;
+                writer
+                    .flush()
+                    .context("flushing stdout after decompression")?;
+                if verbose {
+                    eprintln!(
+                        "Decompressed {} bytes from {} parts to stdout",
+                        bytes,
+                        reader.volumes.len()
+                    );
+                }
+                Ok(())
+            } else {
+                let output_path = output_dir.join(&base_name);
+                if !overwrite && output_path.exists() {
+                    eprintln!(
+                        "Warning: '{}' already exists, skipping (use --force to overwrite)",
+                        output_path.display()
+                    );
+                    return Ok(());
+                }
+                let mut writer = fs::File::create(&output_path)
+                    .with_context(|| format!("creating '{}'", output_path.display()))?;
+                let bytes = decompress_single_stream(&mut reader, format, &mut writer)
+                    .with_context(|| format!("decompressing volume set '{}'", archive.display()))?;
+                eprintln!(
+                    "Decompressed {} -> {} ({} bytes)",
+                    archive.display(),
+                    output_path.display(),
+                    bytes,
+                );
+                Ok(())
+            };
+
+            match result {
+                Ok(()) => {
+                    if let Some(s) = &spinner {
+                        s.finish("Decompressed");
+                    }
+                }
+                Err(e) => {
+                    if let Some(s) = &spinner {
+                        s.finish("Decompression failed");
+                    }
+                    if cancel_token.is_cancelled() {
+                        eprintln!("Cancelled");
+                        std::process::exit(130);
+                    }
+                    return Err(e);
+                }
+            }
+        }
+        _ => {
+            // Archive format: spill volume data to a temp file.
+            if stdout {
+                anyhow::bail!("--stdout is not supported for multi-file archives in volume mode");
+            }
+            let show_progress =
+                !no_progress && !verbose && crate::render::progress::progress_bar_enabled();
+            let spinner = if show_progress {
+                Some(crate::render::progress::ProgressBarWrapper::spinner(
+                    "Reassembling...",
+                ))
+            } else {
+                None
+            };
+
+            // Spill the combined volume stream to a temporary file.
+            let mut tmp = NamedTempFile::new().context("creating temp file for volume spill")?;
+            // Reader is already at position 0 (rewound by detect_archive_format_from_reader).
+            std::io::copy(&mut reader, &mut tmp)
+                .with_context(|| format!("spilling volume data for '{}'", archive.display()))?;
+            tmp.flush()
+                .context("flushing temp file after volume spill")?;
+            let (_, tmp_path) = tmp
+                .keep()
+                .map_err(|e| anyhow::anyhow!("failed to persist temp file: {}", e.error))?;
+
+            if let Some(s) = &spinner {
+                s.finish("Reassembled");
+            }
+
+            let cancel_flag = cancel_token.clone().into_inner();
+            let result = decompress_archive(
+                &tmp_path,
+                output_dir,
+                format,
+                overwrite,
+                verbose,
+                show_progress,
+                cancel_flag,
+                password.map(|s| s.to_string()),
+            );
+
+            // Clean up temp file.
+            let _ = fs::remove_file(&tmp_path);
+
+            result?;
+        }
+    }
+
+    Ok(())
+}
+
+/// Decompress a single-stream format from a reader into a writer.
+fn decompress_single_stream<R: Read, W: Write>(
+    reader: &mut R,
+    format: ArchiveFormat,
+    writer: &mut W,
+) -> Result<u64> {
+    let bytes = match format {
+        ArchiveFormat::Gzip => gzip::gzip_decompress(reader, writer)?,
+        ArchiveFormat::Bzip2 => bzip2::bzip2_decompress(reader, writer)?,
+        ArchiveFormat::Brotli => brotli::brotli_decompress(reader, writer)?,
+        ArchiveFormat::Lz4 => lz4::lz4_decompress(reader, writer)?,
+        ArchiveFormat::Zstd => zstd::zstd_decompress(reader, writer)?,
+        ArchiveFormat::Xz => xz::xz_decompress(reader, writer)?,
+        ArchiveFormat::Lzma => xz::lzma_decompress(reader, writer)?,
+        ArchiveFormat::Lz => lz::lz_decompress(reader, writer)?,
+        ArchiveFormat::Img => img::img_decompress(reader, writer)?,
+        ArchiveFormat::Bin => bin::bin_decompress(reader, writer)?,
+        _ => anyhow::bail!(
+            "unsupported format for single-stream decompression: {}",
+            format
+        ),
+    };
+    Ok(bytes)
 }

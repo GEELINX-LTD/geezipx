@@ -21,6 +21,7 @@ pub mod detect;
 pub mod error;
 pub mod io;
 pub mod test;
+pub mod volume;
 
 #[cfg(feature = "sfx")]
 pub mod sfx;
