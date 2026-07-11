@@ -118,6 +118,12 @@ enum Commands {
         /// Target platform for SFX (linux, windows, macos). Default: host platform.
         #[arg(long = "sfx-target", requires = "sfx")]
         sfx_target: Option<String>,
+
+        /// Split output into multiple volumes of the specified size.
+        /// Size suffixes: K (KiB), M (MiB), G (GiB). Example: --split-size 100M.
+        /// Mutually exclusive with --stdout and --sfx.
+        #[arg(long = "split-size", value_name = "SIZE", conflicts_with_all = ["stdout", "sfx"])]
+        split_size: Option<String>,
     },
 
     /// Decompress an archive or compressed file
@@ -255,6 +261,7 @@ fn run() -> anyhow::Result<()> {
             encrypt_filenames,
             no_encrypt_filenames,
             solid,
+            split_size,
         } => {
             let password = common::resolve_password(password, password_file, password_stdin)?;
 
@@ -303,6 +310,7 @@ fn run() -> anyhow::Result<()> {
                 encrypt_filenames,
                 no_encrypt_filenames,
                 solid,
+                split_size.as_deref(),
             )?
         }
         Commands::Decompress {

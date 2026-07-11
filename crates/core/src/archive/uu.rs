@@ -1,10 +1,55 @@
 //! UU/UUE decode helpers (single-stream).
 
 use std::fs;
+use std::io::Read;
 use std::io::Write;
 use std::path::Path;
 
 use crate::error::{GeeZipError, GeeZipResult};
+
+/// Encode raw binary data into a UU-encoded body (without header/footer).
+///
+/// Data is split into 45-byte lines, each prefixed with a length
+/// character.  This conforms to the standard UUencoding format used by
+/// `uu_decode`.
+pub fn uu_encode(data: &[u8]) -> String {
+    let mut out = String::new();
+    for chunk in data.chunks(45) {
+        // Length byte: chunk.len() + 32 (printable ASCII range)
+        out.push(((chunk.len() as u8).saturating_add(32)) as char);
+        for triple in chunk.chunks(3) {
+            let a = triple.first().copied().unwrap_or(0) as u32;
+            let b = triple.get(1).copied().unwrap_or(0) as u32;
+            let c = triple.get(2).copied().unwrap_or(0) as u32;
+            let val = (a << 16) | (b << 8) | c;
+            for shift in [18u32, 12, 6, 0] {
+                let six = ((val >> shift) & 0x3F) as u8;
+                out.push((six + 32) as char);
+            }
+        }
+        out.push('\n');
+    }
+    out
+}
+
+/// Encode data from `reader` into a full UU-encoded stream (with
+/// `begin` / `end` headers) and write it to `writer`.
+pub fn uu_encode_to_writer<R: Read, W: Write>(
+    reader: &mut R,
+    name: &str,
+    writer: &mut W,
+) -> GeeZipResult<u64> {
+    let mut data = Vec::new();
+    reader
+        .read_to_end(&mut data)
+        .map_err(|e| GeeZipError::io(e, "reading input for uu encoding"))?;
+    let body = uu_encode(&data);
+    let output = format!("begin 644 {}\n{}end\n", name, body.trim_end());
+    writer
+        .write_all(output.as_bytes())
+        .map_err(|e| GeeZipError::io(e, "writing uu-encoded output"))?;
+    Ok(output.len() as u64)
+}
 
 pub fn uu_decode_file(path: &Path) -> GeeZipResult<(String, Vec<u8>)> {
     let content = fs::read_to_string(path)
@@ -89,23 +134,6 @@ pub fn uu_decode_to_writer(path: &Path, writer: &mut dyn Write) -> GeeZipResult<
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn uu_encode(data: &[u8]) -> String {
-        let mut out = String::new();
-        let total = data.len();
-        out.push(((total as u8).min(45) + 32) as char);
-        for chunk in data.chunks(3) {
-            let a = chunk.first().copied().unwrap_or(0) as u32;
-            let b = chunk.get(1).copied().unwrap_or(0) as u32;
-            let c = chunk.get(2).copied().unwrap_or(0) as u32;
-            let val = (a << 16) | (b << 8) | c;
-            for shift in [18u32, 12, 6, 0] {
-                let six = ((val >> shift) & 0x3F) as u8;
-                out.push((six + 32) as char);
-            }
-        }
-        out
-    }
 
     #[test]
     fn uu_decode_roundtrip() {

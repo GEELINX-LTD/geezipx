@@ -14,6 +14,8 @@ use geezipx_core::archive::img;
 use geezipx_core::archive::isz;
 use geezipx_core::archive::lz;
 use geezipx_core::archive::lz4;
+use geezipx_core::archive::uu;
+use geezipx_core::archive::xxe;
 use geezipx_core::archive::xz;
 use geezipx_core::archive::zstd;
 use geezipx_core::config::{CompressOptions, SevenZipOptions};
@@ -23,6 +25,7 @@ use crate::render::progress::{ProgressBarWrapper, SharedCallback};
 use geezipx_core::ProgressReader;
 
 use super::common;
+use geezipx_core::volume::{MultiVolumeWriter, VolumePattern};
 
 fn is_single_stream_format(format: ArchiveFormat) -> bool {
     matches!(
@@ -39,6 +42,8 @@ fn is_single_stream_format(format: ArchiveFormat) -> bool {
             | ArchiveFormat::Aes
             | ArchiveFormat::Bin
             | ArchiveFormat::Isz
+            | ArchiveFormat::Uu
+            | ArchiveFormat::Xxe
     )
 }
 
@@ -75,6 +80,7 @@ pub fn execute(
     encrypt_filenames: bool,
     no_encrypt_filenames: bool,
     solid: bool,
+    split_size: Option<&str>,
 ) -> Result<()> {
     let compress_options = CompressOptions {
         level,
@@ -100,6 +106,14 @@ pub fn execute(
         anyhow::bail!(
             "--stdin/--stdout is only supported for single-stream formats \
              (gzip, bzip2, brotli, lz4, zstd, xz, lzma, tar.gz, tar.bz2, tar.br, tar.lz4, tar.zst, tar.xz); got '{format}'"
+        );
+    }
+
+    // --split-size is only supported for archive (multi-file) formats.
+    if split_size.is_some() && (is_single_stream_format(format) || is_tar_wrapped_format(format)) {
+        anyhow::bail!(
+            "--split-size is only supported for archive formats (zip, tar, 7z, etc.); '{}' is a stream format",
+            format
         );
     }
 
@@ -161,6 +175,7 @@ pub fn execute(
         cancel_token,
         sfx,
         sfx_target,
+        split_size,
     )
 }
 
@@ -342,6 +357,7 @@ fn compress_archive_mode(
     cancel_token: crate::signal::CancellationToken,
     sfx: bool,
     sfx_target: Option<&str>,
+    split_size: Option<&str>,
 ) -> Result<()> {
     let output_path = output.unwrap();
     let files = common::collect_inputs(inputs, recursive)?;
@@ -526,6 +542,11 @@ fn compress_archive_mode(
         );
     }
 
+    // --- split into volumes (post-processing) ---
+    if let Some(size_str) = split_size {
+        split_output_into_volumes(output_path, size_str)?;
+    }
+
     Ok(())
 }
 
@@ -652,7 +673,7 @@ fn open_input(path: &Path) -> Result<impl Read> {
 /// Compress a single stream using format-appropriate encoder with options.
 fn compress_single_stream<R: Read, W: Write>(
     reader: &mut R,
-    writer: W,
+    mut writer: W,
     options: CompressOptions,
     format: ArchiveFormat,
 ) -> anyhow::Result<u64> {
@@ -701,6 +722,16 @@ fn compress_single_stream<R: Read, W: Write>(
             .map_err(|e| anyhow::anyhow!("bin pass-through error: {}", e)),
         ArchiveFormat::Isz => isz::isz_compress(reader, writer, &options)
             .map_err(|e| anyhow::anyhow!("isz compression error: {}", e)),
+        ArchiveFormat::Uu => {
+            let name = "data.bin";
+            uu::uu_encode_to_writer(reader, name, &mut writer)
+                .map_err(|e| anyhow::anyhow!("uu encoding error: {}", e))
+        }
+        ArchiveFormat::Xxe => {
+            let name = "data.bin";
+            xxe::xxe_encode_to_writer(reader, name, &mut writer)
+                .map_err(|e| anyhow::anyhow!("xxe encoding error: {}", e))
+        }
         _ => anyhow::bail!("cannot compress '{}' as a single stream", format),
     }
 }
@@ -715,7 +746,7 @@ fn parse_dict_size(s: &str) -> anyhow::Result<u32> {
     // Check for suffix
     let (num_part, multiplier) =
         if let Some(rest) = s.strip_suffix(|c: char| c.is_ascii_alphabetic()) {
-            let suffix = &s[s.len() - rest.len()..];
+            let suffix = &s[rest.len()..];
             let m = match suffix.to_ascii_uppercase().as_str() {
                 "K" => 1024u64,
                 "M" => 1024 * 1024,
@@ -743,4 +774,93 @@ fn parse_dict_size(s: &str) -> anyhow::Result<u32> {
     }
 
     Ok(bytes as u32)
+}
+
+/// Parse a human-readable size string (e.g., "10M", "1G", "500K") into bytes.
+fn parse_split_size(s: &str) -> anyhow::Result<u64> {
+    let s = s.trim();
+    if s.is_empty() {
+        anyhow::bail!("--split-size cannot be empty");
+    }
+
+    let (num_part, multiplier) =
+        if let Some(rest) = s.strip_suffix(|c: char| c.is_ascii_alphabetic()) {
+            let suffix = &s[rest.len()..];
+            let m = match suffix.to_ascii_uppercase().as_str() {
+                "K" => 1024u64,
+                "M" => 1024 * 1024,
+                "G" => 1024 * 1024 * 1024,
+                _ => anyhow::bail!(
+                    "unsupported --split-size suffix '{}'; use K, M, or G",
+                    suffix
+                ),
+            };
+            (rest, m)
+        } else {
+            (s, 1u64)
+        };
+
+    let num: u64 = num_part
+        .parse()
+        .map_err(|_| anyhow::anyhow!("invalid --split-size value '{}'", s))?;
+
+    let bytes = num
+        .checked_mul(multiplier)
+        .ok_or_else(|| anyhow::anyhow!("--split-size value '{}' is too large", s))?;
+
+    if bytes == 0 {
+        anyhow::bail!("--split-size must be positive");
+    }
+
+    Ok(bytes)
+}
+
+/// Split an output file into multiple volumes using the .NNN naming convention.
+fn split_output_into_volumes(output: &Path, size_str: &str) -> Result<()> {
+    let max_size = parse_split_size(size_str)?;
+
+    let file_meta =
+        std::fs::metadata(output).with_context(|| format!("stat '{}'", output.display()))?;
+    let file_size = file_meta.len();
+
+    if file_size <= max_size {
+        eprintln!(
+            "Output size ({} bytes) <= split size ({} bytes); splitting skipped",
+            file_size, max_size
+        );
+        return Ok(());
+    }
+
+    let num_volumes = file_size.div_ceil(max_size);
+    eprintln!(
+        "Splitting {} ({} bytes) into {} volume(s) of {} bytes each",
+        output.display(),
+        file_size,
+        num_volumes,
+        max_size
+    );
+
+    let mut reader = BufReader::new(
+        fs::File::open(output)
+            .with_context(|| format!("re-opening '{}' for splitting", output.display()))?,
+    );
+    let mut writer = MultiVolumeWriter::new(output, VolumePattern::Nnn, max_size, 1)
+        .with_context(|| format!("creating volume set from '{}'", output.display()))?;
+
+    std::io::copy(&mut reader, &mut writer).with_context(|| "writing split volumes")?;
+
+    let vol_paths = writer
+        .finish()
+        .with_context(|| "finalizing split volumes")?;
+
+    // Remove original unsplit file
+    std::fs::remove_file(output)
+        .with_context(|| format!("removing original '{}' after split", output.display()))?;
+
+    eprintln!("Split into {} volume(s):", vol_paths.len());
+    for p in &vol_paths {
+        eprintln!("  {}", p.display());
+    }
+
+    Ok(())
 }
