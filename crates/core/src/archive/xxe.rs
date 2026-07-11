@@ -3,6 +3,7 @@
 //! XXencode uses the alphabet: `+-0123456789A-Za-z` (indices 0-63).
 
 use std::fs;
+use std::io::Read;
 use std::io::Write;
 use std::path::Path;
 
@@ -16,6 +17,50 @@ fn build_reverse_table() -> [u8; 256] {
         table[ch as usize] = i as u8;
     }
     table
+}
+
+/// Encode raw binary data into an XXE-encoded body (without header/footer).
+///
+/// Data is split into 45-byte lines, each prefixed with a length
+/// character.  This conforms to the standard XXencode format used by
+/// `xxe_decode`.
+pub fn xxe_encode(data: &[u8]) -> String {
+    let mut out = String::new();
+    for chunk in data.chunks(45) {
+        // Length byte using XXE alphabet
+        out.push(XXE_ALPHABET[chunk.len().min(45)] as char);
+        for triple in chunk.chunks(3) {
+            let a = triple.first().copied().unwrap_or(0) as u32;
+            let b = triple.get(1).copied().unwrap_or(0) as u32;
+            let c = triple.get(2).copied().unwrap_or(0) as u32;
+            let val = (a << 16) | (b << 8) | c;
+            for shift in [18u32, 12, 6, 0] {
+                let six = ((val >> shift) & 0x3F) as usize;
+                out.push(XXE_ALPHABET[six] as char);
+            }
+        }
+        out.push('\n');
+    }
+    out
+}
+
+/// Encode data from `reader` into a full XXE-encoded stream (with
+/// `begin` / `end` headers) and write it to `writer`.
+pub fn xxe_encode_to_writer<R: Read, W: Write>(
+    reader: &mut R,
+    name: &str,
+    writer: &mut W,
+) -> GeeZipResult<u64> {
+    let mut data = Vec::new();
+    reader
+        .read_to_end(&mut data)
+        .map_err(|e| GeeZipError::io(e, "reading input for xxe encoding"))?;
+    let body = xxe_encode(&data);
+    let output = format!("begin 644 {}\n{}end\n", name, body.trim_end());
+    writer
+        .write_all(output.as_bytes())
+        .map_err(|e| GeeZipError::io(e, "writing xxe-encoded output"))?;
+    Ok(output.len() as u64)
 }
 
 pub fn xxe_decode_file(path: &Path) -> GeeZipResult<(String, Vec<u8>)> {
@@ -102,23 +147,6 @@ pub fn xxe_decode_to_writer(path: &Path, writer: &mut dyn Write) -> GeeZipResult
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn xxe_encode(data: &[u8]) -> String {
-        let mut out = String::new();
-        let total = data.len();
-        out.push(XXE_ALPHABET[(total).min(45)] as char);
-        for chunk in data.chunks(3) {
-            let a = chunk.first().copied().unwrap_or(0) as u32;
-            let b = chunk.get(1).copied().unwrap_or(0) as u32;
-            let c = chunk.get(2).copied().unwrap_or(0) as u32;
-            let val = (a << 16) | (b << 8) | c;
-            for shift in [18u32, 12, 6, 0] {
-                let six = ((val >> shift) & 0x3F) as usize;
-                out.push(XXE_ALPHABET[six] as char);
-            }
-        }
-        out
-    }
 
     #[test]
     fn xxe_decode_roundtrip() {
