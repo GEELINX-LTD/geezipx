@@ -301,7 +301,7 @@ mod tests {
     #[test]
     fn get_formats_returns_expected_count() {
         let formats = get_formats();
-        let expected = if cfg!(feature = "zpaq") { 35 } else { 34 };
+        let expected = if cfg!(feature = "zpaq") { 36 } else { 35 };
         assert_eq!(formats.len(), expected, "unexpected supported format count");
     }
 
