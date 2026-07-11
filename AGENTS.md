@@ -175,22 +175,26 @@ CLI 和后续 Tauri GUI 只负责：
 - UDF（读写，Universal Disk Format DVD/Blu-ray 文件系统）；
 - CPIO（读写，newc/odc）；
 - ZPAQ（读写）；
-- WIM（只读）；
+- WIM（读写，无压缩写入，XPRESS/LZX/LZMS 解压）；
+- ISZ（读写，块压缩 ISO 包装，单流引擎）；
 - SFX（自解压 ZIP 读写）；
-- UU / UUE（只读，CLI 解压/list/test）；
-- XXE（只读，CLI 解压/list/test）；
+- ARJ（只读，unarc-rs 适配器）；
+- ACE（只读，unarc-rs 适配器）；
+- ARC（只读，unarc-rs 适配器）；
+- ALZ（只读，unalz-rs 适配器）；
+- Z / Unix Compress（只读，unarc-rs 适配器）；
+- UU / UUE（只读，自实现解码器，编码写入 P1）；
+- XXE（只读，自实现解码器，编码写入 P1）；
 - IMG（透传，identity pass-through，扩展名 .img/.ima）；
 - BIN（透传，identity pass-through，扩展名 .bin）；
 - AES 加密容器（.enc，AES-256-GCM-SIV + Argon2id）；
 
-后续可扩展现：
+后续可扩展（剩余待做项）：
 
-- 分卷压缩；
-- RAR 写入（许可限制）；
-- WIM 写入（EUPL-1.2 许可兼容性评估中）；
-- CPIO bin/crc 格式支持（无 Rust crate）；
-- ZPAQ 增量日志/去重；
-- ISZ 等格式评估与支持（后续规划中）。
+- UU/UUE/XXE 编码写入（P1）；
+- 分卷压缩创建（P2）；
+
+格式覆盖评估已完成。永久排除项见 `docs/PRD.md` §5.2：BH/PMA/PEA/EGG（无 Rust 生态）、CPIO bin/crc（无 crate 支持）、ARJ/ACE/ARC/ALZ/Z 写入（只读 API/投入产出比低）、I00/I01（小众分卷 ISO）、ZIPX 高级方法（WinZip 专有）、RAR 写入（许可限制）。
 
 当前阶段不承诺完整替代 7-Zip / WinRAR。
 

@@ -42,7 +42,7 @@ GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开�
 
 | 特性 | 说明 | 状态 |
 |------|------|------|
-| 格式支持 | `.tar.gz`/`.tgz`, `.tar.bz2`/`.tbz`/`.tbz2`, `.tar.br`, `.tar.lz4`, `.zip`（含 `.zipx`/`.jar`/`.war`/`.apk`/`.ipa`/`.xpi` ZIP 兼容别名）, `.tar`, `.gz`/`.gzip`, `.bz2`, `.br`, `.lz4`, `.tar.zst`/`.tzst`, `.zst`/`.zstd`, `.tar.xz`/`.txz`, `.xz`, `.lzma`, `.7z`（读/写）；LZH/LHA（lh4-lh7 压缩）；ISO/ZPAQ/CPIO/CAB/ASAR（读写）；RAR/DEB/WIM（只读）；LZ（Lzip 压缩/解压） | **已完成** |
+| 格式支持 | `.tar.gz`/`.tgz`, `.tar.bz2`/`.tbz`/`.tbz2`, `.tar.br`, `.tar.lz4`, `.zip`（含 `.zipx`/`.jar`/`.war`/`.apk`/`.ipa`/`.xpi` ZIP 兼容别名）, `.tar`, `.gz`/`.gzip`, `.bz2`, `.br`, `.lz4`, `.tar.zst`/`.tzst`, `.zst`/`.zstd`, `.tar.xz`/`.txz`, `.xz`, `.lzma`, `.7z`（读/写，含 AES-256）；LZH/LHA（lh0-lh7 读/写）；ISO/ZPAQ/CPIO/CAB/ASAR/DEB/WIM/ISZ/UDF（读/写）；RAR/ARJ/ACE/ARC/ALZ/UU/UUE/XXE/Z（只读）；LZ（Lzip 读/写）；IMG/BIN/AES（透传/加密容器） | **已完成** |
 | 进度显示 | TTY 下默认显示进度，可用 `--no-progress` 禁用 | **已完成** |
 | 格式自动检测 | 根据文件魔数（magic bytes）自动检测归档格式 | **已完成** |
 | 压缩级别 | `--level 0-9`（gzip/bzip2/tar.gz/tar.bz2/xz/lzma/tar.xz，bzip2 的 level 0 映射为默认级别）；`--level 0-11`（brotli/tar.br）；`--level 0-22`（zstd/tar.zst）；`lz4`/`tar.lz4` 仅接受 `0` 或省略 | **已完成** |
@@ -89,6 +89,8 @@ GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开�
 | ZIPX | .zipx | ✅ 已支持 | ZIP 兼容容器/扩展名别名；不承诺 WinZip 专有高级压缩方法、Deflate64 写入或完整 ZIPX method matrix |
 | SFX | .exe | ✅ 已支持 | 自解压 ZIP（Linux/Windows/macOS），通过 CLI `--sfx`/`--sfx-target` 参数 |
 | ZPAQ | .zpaq, .zpq | ✅ 已支持 | 支持 `compress` / `list` / `decompress` / `test`；通过 `zpaq_rs::archive_from_entries` 实现。压缩级别 1-5（ZPAQ 不支持 store 级别）。不含增量 journaling / dedup。 |
+| WIM | .wim, .swm | ✅ 已支持 | 支持 `compress` / `list` / `decompress` / `test`；reader 支持 XPRESS/LZX/LZMS 解压与多映像；writer 支持无压缩创建。不承诺增量写入或 ESENT/事务日志完整性。 |
+| ISZ | .isz | ✅ 已支持 | 块压缩 ISO 包装格式，单流引擎实现（读/写）。不实现 `ArchiveReader`/`ArchiveWriter` trait，以 raw byte stream 方式运作。 |
 
 > 说明：当前 ZIPX 支持限定为 ZIP-compatible `.zipx` container/extension alias，`compress` / `list` / `test` / `decompress` 全部复用 ZIP 引擎；WinZip 专有高级压缩方法、Deflate64 写入以及完整 ZIPX method matrix 仍不在当前承诺范围内。
 
@@ -96,24 +98,20 @@ GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开�
 
 | 格式 | 当前状态 | 说明 |
 |------|---------|------|
-| WIM | ✅ 已支持 (纯 Rust) | 只读，支持 XPRESS/LZX 解压 |
-| ARJ, ACE, ARC | ✅ 已支持 | 历史/专有格式，通过 unarc-rs 适配器 |
-| ALZ | ✅ 已支持 | ALZip 格式，通过 unalz-rs |
-| BH, PMA, PEA, EGG | ⛔ 无Rust生态 | 历史/专有格式，crates.io 无可用库 |
+| ARJ, ACE, ARC | ✅ 已支持（只读） | 历史/专有格式，通过 unarc-rs 适配器。写入永久排除：unarc-rs 为只读 API，逆向工程投入产出比极低。 |
+| ALZ | ✅ 已支持（只读） | ALZip 格式，通过 unalz-rs。写入永久排除：同 ARJ/ACE/ARC。 |
 | LZ (.lz) | ✅ 已支持 | Lzip 格式，支持 `compress` / `decompress`；通过 `lzma-rust2` 实现 LZMA 压缩 |
-| UU (.uu/.uue) | ✅ 已支持 | 自实现解码器 |
-| XXE (.xxe) | ✅ 已支持 | 自实现解码器 |
-| Z (.Z) | ✅ 已支持 | Unix compress，通过 unarc-rs |
+| UU (.uu/.uue) | ✅ 已支持 | 自实现解码器。**编码写入规划中（P1）。** |
+| XXE (.xxe) | ✅ 已支持 | 自实现解码器。**编码写入规划中（P1）。** |
+| Z (.Z) | ✅ 已支持（只读） | Unix compress，通过 unarc-rs。写入永久排除：LZW 格式在 2026 年无实际创建场景，只读已满足遗留数据恢复需求。 |
 | AES | ✅ 已支持 | AES 加密容器（AES-256-GCM-SIV + Argon2id，enc_file crate，MIT/Apache-2.0）|
 | JAR, WAR, APK, IPA, XPI | ✅ 已支持 | 本质为 ZIP 容器，复用 ZIP 引擎 |
 | DEB | ✅ 已支持 | Debian 包，支持创建与读取（ar 容器 + control.tar.gz + data.tar.*）|
 | ASAR | ✅ 已支持 | Electron 归档，支持 `compress` / `list` / `decompress` / `test`；通过 `asar` crate 实现写入 |
 | IMG | ✅ 已支持 | 原始磁盘镜像，透传（无变换），扩展名 .img/.ima |
-| ISZ | 📋 Phase 3 |
 | UDF | ✅ 已支持 | Universal Disk Format，支持 `compress` / `list` / `decompress` / `test`；通过 `hadris-udf` 实现 |
 | BIN | ✅ 已支持 | 原始二进制透传（identity pass-through，扩展名 .bin）|
-| I00 | 📋 规划中 | 待评估 |
-| 001 | 📋 规划中 | 分卷文件（部分解压场景） |
+| 分卷 (.001/.002) | 🟡 仅解压 | 分卷文件解压已支持（`crates/core/src/volume.rs`）。**分卷压缩创建规划中（P2）。** |
 
 **依赖与交付策略：**
 - Rust 原生 crate 优先；仅在无合适实现时评估外部工具或系统库。
@@ -122,15 +120,30 @@ GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开�
 - 历史/专有格式通过统一适配器接口渐进接入。
 - 读/写分离：一种格式可先实现只读，写入能力后续补充。
 
+### 5.2 已评估并永久排除的格式
+
+以下格式经过评估后明确不做，不再出现在路线图中：
+
+| 格式 | 排除原因 |
+|------|---------|
+| **BH, PMA, PEA, EGG** | crates.io 零可用 Rust 库；格式规范未公开或严重不完整；不存在已知的活跃用户群。逆向工程投入与价值严重不成比例。 |
+| **CPIO bin/crc** | `cpio-archive` crate v0.10 仅支持 `newc`/`odc`，不支持 bin/crc。bin/crc 是 1970 年代 Unix V6/V7 遗留格式，无现代使用场景。newc/odc 已覆盖所有实际 CPIO 需求。 |
+| **I00/I01（分卷 ISO）** | ISO 分卷格式极其小众。如后续通用分卷框架（.001/.002）成熟，可在此基础上低成本实现；当前不作为独立目标。 |
+| **ARJ/ACE/ARC/ALZ 写入** | unarc-rs/unalz-rs 为只读 API，创建需从零逆向 1990s 专有格式。这些格式的用户群已萎缩至极小，只读已满足遗留数据恢复需求。 |
+| **Z (.Z) 写入** | LZW 压缩的 Unix compress 格式。2026 年不存在创建 .Z 文件的合理场景。只读通过 unarc-rs 已满足遗留数据恢复需求。 |
+| **ZIPX 高级方法** | WinZip 专有高级压缩方法（JPEG 预压缩等）无公开规范与 Rust 实现。当前 `.zipx` alias 复用 ZIP 引擎已满足容器兼容需求。 |
+| **RAR 写入** | 受 UnRAR 许可限制。永久保持只读。 |
+
+> 如需重新评估上述排除项，需满足至少一个条件：① crates.io 出现成熟 Rust 实现；② 出现明确用户需求信号（GitHub issue + 👍 ≥ 10）；③ 格式规范完整公开。
+
 ## 6. 阶段目标与边界
 
-### 6.1 当前阶段（Phase 1/2）明确不做
+### 6.1 当前阶段明确不做
 
-以下能力在 Phase 1（CLI MVP）和 Phase 2（桌面 GUI）阶段明确不做：
+以下能力在当前阶段明确不做（部分为永久排除，详见 §5.2）：
 
-- 7z 高级写入能力 — 当前已交付 LZMA/LZMA2/BZip2/PPMd/Deflate/COPY 方法选择、自定义字典大小、--solid 实心模式
-- RAR 创建 — 受 UnRAR 许可限制，仅保持只读
-- 分卷压缩
+- 分卷压缩（.001/.002 创建）— 已有解压，创建规划为 P2 待做项
+- RAR 创建 — 受 UnRAR 许可限制，永久排除
 - 右键菜单集成
 - 自动更新
 - 云同步
@@ -144,9 +157,9 @@ GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开�
 - **依赖策略**：按格式决定。优先 Rust 原生 crate（如 `zip`、`flate2`、`zstd`、`xz2`），仅在无合适实现时评估外部工具或系统库。
 - **Feature gate**：每种格式按独立 feature 引入，用户可按需编译。
 - **优先级**：由用户需求与社区反馈驱动，不做全格式一次性覆盖。
-|- **读/写分离**：一种格式可先实现只读（如当前 RAR），写入能力后续补充。7z 当前已交付 LZMA/LZMA2/BZip2/PPMd/Deflate/COPY 方法选择与 AES-256 密码写入。ZPAQ 已从只读升级为完整读写（压缩级别 1-5）。DEB 已从只读升级为完整读写。
-- **历史格式**：ARJ、ACE、ARC（via unarc-rs）、ALZ（via unalz-rs）、UU/UUE/XXE（自实现）、Z/Unix compress（via unarc-rs）等历史/专有格式已通过适配器层接入；LZH/LHA 的 lh5-lh7 compressed write 已通过升级 oxiarc-lzhuf ≥ v0.3.5（使用 MSB-first 标准位填充）修复，当前 lh0-lh7 压缩写入均与 delharc/LZH 标准互通。
-|- **Journaling 格式**：ZPAQ 当前已升级为完整读写（压缩级别 1-5）；其追加/版本化写入路径与现有"从零创建归档"模型不同，需单独架构设计。
+|- **读/写分离**：一种格式可先实现只读，写入能力后续补充。DEB、ZPAQ、WIM、ISZ 已从只读升级为完整读写。ARJ/ACE/ARC/ALZ/Z (.Z) 写入经评估后永久排除（见 §5.2）。
+- **历史格式**：ARJ、ACE、ARC（via unarc-rs）、ALZ（via unalz-rs）、UU/UUE/XXE（自实现）、Z/Unix compress（via unarc-rs）等历史/专有格式已通过适配器层接入；LZH/LHA 的 lh0-lh7 压缩写入已与 delharc/LZH 标准互通。
+- **格式覆盖收尾**：所有可评估格式已完成评估（§5.2）。剩余待做项仅两件：① UU/UUE/XXE 编码写入（P1）；② 分卷压缩创建（P2）。
 
 ## 7. 功能需求（Feature Requirements）
 
@@ -240,21 +253,12 @@ Phase 2 (Desktop GUI via Tauri)  ← 🚀 当前阶段（v0.6.0）
 ├── 自动/手动格式检测（压缩时）               ── ✅ 已完成
 └── 平台原生打包 (AppImage/.dmg/.msi)         ── ⚙️ 已配置，待 tag release 实战验证
 
-Phase 3 (生态 + 格式扩展)
+Phase 3 (生态 + 格式扩展收尾)
 ├── Homebrew / winget / APT 仓库
-├── 压缩格式扩展
-│   ├── 7z 高级写入能力 — ✅ LZMA/LZMA2/BZip2/PPMd/Deflate/COPY 方法选择、自定义字典大小、--solid 实心模式
-│   ├── ZIPX 高级方法矩阵评估 — `.zipx` alias 已支持；JPEG 预压缩等 WinZip 专有高级方法另行评估
-│   └── 其他按用户需求驱动的格式
-├── 解压格式扩展
-│   ├── Brotli (.br)、bzip2 (.bz2)、LZ4 — 现代压缩格式
-│   ├── DEB、ASAR — 应用包格式
-│   ├── ARJ、ACE、ARC、ALZ — ✅ 已支持（unarc-rs / unalz-rs 适配器）
-│   ├── UU/UUE/XXE、.Z — ✅ 已支持（自实现解码器 / unarc-rs）
-│   ├── AES 加密容器 — ✅ 已支持；PEA、PMA、EGG — 专有格式按需评估
-│   ├── IMG、ISZ、UDF — 磁盘镜像格式
-│   └── JAR/WAR/APK/IPA/XPI — ZIP 容器格式（复用引擎）
-└── 更多格式按社区反馈渐进补充
+├── 格式扩展收尾
+│   ├── UU/UUE/XXE 编码写入 — P1（自实现解码器已有，编码逻辑简单）
+│   └── 分卷压缩创建 (.001/.002) — P2（解压已有，创建为自然补充）
+└── 格式覆盖评估已完成（§5.2 永久排除项，§5.1 已完成项）
 ```
 
 ## 10. 成功指标

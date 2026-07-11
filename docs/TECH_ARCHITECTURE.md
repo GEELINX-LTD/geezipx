@@ -61,7 +61,9 @@ geezipx/
 - core 只保留格式逻辑、I/O 包装、错误模型与安全检查；
 - CLI 负责参数解析、TTY 进度、stdout/stderr 呈现；
 - Tauri GUI 负责图形交互、任务管理、事件桥接；
-- RAR / WIM 在当前版本中保持只读语义（RAR：`list` / `decompress` / `test`；WIM：`list` / `extract` / `test`，XPRESS/LZX/LZMS 解压，多映像支持，MVP 默认第一映像）；DEB 已升级为完整读写；CAB / ASAR / CPIO 已支持完整读写；LZH/LHA 已支持 lh4-lh7 压缩写入；7z 已支持 LZMA/LZMA2/BZip2/PPMd/Deflate/COPY 方法选择与 AES-256 密码写入；ISO 与 ZPAQ 已支持完整读写。SFX 自解压 ZIP 创建位于独立 `core::sfx` 模块。LZ（Lzip）已支持单流压缩/解压（通过 `lzma-rust2`）。
+- RAR 在当前版本中保持只读语义（UnRAR 许可限制）。WIM 已升级为完整读写（无压缩写入，XPRESS/LZX/LZMS 解压）。ISZ 已升级为完整读写（块压缩 ISO 包装，单流引擎）。
+- ARJ/ACE/ARC/ALZ/Z 写入经评估永久排除（见 PRD §5.2）；UU/UUE/XXE 编码写入为 P1 待做项。
+- DEB、CAB、ASAR、CPIO（newc/odc）、LZH/LHA（lh0-lh7）、7z（含高级方法选择）、ISO、ZPAQ、UDF、AES、IMG、BIN 均已实现完整读写。
 
 ## 2. 模块设计
 
@@ -127,11 +129,13 @@ pub trait ArchiveWriter: Send {
 | `archive::zpaq` | ZPAQ 读写（`compress` / `list` / `extract` / `test`）；writer 基于 `zpaq_rs::archive_from_entries`，压缩级别 1-5；不含增量 journaling/dedup |
 | `archive::seven_zip` | 7z 读写（`list` / `extract` / `test` / `compress`）；当前 writer 为基础 MVP（默认 non-solid LZMA2，支持 AES-256 密码写入） |
 | `archive::rar` | RAR 只读（`list` / `extract` / `test`，feature-gated） |
-| `archive::wim` | WIM — 只读（`list` / `extract` / `test`），XPRESS/LZX/LZMS 解压，多映像支持（MVP 默认第一映像）；feature-gated |
+| `archive::wim` | WIM — 读/写（`list` / `extract` / `test` / `compress`），XPRESS/LZX/LZMS 解压，多映像支持（MVP 默认第一映像），writer 支持无压缩创建；feature-gated |
+| `archive::isz` | ISZ — 块压缩 ISO 包装，单流引擎实现（读/写）；不实现 `ArchiveReader`/`ArchiveWriter` trait |
 | `sfx` | SFX — 自解压 ZIP 创建（`core::sfx`），通过 stub 二进制拼接实现，支持 Linux/Windows/macOS target；feature-gated |
+| `volume` | 分卷 — `.001`/`.002` 分卷文件解压（`core::volume`），当前仅解压 |
 
-> **注**：上表仅列出当前已实现的格式模块。项目长期规划支持更多格式（详见 `docs/PRD.md` 第 5.1 节），
-> 新增格式遵循相同的 `ArchiveReader` / `ArchiveWriter` trait 接口和 feature gate 策略，归档模块数量随阶段逐步扩展。
+> **注**：上表仅列出当前已实现的格式模块。全部格式评估结果见 `docs/PRD.md` §5.1-5.2，
+> 新增格式遵循相同的 `ArchiveReader` / `ArchiveWriter` trait 接口和 feature gate 策略。
 
 ### 2.2 `core/io` — 流式进度与取消包装
 
@@ -197,6 +201,7 @@ pub enum ArchiveFormat {
     Zstd,
     TarZst,
     Lzma,
+    Lz,
     TarXz,
     SevenZip,
     Rar,
@@ -207,6 +212,19 @@ pub enum ArchiveFormat {
     Iso,
     Cpio,
     Zpaq,
+    Wim,
+    Arj,
+    Ace,
+    Arc,
+    Alz,
+    Z,
+    Udf,
+    Uu,
+    Xxe,
+    Img,
+    Aes,
+    Bin,
+    Isz,
     Unknown,
 }
 
@@ -430,8 +448,8 @@ crates/gui-tauri/
 | GUI bundle 发布尚未经历真实 tag release 演练 | 发布路径可能存在流程性缺口 | 保守表述为“已配置，待验证” |
 | 大文件压缩进度依赖预扫描总量 | 首次开始任务前会有扫描延迟 | UI 上明确扫描阶段 |
 | Windows 长路径/符号链接差异 | 个别归档场景行为与 Unix 不完全一致 | 持续测试 + 文档限制说明 |
-| RAR / WIM 仍为只读 | GUI 不能创建这些格式 | 在产品文档中明确范围 |
-|| WIM 为只读（XPRESS/LZX/LZMS 解压，多映像，MVP 默认第一映像） | GUI 可浏览提取 .wim 文件，不能创建 | 在产品文档中明确限制范围 |
+| RAR / ARJ / ACE / ARC / ALZ / Z 仍为只读 | GUI 不能创建这些格式 | 在产品文档中明确范围（PRD §5.2 永久排除） |
+|| WIM / ISZ writer 为标准模式外的实现 | WIM 为无压缩写入、ISZ 为单流引擎（非 ArchiveWriter trait） | 在文档中明确能力边界 |
 | LZH/LHA writer 为缓冲写入（lh0-lh7 压缩均支持） | 不支持加密、多卷、extended header；单个 entry payload 会缓冲 | 在产品文档中明确限制范围 |
 ## 附录：Cargo Workspace 配置
 
