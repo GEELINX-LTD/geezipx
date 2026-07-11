@@ -5,7 +5,7 @@
 
 use std::fs;
 use std::io;
-use std::io::Read;
+use std::io::{Read, Seek};
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
@@ -135,64 +135,65 @@ pub fn resolve_format(cli_format: Option<&str>, output: &Path) -> Result<Archive
 /// 3. Otherwise return the magic-based result or fall back to extension.
 pub fn detect_archive_format(path: &Path) -> Result<ArchiveFormat> {
     let mut file = fs::File::open(path).with_context(|| format!("opening '{}'", path.display()))?;
-    let magic =
-        detect::read_magic_bytes(&mut file).context("reading magic bytes for format detection")?;
-    drop(file);
+    detect_archive_format_from_reader(&mut file, Some(path))
+}
 
-    match detect::detect_format(&magic) {
+/// Detect format from magic bytes read from any reader.
+///
+/// Falls back to extension if magic fails and `fallback_path` is provided.
+/// The reader is rewound to the start after detection.
+pub fn detect_archive_format_from_reader<R: Read + Seek>(
+    reader: &mut R,
+    fallback_path: Option<&Path>,
+) -> Result<ArchiveFormat> {
+    let magic =
+        detect::read_magic_bytes(reader).context("reading magic bytes for format detection")?;
+    reader
+        .seek(std::io::SeekFrom::Start(0))
+        .context("rewinding reader after magic detection")?;
+
+    let fmt = match detect::detect_format(&magic) {
         Some(ArchiveFormat::Gzip) => {
-            // Gzip magic but the file might be .tar.gz — check extension.
-            if let Some(ArchiveFormat::TarGz) = detect::detect_from_extension(path) {
-                Ok(ArchiveFormat::TarGz)
-            } else {
-                Ok(ArchiveFormat::Gzip)
-            }
+            resolve_tar_wrapped(ArchiveFormat::Gzip, ArchiveFormat::TarGz, fallback_path)
         }
         Some(ArchiveFormat::Bzip2) => {
-            // Bzip2 magic is also present in `.tar.bz2` / `.tbz` / `.tbz2`.
-            if let Some(ArchiveFormat::TarBz2) = detect::detect_from_extension(path) {
-                Ok(ArchiveFormat::TarBz2)
-            } else {
-                Ok(ArchiveFormat::Bzip2)
-            }
+            resolve_tar_wrapped(ArchiveFormat::Bzip2, ArchiveFormat::TarBz2, fallback_path)
         }
         Some(ArchiveFormat::Lz4) => {
-            // LZ4 frame magic is also present in `.tar.lz4`.
-            if let Some(ArchiveFormat::TarLz4) = detect::detect_from_extension(path) {
-                Ok(ArchiveFormat::TarLz4)
-            } else {
-                Ok(ArchiveFormat::Lz4)
-            }
+            resolve_tar_wrapped(ArchiveFormat::Lz4, ArchiveFormat::TarLz4, fallback_path)
         }
         Some(ArchiveFormat::Zstd) => {
-            // Zstd magic but the file might be .tar.zst / .tzst — check extension.
-            if let Some(ArchiveFormat::TarZst) = detect::detect_from_extension(path) {
-                Ok(ArchiveFormat::TarZst)
-            } else {
-                Ok(ArchiveFormat::Zstd)
-            }
+            resolve_tar_wrapped(ArchiveFormat::Zstd, ArchiveFormat::TarZst, fallback_path)
         }
         Some(ArchiveFormat::Xz) => {
-            // XZ magic is also present in `.tar.xz` / `.txz` — check extension.
-            if let Some(ArchiveFormat::TarXz) = detect::detect_from_extension(path) {
-                Ok(ArchiveFormat::TarXz)
-            } else {
-                Ok(ArchiveFormat::Xz)
+            resolve_tar_wrapped(ArchiveFormat::Xz, ArchiveFormat::TarXz, fallback_path)
+        }
+        Some(ArchiveFormat::Lzma) => ArchiveFormat::Lzma,
+        Some(fmt) => fmt,
+        None => match fallback_path {
+            Some(path) => detect::detect_from_extension(path).ok_or_else(|| {
+                anyhow::anyhow!("unable to detect archive format for '{}'", path.display())
+            })?,
+            None => anyhow::bail!("unable to detect archive format from magic bytes"),
+        },
+    };
+    Ok(fmt)
+}
+
+/// Resolve tar-wrapped extensions when magic matches a single-stream format.
+fn resolve_tar_wrapped(
+    single: ArchiveFormat,
+    wrapped: ArchiveFormat,
+    fallback_path: Option<&Path>,
+) -> ArchiveFormat {
+    if let Some(path) = fallback_path {
+        if let Some(fmt) = detect::detect_from_extension(path) {
+            if fmt == wrapped {
+                return wrapped;
             }
         }
-        Some(ArchiveFormat::Lzma) => {
-            // Unreachable in practice: LZMA has no reliable magic, so detection
-            // relies on explicit format or extension fallback.
-            Ok(ArchiveFormat::Lzma)
-        }
-        Some(fmt) => Ok(fmt),
-        None => {
-            // No magic matched; fall back to extension.
-            detect::detect_from_extension(path).ok_or_else(|| {
-                anyhow::anyhow!("unable to detect archive format for '{}'", path.display())
-            })
-        }
     }
+    single
 }
 
 // ---------------------------------------------------------------------------
