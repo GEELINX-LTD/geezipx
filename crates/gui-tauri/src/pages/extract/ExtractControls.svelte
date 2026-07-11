@@ -5,6 +5,7 @@
   import { extractArchive, extractEntries, openFolder, cancelTask } from '../../bridge';
   import { archiveStore } from '../../stores/archiveStore.svelte';
   import { taskStore } from '../../stores/taskStore.svelte';
+  import { toastStore } from '../../stores/toastStore.svelte.ts';
 
   let disabled = $derived(taskStore.isVisible && taskStore.activeTask?.kind === 'extract');
   let lastArchivePath = '';
@@ -89,6 +90,7 @@
         : await extractEntries(archiveStore.archivePath, [...archiveStore.selectedPaths], outputDir, overwrite, extractPassword || undefined, taskId);
       taskStore.finishTask('finished');
       result = localeStore.t('extract.result', { files: res.files_extracted, bytes: res.bytes_extracted, skipped: res.files_skipped > 0 ? localeStore.t('extract.resultSkipped', { count: res.files_skipped }) : '' });
+      toastStore.show(result, 'success', 5000);
       if (onComplete === 'open_output') {
         await openFolder(outputDir);
       }
@@ -96,6 +98,7 @@
       const msg = e instanceof Error ? e.message : String(e);
       taskStore.finishTask('failed', msg);
       error = localeStore.t('extract.errorPrefix', { message: msg });
+      toastStore.show(error, 'error');
     }
   }
 </script>

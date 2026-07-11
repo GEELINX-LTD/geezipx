@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { fly } from 'svelte/transition';
   import { listen } from './bridge';
   import type { TaskProgressPayload } from './bridge';
   import { appStore } from './stores/appStore.svelte';
@@ -7,6 +8,7 @@
   import { archiveStore } from './stores/archiveStore.svelte';
   import TabBar from './components/TabBar.svelte';
   import DropOverlay from './components/DropOverlay.svelte';
+  import ToastContainer from './components/ToastContainer.svelte';
   import HomePage from './pages/HomePage.svelte';
   import CompressPage from './pages/CompressPage.svelte';
   import ExtractPage from './pages/ExtractPage.svelte';
@@ -22,6 +24,25 @@
       default: return HomePage;
     }
   });
+
+  // Global keyboard shortcuts: Ctrl+N → tab numbers
+  function handleKeydown(e: KeyboardEvent) {
+    // Skip when typing in inputs
+    const tag = (e.target as HTMLElement)?.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (e.target as HTMLElement)?.isContentEditable) {
+      return;
+    }
+
+    const mod = e.metaKey || e.ctrlKey;
+    if (!mod) return;
+
+    switch (e.key) {
+      case '1': e.preventDefault(); appStore.switchTab('home'); break;
+      case '2': e.preventDefault(); appStore.switchTab('compress'); break;
+      case '3': e.preventDefault(); appStore.switchTab('extract'); break;
+      case ',': e.preventDefault(); appStore.switchTab('settings'); break;
+    }
+  }
 
   onMount(() => {
     const unlisteners: (() => void)[] = [];
@@ -43,12 +64,19 @@
   });
 </script>
 
+<svelte:window onkeydown={handleKeydown} />
+
 <div class="app-shell">
   <TabBar />
   <main class="app-content">
     <DropOverlay />
-    <PageComponent />
+    {#key appStore.activeTab}
+      <div class="page-wrapper" in:fly={{ x: 20, duration: 120 }} out:fly={{ x: -20, duration: 120 }}>
+        <PageComponent />
+      </div>
+    {/key}
   </main>
+  <ToastContainer />
 </div>
 
 <style>
@@ -64,5 +92,11 @@
     position: relative;
     display: flex;
     flex-direction: column;
+  }
+  .page-wrapper {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
   }
 </style>
