@@ -21,6 +21,13 @@ pub fn execute(archive: &Path, json: bool, password: Option<String>) -> Result<(
 
     let format = common::detect_archive_format(archive)?;
 
+    // ISZ is a compressed ISO wrapper with no file entries.
+    if format == ArchiveFormat::Isz {
+        println!("ISZ is a compressed ISO image wrapper with no file entries.");
+        println!("Use 'geezipx decompress <file>.isz' to extract the raw ISO image.");
+        return Ok(());
+    }
+
     // Validate password: single-stream formats do not support encryption.
     if password.is_some()
         && matches!(

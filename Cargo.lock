@@ -2182,6 +2182,7 @@ dependencies = [
  "bzip2",
  "cab",
  "cpio-archive",
+ "crc32fast",
  "criterion",
  "delharc",
  "enc_file",

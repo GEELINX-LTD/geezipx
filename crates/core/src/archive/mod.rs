@@ -28,6 +28,7 @@ pub mod deb;
 pub mod gzip;
 pub mod img;
 pub mod iso;
+pub mod isz;
 pub mod lz;
 pub mod lz4;
 pub mod lzh;

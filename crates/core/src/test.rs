@@ -78,7 +78,7 @@ pub fn verify_archive_reader(reader: &mut dyn ArchiveReader) -> GeeZipResult<Tes
 /// decompressed stream to `std::io::sink()`.  Returns an error if the
 /// compressed data is truncated or corrupted.
 pub fn verify_single_stream(path: &Path, format: ArchiveFormat) -> GeeZipResult<TestReport> {
-    let file = std::fs::File::open(path).map_err(|e| GeeZipError::io(e, "opening archive"))?;
+    let mut file = std::fs::File::open(path).map_err(|e| GeeZipError::io(e, "opening archive"))?;
 
     let bytes_read: u64 = match format {
         ArchiveFormat::Gzip => {
@@ -119,6 +119,7 @@ pub fn verify_single_stream(path: &Path, format: ArchiveFormat) -> GeeZipResult<
             std::io::copy(&mut decoder, &mut std::io::sink())
                 .map_err(|e| GeeZipError::io(e, "lzma verification failed"))?
         }
+        ArchiveFormat::Isz => crate::archive::isz::isz_verify(&mut file)?,
         _ => {
             return Err(GeeZipError::format(
                 format!("verification not supported for {format}"),
