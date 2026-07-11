@@ -36,6 +36,8 @@ use geezipx_core::archive::tarzst::TarZstWriter;
 use geezipx_core::archive::udf::{UdfReader, UdfWriter};
 #[cfg(feature = "wim")]
 use geezipx_core::archive::wim::WimReader;
+#[cfg(feature = "wim")]
+use geezipx_core::archive::wim::WimWriter;
 use geezipx_core::archive::zip::ZipReader;
 use geezipx_core::archive::zip::ZipWriter;
 #[cfg(feature = "zpaq")]
@@ -468,6 +470,9 @@ pub fn create_writer(
         ArchiveFormat::Asar => Ok(Box::new(AsarWriter::new(file))),
         ArchiveFormat::Cab => Ok(Box::new(CabWriter::new(file))),
         ArchiveFormat::Deb => Ok(Box::new(DebWriter::new(file))),
+        #[cfg(feature = "wim")]
+        ArchiveFormat::Wim => Ok(Box::new(WimWriter::new(file))),
+        #[cfg(not(feature = "wim"))]
         ArchiveFormat::Wim => {
             anyhow::bail!("'{format}' is a read-only archive format; writing is not supported")
         }

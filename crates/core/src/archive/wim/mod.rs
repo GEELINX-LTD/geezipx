@@ -14,14 +14,18 @@
 //!
 //! - LZMS compression (no pure-Rust implementation available)
 //! - Split (`.swm`) WIM files
-//! - Writing / creating WIM archives
+//! - XPRESS or LZX compression when writing (uncompressed only for now)
 //! - Extracting from images beyond the first one
 
 mod header;
 mod lookup;
 mod metadata;
 mod resource;
+mod sha1;
+mod writer;
 mod xml;
+
+pub use writer::WimWriter;
 
 use std::collections::HashMap;
 use std::io::Write;
