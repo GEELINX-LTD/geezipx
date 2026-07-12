@@ -174,7 +174,14 @@
     "unsavedTitle": "未保存的更改",
     "cancel": "取消",
     "save": "保存",
-    "saved": "设置已保存"
+    "saved": "设置已保存",
+    "about": {
+      "label": "关于",
+      "version": "版本",
+      "description": "高性能跨平台压缩/解压缩工具，支持 40+ 归档与压缩格式。",
+      "stack": "技术栈：Rust + Tauri 2 + Svelte 5",
+      "repo": "GitHub 仓库"
+    }
   },
   "about": {
     "title": "关于 GeeZipX",

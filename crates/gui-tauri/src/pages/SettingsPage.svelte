@@ -3,10 +3,10 @@
   import { settingsGuard } from '../stores/settingsGuard.svelte';
   import { localeStore } from '../stores/localeStore.svelte';
   import type { GeeZipXSettings } from '../bridge';
-  import { getFormats, getFileAssociations, setFileAssociation, openAssociationSettings, type FormatInfo, type AssociationsResult } from '../bridge';
+  import { getFormats, getVersion, getFileAssociations, setFileAssociation, openAssociationSettings, type FormatInfo, type AssociationsResult } from '../bridge';
   import { open } from '@tauri-apps/plugin-dialog';
 
-  type Tab = 'general' | 'compression' | 'appearance' | 'associations';
+  type Tab = 'general' | 'compression' | 'appearance' | 'associations' | 'about';
 
   let activeTab = $state<Tab>('general');
   let formData = $state<GeeZipXSettings>(settingsStore.DEFAULTS);
@@ -17,6 +17,7 @@
   let associations = $state<AssociationsResult | null>(null);
   let assocBusy = $state<Record<string, boolean>>({});
   let levelInput = $state('');
+  let version = $state('');
 
   /** True when the current form differs from the last loaded/saved snapshot. */
   let dirty = $derived(JSON.stringify(formData) !== JSON.stringify(original));
@@ -39,6 +40,10 @@
       associations = a;
       loaded = true;
     });
+  });
+
+  $effect(() => {
+    getVersion().then(v => version = v);
   });
 
   async function browseOutput() {
@@ -167,6 +172,9 @@
       </button>
       <button class="tab-btn" class:active={activeTab === 'associations'} onclick={() => (activeTab = 'associations')}>
         {localeStore.t('settings.fileAssociations.label')}
+      </button>
+      <button class="tab-btn" class:active={activeTab === 'about'} onclick={() => (activeTab = 'about')}>
+        {localeStore.t('settings.about.label')}
       </button>
     </nav>
 
@@ -395,7 +403,7 @@
                 <div class="assoc-info">
                   <div class="assoc-name">
                     {item.name}
-                    {#each item.exts as e}
+                    {#each item.exts as e (e)}
                       <span class="chip">{e}</span>
                     {/each}
                   </div>
@@ -430,6 +438,23 @@
             {/each}
           </div>
         {/if}
+      {:else if activeTab === 'about'}
+        <div class="about-card">
+          <h2 class="about-title">GeeZipX</h2>
+          <p class="about-version">
+            {localeStore.t('settings.about.version')}: {version || localeStore.t('common.loading')}
+          </p>
+          <p class="about-desc">{localeStore.t('settings.about.description')}</p>
+          <p class="about-stack">{localeStore.t('settings.about.stack')}</p>
+          <a
+            class="about-link"
+            href="https://github.com/GEELINX-LTD/geezipx"
+            target="_blank"
+            rel="noopener"
+          >
+            {localeStore.t('settings.about.repo')}
+          </a>
+        </div>
       {/if}
     </div>
 
@@ -764,5 +789,59 @@
     display: flex;
     align-items: center;
     gap: var(--space-3);
+  }
+
+  /* --- About tab --- */
+  .about-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--space-4);
+    padding: var(--space-8) var(--space-5);
+    text-align: center;
+  }
+
+  .about-title {
+    font-size: var(--text-3xl);
+    font-weight: 700;
+    color: var(--color-accent);
+    letter-spacing: -0.02em;
+  }
+
+  .about-version {
+    font-size: var(--text-sm);
+    color: var(--color-text-secondary);
+    font-family: var(--font-mono, 'SF Mono', 'Fira Code', monospace);
+  }
+
+  .about-desc {
+    max-width: 480px;
+    font-size: var(--text-sm);
+    color: var(--color-text-muted);
+    line-height: 1.6;
+  }
+
+  .about-stack {
+    font-size: var(--text-xs);
+    color: var(--color-text-muted);
+    padding: var(--space-1) var(--space-3);
+    background: var(--color-surface-alt);
+    border-radius: var(--radius-sm);
+  }
+
+  .about-link {
+    font-size: var(--text-sm);
+    color: var(--color-accent);
+    text-decoration: none;
+    font-weight: 500;
+    padding: var(--space-2) var(--space-4);
+    border: 1px solid var(--color-accent);
+    border-radius: var(--radius-md);
+    transition: background var(--transition-fast), color var(--transition-fast);
+  }
+
+  .about-link:hover {
+    background: var(--color-accent);
+    color: #fff;
   }
 </style>

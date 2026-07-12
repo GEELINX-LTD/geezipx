@@ -263,6 +263,11 @@ export async function getShellAction(): Promise<ShellActionPayload | null> {
   return invoke<ShellActionPayload | null>('get_shell_action');
 }
 
+/** Retrieve the application version from the Rust backend. */
+export async function getVersion(): Promise<string> {
+  return invoke<string>('get_version');
+}
+
 // ---------------------------------------------------------------------------
 // Drag-out types and wrappers
 // ---------------------------------------------------------------------------

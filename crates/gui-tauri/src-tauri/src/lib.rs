@@ -243,6 +243,7 @@ pub fn run() {
             commands::compress::compress_archive,
             commands::app::get_opened_archives,
             commands::app::get_shell_action,
+            commands::app::get_version,
             commands::extract_entries::extract_entries,
             commands::preview_entry::preview_entry,
             commands::drag::prepare_drag_entries,

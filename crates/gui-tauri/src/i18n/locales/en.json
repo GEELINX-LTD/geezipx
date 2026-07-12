@@ -174,7 +174,14 @@
     "unsavedTitle": "Unsaved changes",
     "cancel": "Cancel",
     "save": "Save",
-    "saved": "Settings saved."
+    "saved": "Settings saved.",
+    "about": {
+      "label": "About",
+      "version": "Version",
+      "description": "High-performance cross-platform compression/decompression tool supporting 40+ archive and compression formats.",
+      "stack": "Tech stack: Rust + Tauri 2 + Svelte 5",
+      "repo": "GitHub Repository"
+    }
   },
   "about": {
     "title": "About GeeZipX",

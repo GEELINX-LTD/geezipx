@@ -38,3 +38,9 @@ pub async fn get_shell_action(
         .map_err(|e| format!("Internal error: {e}"))?;
     Ok(pending.take())
 }
+
+/// Return the application version string from Cargo.toml.
+#[tauri::command]
+pub fn get_version() -> String {
+    env!("CARGO_PKG_VERSION").to_string()
+}
