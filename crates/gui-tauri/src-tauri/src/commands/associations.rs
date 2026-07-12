@@ -461,7 +461,8 @@ mod platform {
 mod platform {
     use super::*;
 
-    use core_foundation::base::OSStatus;
+    use core_foundation::array::CFArray;
+    use core_foundation::base::{OSStatus, TCFType};
     use core_foundation::string::CFString;
     use core_foundation_sys::array::CFArrayRef;
     use core_foundation_sys::string::CFStringRef;
