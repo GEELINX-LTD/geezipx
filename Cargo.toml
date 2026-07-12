@@ -22,3 +22,4 @@ geezipx-core = { version = "0.7.2", path = "crates/core", default-features = fal
 
 [patch.crates-io]
 unrar_sys = { path = "crates/vendor/unrar-sys" }
+hadris-common = { path = "crates/vendor/hadris-common" }
