@@ -237,6 +237,7 @@ pub fn run() {
             commands::associations::set_file_association,
             commands::associations::open_association_settings,
             commands::list::list_archive,
+            commands::list::list_archive_stream,
             commands::test::test_archive,
             commands::extract::extract_archive,
             commands::cancel::cancel_task,

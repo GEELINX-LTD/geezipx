@@ -4,7 +4,7 @@
 /// `invoke` directly, so the argument shapes stay in sync with the
 /// Rust backend.
 
-import { invoke } from "@tauri-apps/api/core";
+import { Channel, invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { revealItemInDir, openPath } from "@tauri-apps/plugin-opener";
 
@@ -140,6 +140,39 @@ export async function listArchive(
   return invoke<EntryInfo[]>("list_archive", {
     archivePath,
     password: password ?? null,
+  });
+}
+
+/** A chunk of archive entries streamed from the backend. */
+export interface EntryChunk {
+  entries: EntryInfo[];
+  chunk_index: number;
+  total_chunks: number;
+  total_entries: number;
+}
+
+/**
+ * Callback invoked for each chunk of entries received from the backend.
+ * Return `false` to stop receiving further chunks (cancellation).
+ */
+export type OnEntryChunk = (chunk: EntryChunk) => void;
+
+/**
+ * List entries inside an archive, receiving results in streaming chunks.
+ * Each chunk of ~500 entries triggers `onChunk`. Entries appear progressively
+ * — ideal for large archives where a single `listArchive()` call would block.
+ */
+export async function listArchiveStream(
+  archivePath: string,
+  onChunk: OnEntryChunk,
+  password?: string,
+): Promise<void> {
+  const channel = new Channel<EntryChunk>();
+  channel.onmessage = onChunk;
+  await invoke("list_archive_stream", {
+    archivePath,
+    password: password ?? null,
+    onChunk: channel,
   });
 }
 

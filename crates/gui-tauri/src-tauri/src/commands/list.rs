@@ -7,6 +7,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use serde::Serialize;
+use tauri::ipc::Channel;
 use tokio::task::spawn_blocking;
 
 use geezipx_core::archive::asar::AsarReader;
@@ -36,7 +37,7 @@ use geezipx_core::detect::{self, ArchiveFormat};
 // ---------------------------------------------------------------------------
 
 /// Serializable entry information returned to the frontend.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct EntryInfo {
     /// Relative path inside the archive.
     pub path: String,
@@ -280,6 +281,81 @@ pub async fn list_archive(
     })
     .await
     .map_err(|e| format!("Internal error: {}", e))?
+}
+
+// ---------------------------------------------------------------------------
+// Streaming list command
+// ---------------------------------------------------------------------------
+
+/// A chunk of archive entries sent via the streaming channel.
+#[derive(Debug, Clone, Serialize)]
+pub struct EntryChunk {
+    pub entries: Vec<EntryInfo>,
+    pub chunk_index: usize,
+    pub total_chunks: usize,
+    pub total_entries: usize,
+}
+
+const STREAM_CHUNK_SIZE: usize = 500;
+
+/// List entries inside an archive, streaming results to the frontend
+/// in chunks via a Tauri IPC channel.
+///
+/// For single-stream formats this returns an error.
+#[tauri::command]
+pub async fn list_archive_stream(
+    archive_path: String,
+    password: Option<String>,
+    on_chunk: Channel<EntryChunk>,
+) -> Result<(), String> {
+    let path_buf = PathBuf::from(&archive_path);
+    let pwd = password;
+
+    spawn_blocking(move || {
+        let format = detect_archive_format(&path_buf)?;
+        let mut reader = open_reader(&path_buf, format, pwd.as_deref())?;
+
+        let entries = reader
+            .entries()
+            .map_err(|e| format!("Failed to read entries: {}", e))?;
+
+        let total = entries.len();
+        let all_info: Vec<EntryInfo> = entries
+            .iter()
+            .map(|entry| EntryInfo {
+                path: entry.path.clone(),
+                size: entry.size,
+                compressed_size: entry.compressed_size,
+                crc32: entry.crc32,
+                modified: entry.modified,
+                is_dir: entry.is_dir,
+            })
+            .collect();
+
+        let total_chunks = total.div_ceil(STREAM_CHUNK_SIZE);
+
+        // Drain `all_info` in chunks so each EntryInfo is moved (not cloned)
+        // into the Channel payload.
+        let mut remaining = all_info;
+        let mut chunk_index = 0;
+        while !remaining.is_empty() {
+            let take = remaining.len().min(STREAM_CHUNK_SIZE);
+            let chunk = EntryChunk {
+                entries: remaining.drain(..take).collect(),
+                chunk_index,
+                total_chunks,
+                total_entries: total,
+            };
+            on_chunk
+                .send(chunk)
+                .map_err(|e| format!("Failed to send chunk: {}", e))?;
+            chunk_index += 1;
+        }
+
+        Ok(())
+    })
+    .await
+    .map_err(|e| format!("{}", e))?
 }
 
 #[cfg(test)]

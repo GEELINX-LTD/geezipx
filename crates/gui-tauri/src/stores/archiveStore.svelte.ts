@@ -1,6 +1,6 @@
 // Archive browser state store using Svelte 5 module-level $state runes.
 
-import { listArchive, previewEntry } from '../bridge';
+import { listArchiveStream, previewEntry } from '../bridge';
 import type { EntryInfo, PreviewResult } from '../bridge';
 
 // --- Types ---
@@ -19,6 +19,8 @@ let entries = $state.raw<EntryInfo[]>([]);
 let currentDir = $state(''); // "" = root, "photos/" = subdir
 let selectedPaths = $state.raw<Set<string>>(new Set());
 let isLoading = $state(false);
+let loadedCount = $state(0);
+let totalCount = $state(0);
 let error = $state<string | null>(null);
 let previewState = $state<{
   path: string;
@@ -132,14 +134,23 @@ async function openArchive(path: string, password?: string): Promise<void> {
   isLoading = true;
   error = null;
   entries = [];
+  loadedCount = 0;
+  totalCount = 0;
   currentDir = '';
   selectedPaths = new Set();
   previewState = null;
   archivePassword = password ?? '';
 
   try {
-    const result = await listArchive(path, password);
-    entries = result;
+    await listArchiveStream(
+      path,
+      (chunk) => {
+        entries = [...entries, ...chunk.entries];
+        loadedCount = entries.length;
+        totalCount = chunk.total_entries;
+      },
+      password,
+    );
     archivePath = path;
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
@@ -207,6 +218,8 @@ function resetArchive(): void {
   archivePath = '';
   archivePassword = '';
   entries = [];
+  loadedCount = 0;
+  totalCount = 0;
   currentDir = '';
   selectedPaths = new Set();
   isLoading = false;
@@ -234,6 +247,12 @@ export const archiveStore = {
   },
   get isLoading() {
     return isLoading;
+  },
+  get loadedCount() {
+    return loadedCount;
+  },
+  get totalCount() {
+    return totalCount;
   },
   get error() {
     return error;
