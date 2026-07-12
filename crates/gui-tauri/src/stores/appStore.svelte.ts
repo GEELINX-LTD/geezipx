@@ -4,7 +4,7 @@ const STORAGE_KEY = 'geezipx-recent';
 const MAX_RECENT = 20;
 
 // --- Reactive State ---
-let activeTab = $state<'home' | 'compress' | 'extract' | 'settings' | 'about'>('home');
+let activeTab = $state<string>('home');
 let dropActive = $state(false);
 let pendingSourcePaths = $state<string[]>([]);
 let recentFiles = $state<{ path: string; name: string; timestamp: number }[]>([]);
@@ -13,13 +13,25 @@ let recentFiles = $state<{ path: string; name: string; timestamp: number }[]>([]
 let isExtractTab = $derived(activeTab === 'extract');
 let isCompressTab = $derived(activeTab === 'compress');
 
+// --- Archive Tabs ---
+
+let archiveTabs = $state.raw<{ id: string; label: string; tooltip: string }[]>([]);
+
 // --- Functions ---
 
 function switchTab(tab: string): void {
-  const valid = ['home', 'compress', 'extract', 'settings', 'about'];
-  if (valid.includes(tab)) {
-    activeTab = tab as typeof activeTab;
+  activeTab = tab;
+}
+
+function addArchiveTab(id: string, label: string, tooltip: string): void {
+  const exists = archiveTabs.find((t) => t.id === id);
+  if (!exists) {
+    archiveTabs = [...archiveTabs, { id, label, tooltip }];
   }
+}
+
+function removeArchiveTab(id: string): void {
+  archiveTabs = archiveTabs.filter((t) => t.id !== id);
 }
 
 function setDropActive(active: boolean): void {
@@ -115,7 +127,12 @@ export const appStore = {
   get isCompressTab() {
     return isCompressTab;
   },
+  get archiveTabs() {
+    return archiveTabs;
+  },
   switchTab,
+  addArchiveTab,
+  removeArchiveTab,
   setDropActive,
   setPendingSourcePaths,
   consumePendingSourcePaths,
