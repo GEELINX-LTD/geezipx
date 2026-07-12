@@ -497,8 +497,7 @@ mod platform {
         let bid = bundle_id();
 
         let is_default = unsafe {
-            let def =
-                LSCopyDefaultRoleHandlerForContentType(uti_cf.as_concrete_TypeRef(), ROLE_VIEWER);
+            let def = LSCopyDefaultRoleHandlerForContentType(uti_cf.as_CFTypeRef(), ROLE_VIEWER);
             if def.is_null() {
                 Some(false)
             } else {
@@ -508,8 +507,7 @@ mod platform {
         };
 
         let is_registered = unsafe {
-            let all =
-                LSCopyAllRoleHandlersForContentType(uti_cf.as_concrete_TypeRef(), ROLE_VIEWER);
+            let all = LSCopyAllRoleHandlersForContentType(uti_cf.as_CFTypeRef(), ROLE_VIEWER);
             if all.is_null() {
                 is_default.unwrap_or(false)
             } else {
@@ -541,9 +539,9 @@ mod platform {
         if enabled {
             let status = unsafe {
                 LSSetDefaultRoleHandlerForContentType(
-                    uti_cf.as_concrete_TypeRef(),
+                    uti_cf.as_CFTypeRef(),
                     ROLE_VIEWER,
-                    bid.as_concrete_TypeRef(),
+                    bid.as_CFTypeRef(),
                 )
             };
             if status != 0 {
@@ -558,9 +556,9 @@ mod platform {
             // unbind as a no-op that does not error.
             let _ = unsafe {
                 LSSetDefaultRoleHandlerForContentType(
-                    uti_cf.as_concrete_TypeRef(),
+                    uti_cf.as_CFTypeRef(),
                     ROLE_VIEWER,
-                    CFString::new("").as_concrete_TypeRef(),
+                    CFString::new("").as_CFTypeRef(),
                 )
             };
         }
