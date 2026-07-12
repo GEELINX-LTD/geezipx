@@ -516,7 +516,7 @@ mod platform {
             } else {
                 let arr = CFArray::<CFString>::wrap_under_create_rule(all);
                 (0..arr.len()).any(|i| {
-                    let s = unsafe { arr.get_unchecked(i) };
+                    let s = arr.get_unchecked(i);
                     s.to_string() == bid
                 })
             }
