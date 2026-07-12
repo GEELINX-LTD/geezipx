@@ -3,7 +3,7 @@
   import { getCurrentWindow } from '@tauri-apps/api/window';
   import { localeStore } from '../stores/localeStore.svelte';
   import { appStore } from '../stores/appStore.svelte';
-  import { archiveStore } from '../stores/archiveStore.svelte';
+  import { archiveManager } from '../stores/archiveStore.svelte';
 
   let dropActive = $state(false);
 
@@ -44,8 +44,10 @@
         if (paths.length === 0) return;
 
         if (paths.length === 1 && isArchivePath(paths[0])) {
-          appStore.switchTab('extract');
-          archiveStore.openArchive(paths[0]);
+          archiveManager.openArchive(paths[0]).then(({ tabId, label }) => {
+            appStore.addArchiveTab(tabId, label, paths[0]);
+            appStore.switchTab(tabId);
+          });
         } else {
           appStore.setPendingSourcePaths(paths);
           appStore.switchTab('compress');

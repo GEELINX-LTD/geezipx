@@ -75,6 +75,11 @@
     "promptSkip": "跳过",
     "promptOverwrite": "覆盖"
   },
+  "tab": {
+    "close": "关闭",
+    "closeConfirmRunning": "当前有任务正在进行中。关闭标签页将隐藏进度，但任务将继续在后台运行。",
+    "closeConfirmTitle": "关闭标签页"
+  },
   "browser": {
     "info": "显示 {{current}} 项 · 归档共 {{total}} 项",
     "emptyDir": "此目录为空",

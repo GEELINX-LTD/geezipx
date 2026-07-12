@@ -1,7 +1,7 @@
 <script lang="ts">
   import { open } from '@tauri-apps/plugin-dialog';
   import { appStore } from '../../stores/appStore.svelte';
-  import { archiveStore } from '../../stores/archiveStore.svelte';
+  import { archiveManager } from '../../stores/archiveStore.svelte';
   import { localeStore } from '../../stores/localeStore.svelte';
 
   const ARCHIVE_EXTS = ['.zip','.zipx','.jar','.war','.apk','.ipa','.xpi','.tar','.gz','.gzip',
@@ -31,8 +31,9 @@
 
       if (archives.length === 1 && files.length === 0) {
         appStore.addRecent(archives[0]);
-        appStore.switchTab('extract');
-        archiveStore.openArchive(archives[0]);
+        const { tabId, label } = await archiveManager.openArchive(archives[0]);
+        appStore.addArchiveTab(tabId, label, archives[0]);
+        appStore.switchTab(tabId);
       } else if (files.length > 0 || archives.length > 1) {
         appStore.setPendingSourcePaths(paths);
         appStore.switchTab('compress');

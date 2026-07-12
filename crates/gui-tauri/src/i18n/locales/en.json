@@ -75,6 +75,11 @@
     "promptSkip": "Skip",
     "promptOverwrite": "Overwrite"
   },
+  "tab": {
+    "close": "Close",
+    "closeConfirmRunning": "An operation is in progress. Closing this tab will hide the progress but the operation will continue.",
+    "closeConfirmTitle": "Close Tab"
+  },
   "browser": {
     "info": "Showing {{current}} items · Archive: {{total}} entries",
     "emptyDir": "This directory is empty",

@@ -1,7 +1,8 @@
 <script lang="ts">
   import { open } from '@tauri-apps/plugin-dialog';
+  import { appStore } from '../../stores/appStore.svelte';
   import { localeStore } from '../../stores/localeStore.svelte';
-  import { archiveStore } from '../../stores/archiveStore.svelte';
+  import { archiveStore, archiveManager } from '../../stores/archiveStore.svelte';
 
   async function changeArchive() {
     const selected = await open({
@@ -9,7 +10,16 @@
       filters: [{ name: 'Archives', extensions: ['zip','tar','gz','7z','rar','xz','zst','bz2','tgz','tbz','tbz2','txz','tzst'] }]
     });
     if (selected && typeof selected === 'string') {
-      archiveStore.openArchive(selected);
+      const tab = archiveManager.activeTab;
+      if (tab) {
+        // Replace current tab content
+        archiveStore.openArchive(selected);
+      } else {
+        // No active archive tab — create a new one
+        const { tabId, label } = await archiveManager.openArchive(selected);
+        appStore.addArchiveTab(tabId, label, selected);
+        appStore.switchTab(tabId);
+      }
     }
   }
 </script>

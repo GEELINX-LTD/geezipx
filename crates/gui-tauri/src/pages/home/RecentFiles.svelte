@@ -1,12 +1,13 @@
 <script lang="ts">
   import { appStore } from '../../stores/appStore.svelte';
-  import { archiveStore } from '../../stores/archiveStore.svelte';
+  import { archiveManager } from '../../stores/archiveStore.svelte';
   import { localeStore } from '../../stores/localeStore.svelte';
 
-  function handleChipClick(path: string) {
+  async function handleChipClick(path: string) {
     appStore.addRecent(path);
-    appStore.switchTab('extract');
-    archiveStore.openArchive(path);
+    const { tabId, label } = await archiveManager.openArchive(path);
+    appStore.addArchiveTab(tabId, label, path);
+    appStore.switchTab(tabId);
   }
 
   function handleChipKeydown(e: KeyboardEvent, path: string) {

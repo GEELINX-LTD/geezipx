@@ -1,11 +1,12 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { fly } from 'svelte/transition';
-  import { listen, getShellAction, extractArchive, compressArchive } from './bridge';
+  import { listen, getShellAction, getOpenedArchives, extractArchive, compressArchive } from './bridge';
   import type { TaskProgressPayload, ShellActionPayload } from './bridge';
+  import { getCurrentWindow } from '@tauri-apps/api/window';
   import { appStore } from './stores/appStore.svelte';
   import { taskStore } from './stores/taskStore.svelte';
-  import { archiveStore } from './stores/archiveStore.svelte';
+  import { archiveStore, archiveManager } from './stores/archiveStore.svelte';
   import { toastStore } from './stores/toastStore.svelte.ts';
   import { settingsStore } from './stores/settingsStore.svelte';
   import TabBar from './components/TabBar.svelte';
@@ -18,12 +19,27 @@
   import AboutPage from './pages/AboutPage.svelte';
 
   let PageComponent = $derived.by(() => {
-    switch (appStore.activeTab) {
+    const tab = appStore.activeTab;
+    switch (tab) {
       case 'compress': return CompressPage;
-      case 'extract': return ExtractPage;
       case 'settings': return SettingsPage;
       case 'about': return AboutPage;
-      default: return HomePage;
+      case 'home': return HomePage;
+      default:
+        // Any other value (UUID or 'extract') -> ExtractPage
+        return ExtractPage;
+    }
+  });
+
+  let pageKey = $derived.by(() => {
+    switch (appStore.activeTab) {
+      case 'home':
+      case 'compress':
+      case 'settings':
+      case 'about':
+        return appStore.activeTab;    // unique key, remount on switch
+      default:
+        return 'extract-page';       // all archive tabs + extract share key
     }
   });
 
@@ -35,21 +51,26 @@
 
     switch (payload.action) {
       // ── "用 GeeZipX 打开" — browse archive ──
-      case 'open':
-        appStore.switchTab('extract');
-        await archiveStore.openArchive(payload.paths[0]);
+      case 'open': {
+        const { tabId, label } = await archiveManager.openArchive(payload.paths[0]);
+        appStore.addArchiveTab(tabId, label, payload.paths[0]);
+        appStore.switchTab(tabId);
         break;
+      }
 
       // ── "解压缩到..." — jump to extract page ──
-      case 'extract':
-        appStore.switchTab('extract');
-        await archiveStore.openArchive(payload.paths[0]);
+      case 'extract': {
+        const { tabId, label } = await archiveManager.openArchive(payload.paths[0]);
+        appStore.addArchiveTab(tabId, label, payload.paths[0]);
+        appStore.switchTab(tabId);
         break;
+      }
 
       // ── "解压缩到当前文件夹" — smart extract ──
       case 'extract-here': {
-        appStore.switchTab('extract');
-        await archiveStore.openArchive(payload.paths[0]);
+        const { tabId, label } = await archiveManager.openArchive(payload.paths[0]);
+        appStore.addArchiveTab(tabId, label, payload.paths[0]);
+        appStore.switchTab(tabId);
         // suggestedOutputDir handles the smart logic: single top-level folder →
         // extract to parent; scattered → create folder named after archive.
         const outputDir = archiveStore.suggestedOutputDir;
@@ -142,10 +163,33 @@
     switch (e.key) {
       case '1': e.preventDefault(); appStore.switchTab('home'); break;
       case '2': e.preventDefault(); appStore.switchTab('compress'); break;
-      case '3': e.preventDefault(); appStore.switchTab('extract'); break;
+      case '3': {
+        e.preventDefault();
+        // Switch to the most-recent archive tab, or fall back to extract
+        if (archiveManager.tabOrder.length > 0) {
+          const lastId = archiveManager.tabOrder[archiveManager.tabOrder.length - 1];
+          appStore.switchTab(lastId);
+          archiveManager.setActive(lastId);
+        } else {
+          appStore.switchTab('extract');
+        }
+        break;
+      }
       case ',': e.preventDefault(); appStore.switchTab('settings'); break;
     }
   }
+
+  // ── Window title reactive effect ──
+  $effect(() => {
+    const tab = archiveManager.activeTab;
+    const isViewingArchive = tab && appStore.activeTab === tab.id;
+    if (isViewingArchive) {
+      const name = tab.archivePath.split(/[/\\]/).pop() || 'Archive';
+      getCurrentWindow().setTitle(`${name} — GeeZipX`);
+    } else {
+      getCurrentWindow().setTitle('GeeZipX');
+    }
+  });
 
   onMount(() => {
     const unlisteners: (() => void)[] = [];
@@ -154,10 +198,13 @@
       taskStore.updateTask(event.payload);
     }).then((un) => unlisteners.push(un));
 
+    // Hot-start: another instance forwarded opened archives
     listen<string[]>('opened-archives', (event) => {
-      if (event.payload.length > 0) {
-        appStore.switchTab('extract');
-        archiveStore.openArchive(event.payload[0]);
+      for (const p of event.payload) {
+        archiveManager.openArchive(p).then(({ tabId, label }) => {
+          appStore.addArchiveTab(tabId, label, p);
+          appStore.switchTab(tabId);
+        });
       }
     }).then((un) => unlisteners.push(un));
 
@@ -169,6 +216,16 @@
     getShellAction().then((action) => {
       if (action && action.paths.length > 0) {
         handleShellAction(action);
+      }
+    });
+
+    // ── COLD-START BUG FIX: pull pending archive paths from direct file-open (Windows double-click, etc.) ──
+    getOpenedArchives().then((paths) => {
+      for (const p of paths) {
+        archiveManager.openArchive(p).then(({ tabId, label }) => {
+          appStore.addArchiveTab(tabId, label, p);
+          appStore.switchTab(tabId);
+        });
       }
     });
 
@@ -184,7 +241,7 @@
   <TabBar />
   <main class="app-content">
     <DropOverlay />
-    {#key appStore.activeTab}
+    {#key pageKey}
       <div class="page-wrapper" in:fly={{ x: 20, duration: 120 }} out:fly={{ x: -20, duration: 120 }}>
         <PageComponent />
       </div>
