@@ -134,6 +134,9 @@ jobs:
         with:
           toolchain: stable
           cache: true
+      - name: Disable LTO on macOS (zpaq_rs bitcode incompatibility)
+        shell: bash
+        run: echo "CARGO_PROFILE_RELEASE_LTO=false" >> $GITHUB_ENV
       - uses: actions/setup-node@v6
         with:
           node-version: 20
