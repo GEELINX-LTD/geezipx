@@ -461,7 +461,6 @@ mod platform {
 mod platform {
     use super::*;
 
-    use core_foundation::array::CFArray;
     use core_foundation::base::{OSStatus, TCFType};
     use core_foundation::string::CFString;
     use core_foundation_sys::array::CFArrayRef;
@@ -498,7 +497,8 @@ mod platform {
         let bid = bundle_id();
 
         let is_default = unsafe {
-            let def = LSCopyDefaultRoleHandlerForContentType(uti_cf.as_CFTypeRef(), ROLE_VIEWER);
+            let def =
+                LSCopyDefaultRoleHandlerForContentType(uti_cf.as_concrete_TypeRef(), ROLE_VIEWER);
             if def.is_null() {
                 Some(false)
             } else {
@@ -508,7 +508,8 @@ mod platform {
         };
 
         let is_registered = unsafe {
-            let all = LSCopyAllRoleHandlersForContentType(uti_cf.as_CFTypeRef(), ROLE_VIEWER);
+            let all =
+                LSCopyAllRoleHandlersForContentType(uti_cf.as_concrete_TypeRef(), ROLE_VIEWER);
             if all.is_null() {
                 is_default.unwrap_or(false)
             } else {
@@ -540,9 +541,9 @@ mod platform {
         if enabled {
             let status = unsafe {
                 LSSetDefaultRoleHandlerForContentType(
-                    uti_cf.as_CFTypeRef(),
+                    uti_cf.as_concrete_TypeRef(),
                     ROLE_VIEWER,
-                    bid.as_CFTypeRef(),
+                    bid.as_concrete_TypeRef(),
                 )
             };
             if status != 0 {
@@ -557,9 +558,9 @@ mod platform {
             // unbind as a no-op that does not error.
             let _ = unsafe {
                 LSSetDefaultRoleHandlerForContentType(
-                    uti_cf.as_CFTypeRef(),
+                    uti_cf.as_concrete_TypeRef(),
                     ROLE_VIEWER,
-                    CFString::new("").as_CFTypeRef(),
+                    CFString::new("").as_concrete_TypeRef(),
                 )
             };
         }
