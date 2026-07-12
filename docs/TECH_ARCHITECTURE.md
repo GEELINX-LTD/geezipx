@@ -419,6 +419,7 @@ crates/gui-tauri/
     ├── src/
     │   ├── commands/
     │   │   ├── app.rs
+    │   │   ├── associations.rs
     │   │   ├── cancel.rs
     │   │   ├── compress.rs
     │   │   ├── drag.rs
@@ -438,10 +439,11 @@ crates/gui-tauri/
 
 - GUI Rust 后端是 thin bridge：暴露 Tauri commands，调用 `geezipx-core`；
 - 进度通过 `task:progress` 事件推送，文件关联/单实例通过 `opened-archives` 事件通知前端；
+- `list_archive_stream` — 流式归档条目列表（通过 Tauri IPC Channel 分批推送，500 条/块）；
 - 前端当前以 `src/main.ts` 为主，包含最近路径 chips、归档浏览器、任务状态管理；
 - 选择性提取、条目预览、拖出归档条目等 GUI 专属交互都建立在 core 的只读/提取能力之上；
 - 前端已内置 i18n 支持（`en.json` / `zh-CN.json` 双语），由 `i18n/index.ts` 管理语言切换；
-- 偏好设置/默认行为配置仍属于后续规划。
+- 偏好设置/默认行为配置已在 v0.7.0 中实现（默认输出目录、覆盖策略、默认密码等）。
 
 | 风险 | 影响 | 当前缓解 |
 |------|------|----------|

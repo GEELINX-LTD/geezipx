@@ -533,6 +533,7 @@ archive/compress pipeline
 当前最高优先级：
 
 1. **GUI 迭代（Tauri）** — 桌面 GUI 已达 v0.6.0，继续迭代增强，复用 core 引擎。详见 `docs/GUI_MVP_PLAN.md`。
+   - list_archive 流式分页推送（通过 Tauri IPC Channel 分批发送，500 条/块）— 已完成
 2. **GUI 相关测试** — 仅针对 GUI 实现添加必要的测试；不主动推进 core/CLI 基准测试基线或覆盖率补测。
 3. **文档同步** — GUI 实现过程中的文档跟随更新。
 

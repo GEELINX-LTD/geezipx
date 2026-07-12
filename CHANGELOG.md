@@ -77,6 +77,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Desktop GUI — Global button styling**:
   - Standardized `focus-visible`, `active`, and `disabled` states for all interactive elements.
 
+- **Streaming archive listing via Tauri IPC Channel (500-entry chunks)**.
+
 ### Fixed
 
 - **LZH canonical bit ordering**: Upgraded `oxiarc-lzhuf` to v0.3.5 for correct MSB-first LZH compression, resolving incompatibility with standard LZH decompressors.
