@@ -461,7 +461,8 @@ mod platform {
 mod platform {
     use super::*;
 
-    use core_foundation::base::OSStatus;
+    use core_foundation::array::CFArray;
+    use core_foundation::base::{OSStatus, TCFType};
     use core_foundation::string::CFString;
     use core_foundation_sys::array::CFArrayRef;
     use core_foundation_sys::string::CFStringRef;
@@ -513,11 +514,9 @@ mod platform {
             if all.is_null() {
                 is_default.unwrap_or(false)
             } else {
-                let arr =
-                    core_foundation::array::CFArray::<CFStringRef>::wrap_under_create_rule(all);
+                let arr = CFArray::<CFString>::wrap_under_create_rule(all);
                 (0..arr.len()).any(|i| {
-                    let item = unsafe { arr.get_unchecked(i) };
-                    let s = CFString::wrap_under_get_rule(*item);
+                    let s = unsafe { arr.get_unchecked(i) };
                     s.to_string() == bid
                 })
             }
