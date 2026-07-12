@@ -1,5 +1,6 @@
 //! Application state shared across Tauri commands.
 
+use crate::ShellActionPayload;
 use std::collections::HashMap;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
@@ -20,6 +21,9 @@ pub struct AppState {
     /// Previous OS default handler per MIME type, captured when the user binds a
     /// format on Linux so we can restore it on unbind.
     pub assoc_backup: Mutex<HashMap<String, String>>,
+    /// Shell context menu action received at cold start (via /extract, /compress, etc.).
+    /// The frontend pulls this on startup via `get_shell_action`.
+    pub pending_shell_action: Mutex<Option<ShellActionPayload>>,
 }
 
 impl Default for AppState {
@@ -35,6 +39,7 @@ impl AppState {
             cancel_tokens: Mutex::new(HashMap::new()),
             pending_archives: Mutex::new(Vec::new()),
             assoc_backup: Mutex::new(HashMap::new()),
+            pending_shell_action: Mutex::new(None),
         }
     }
 }
