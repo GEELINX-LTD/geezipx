@@ -19,7 +19,7 @@
       <span class="progress-pct">{task.percent != null ? `${Math.round(task.percent)}%` : '--'}</span>
     </div>
     <div class="progress-bar">
-      <div class="progress-fill" style="width: {task.percent ?? 0}%"></div>
+      <div class="progress-fill" style="transform: scaleX({(task.percent ?? 0) / 100})"></div>
     </div>
     <div class="progress-details">
       {#if task.currentEntry}
@@ -52,10 +52,13 @@
     margin-bottom: var(--space-1);
   }
   .progress-fill {
+    width: 100%;
     height: 100%;
     background: var(--color-progress-fill);
     border-radius: 2px;
-    transition: width 200ms ease;
+    transform-origin: left;
+    will-change: transform;
+    transition: transform 200ms ease;
   }
   .progress-details {
     display: flex;

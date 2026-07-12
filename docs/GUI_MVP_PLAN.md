@@ -4,12 +4,14 @@
 >
 > **前置依赖**：Phase 1 CLI 已完成并成熟，core 引擎库 API 稳定，crates.io 已发布。
 >
-> **已完成（v0.6.0）**：GUI 应用骨架、core 引擎桥接、归档浏览器、选择性提取、文件预览、
-> 7z 多线程解压、ISO Joliet+Rock Ridge、UDF 读写、WIM/ISZ 读写。
+> **已完成（v0.7.0）**：GUI 应用骨架、core 引擎桥接、归档浏览器、选择性提取、文件预览、
+> 7z 多线程解压、ISO Joliet+Rock Ridge、UDF 读写、WIM/ISZ 读写、UU/XXE 编码写入、
+> 分卷压缩创建、设置页面（5 标签页）、Toast 通知、页面过渡动画、键盘快捷键、
+> Windows 右键菜单集成。
 >
 > **当前状态**：独立 `gui-windows.yml` 已可手动构建 Windows GUI；`release.yml` 已配置三平台 GUI bundle 构建并上传 `.AppImage` / `.dmg` / `.msi`。首个真实 tag release 仍待实战验证。
 >
-> **格式覆盖**：全部可评估格式已完成评估（见 `docs/PRD.md` §5.1-5.2）。剩余待做项：UU/UUE/XXE 编码写入（P1）、分卷压缩创建（P2）。
+> **格式覆盖**：全部可评估格式已完成评估（见 `docs/PRD.md` §5.1-5.2）。所有 P1/P2 格式待做项已在上一个版本完成。
 
 ---
 
@@ -31,8 +33,7 @@
 - RAR 创建 — 受 UnRAR 许可限制，仅保持只读
 - 文件管理器集成（双面板、标签页等）
 - 批量任务队列（仅单次任务，后续可扩展）
-- 高级偏好设置窗口（命令行/格式/路径等默认行为配置）
-- 深色/浅色主题切换（沿用系统主题）
+- 高级命令行偏好配置（当前仅 GUI 设置页面的选项，不做 CLI 级配置暴露）
 
 ## 3. MVP 功能范围
 
@@ -270,4 +271,127 @@ listen<TaskProgressPayload>('task:progress', (event) => {
 - [x] 窗口状态持久化（位置、大小）— 通过 `tauri-plugin-window-state` v2.4.1 实现
 - [x] 最近路径 / 最近归档 chips（当前以前端 `localStorage` 形式存在）
 - [x] 拖拽时自动检测格式
-- [ ] 更细粒度的设置项与更多性能打磨
+- [x] 设置页面（5 标签页：通用 / 压缩 / 外观 / 文件关联 / 关于）
+- [x] 多语言实时切换（zh-CN / en）
+- [x] 主题切换（跟随系统 / 浅色 / 深色）
+- [x] 通用设置：默认输出目录、覆盖策略、完成后行为
+- [x] 压缩设置：默认格式、压缩级别、递归开关、默认密码
+- [x] 文件关联管理（macOS 原生绑定 / Windows 引导设置）
+- [x] 关于页面（动态版本号、技术栈、GitHub 链接）
+- [x] 设置持久化（tauri-plugin-store，settings.json）
+- [x] 未保存修改导航保护（settingsGuard）
+- [x] 进度条 GPU 加速（transform: scaleX + will-change）
+- [x] 大归档虚拟滚动（virtua VList，5 万行仅渲染可视 ~25 行 DOM）
+- [x] 归档列表加载骨架屏（shimmer 动画）
+- [x] archiveStore entries/selectedPaths 改用 $state.raw 消除深度代理开销
+- [ ] 后端 list_archive 流式/分页推送（未来迭代）
+
+---
+
+## 11. 设置页面架构
+
+设置页面使用 Svelte 5 runes 模式实现，包含 5 个标签页，通过 `tauri-plugin-store` 持久化到本地 `settings.json`。
+
+### 11.1 文件结构
+
+```text
+crates/gui-tauri/src/
+├── pages/SettingsPage.svelte       # 设置主页面（5 标签页布局）
+├── stores/settingsStore.svelte.ts  # 设置读写 + 默认值定义
+├── stores/settingsGuard.svelte.ts  # 未保存修改导航保护
+├── bridge.ts                       # GeeZipXSettings 类型定义
+└── i18n/locales/{en,zh-CN}.json    # 设置相关 i18n key
+```
+
+后端辅助命令（`crates/gui-tauri/src-tauri/src/commands/`）：
+
+| 命令 | 文件 | 用途 |
+|------|------|------|
+| `get_formats` | `formats.rs` | 返回可压缩格式列表，填充「默认格式」下拉 |
+| `get_file_associations` | `associations.rs` | 返回文件关联状态列表 |
+| `set_file_association` | `associations.rs` | 绑定/解绑单个格式的文件关联 |
+| `open_association_settings` | `associations.rs` | Windows 下打开系统设置页引导用户设为默认 |
+| `get_version` | `app.rs` | 返回当前版本号，显示在「关于」标签页 |
+
+### 11.2 标签页详情
+
+#### 通用（General）
+
+| 设置项 | 类型 | 默认值 | 说明 |
+|--------|------|--------|------|
+| 语言 (locale) | `'en' \| 'zh-CN'` | `zh-CN` | 保存后即时生效 |
+| 默认输出目录 | `string \| null` | `null` | 为空则每次提示选择；支持浏览按钮 + 清除 |
+| 覆盖策略 (overwrite_strategy) | `'prompt' \| 'skip' \| 'overwrite'` | `prompt` | 解压时目标文件已存在时的行为 |
+| 完成后行为 (on_complete) | `'nothing' \| 'open_output'` | `nothing` | 压缩/解压成功后是否打开输出目录 |
+
+#### 压缩（Compression）
+
+| 设置项 | 类型 | 默认值 | 说明 |
+|--------|------|--------|------|
+| 默认格式 | `string` | `zip` | 下拉列表来自 `get_formats`，仅显示 `can_compress` 的格式 |
+| 默认压缩级别 | `number \| null` | `null` | 0-22 数字输入，为空使用格式默认值 |
+| 递归添加目录 | `boolean` | `true` | 压缩时是否递归包含子目录 |
+| 默认密码 | `string \| null` | `null` | 预填加密/解压密码字段（明文存储于本地文件） |
+| 记住密码 | `boolean` | `false` | 不勾选时保存会清除密码 |
+
+#### 外观（Appearance）
+
+| 设置项 | 类型 | 默认值 | 说明 |
+|--------|------|--------|------|
+| 主题 (theme) | `'system' \| 'light' \| 'dark'` | `system` | 保存时立即通过 `data-theme` 属性切换 |
+
+#### 文件关联（File Associations）
+
+- 列出所有支持的归档格式，显示扩展名 chip、描述、绑定状态（默认/已注册/未绑定）
+- macOS：直接通过复选框绑定/解绑
+- Windows：复选框注册后需点击「设为默认」跳转系统设置完成绑定
+- 按钮「打开系统设置」用于 Windows 下无法程序化设默认的场景
+
+#### 关于（About）
+
+- 应用名称 GeeZipX + 动态版本号（通过 `get_version` 命令获取）
+- 产品描述 + 技术栈（Rust + Tauri 2 + Svelte 5）
+- GitHub 仓库链接
+
+### 11.3 GeeZipXSettings 类型
+
+```typescript
+// crates/gui-tauri/src/bridge.ts
+export interface GeeZipXSettings {
+  locale: 'en' | 'zh-CN';
+  default_output_dir: string | null;
+  overwrite_strategy: 'prompt' | 'skip' | 'overwrite';
+  default_format: string;
+  default_level: number | null;
+  recursive: boolean;
+  theme: 'system' | 'light' | 'dark';
+  on_complete: 'nothing' | 'open_output';
+  default_password: string | null;
+  remember_password: boolean;
+}
+```
+
+### 11.4 数据流
+
+```text
+SettingsPage.svelte
+    │ 读取 ──► settingsStore.loadAll() ──► tauri-plugin-store (settings.json)
+    │ 保存 ──► settingsStore.saveAll() ──► tauri-plugin-store (settings.json)
+    │
+    ├── 表单修改时 $derived dirty 检测
+    ├── dirty 同步到 settingsGuard → TabBar 拦截导航
+    └── 保存后即时应用 theme (data-theme) + locale (localeStore.switchLocale)
+
+CompressPage / ExtractControls
+    │ 读取 ──► settingsStore.get(key) ──► 预填默认值
+    │
+    └── 每个页面独立按需读取（get），不依赖 loadAll
+```
+
+### 11.5 与压缩/解压流程的集成
+
+设置值在以下位置被消费：
+
+- **CompressPage.svelte**：读取 `default_format`、`default_level`、`recursive`、`default_password`、`remember_password`、`default_output_dir`、`on_complete` 预填表单
+- **ExtractControls.svelte**：读取 `overwrite_strategy`、`default_output_dir`、`default_password`、`remember_password`、`on_complete` 预填面板
+- **App.svelte**（快速压缩路径）：拖拽 Zip 快速压缩时读取 `default_level`、`default_password`、`remember_password`、`recursive`

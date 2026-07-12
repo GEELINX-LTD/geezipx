@@ -5,7 +5,7 @@ import type { EntryInfo, PreviewResult } from '../bridge';
 
 // --- Types ---
 
-interface DirChild {
+export interface DirChild {
   name: string;
   isDir: boolean;
   entry: EntryInfo;
@@ -15,9 +15,9 @@ interface DirChild {
 
 let archivePath = $state('');
 let archivePassword = $state('');
-let entries = $state<EntryInfo[]>([]);
+let entries = $state.raw<EntryInfo[]>([]);
 let currentDir = $state(''); // "" = root, "photos/" = subdir
-let selectedPaths = $state<Set<string>>(new Set());
+let selectedPaths = $state.raw<Set<string>>(new Set());
 let isLoading = $state(false);
 let error = $state<string | null>(null);
 let previewState = $state<{
