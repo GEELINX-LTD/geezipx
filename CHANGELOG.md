@@ -5,19 +5,93 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.7.0] - 2026-07-12
 
 ### Added
 
-- **GUI settings improvements**:
-  - Wired previously inert settings into real behavior: `Default output directory` now seeds compress/extract output paths; `Add directories recursively` controls directory traversal in compression (Rust `compress_archive` gained a `recursive` flag); `Overwrite strategy = Ask each time` now shows a confirm dialog before extraction.
-  - New settings: `Behavior after completion` (open output directory) and `Default password` / `Remember default password` (pre-fill encryption & extraction fields).
-  - Settings UX: dirty-state indicator, `Reset to defaults` button, and a leave-confirmation prompt when navigating away with unsaved changes.
-  - Hardened `Default compression level` input (rejects non-numeric / out-of-range values) and validates the stored default format on load.
+- **Format support — ISZ (ISO Zipped) read/write**:
+  - Added ISZ compressed ISO format support with block-level zlib/bzip2/lzma decompression.
+  - CLI `list`, `decompress`, and `test` support; `compress -f isz` for creating compressed ISO wrappers.
+  - Single-stream engine with block-level compression; transparent ISO passthrough integration.
 
-### Notes
+- **Format support — WIM write** (upgraded from read-only in 0.5.0):
+  - Added `WimWriter` enabling creation of uncompressed WIM archives.
+  - CLI `compress -f wim` now succeeds alongside existing `list`, `decompress`, and `test` flows.
+  - Write scope: uncompressed entries only; XPRESS/LZX/LZMS compression not yet supported for write.
 
-- First end-to-end tagged release still needs real-world verification.
+- **Format support — 7z solid archive write**:
+  - Added solid archive support for 7z creation, enabling smaller output sizes through cross-file compression.
+  - Advanced write options: compression method selection (LZMA2, LZMA, Copy), dictionary size tuning, and filename encryption.
+  - CLI `compress -f 7z` now supports `--solid` flag and full method/dict-size controls.
+
+- **Format support — DEB write** (upgraded from read-only in 0.5.0):
+  - Added `DebWriter` enabling creation of Debian package archives.
+  - CLI `compress -f deb` now succeeds alongside existing `list`, `decompress`, and `test` flows.
+
+- **Format support — UU/UUE write** (upgraded from read-only in 0.6.0):
+  - Added UU/UUE encoding write support for creating legacy text-encoded binaries.
+  - CLI `compress -f uu` / `-f uue` now succeeds alongside existing `list`, `decompress`, and `test` flows.
+
+- **Format support — XXE write** (upgraded from read-only in 0.6.0):
+  - Added XXE encoding write support.
+  - CLI `compress -f xxe` now succeeds alongside existing `list`, `decompress`, and `test` flows.
+
+- **Format support — AES encrypted container**:
+  - Added `.enc` format for AES-256-GCM-SIV authenticated encryption with Argon2id key derivation.
+  - CLI `compress -f enc --password <PASSWORD>` creates encrypted containers; `decompress` decrypts.
+  - Extension-only detection for `.enc` files.
+
+- **Format support — IMG raw disk image pass-through**:
+  - Added `.img` / `.ima` raw disk image identity pass-through format for transparent processing.
+  - CLI `compress`, `decompress`, `list`, and `test` support with automatic format detection.
+
+- **Format support — BIN raw binary pass-through**:
+  - Added `.bin` raw binary identity pass-through format.
+  - CLI `compress`, `decompress`, `list`, and `test` support with automatic format detection.
+
+- **Split volume support**:
+  - Added split volume (.001/.002/…) decompression with automatic multi-volume assembly.
+  - Added split volume compression creation via CLI `compress --split-size <BYTES>`.
+  - Supports ZIP and raw split formats with seamless volume chaining.
+
+- **Desktop GUI — Windows shell context menu**:
+  - Added Windows Explorer right-click context menu with Extract and Compress verbs.
+  - File association registration and unregistration through the Settings page.
+  - Silent ms-settings fallback on Windows for default app configuration.
+
+- **Desktop GUI — Home page redesign**:
+  - Interactive home page with click-to-open DropZone replacing the previous static layout.
+  - Recent files panel with quick-access chips for previously opened archives.
+  - Page transitions and keyboard shortcuts for improved navigation.
+
+- **Desktop GUI — Toast notification system**:
+  - New `ToastStore` and `ToastContainer` for non-blocking success/error/info notifications.
+  - Integrated with compress/extract operations and settings changes.
+
+- **Desktop GUI — Settings improvements**:
+  - Wired previously inert settings into real behavior: `Default output directory` seeds compress/extract output paths; `Add directories recursively` controls directory traversal; `Overwrite strategy = Ask each time` shows confirm dialogs before extraction.
+  - New settings: `Behavior after completion` (open output directory), `Default password` / `Remember default password` (pre-fill encryption & extraction fields), and file association toggles.
+  - Settings UX: dirty-state indicator with leave-confirmation prompt, `Reset to defaults` button, and hardened input validation.
+  - `Default compression level` input rejects non-numeric / out-of-range values; stored default format validated on load.
+
+- **Desktop GUI — Global button styling**:
+  - Standardized `focus-visible`, `active`, and `disabled` states for all interactive elements.
+
+### Fixed
+
+- **LZH canonical bit ordering**: Upgraded `oxiarc-lzhuf` to v0.3.5 for correct MSB-first LZH compression, resolving incompatibility with standard LZH decompressors.
+- **GUI archive browser navigation**: Fixed incorrect directory path calculation when navigating into subdirectories.
+- **GUI Windows terminal suppression**: Suppressed spurious terminal window popups on Windows during archive operations.
+- **GUI DropZone archive open**: Fixed single-archive DropZone clicks now correctly open in archive browser.
+- **GUI Windows build**: Resolved file association module build errors on Windows (ExitStatusExt import, compilation issues).
+- **GUI 7z write options**: Added missing `seven_zip` configuration field and fixed `SevenZipOptions` lifetime in GUI backend.
+- **AES format detection**: Refined AES format to extension-only detection with improved password error messages.
+- **CI — ZPAQ macOS exclusion**: Excluded ZPAQ from macOS CI builds due to LLVM bitcode incompatibility.
+- **Test — ZPAQ writable gate**: Feature-gated `create_writer_zpaq_is_writable` test behind the `zpaq` feature flag.
+
+### Changed
+
+- **Documentation updates**: Removed LZH extended header and `tar.7z` composite format from roadmap. Updated `docs/PRD.md`, `docs/TECH_ARCHITECTURE.md`, `docs/GUI_MVP_PLAN.md`, and `AGENTS.md` to reflect Phase 3 format completions and GUI milestones.
 
 ## [0.6.0] - 2026-06-28
 
@@ -564,7 +638,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Benchmark compile check on every push/PR
   - Manual trigger benchmark workflow with optional filter parameter
 
-[Unreleased]: https://github.com/GEELINX-LTD/geezipx/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/GEELINX-LTD/geezipx/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/GEELINX-LTD/geezipx/releases/tag/v0.7.0
 [0.6.0]: https://github.com/GEELINX-LTD/geezipx/releases/tag/v0.6.0
 [0.5.0]: https://github.com/GEELINX-LTD/geezipx/releases/tag/v0.5.0
 [0.4.0]: https://github.com/GEELINX-LTD/geezipx/releases/tag/v0.4.0
