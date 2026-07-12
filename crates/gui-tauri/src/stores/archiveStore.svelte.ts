@@ -1,4 +1,4 @@
-// Archive browser state store using Svelte 5 module-level $state runes.
+// Archive browser state store using Svelte 5 class-based state runes.
 //
 // Refactored: TabArchive manages per-archive state; archiveManager owns the tab set;
 // archiveStore remains a proxy for the active tab so that all consuming components
@@ -257,16 +257,16 @@ class TabArchive {
 
 // --- archiveManager: multi-tab management ---
 
-export const archiveManager = {
-  tabs: $state.raw(new Map<string, TabArchive>()),
-  tabOrder: $state<string[]>([]),
-  activeTabId: $state<string | null>(null),
+class ArchiveManager {
+  tabs = $state.raw(new Map<string, TabArchive>());
+  tabOrder = $state<string[]>([]);
+  activeTabId = $state<string | null>(null);
   /** Tracks paths currently being opened to prevent duplicate tabs from concurrent calls. */
-  _openingPaths: new Set<string>(),
+  _openingPaths = new Set<string>();
 
   get activeTab(): TabArchive | undefined {
     return this.activeTabId ? this.tabs.get(this.activeTabId) : undefined;
-  },
+  }
 
   /** Open an archive in a new or existing tab. Returns the tab id and display label. */
   async openArchive(path: string, password?: string): Promise<{ tabId: string; label: string }> {
@@ -302,7 +302,7 @@ export const archiveManager = {
     } finally {
       this._openingPaths.delete(path);
     }
-  },
+  }
 
   /** Close a tab. Returns the id of the next tab that should become active, or null. */
   closeTab(tabId: string): string | null {
@@ -318,15 +318,17 @@ export const archiveManager = {
       return next;
     }
     return this.activeTabId;
-  },
+  }
 
   /** Switch the active tab. */
   setActive(tabId: string): void {
     if (this.tabs.has(tabId)) {
       this.activeTabId = tabId;
     }
-  },
-};
+  }
+}
+
+export const archiveManager = new ArchiveManager();
 
 // --- archiveStore: proxy that delegates to the active tab ---
 
