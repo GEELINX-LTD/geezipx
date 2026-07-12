@@ -36,6 +36,11 @@ function consumePendingSourcePaths(): string[] {
   return paths;
 }
 
+function addShellCompressPaths(paths: string[]): void {
+  const merged = [...pendingSourcePaths, ...paths.filter(p => !pendingSourcePaths.includes(p))];
+  pendingSourcePaths = merged;
+}
+
 function addRecent(path: string): void {
   const name = path.split(/[/\\]/).pop() || path;
   const exists = recentFiles.findIndex((f) => f.path === path);
@@ -114,6 +119,7 @@ export const appStore = {
   setDropActive,
   setPendingSourcePaths,
   consumePendingSourcePaths,
+  addShellCompressPaths,
   addRecent,
   removeRecent,
   loadRecent,

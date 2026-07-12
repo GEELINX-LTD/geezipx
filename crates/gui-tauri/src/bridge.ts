@@ -246,6 +246,24 @@ export async function previewEntry(
 export { listen };
 
 // ---------------------------------------------------------------------------
+// Shell context menu types and wrappers
+// ---------------------------------------------------------------------------
+
+/** Payload of `shell-action` event emitted when launched from context menu. */
+export interface ShellActionPayload {
+  action: 'open' | 'extract' | 'extract-here' | 'compress-zip' | 'compress';
+  /** Archive format for compress action (e.g. "zip", "7z"). */
+  format: string | null;
+  /** File/directory paths passed from the shell. */
+  paths: string[];
+}
+
+/** Retrieve the shell action from cold start (if app was launched from context menu). */
+export async function getShellAction(): Promise<ShellActionPayload | null> {
+  return invoke<ShellActionPayload | null>('get_shell_action');
+}
+
+// ---------------------------------------------------------------------------
 // Drag-out types and wrappers
 // ---------------------------------------------------------------------------
 

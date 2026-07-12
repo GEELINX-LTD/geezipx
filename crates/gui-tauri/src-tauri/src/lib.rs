@@ -3,22 +3,217 @@
 //! This crate is a thin bridge between the Tauri frontend and `geezipx-core`.
 //! No compression/decompression logic lives here.
 
+use serde::Serialize;
 use tauri::Emitter;
 use tauri::Manager;
 
 pub mod commands;
 pub mod state;
 
+// ---------------------------------------------------------------------------
+// Shell context menu action types
+// ---------------------------------------------------------------------------
+
+/// Payload sent to the frontend via `shell-action` event.
+#[derive(Debug, Clone, Serialize)]
+pub struct ShellActionPayload {
+    /// One of "extract", "extract-here", "compress".
+    pub action: String,
+    /// Archive format for compress action (e.g. "zip", "7z").
+    pub format: Option<String>,
+    /// File/directory paths passed from the shell.
+    pub paths: Vec<String>,
+}
+
+/// Parsed shell context-menu action from command-line args.
+enum ShellAction {
+    /// Legacy file association: no explicit flag, treat args as archive paths.
+    OpenArchives(Vec<String>),
+    /// "用 GeeZipX 打开" — browse archive.
+    Open(Vec<String>),
+    /// "解压缩到..." — jump to extract page.
+    Extract(Vec<String>),
+    /// "解压缩到当前文件夹" — smart extract.
+    ExtractHere(Vec<String>),
+    /// "压缩为 ZIP" — headless quick ZIP compress.
+    CompressZip(Vec<String>),
+    /// "压缩为..." — jump to compress page.
+    Compress(Vec<String>),
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/// Parse command-line arguments to determine the shell action.
+///
+/// Recognised patterns:
+/// - `/open <paths...>`         — browse archive
+/// - `/extract <paths...>`      — jump to extract page
+/// - `/extract-here <paths...>` — smart extract to current folder
+/// - `/compress-zip <paths...>` — headless quick ZIP
+/// - `/compress <paths...>`     — jump to compress page (files + dirs)
+/// - `<paths...>`               — legacy: open archives for browsing
+fn parse_shell_args(args: &[String]) -> ShellAction {
+    match args.first().map(|s| s.as_str()) {
+        Some("/open") => {
+            let paths: Vec<String> = args
+                .iter()
+                .skip(1)
+                .filter(|a| {
+                    let p = std::path::Path::new(a);
+                    p.exists() && !p.is_dir()
+                })
+                .cloned()
+                .collect();
+            ShellAction::Open(paths)
+        }
+        Some("/extract") => {
+            let paths: Vec<String> = args
+                .iter()
+                .skip(1)
+                .filter(|a| {
+                    let p = std::path::Path::new(a);
+                    p.exists() && !p.is_dir()
+                })
+                .cloned()
+                .collect();
+            ShellAction::Extract(paths)
+        }
+        Some("/extract-here") => {
+            let paths: Vec<String> = args
+                .iter()
+                .skip(1)
+                .filter(|a| {
+                    let p = std::path::Path::new(a);
+                    p.exists() && !p.is_dir()
+                })
+                .cloned()
+                .collect();
+            ShellAction::ExtractHere(paths)
+        }
+        Some("/compress-zip") => {
+            let paths: Vec<String> = args
+                .iter()
+                .skip(1)
+                .filter(|a| std::path::Path::new(a).exists())
+                .cloned()
+                .collect();
+            ShellAction::CompressZip(paths)
+        }
+        Some("/compress") => {
+            let paths: Vec<String> = args
+                .iter()
+                .skip(1)
+                .filter(|a| std::path::Path::new(a).exists())
+                .cloned()
+                .collect();
+            ShellAction::Compress(paths)
+        }
+        _ => {
+            let paths: Vec<String> = args
+                .iter()
+                .filter(|a| {
+                    let p = std::path::Path::new(a);
+                    p.exists() && !p.is_dir()
+                })
+                .cloned()
+                .collect();
+            ShellAction::OpenArchives(paths)
+        }
+    }
+}
+
+/// Emit a `shell-action` event to the frontend.
+/// For `OpenArchives` (legacy, no flag) we only emit `opened-archives`.
+fn emit_shell_action(window: &tauri::WebviewWindow, action: &ShellAction) {
+    // Legacy mode — no explicit flag, treat as plain file-open.
+    if let ShellAction::OpenArchives(paths) = action {
+        if !paths.is_empty() {
+            let _ = window.emit("opened-archives", &paths);
+        }
+        return;
+    }
+
+    let payload = match action {
+        ShellAction::Open(paths) => ShellActionPayload {
+            action: "open".into(),
+            format: None,
+            paths: paths.clone(),
+        },
+        ShellAction::Extract(paths) => ShellActionPayload {
+            action: "extract".into(),
+            format: None,
+            paths: paths.clone(),
+        },
+        ShellAction::ExtractHere(paths) => ShellActionPayload {
+            action: "extract-here".into(),
+            format: None,
+            paths: paths.clone(),
+        },
+        ShellAction::CompressZip(paths) => ShellActionPayload {
+            action: "compress-zip".into(),
+            format: None,
+            paths: paths.clone(),
+        },
+        ShellAction::Compress(paths) => ShellActionPayload {
+            action: "compress".into(),
+            format: None,
+            paths: paths.clone(),
+        },
+        ShellAction::OpenArchives(_) => return,
+    };
+    if !payload.paths.is_empty() {
+        let _ = window.emit("shell-action", &payload);
+    }
+}
+
 /// Run the Tauri application.
 pub fn run() {
-    // --- Collect cold-start file args (Windows/Linux) ---
-    let cold_args: Vec<String> = std::env::args()
-        .skip(1)
+    // --- Collect and parse cold-start command-line args ---
+    let raw_args: Vec<String> = std::env::args().skip(1).collect();
+    let shell_action = parse_shell_args(&raw_args);
+
+    // Legacy cold-start file paths (for `get_opened_archives` backward compat).
+    let cold_args: Vec<String> = raw_args
+        .iter()
         .filter(|a| {
             let p = std::path::Path::new(a);
             p.exists() && !p.is_dir()
         })
+        .cloned()
         .collect();
+
+    // Cold-start shell action (only when an explicit flag was used).
+    let cold_shell: Option<ShellActionPayload> = match &shell_action {
+        ShellAction::OpenArchives(_) => None,
+        ShellAction::Open(paths) if !paths.is_empty() => Some(ShellActionPayload {
+            action: "open".into(),
+            format: None,
+            paths: paths.clone(),
+        }),
+        ShellAction::Extract(paths) if !paths.is_empty() => Some(ShellActionPayload {
+            action: "extract".into(),
+            format: None,
+            paths: paths.clone(),
+        }),
+        ShellAction::ExtractHere(paths) if !paths.is_empty() => Some(ShellActionPayload {
+            action: "extract-here".into(),
+            format: None,
+            paths: paths.clone(),
+        }),
+        ShellAction::CompressZip(paths) if !paths.is_empty() => Some(ShellActionPayload {
+            action: "compress-zip".into(),
+            format: None,
+            paths: paths.clone(),
+        }),
+        ShellAction::Compress(paths) if !paths.is_empty() => Some(ShellActionPayload {
+            action: "compress".into(),
+            format: None,
+            paths: paths.clone(),
+        }),
+        _ => None,
+    };
 
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -27,20 +222,12 @@ pub fn run() {
         // Save/restore window position, size, and maximized state
         .plugin(tauri_plugin_window_state::Builder::default().build())
         .plugin(tauri_plugin_store::Builder::default().build())
-        // Single-instance: second instance passes file paths to existing window.
+        // Single-instance: second instance passes file paths + shell action to existing window.
         .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
-            let paths: Vec<String> = argv
-                .into_iter()
-                .skip(1)
-                .filter(|a| {
-                    let p = std::path::Path::new(a);
-                    p.exists() && !p.is_dir()
-                })
-                .collect();
-            if !paths.is_empty() {
-                if let Some(window) = app.get_webview_window("main") {
-                    let _ = window.emit("opened-archives", &paths);
-                }
+            let args: Vec<String> = argv.into_iter().skip(1).collect();
+            let action = parse_shell_args(&args);
+            if let Some(window) = app.get_webview_window("main") {
+                emit_shell_action(&window, &action);
             }
         }))
         .manage(state::AppState::new())
@@ -55,6 +242,7 @@ pub fn run() {
             commands::cancel::cancel_task,
             commands::compress::compress_archive,
             commands::app::get_opened_archives,
+            commands::app::get_shell_action,
             commands::extract_entries::extract_entries,
             commands::preview_entry::preview_entry,
             commands::drag::prepare_drag_entries,
@@ -67,6 +255,14 @@ pub fn run() {
                 if let Some(state) = app.try_state::<state::AppState>() {
                     if let Ok(mut pending) = state.pending_archives.lock() {
                         pending.extend(cold_args.clone());
+                    }
+                }
+            }
+            // Store cold-start shell action (if any) into state.
+            if let Some(ref action) = cold_shell {
+                if let Some(state) = app.try_state::<state::AppState>() {
+                    if let Ok(mut pending) = state.pending_shell_action.lock() {
+                        *pending = Some(action.clone());
                     }
                 }
             }
