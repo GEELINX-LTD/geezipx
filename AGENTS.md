@@ -260,7 +260,7 @@ cargo test --workspace --exclude geezipx-gui --all-features
 **GUI 变更额外关注**
 
 - `.github/workflows/gui-windows.yml`：独立 Windows GUI build workflow；
-- `.github/workflows/release.yml`：已配置三平台 GUI bundle 构建与上传（`.AppImage` / `.dmg` / `.msi`），如涉及发布链路应结合 tag release 进行实战验证。
+- `.github/workflows/release.yml`：已配置三平台 GUI bundle 构建与上传（`.AppImage` / `.dmg` / `.exe (NSIS)`），如涉及发布链路应结合 tag release 进行实战验证。
 
 核心测试要求：
 

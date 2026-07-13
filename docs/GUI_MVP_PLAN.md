@@ -112,7 +112,7 @@ GUI 提取使用 `overwrite: bool` 参数，关闭时 core 通过 `ClobberDenied
 | 平台 | bundle | 状态 |
 | macOS | `.dmg` | `release.yml` 已配置并验证 |
 | Linux | `.AppImage` | `release.yml` 已配置并验证 |
-| Windows | `.msi` | `release.yml` 已配置；`gui-windows.yml` 可手动构建 |
+| Windows | `.exe (NSIS 安装器)` | `release.yml` 已配置；`gui-windows.yml` 可手动构建 |
 
 打包配置在 `crates/gui-tauri/src-tauri/tauri.conf.json`。
 
@@ -126,7 +126,7 @@ GUI 提取使用 `overwrite: bool` 参数，关闭时 core 通过 `ClobberDenied
 - **多语言与主题** — zh-CN / en 实时切换，三模式主题
 - **窗口状态持久化** — 位置、大小恢复
 - **Windows 右键菜单** — NSIS hooks shell 集成
-- **三平台打包** — `.AppImage` / `.dmg` / `.msi` 构建就绪
+- **三平台打包** — `.AppImage` / `.dmg` / `.exe (NSIS 安装器)` 构建就绪
 
 ### 10.1 `list_archive` 流式推送（v0.7.0）
 

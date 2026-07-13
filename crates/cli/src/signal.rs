@@ -153,12 +153,17 @@ mod tests {
             b.is_cancelled(),
             "second token should still see cancelled state"
         );
+
+        // Clean up shared global state so later tests see a clean flag.
+        CancellationToken::reset();
     }
 
     /// `into_inner()` shares the same AtomicBool.
     #[test]
     fn into_inner_shares_flag() {
         let _guard = serial_guard();
+        // Ensure a clean starting state regardless of prior test order.
+        CancellationToken::reset();
         let token = CancellationToken::new();
         let inner = token.into_inner();
         assert!(!inner.load(Ordering::SeqCst));
@@ -166,6 +171,9 @@ mod tests {
         inner.store(true, Ordering::SeqCst);
         let token2 = CancellationToken::new();
         assert!(token2.is_cancelled());
+
+        // Clean up shared global state so later tests see a clean flag.
+        CancellationToken::reset();
     }
 
     /// `reset()` works before any `new()` call (lazy init).

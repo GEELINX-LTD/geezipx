@@ -402,7 +402,7 @@ Reader/File → ProgressReader → Decoder/ArchiveReader → ProgressWriter → 
 `.github/workflows/release.yml` 当前已配置：
 
 - CLI 三平台产物：`.tar.gz` / `.zip` + `.sha256`；
-- GUI 三平台 bundle：Linux `.AppImage`、macOS `.dmg`、Windows `.msi`；
+- GUI 三平台 bundle：Linux `.AppImage`、macOS `.dmg`、Windows `.exe (NSIS 安装器)`；
 - `consolidate` job 会校验所需 artifacts 并生成 `SHA256SUMS`；
 - `release` job 在 `v*` tag push 时把 CLI 与 GUI artifacts 上传到 GitHub Release；
 - 当前状态统一表述为“已配置，待首个真实 tag release 实战验证”。

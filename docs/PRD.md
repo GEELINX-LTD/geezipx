@@ -20,7 +20,7 @@ GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开�
 |------|-----|-----|
 | Linux (x86_64, aarch64) | 原生二进制 | Tauri .AppImage/.deb |
 | macOS (x86_64, arm64) | 原生二进制 / Homebrew | Tauri .dmg |
-| Windows (x86_64) | 原生二进制 / winget | Tauri .msi |
+| Windows (x86_64) | 原生二进制 / winget | Tauri .exe (NSIS 安装器) |
 
 ## 4. 核心场景
 
@@ -155,7 +155,7 @@ Phase 2 (Desktop GUI via Tauri)  当前阶段 (v0.7.0)
 ├── 加密归档密码输入 + 多语言 (中英文)
 ├── 窗口状态持久化 + 偏好设置 (5 标签页) + 默认行为配置
 ├── 自动/手动格式检测 (压缩时)
-└── 平台原生打包 (AppImage/.dmg/.msi)
+└── 平台原生打包 (AppImage/.dmg/.exe (NSIS 安装器))
 
 Phase 3 (生态 + 发布)
 ├── Homebrew / winget / APT 仓库
