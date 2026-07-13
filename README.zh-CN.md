@@ -88,8 +88,8 @@
 
 | 阶段 | 主题 | 状态 |
 |------|------|------|
-| 1 | CLI MVP | **已完成** -- crates.io 上已发布 `geezipx`（v0.7.3）与 `geezipx-core` |
-| 2 | 桌面 GUI (Tauri) | **开发中** -- v0.7.3 已包含归档浏览器、拖拽、进度显示、选择性提取、文本/十六进制预览、侧边栏导航、设置面板、Toast 通知 |
+| 1 | CLI MVP | **已完成** -- crates.io 上已发布 `geezipx`（v0.7.4）与 `geezipx-core` |
+| 2 | 桌面 GUI (Tauri) | **开发中** -- v0.7.4 已包含归档浏览器、拖拽、进度显示、选择性提取、文本/十六进制预览、侧边栏导航、设置面板、Toast 通知、Windows 右键菜单 |
 
 详见 [`docs/GUI_MVP_PLAN.md`](docs/GUI_MVP_PLAN.md) 了解详细规划和剩余任务。
 
@@ -555,7 +555,7 @@ cargo build --release --workspace
 - cargo-deny 安全审计
 - Criterion 基准测试（advisory，无硬门禁）
 
-### 第二阶段（桌面 GUI via Tauri）— 当前开发重心（v0.7.3）
+### 第二阶段（桌面 GUI via Tauri）— 当前开发重心（v0.7.4）
 
 - [x] Tauri v2 项目骨架 + TypeScript/Vite 前端
 - [x] Core 引擎桥接（Tauri commands）

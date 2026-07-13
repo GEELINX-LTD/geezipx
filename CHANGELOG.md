@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.4] - 2026-07-13
+
+### Fixed
+
+- **Windows GUI — NSIS-only release**: Replaced MSI with NSIS installer as the sole Windows build artifact, restoring installer-hooks-driven Explorer right-click context menu (`Extract here`, `Extract to...`, `Compress as ZIP`, `Compress as...`) that was previously available only in non-release builds. The `release.yml` and `gui-windows.yml` workflows now build and upload the NSIS `.exe` exclusively; the MSI target is removed.
+
+### Added
+
+- **Windows GUI — Installer language selection**: The NSIS installer now presents an English / SimpChinese language picker before installation and uninstallation, via Tauri NSIS `languages` and `displayLanguageSelector`.
+
+### Changed
+
+- **CI — Fail on missing NSIS artifact**: The release and Windows GUI workflows now hard-fail when the expected `bundle/nsis/*.exe` is absent, instead of emitting a soft warning.
+
 ## [0.7.3] - 2026-07-13
 
 ### Fixed
@@ -668,7 +682,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Benchmark compile check on every push/PR
   - Manual trigger benchmark workflow with optional filter parameter
 
-[Unreleased]: https://github.com/GEELINX-LTD/geezipx/compare/v0.7.3...HEAD
+[Unreleased]: https://github.com/GEELINX-LTD/geezipx/compare/v0.7.4...HEAD
+[0.7.4]: https://github.com/GEELINX-LTD/geezipx/compare/v0.7.3...v0.7.4
 [0.7.3]: https://github.com/GEELINX-LTD/geezipx/compare/v0.7.2...v0.7.3
 [0.7.2]: https://github.com/GEELINX-LTD/geezipx/compare/v0.7.1...v0.7.2
 [0.7.1]: https://github.com/GEELINX-LTD/geezipx/compare/v0.7.0...v0.7.1

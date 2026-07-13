@@ -88,8 +88,8 @@ Phase 2 (Desktop GUI via Tauri) is **the active development focus**. The GUI alr
 
 | Phase | Theme | Status |
 |-------|-------|--------|
-| 1 | CLI MVP | **Complete** -- crates.io releases `geezipx` (v0.7.3) and `geezipx-core` are available |
-| 2 | Desktop GUI (Tauri) | **In development** -- v0.7.3 includes archive browsing, drag/drop, progress reporting, selective extraction, text/hex preview, sidebar navigation, settings panel, and Toast notifications |
+| 1 | CLI MVP | **Complete** -- crates.io releases `geezipx` (v0.7.4) and `geezipx-core` are available |
+| 2 | Desktop GUI (Tauri) | **In development** -- v0.7.4 includes archive browsing, drag/drop, progress reporting, selective extraction, text/hex preview, sidebar navigation, settings panel, Toast notifications, and Windows right-click context-menu integration |
 
 See [`docs/GUI_MVP_PLAN.md`](docs/GUI_MVP_PLAN.md) for detailed planning and remaining tasks.
 
@@ -579,7 +579,7 @@ All core CLI features and format support are complete. See the Format Support ta
 - `cargo-deny` security audit
 - Criterion benchmarks (advisory, no hard gate)
 
-### Phase 2 (Desktop GUI via Tauri) — Current Development (v0.7.3)
+### Phase 2 (Desktop GUI via Tauri) — Current Development (v0.7.4)
 
 - [x] Tauri v2 project skeleton + TypeScript/Vite frontend
 - [x] Core engine bridge via Tauri commands
