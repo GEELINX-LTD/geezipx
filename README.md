@@ -14,43 +14,82 @@
 
 ## Features
 
-- **Multi-format** -- ZIP (including ZIP-compatible aliases `.zipx`, `.jar`, `.war`, `.apk`, `.ipa`, `.xpi`), TAR, TAR.GZ/TGZ, TAR.BZ2/TBZ/TBZ2, TAR.BR, TAR.LZ4, TAR.ZST/TZST, TAR.XZ/TXZ, GZIP/GZ, BZIP2/BZ2, Brotli/BR, LZ4, Zstandard/ZST, XZ, LZMA, 7Z (read/write, AES-256), ISO (read/write via ISO 9660 Level 1), ZPAQ (read/write, compression level 1-5), LZH/LHA (read/write; store-only `-lh0-` MVP), CPIO (read/write, `newc`/`odc`), plus RAR, CAB, ASAR, DEB, and WIM (read-only). *Planned: broader LZH compressed writing and more — see [docs/PRD.md](docs/PRD.md) section 5.1*
-- **ZIPX compatibility** -- `.zipx` is supported as a ZIP-compatible container/extension alias for `compress`, `list`, `test`, and `decompress`. GeeZipX does not currently implement WinZip-specific advanced compression methods, Deflate64 writing, or the full ZIPX method matrix.
+- **Multi-format** -- Compress, decompress, list, and test 30+ archive and stream format families (see table below).
 - **SFX self-extracting archives** -- create ZIP SFX executables targeting Linux, Windows, or macOS with `--sfx` and `--sfx-target`.
 - **Streaming I/O** -- process large files with bounded memory usage
 - **Live progress bars** -- real-time speed, ETA, and per-file status on TTY
 - **Cancel-safe** -- graceful Ctrl+C with partial-file cleanup; double Ctrl+C force-kill
 - **Auto-format detection** -- magic-byte recognition with extension-based fallback
-- **Compression levels** -- `--level 0-9` for gzip/bzip2/tar.gz/tar.bz2/xz/lzma/tar.xz; `--level 0-11` for brotli/tar.br; `--level 0-22` for zstd/tar.zst; lz4/tar.lz4 accept `0` or omitted level only
+- **Compression levels** -- `--level 0-9` for gzip/bzip2/tar.gz/tar.bz2/xz/lzma/tar.xz; `--level 0-11` for brotli/tar.br; `--level 0-22` for zstd/tar.zst; LZH level 0-4 (lh0/lh4-lh7); lz4/tar.lz4 accept `0` or omitted level only
 - **Clobber controls** -- `--no-clobber` to skip existing files, `--force` to overwrite
 - **Zip Slip protection** -- blocks path-traversal attacks in all archive formats
 - **JSON output** -- `list --json` for machine-readable inspection; `test --json` for programmatic integrity results
 - **Shell completions** -- bash, zsh, fish, PowerShell, elvish
 - **ZIP / 7z AES-256 encryption** -- create encrypted ZIP and 7z archives with `--password`, `--password-file`, or `--password-stdin`
-- **Encrypted 7z / RAR read support** -- `list`, `decompress`, and `test` can handle password-protected 7z and RAR archives
-- **ASAR read-only support** -- `.asar` archives support CLI `list`, `decompress`, and `test`, plus GUI archive browsing and selective extraction. `compress`, archive writing, encryption, and password input are not supported.
-- **DEB read-only support** -- `.deb` packages support CLI `list`, `decompress`, and `test`, plus GUI archive browsing and extraction of the `data.tar*` payload. `compress`, package writing, control-script extraction, encryption, and password input are not supported.
-- **CAB read-only support** -- `.cab` archives support CLI `list`, `decompress`, and `test`, plus GUI archive browsing and extraction. The current MVP targets single-volume cabinets and does not support `compress`, cabinet writing, encryption/password input, or multi-volume cabinet sets.
-- **LZH/LHA write MVP** -- `.lzh` / `.lha` archives support CLI/GUI `compress`, `list`, `decompress`, and `test`. The current writer emits store-only `-lh0-` file entries plus `-lhd-` directory entries; `lh5`/`lh6`/`lh7` compressed writing, encryption/password input, multi-volume archives, extended attributes, long paths / level 1-3 extended-header writing, and single entries larger than 4 GiB remain unsupported.
-- **ISO read/write** -- `.iso` images support CLI `compress`, `list`, `decompress`, and `test`, plus GUI archive browsing and extraction. The current writer emits ISO 9660 Level 1 volumes; extended Rock Ridge/Joliet creator metadata is preserved during copy. Does not support encryption, password input, UDF-only media, or multi-volume image sets.
-- **CPIO read/write** -- `.cpio` archives support CLI `compress`, `list`, `decompress`, and `test`, plus GUI archive browsing and extraction. Supports `newc` and `odc` archive variants. Does not support `bin`/`crc` variants, symlink/device creation, encryption, or password input.
-- **ZPAQ read/write** -- `.zpaq` / `.zpq` archives support CLI `compress`, `list`, `decompress`, and `test`, plus GUI archive browsing and extraction. Writer supports compression level 1-5. Does not support append/update workflows, journaling/version management, or password-based access.
-- **WIM read-only support** -- `.wim` / `.swm` archives support CLI `list`, `decompress`, and `test`, plus GUI archive browsing and extraction. Supports XPRESS, LZX, and LZMS decompression. The current MVP reads the first image only and does not support `compress`, image writing, multi-image management, or encryption.
+- **7z solid compression** -- `--solid` to compress all files together for better ratios
+- **7z method selection** -- `--7z-method` (lzma2, lzma, bzip2, ppmd, deflate, copy) and `--dict-size`
+- **Multi-volume output** -- `--split-size` to split archives into numbered volume files
+- **Encrypted archive read support** -- `list`, `decompress`, and `test` handle password-protected ZIP, 7z, and RAR archives
+- **AES-256-GCM-SIV encrypted container** -- `.enc` files via Argon2id key derivation
+- **ISZ compressed ISO wrapper** -- read and write compressed ISO images
+- **IMG / BIN pass-through** -- identity copy preserves raw disk images verbatim
+- **UU / UUE / XXE text encoding** -- decode and encode legacy text-encoded binaries
 - **Cross-platform** -- Linux, macOS, Windows (3-platform CI)
-- **Single binary** -- no runtime dependencies, `cargo install` ready
+- **Single binary** -- `cargo install` ready; no runtime dependencies
 - **Multi-threaded compression** -- `-j`/`--jobs` for parallel compression (tar.gz via gzp/pigz-style, zstd/tar.zst via native zstdmt)
+
+### Format Support
+
+| Format | Extensions | Read | Write | Limitations |
+|--------|-----------|:----:|:-----:|-------------|
+| ZIP | `.zip`, `.zipx`, `.jar`, `.war`, `.apk`, `.ipa`, `.xpi` | ✓ | ✓ | AES-256 encryption write; no Deflate64 write |
+| TAR | `.tar` | ✓ | ✓ | |
+| GZIP / TAR.GZ | `.gz`, `.gzip`, `.tar.gz`, `.tgz` | ✓ | ✓ | level 0-9; tar.gz uses gzp parallel engine |
+| BZIP2 / TAR.BZ2 | `.bz2`, `.bzip2`, `.tar.bz2`, `.tbz`, `.tbz2` | ✓ | ✓ | level 0-9 |
+| Brotli / TAR.BR | `.br`, `.brotli`, `.tar.br` | ✓ | ✓ | level 0-11 |
+| LZ4 / TAR.LZ4 | `.lz4`, `.tar.lz4` | ✓ | ✓ | level 0 only (store) |
+| ZSTD / TAR.ZST | `.zst`, `.zstd`, `.tar.zst`, `.tzst` | ✓ | ✓ | level 0-22; native zstdmt multi-thread |
+| XZ / TAR.XZ | `.xz`, `.tar.xz`, `.txz` | ✓ | ✓ | level 0-9 |
+| LZMA | `.lzma` | ✓ | ✓ | level 0-9 |
+| LZ / Lzip | `.lz` | ✓ | ✓ | LZMA container with CRC-32 |
+| 7Z | `.7z` | ✓ | ✓ | AES-256 encrypt; solid mode; LZMA2/LZMA/BZIP2/PPMD/DEFLATE |
+| ISO 9660 | `.iso` | ✓ | ✓ | Level 1 write; Joliet/Rock Ridge read |
+| UDF | `.udf` | ✓ | ✓ | UDF 2.01 write; non-streaming by format |
+| ZPAQ | `.zpaq`, `.zpq` | ✓ | ✓ | level 1-5; requires C++17 compiler |
+| LZH / LHA | `.lzh`, `.lha` | ✓ | ✓ | lh0-lh7 write (level 0-4); CRC-16 verify |
+| CPIO | `.cpio` | ✓ | ✓ | newc/odc |
+| ASAR | `.asar` | ✓ | ✓ | Electron archive; no encrypt |
+| CAB | `.cab` | ✓ | ✓ | single-volume only; no encrypt |
+| DEB | `.deb` | ✓ | ✓ | data.tar\* payload; no encrypt |
+| WIM / SWM | `.wim`, `.swm` | ✓ | ✓ | **uncompressed write only**; XPRESS/LZX/LZMS decompress |
+| ISZ | `.isz` | ✓ | ✓ | compressed ISO wrapper; single-stream |
+| RAR | `.rar` | ✓ | ✗ | read-only (licensing limitation); decryption supported |
+| AES encrypted | `.enc` | ✓ | ✓ | AES-256-GCM-SIV + Argon2id; single-stream |
+| IMG / IMA | `.img`, `.ima` | ✓ | ✓ | pass-through identity copy |
+| BIN | `.bin` | ✓ | ✓ | pass-through identity copy |
+| UU / UUE | `.uu`, `.uue` | ✓ | ✓ | text encoding/decoding |
+| XXE | `.xxe` | ✓ | ✓ | text encoding/decoding |
+| Z (Unix Compress) | `.Z` | ✓ | ✗ | read-only via unarc-rs |
+| ARJ | `.arj` | ✓ | ✗ | read-only via unarc-rs |
+| ACE | `.ace` | ✓ | ✗ | read-only via unarc-rs |
+| ARC | `.arc` | ✓ | ✗ | read-only via unarc-rs |
+| ALZ | `.alz` | ✓ | ✗ | read-only via unalz-rs |
+
+> **ZIPX note**: `.zipx` is supported as a ZIP-compatible container/extension alias. GeeZipX does not implement WinZip-specific advanced compression methods or the full ZIPX method matrix.
+> **WIM write**: The WIM writer stores data uncompressed. For compressed write, use wimlib or other tools.
+> **Format limitations are documented in code comments and docs/PRD.md.**
 
 ---
 
 ## Status
 
-Phase 1 (CLI MVP) is **complete and mature**. The applicable subcommands are fully implemented: read/write formats (ZIP, 7z, TAR, TAR.*, GZIP, BZIP2, Brotli, LZ4, ZSTD, XZ, LZMA, ISO, ZPAQ, LZH/LHA, CPIO) support `compress`, `decompress`, `list`, and `test`; read-only RAR/CAB/ASAR/DEB/WIM support `list`, `decompress`, and `test`. The `completions` command is also complete.
-Phase 2 (Desktop GUI via Tauri) is **now the active development focus**.
+Phase 1 (CLI MVP) is **complete and mature**. All formats listed in the Format Support table support their applicable subcommands. The `completions` command is also complete.
+Phase 2 (Desktop GUI via Tauri) is **the active development focus**. The GUI already includes archive browsing, drag/drop, progress display, selective extraction, text/hex preview, sidebar navigation, password prompts, task cancellation, multi-tab browsing, home page, settings panel, toast notifications, and Windows right-click context-menu integration. See [`docs/GUI_MVP_PLAN.md`](docs/GUI_MVP_PLAN.md) for the full task breakdown.
 
 | Phase | Theme | Status |
 |-------|-------|--------|
-| 1 | CLI MVP | **Complete** -- crates.io releases `geezipx` and `geezipx-core` are available |
-| 2 | Desktop GUI (Tauri) | **In development** -- v0.6.0 already includes archive browsing, drag/drop, progress reporting, and selective extraction |
+| 1 | CLI MVP | **Complete** -- crates.io releases `geezipx` (v0.7.3) and `geezipx-core` are available |
+| 2 | Desktop GUI (Tauri) | **In development** -- v0.7.3 includes archive browsing, drag/drop, progress reporting, selective extraction, text/hex preview, sidebar navigation, settings panel, and Toast notifications |
 
 See [`docs/GUI_MVP_PLAN.md`](docs/GUI_MVP_PLAN.md) for detailed planning and remaining tasks.
 
@@ -204,6 +243,24 @@ geezipx decompress archive.tar.xz --stdout > raw.tar
 
 # SFX self-extracting archive (create a Linux ZIP SFX executable)
 geezipx compress mydir/ -r -f zip --sfx --sfx-target linux -o myapp
+
+# Create an encrypted AES container
+geezipx compress secret.txt -f aes --password mypass -o secret.enc
+
+# Decompress an AES container
+geezipx decompress secret.enc --password mypass
+
+# Compress a directory to ISZ (compressed ISO)
+geezipx compress mydir/ -r -f isz -o disk.isz
+
+# UUencode a file
+geezipx compress data.bin -f uu -o data.uu
+
+# Multi-volume ZIP (100 MiB per volume)
+geezipx compress bigdir/ -r -f zip -o archive.zip --split-size 100M
+
+# 7z with solid compression and LZMA2 64 MB dictionary
+geezipx compress mydir/ -r -f 7z -o archive.7z --solid --dict-size 64M
 ```
 
 ---
@@ -226,14 +283,19 @@ geezipx compress <inputs...> -o <output> [options]
 | Option | Description |
 |--------|-------------|
 | `-o`, `--output` | Output file path (required unless `--stdout` is used) |
-| `-f`, `--format` | Format: `zip`, `zipx`, `jar`, `war`, `apk`, `ipa`, `xpi`, `tar`, `tar.gz`, `tgz`, `tar.bz2`, `tbz`, `tbz2`, `tar.br`, `tar.lz4`, `tar.zst`, `tzst`, `tar.xz`, `txz`, `gz`, `gzip`, `bz2`, `bzip2`, `br`, `brotli`, `lz4`, `zst`, `zstd`, `xz`, `lzma`, `7z`, `rar`, `cab`, `asar`, `deb`, `lzh`, `lha`, `iso`, `cpio`, `zpaq`, `zpq`, `wim`, `swm` (inferred from extension if omitted, defaults to zip) |
+| `-f`, `--format` | Format: `zip`, `zipx`, `jar`, `war`, `apk`, `ipa`, `xpi`, `tar`, `tar.gz`, `tgz`, `tar.bz2`, `tbz`, `tbz2`, `tar.br`, `tar.lz4`, `tar.zst`, `tzst`, `tar.xz`, `txz`, `gz`, `gzip`, `bz2`, `bzip2`, `br`, `brotli`, `lz4`, `zst`, `zstd`, `xz`, `lzma`, `lz`, `7z`, `rar` (read-only), `cab`, `asar`, `deb`, `lzh`, `lha`, `iso`, `udf`, `cpio`, `zpaq`, `zpq`, `wim`, `swm`, `uu`, `uue`, `xxe`, `isz`, `aes`, `img`, `ima`, `bin` (inferred from extension if omitted, defaults to zip) |
 | `-r`, `--recursive` | Recursively add directories |
-| `-L`, `--level` | Compression level 0-9 (gzip/bzip2/tar.gz/tar.bz2/xz/lzma/tar.xz, default: 6; bzip2 level 0 maps to default); 0-11 (brotli/tar.br); 0-22 (zstd/zst/tar.zst/tzst, default: zstd default); lz4/tar.lz4 accept `0` or omitted level only |
-| `-j`, `--jobs` | Worker threads: 1 (default, single-threaded), 0 (auto, use all CPUs), or N (explicit). Effective for tar.gz (gzp parallel gzip) and zstd/tar.zst (native zstdmt); tar.xz/zip/xz/lzma accept but ignore for forward compat. **Note**: tar.gz `--jobs` does not apply in `--stdin` single-stream mode, only in archive mode |
-| `--password` | Encrypt ZIP or 7z with AES-256. Use `--password-file` to read the password from a file, or `--password-stdin` to read from stdin. These three options are mutually exclusive. For scripting, prefer `--password-file` or `--password-stdin` to avoid exposing the password in the process list |
-| `--stdin` | Read uncompressed data from stdin (gzip/bzip2/brotli/lz4/zstd/xz/lzma single-stream and tar.gz/tar.bz2/tar.br/tar.lz4/tar.zst/tar.xz raw tar; requires `--format`; mutually exclusive with input files) |
-| `--stdout` | Write compressed data to stdout (gzip/bzip2/brotli/lz4/zstd/xz/lzma single-stream and tar.gz/tar.bz2/tar.br/tar.lz4/tar.zst/tar.xz raw tar; requires `--format`; mutually exclusive with `--output`) |
-| `--sfx` | Create a self-extracting ZIP SFX executable (output is a native binary). Mutually exclusive with `--stdout` |
+| `-L`, `--level` | Compression level: 0-9 (gzip/bzip2/tar.gz/tar.bz2/xz/lzma/tar.xz); 0-11 (brotli/tar.br); 0-22 (zstd/zst/tar.zst/tzst); 0-4 (LZH: 0=lh0, 1=lh4, 2=lh5, 3=lh6, 4+=lh7); lz4/tar.lz4 accept `0` or omitted only |
+| `-j`, `--jobs` | Worker threads: 1 (default, single-threaded), 0 (auto), or N. Effective for tar.gz (gzp) and zstd/tar.zst (zstdmt) |
+| `--password` | Encrypt ZIP or 7z with AES-256. Use `--password-file` or `--password-stdin` alternatives |
+| `--7z-method` | 7z compression method: `lzma2` (default), `lzma`, `bzip2`, `ppmd`, `deflate`, `copy` |
+| `--dict-size` | LZMA2 dictionary size for 7z (e.g., `16M`, `64M`, `256M`) |
+| `--solid` | Enable 7z solid compression (better ratio for many small files) |
+| `--no-encrypt-filenames` | Disable 7z file name encryption (default: encrypt when password set) |
+| `--stdin` | Read uncompressed data from stdin (single-stream and tar-based formats; requires `--format`) |
+| `--stdout` | Write compressed data to stdout (single-stream and tar-based formats; requires `--format`) |
+| `--split-size` | Split output into multiple volumes (e.g., `100M`, `1G`); `.NNN` naming |
+| `--sfx` | Create a self-extracting ZIP SFX executable. Mutually exclusive with `--stdout` |
 | `--sfx-target` | Target platform for SFX: `linux`, `windows`, `macos` (default: host platform). Requires `--sfx` |
 
 ### `decompress` — Extract archives
@@ -248,7 +310,7 @@ Auto-detects the format via magic bytes (with extension fallback).
 |--------|-------------|
 | `-o`, `--output-dir` | Output directory (default: current directory) |
 | `--stdout` | Decompress to stdout. Single-stream (gzip/bzip2/brotli/lz4/zstd/xz/lzma): outputs original content. Tar-based (tar.gz/tar.bz2/tar.br/tar.lz4/tar.zst/tar.xz): outputs raw tar stream. Errors on multi-file archives (zip/tar/7z/rar) |
-| `--stdin` | Read compressed data from stdin (gzip/bzip2/brotli/lz4/zstd/xz/lzma and tar.gz/tar.bz2/tar.br/tar.lz4/tar.zst/tar.xz; requires `--format`; mutually exclusive with archive file) |
+| `--stdin` | Read compressed data from stdin (gzip/bzip2/brotli/lz4/zstd/xz/lzma and tar.gz/tar.bz2/tar.br/tar.lz4/tar.zst/tar.xz; plus lz, isz, aes, img, bin, uu, xxe; requires `--format`) |
 | `-f`, `--format` | Archive/stream format (required with `--stdin`) |
 | `--no-clobber` | Skip files that already exist |
 | `--force` | Overwrite existing files (default; mutually exclusive with `--no-clobber`) |
@@ -401,191 +463,27 @@ cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo doc --no-deps
 ```
 
-### RAR support
+### C++ build dependencies
 
-RAR archive support is **read-only** and **enabled by default**. The
-[`unrar`](https://crates.io/crates/unrar) crate links against the RARLAB freeware
-[UnRAR source](https://www.rarlab.com/rar_add.htm) (requires a C++ compiler).
+RAR and ZPAQ (read and write) require a C++17-capable compiler at build time:
 
 ```sh
-# Default build (RAR included)
+# Default build (RAR + ZPAQ via C++ backends)
 cargo build --release
-
-# Run tests with all features (RAR included)
 cargo test --all-features
-```
 
-If you want to build without the default C++-backed read-only formats (e.g., in an
-environment without a suitable C++ toolchain):
-
-```sh
+# Build without C++-backed features
 cargo build --release --no-default-features
 cargo test --no-default-features
 ```
 
-> **Note**: `cargo publish` and `cargo install` include RAR and ZPAQ support by default.
-> If you cannot satisfy the C++ compiler requirement, build with `--no-default-features`.
+> **Note**: `cargo install geezipx` includes RAR and ZPAQ by default. If you cannot satisfy the C++ compiler requirement, build with `--no-default-features`.
 
-### ASAR support
-
-ASAR archive support is **read-only**. GeeZipX can `list`, `decompress`, and `test` `.asar` archives in the CLI, and the Tauri GUI opens them in the Archive Browser for browsing and selective extraction.
-
-Unsupported ASAR features:
-
-- `compress` / archive creation
-- archive writing or update-in-place
-- encryption / password-based access
-
-```sh
-geezipx list app.asar
-geezipx test app.asar
-geezipx decompress app.asar -o out/
-```
-
-### DEB support
-
-DEB package support is **read-only** and follows `dpkg-deb -c` / `dpkg-deb -x` style payload handling. GeeZipX inspects the package's `data.tar*` member in the CLI (`list`, `decompress`, `test`) and the Tauri GUI Archive Browser; `control.tar.*` scripts and metadata are intentionally ignored in this phase.
-
-Unsupported DEB features:
-
-- `compress` / `.deb` package creation
-- package writing or update-in-place
-- control-script extraction or execution
-- encryption / password-based access
-
-```sh
-geezipx list package.deb
-geezipx test package.deb
-geezipx decompress package.deb -o out/
-```
-
-### CAB support
-
-CAB archive support is **read-only**. GeeZipX can `list`, `decompress`, and `test` `.cab` archives in the CLI, and the Tauri GUI Archive Browser can browse and extract them. The current MVP targets single-volume cabinets and does not support cabinet writing, encryption/password input, or multi-volume cabinet sets.
-
-Unsupported CAB features:
-
-- `compress` / cabinet creation
-- cabinet writing or update-in-place
-- encryption / password-based access
-- multi-volume cabinet sets
-
-```sh
-geezipx list archive.cab
-geezipx test archive.cab
-geezipx decompress archive.cab -o out/
-```
-
-### LZH/LHA support
-
-LZH/LHA archive support includes CLI/GUI `compress`, `list`, `decompress`, and `test`. The current writer is a store-only MVP: regular files are written as `-lh0-`, directories as `-lhd-`, and extraction validates raw LZH path bytes before `delharc` path normalization so dangerous `../`, absolute, UNC, and drive-relative names are rejected.
-
-Unsupported LZH/LHA features:
-
-- `lh5` / `lh6` / `lh7` compressed writing
-- encryption / password-based access
-- multi-volume archives
-- extended attributes and richer legacy metadata
-- long paths and level 1/2/3 extended-header writing
-- single entries larger than 4 GiB
-
-```sh
-geezipx compress hello.txt -f lzh -o archive.lzh
-geezipx list archive.lzh
-geezipx test archive.lha
-geezipx decompress archive.lzh -o out/
-```
-
-### ISO support
-
-ISO image support includes CLI/GUI `compress`, `list`, `decompress`, and `test`, plus GUI browsing and extraction. The current writer emits ISO 9660 Level 1 volumes (via `hadris-iso`) and the reader handles common ISO 9660 / Rock Ridge / Joliet data images. Extended Rock Ridge/Joliet creator metadata is preserved during copy.
-
-Unsupported ISO features:
-
-- extended ISO 9660 writing features (Level 2/3, deep directory trees, large files)
-- UDF-only media or multi-volume image sets
-- full El Torito boot metadata workflows
-- encryption / password-based access
-
-```sh
-# Write an ISO image
-geezipx compress myfiles/ -r -f iso -o disk.iso
-
-# Read and extract
-geezipx list disk.iso
-geezipx test disk.iso
-geezipx decompress disk.iso -o out/
-```
-
-### CPIO support
-
-CPIO archive support includes CLI/GUI `compress`, `list`, `decompress`, and `test`, plus GUI browsing and extraction. Supports `newc` and `odc` archive variants. The current writer creates portable CPIO archives suitable for initramfs and firmware workflows.
-
-Unsupported CPIO features:
-
-- `bin` / `crc` format variants beyond the current `newc` / `odc` MVP
-- symlink, hard-link, device, FIFO, or socket creation on the host filesystem
-- encryption / password-based access
-
-```sh
-# Write a CPIO archive
-geezipx compress myfiles/ -r -f cpio -o archive.cpio
-
-# Read and extract
-geezipx list archive.cpio
-geezipx test archive.cpio
-geezipx decompress archive.cpio -o out/
-```
-
-### ZPAQ support
-
-ZPAQ archive support includes CLI/GUI `compress`, `list`, `decompress`, and `test`, plus GUI browsing and extraction. GeeZipX uses the [`zpaq_rs`](https://crates.io/crates/zpaq_rs) crate (enabled by default via the `zpaq` feature). The writer supports compression level 1-5 and single-entry compression and decompression.
-
-Implementation notes:
-
-- `zpaq_rs` requires a C++17-capable compiler and Rust 1.85+; GeeZipX's workspace toolchain already exceeds that minimum, but the C++ compiler is still required at build time.
-- Single-entry extraction currently goes through `zpaq_rs` byte-buffer helpers, so GeeZipX does not overpromise fully streaming per-entry extraction for ZPAQ yet.
-- The writer creates self-contained ZPAQ archives from file entries; multi-entry append/update workflows are not yet supported.
-
-Unsupported ZPAQ features:
-
-- archive writing, append/update-in-place, or version selection
-- journaling-oriented workflows beyond single-shot creation
-- encryption / password-based access
-
-```sh
-# Compress to ZPAQ
-geezipx compress hello.txt -f zpaq -o backup.zpaq
-
-# Read and extract
-geezipx list backup.zpaq
-geezipx test backup.zpaq
-geezipx decompress backup.zpaq -o out/
-```
-
-### WIM support
-
-WIM (Windows Imaging Format) support is **read-only**. GeeZipX can `list`, `decompress`, and `test` `.wim` / `.swm` archives in the CLI, and the Tauri GUI Archive Browser can browse and extract them. The current MVP reads the first image only and supports XPRESS, LZX, and LZMS decompression.
-
-Unsupported WIM features:
-
-- `compress` / image creation
-- image writing or update-in-place
-- multi-image management or image switching
-- encryption / password-based access
-- solid (.swm) split image spanning
-
-```sh
-geezipx list image.wim
-geezipx test image.wim
-geezipx decompress image.wim -o out/
-```
-
-### SFX support
+### SFX self-extracting archives
 
 GeeZipX can create self-extracting ZIP executables for Linux, Windows, and macOS. An SFX archive is a native executable that embeds a ZIP payload and a stub that extracts it at runtime.
 
-The SFX stub is built from the `crates/sfx-stub` workspace member and must be compiled separately for each target platform. Pre-built stubs for `linux-x86_64`, `windows-x86_64`, and `macos-x86_64` are embedded in the core crate when built with the `sfx` feature (enabled by default in the CLI).
+The SFX stub is built from the `crates/sfx-stub` workspace member. Pre-built stubs for `linux-x86_64`, `windows-x86_64`, and `macos-x86_64` are embedded when built with the `sfx` feature (CLI default).
 
 ```sh
 # Build an SFX archive for the host platform
@@ -601,7 +499,23 @@ SFX notes:
 
 - Only ZIP archives can be wrapped in an SFX stub; `--sfx` implies `-f zip`.
 - `--sfx` and `--stdout` are mutually exclusive.
-- The SFX stub must be available for the target platform at build time. If building from source, run `cargo build -p sfx-stub --release` to produce stubs for the current platform.
+- Build stubs from source: `cargo build -p sfx-stub --release`.
+
+### Format-specific notes
+
+Most format limitations are documented in the Format Support table above. Key details:
+
+- **WIM write**: The WIM writer stores data **uncompressed** (CompressionType::None). For compressed WIM output, use wimlib or other tools.
+- **ASAR / CAB / DEB write**: All three formats now support writing. ASAR and CAB create single-volume archives; DEB writes `data.tar*` payload with a `debian-binary` + stubbed `control.tar.gz`.
+- **LZH/LHA write**: The writer supports lh0 (store) through lh7 compression via `oxiarc-lzhuf`. CLI level 0 → lh0, 1 → lh4, 2 → lh5, 3 → lh6, 4+ → lh7. Single entries >4 GiB and extended-header metadata are not supported.
+- **ISO write**: Writer emits ISO 9660 Level 1 volumes with Joliet. Extended Rock Ridge/Joliet creator metadata is preserved during copy. UDF-only writing is handled by the separate `udf` format.
+- **CPIO write**: Supports `newc` and `odc` variants. Does not create symlinks, devices, FIFOs, or sockets on extraction.
+- **ZPAQ write**: Supports level 1-5. Per-entry extraction goes through byte-buffer helpers; streaming extraction not guaranteed.
+- **ISZ**: Single-stream compression wrapper around ISO data. `list` shows a synthetic entry rather than individual files.
+- **AES `.enc`**: Single-stream AES-256-GCM-SIV encryption with Argon2id key derivation.
+- **IMG / BIN**: Identity pass-through — data is copied verbatim with no compression or transformation.
+- **UU / UUE / XXE**: Legacy text-encoding formats. Both decode (list/decompress/test) and encode (compress) are supported.
+- **RAR**: Read-only by licensing limitation. Decryption is supported via password flags.
 
 ### Benchmarks
 
@@ -617,16 +531,9 @@ cargo bench -p geezipx-core
 
 Benchmarks cover gzip throughput (4 levels x 2 sizes) and archive throughput (tar.gz, TarZst, ZIP round-trip).
 
-> **Note**: Benchmarks are advisory only. GitHub-hosted runner variance makes hard thresholds unreliable. No further investment in benchmark baselines or CI performance gates is planned.
+> **Note**: Benchmarks are advisory only. GitHub-hosted runner variance makes hard thresholds unreliable.
 
-### Interoperability Tests
-
-Code coverage is tracked via [cargo-tarpaulin](https://github.com/xd009642/tarpaulin) as an informational signal (no fail-under threshold). A scheduled CI workflow generates HTML and JSON reports on push to `main` and uploads them as build artifacts.
-
-```sh
-# Generate coverage report (output: coverage/tarpaulin-report.html and .json)
-cargo tarpaulin
-```
+### Interoperability & Coverage
 
 ```sh
 # Standard checks against system tar, unzip, gzip
@@ -635,6 +542,8 @@ bash scripts/check-interop.sh
 # Heavy stress mode (256 MB gzip, 1000-file tar.gz)
 GEEZIPX_INTEROP_STRESS=1 bash scripts/check-interop.sh
 ```
+
+Code coverage is tracked via [cargo-tarpaulin](https://github.com/xd009642/tarpaulin) as an informational signal (no fail-under threshold). A scheduled CI workflow generates HTML and JSON reports on push to `main` and uploads them as build artifacts.
 
 ### Release Build Verification
 
@@ -662,39 +571,19 @@ and the combined `SHA256SUMS` file.
 
 ### Phase 1 (CLI MVP) — Complete and Mature ✓
 
-All core features and the applicable format-specific subcommands are implemented and verified:
+All core CLI features and format support are complete. See the Format Support table above for the full read/write matrix.
 
-- [x] ZIP / TAR / 7Z / TAR.GZ / TAR.BZ2 / TAR.BR / TAR.LZ4 / TAR.ZST / TAR.XZ / GZIP / BZIP2 / Brotli / LZ4 / ZSTD / XZ / LZMA read/write
-- [x] ISO read/write (ISO 9660 Level 1, `compress`/`list`/`decompress`/`test`)
-- [x] ZPAQ read/write (compression level 1-5, `compress`/`list`/`decompress`/`test`)
-- [x] CPIO read/write (`newc`/`odc`, `compress`/`list`/`decompress`/`test`)
-- [x] LZH / LHA store-only read/write MVP (`compress`, `list`, `decompress`, `test`)
-- [x] SFX self-extracting archives (`--sfx`/`--sfx-target`, Linux/Windows/macOS)
-- [x] WIM read-only support (`.wim`/`.swm`, XPRESS/LZX/LZMS, single-image MVP)
-- [x] RAR / CAB / ASAR / DEB read-only support via `list`, `decompress`, and `test`
-- [x] Streaming I/O with bounded memory usage
-- [x] Progress bars with `indicatif`
-- [x] Ctrl+C graceful cancellation
-- [x] Auto-format detection (magic bytes + extension)
-- [x] Clobber protection (`--no-clobber` / `--force`)
-- [x] Zip Slip path traversal protection
-- [x] Shell completions (5 shells)
-- [x] `list --json` machine-readable output
-- [x] `test` archive integrity verification with JSON output
-- [x] 400+ tests (unit + integration + interop + streaming smoke)
-- [x] 3-platform CI (Linux/macOS/Windows)
-- [x] `cargo-deny` security audit
-- [x] Criterion benchmarks (advisory, no hard gate)
-- [x] crates.io releases
-- [x] Multi-threaded compression (`-j`/`--jobs` for tar.gz, zstd/tar.zst)
-- [x] ZIP / 7z AES-256 password encryption
-- [x] stdin/stdout pipelines for single-stream and tar-based formats
+- 1,000+ tests (unit + integration + interop + streaming smoke)
+- 3-platform CI (Linux/macOS/Windows)
+- crates.io releases: `geezipx` (CLI) and `geezipx-core`
+- `cargo-deny` security audit
+- Criterion benchmarks (advisory, no hard gate)
 
-### Phase 2 (Desktop GUI via Tauri) — Current Development (v0.6.0)
+### Phase 2 (Desktop GUI via Tauri) — Current Development (v0.7.3)
 
 - [x] Tauri v2 project skeleton + TypeScript/Vite frontend
 - [x] Core engine bridge via Tauri commands
-- [x] Archive browser with file associations (read/write flows for `.iso`, `.zpaq`, `.cpio`, `.lzh`, `.lha`; read-only flows for `.cab`, `.asar`, `.deb`, `.wim`; plus `.rar`) open/browse/extract
+- [x] Archive browser with file associations (all formats open/browse/extract)
 - [x] Selective extraction from archives
 - [x] In-app text/hex preview
 - [x] Drag & drop into the app
@@ -703,7 +592,12 @@ All core features and the applicable format-specific subcommands are implemented
 - [x] Password prompts for encrypted archives (ZIP AES-256, 7z, RAR)
 - [x] Live progress display with speed and remaining time
 - [x] Cancel-safe task execution
-- [x] GUI bundle CI is configured: standalone `gui-windows.yml` for Windows builds, plus `release.yml` for `.AppImage`, `.dmg`, and `.msi` artifacts
+- [x] Multi-tab archive browsing
+- [x] Home page with recent archives and quick actions
+- [x] Settings panel (language, output directory, overwrite strategy, theme, etc.)
+- [x] Toast notifications for task completion and errors
+- [x] Windows right-click context-menu integration
+- [x] GUI bundle CI: standalone `gui-windows.yml` + `release.yml` for `.AppImage`, `.dmg`, `.msi`
 - [ ] First end-to-end tag-release verification of GUI bundles
 - [ ] Window state persistence and additional polish
 
@@ -712,13 +606,8 @@ See [`docs/GUI_MVP_PLAN.md`](docs/GUI_MVP_PLAN.md) for detailed planning and tas
 ### Phase 3 (Future)
 
 - [ ] Platform-native installers (Homebrew, winget, APT)
-- **Format expansion** — phased, see [docs/PRD.md](docs/PRD.md) section 5.1 for the full target list
-  - Broader LZH compressed writing (`lh5`/`lh6`/`lh7`, extended metadata, multi-volume)
-  - Advanced 7z writing features (advanced codec/tuning)
-  - Historical/legacy: ARJ, ACE, ARC, ALZ (via adapter/evaluation)
-  - Container/derived: JAR, WAR, APK, IPA, XPI (ZIP-reuse)
-  - Disk images: IMG, ISZ, UDF
-  - More formats driven by user requests and community feedback
+- **Format expansion** — driven by user requests and community feedback
+- Further GUI polish and platform integration
 
 ---
 
