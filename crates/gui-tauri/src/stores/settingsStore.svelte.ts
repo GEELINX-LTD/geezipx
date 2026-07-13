@@ -12,15 +12,39 @@ const DEFAULTS: GeeZipXSettings = {
   recursive: true,
   theme: 'system',
   on_complete: 'nothing',
-  default_password: null,
-  remember_password: false,
 };
 
-let store: Store | null = null;
+async function loadStore(): Promise<Store | null> {
+  try {
+    const loadedStore = await Store.load(STORE_PATH);
+
+    // Remove legacy password settings without reading their values. Cleanup is
+    // best-effort so a store write failure cannot block application startup.
+    try {
+      const hasDefaultPassword = await loadedStore.has('default_password');
+      const hasRememberPassword = await loadedStore.has('remember_password');
+      if (hasDefaultPassword || hasRememberPassword) {
+        if (hasDefaultPassword) await loadedStore.delete('default_password');
+        if (hasRememberPassword) await loadedStore.delete('remember_password');
+        await loadedStore.save();
+      }
+    } catch {
+      // Cleanup is retried on the next launch.
+    }
+
+    return loadedStore;
+  } catch {
+    return null;
+  }
+}
+
+// Start loading and cleanup when this module is imported by the app.
+const storePromise = loadStore();
 
 async function getStore(): Promise<Store> {
-  if (!store) store = await Store.load(STORE_PATH);
-  return store;
+  const loadedStore = await storePromise;
+  if (!loadedStore) throw new Error('Settings store is unavailable');
+  return loadedStore;
 }
 
 /** Load all settings, filling unset keys with defaults. */
@@ -43,8 +67,8 @@ async function loadAll(): Promise<GeeZipXSettings> {
 /** Persist all settings. */
 async function saveAll(settings: GeeZipXSettings): Promise<void> {
   const s = await getStore();
-  for (const [key, value] of Object.entries(settings)) {
-    await s.set(key, value);
+  for (const key of Object.keys(DEFAULTS) as (keyof GeeZipXSettings)[]) {
+    await s.set(key, settings[key]);
   }
   await s.save();
 }

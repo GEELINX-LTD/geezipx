@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import { settingsStore } from '../stores/settingsStore.svelte';
   import { settingsGuard } from '../stores/settingsGuard.svelte';
   import { localeStore } from '../stores/localeStore.svelte';
@@ -27,7 +28,7 @@
     settingsGuard.dirty = dirty;
   });
 
-  $effect(() => {
+  onMount(() => {
     Promise.all([
       settingsStore.loadAll(),
       getFormats(),
@@ -40,9 +41,7 @@
       associations = a;
       loaded = true;
     });
-  });
 
-  $effect(() => {
     getVersion().then(v => version = v);
   });
 
@@ -92,11 +91,6 @@
     // Fall back to a valid format if the stored one was removed.
     if (!formats.some((f) => f.can_compress && f.name === next.default_format)) {
       next.default_format = 'zip';
-    }
-
-    // Do not persist the password unless the user opted in.
-    if (!next.remember_password) {
-      next.default_password = null;
     }
 
     formData = next;
@@ -316,31 +310,6 @@
               onchange={(e) => (formData = { ...formData, recursive: (e.currentTarget as HTMLInputElement).checked })}
             />
             <span>{localeStore.t('settings.recursive.label')}</span>
-          </label>
-        </div>
-
-        <!-- Default password -->
-        <div class="field">
-          <label class="field-label" for="setting-password">{localeStore.t('settings.defaultPassword.label')}</label>
-          <p class="field-help">{localeStore.t('settings.defaultPassword.help')}</p>
-          <input
-            type="password"
-            id="setting-password"
-            placeholder="••••••"
-            value={formData.default_password ?? ''}
-            oninput={(e) => (formData = { ...formData, default_password: (e.currentTarget as HTMLInputElement).value || null })}
-          />
-        </div>
-
-        <!-- Remember password -->
-        <div class="field">
-          <label class="checkbox-row">
-            <input
-              type="checkbox"
-              checked={formData.remember_password}
-              onchange={(e) => (formData = { ...formData, remember_password: (e.currentTarget as HTMLInputElement).checked })}
-            />
-            <span>{localeStore.t('settings.rememberPassword.label')}</span>
           </label>
         </div>
 

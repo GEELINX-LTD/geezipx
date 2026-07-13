@@ -17,6 +17,7 @@
   let onComplete = $state<'nothing' | 'open_output'>('nothing');
   let showPrompt = $state(false);
   let pendingKind = $state<'all' | 'selected'>('all');
+  let extractPassword = $state('');
 
   $effect(() => {
     const current = archiveStore.archivePath;
@@ -32,21 +33,17 @@
   Promise.all([
     settingsStore.get('overwrite_strategy'),
     settingsStore.get('default_output_dir'),
-    settingsStore.get('default_password'),
-    settingsStore.get('remember_password'),
     settingsStore.get('on_complete'),
-  ]).then(([strat, outDir, pwd, remember, onComp]) => {
+  ]).then(([strat, outDir, onComp]) => {
     strategy = strat ?? 'prompt';
     defaultOutputDir = outDir ?? null;
     // If the output dir hasn't been set yet (e.g. the archive was already open at
     // mount, before settings resolved), seed it from the configured default.
     if (outDir && !outputDir) outputDir = outDir;
     onComplete = onComp ?? 'nothing';
-    if (remember && pwd) extractPassword = pwd;
     // Initialize the per-run overwrite checkbox from the strategy.
     overwrite = strategy !== 'skip';
   });
-  let extractPassword = $state('');
   let result: string | null = $state(null);
   let error: string | null = $state(null);
 

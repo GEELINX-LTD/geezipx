@@ -103,11 +103,9 @@
           : 'archive';
         const outputPath = parentDir + baseName + '.zip';
 
-        // Honour user's saved defaults for level, password, and recursion.
-        const [level, pwd, remember, rec] = await Promise.all([
+        // Honour the user's saved compression defaults.
+        const [level, rec] = await Promise.all([
           settingsStore.get('default_level'),
-          settingsStore.get('default_password'),
-          settingsStore.get('remember_password'),
           settingsStore.get('recursive'),
         ]);
         const taskId = `compress-${Date.now()}`;
@@ -119,7 +117,7 @@
             'zip',
             level ?? undefined,
             undefined,
-            remember ? (pwd || undefined) : undefined,
+            undefined,
             rec ?? true,
             taskId,
           );
