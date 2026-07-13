@@ -38,7 +38,7 @@ jobs:
         run: npm ci
 
       - name: Build Tauri GUI (Windows)
-        run: npm run tauri build
+        run: npm run tauri build -- --bundles nsis
         env:
           TAURI_SIGNING_PRIVATE_KEY: ""
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
@@ -49,7 +49,6 @@ jobs:
           name: geezipx-gui-windows-x86_64
           path: |
             target/release/geezipx-gui.exe
-            target/release/bundle/msi/*.msi
             target/release/bundle/nsis/*.exe
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 30

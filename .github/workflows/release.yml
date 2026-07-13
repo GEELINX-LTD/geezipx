@@ -180,17 +180,17 @@ jobs:
         run: npm ci
       - name: Build Tauri (Windows)
         working-directory: crates/gui-tauri
-        run: npm run tauri build -- --bundles msi
+        run: npm run tauri build -- --bundles nsis
       - name: Collect artifacts
         shell: pwsh
         run: |
           mkdir -p dist
-          Copy-Item target/release/bundle/msi/*.msi dist/ -ErrorAction SilentlyContinue
+          Copy-Item target/release/bundle/nsis/*.exe dist/
       - uses: actions/upload-artifact@v7
         with:
           name: geezipx-gui-windows-x86_64
           path: dist/*
-          if-no-files-found: warn
+          if-no-files-found: error
 
   consolidate:
     needs: [build, gui-linux, gui-macos, gui-windows]

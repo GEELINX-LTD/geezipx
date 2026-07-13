@@ -597,7 +597,7 @@ All core CLI features and format support are complete. See the Format Support ta
 - [x] Settings panel (language, output directory, overwrite strategy, theme, etc.)
 - [x] Toast notifications for task completion and errors
 - [x] Windows right-click context-menu integration
-- [x] GUI bundle CI: standalone `gui-windows.yml` + `release.yml` for `.AppImage`, `.dmg`, `.msi`
+- [x] GUI bundle CI: standalone `gui-windows.yml` + `release.yml` for `.AppImage`, `.dmg`, `.exe (NSIS installer)`
 - [ ] First end-to-end tag-release verification of GUI bundles
 - [ ] Window state persistence and additional polish
 

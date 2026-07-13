@@ -572,7 +572,7 @@ cargo build --release --workspace
 - [x] 设置面板（语言、输出目录、覆盖策略、主题等）
 - [x] 任务完成与错误通知（Toast）
 - [x] Windows 右键菜单集成
-- [x] GUI bundle CI：`gui-windows.yml` + `release.yml`（.AppImage/.dmg/.msi）
+- [x] GUI bundle CI：`gui-windows.yml` + `release.yml`（.AppImage/.dmg/.exe (NSIS 安装器)）
 - [ ] GUI bundle 的首次 tag release 端到端验证
 - [ ] 窗口状态持久化与更多打磨项
 

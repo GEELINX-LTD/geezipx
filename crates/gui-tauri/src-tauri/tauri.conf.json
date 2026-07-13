@@ -39,7 +39,9 @@
     ],
     "windows": {
       "nsis": {
-        "installerHooks": "./windows/hooks.nsi"
+        "installerHooks": "./windows/hooks.nsi",
+        "languages": ["English", "SimpChinese"],
+        "displayLanguageSelector": true
       }
     },
     "fileAssociations": [
