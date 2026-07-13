@@ -149,13 +149,6 @@
       "nothing": "无操作",
       "openOutput": "打开输出目录"
     },
-    "defaultPassword": {
-      "label": "默认密码",
-      "help": "用于预填加密与解压密码。注意：密码以明文保存在本地设置文件中。"
-    },
-    "rememberPassword": {
-      "label": "记住默认密码"
-    },
     "theme": {
       "label": "主题",
       "system": "跟随系统",

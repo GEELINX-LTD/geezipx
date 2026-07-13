@@ -117,10 +117,6 @@ export interface GeeZipXSettings {
   theme: 'system' | 'light' | 'dark';
   /** Behavior after a compress/extract task finishes. */
   on_complete: 'nothing' | 'open_output';
-  /** Default password used to pre-fill encryption / extraction fields. */
-  default_password: string | null;
-  /** Whether to persist `default_password` in the settings store. */
-  remember_password: boolean;
 }
 
 // ---------------------------------------------------------------------------

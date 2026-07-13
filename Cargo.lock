@@ -2462,14 +2462,12 @@ dependencies = [
 [[package]]
 name = "hadris-common"
 version = "1.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "69865bf6659f52a005745c4b92c556950135c0759796b58e6d34914c077e6a40"
 dependencies = [
  "bytemuck",
  "chrono",
  "crc",
  "hadris-io",
- "noalloc",
+ "planck-noalloc",
  "rand",
  "zerocopy",
 ]
@@ -3424,12 +3422,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "noalloc"
-version = "0.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5a2537501480803dd22fbd79a39ea83318caba3ba936f7554f7139f4180faa94"
-
-[[package]]
 name = "nom"
 version = "7.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3980,6 +3972,12 @@ name = "pkg-config"
 version = "0.3.33"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "19f132c84eca552bf34cab8ec81f1c1dcc229b811638f9d283dceabe58c5569e"
+
+[[package]]
+name = "planck-noalloc"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4c7a56e8ce7b18f76243e5b98405b43c1188277b08f96baa6940979cf0ad83d9"
 
 [[package]]
 name = "plist"

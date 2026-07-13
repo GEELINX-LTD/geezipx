@@ -188,7 +188,7 @@ crates/gui-tauri/src/
 
 | 标签页 | 设置项 |
 | **通用** | locale（`'en' \| 'zh-CN'`）、默认输出目录、覆盖策略、完成后行为 |
-| **压缩** | 默认格式、压缩级别、递归、默认密码、记住密码 |
+| **压缩** | 默认格式、压缩级别、递归 |
 | **外观** | 主题（`system \| light \| dark`），即时 `data-theme` 切换 |
 | **文件关联** | 格式扩展名列表 + 绑定状态；macOS 复选框直绑，Windows 引导跳转系统设置 |
 | **关于** | 应用名 + 动态版本号、技术栈、GitHub 链接 |
@@ -205,8 +205,6 @@ export interface GeeZipXSettings {
   recursive: boolean;
   theme: 'system' | 'light' | 'dark';
   on_complete: 'nothing' | 'open_output';
-  default_password: string | null;
-  remember_password: boolean;
 }
 ```
 

@@ -43,16 +43,13 @@
     settingsStore.get('default_level'),
     settingsStore.get('default_output_dir'),
     settingsStore.get('recursive'),
-    settingsStore.get('default_password'),
-    settingsStore.get('remember_password'),
     settingsStore.get('on_complete'),
-  ]).then(([fmt, lvl, outDir, rec, pwd, remember, onComp]) => {
+  ]).then(([fmt, lvl, outDir, rec, onComp]) => {
     if (fmt) format = fmt;
     if (lvl !== undefined && lvl !== null) level = lvl;
     defaultOutputDir = outDir ?? null;
     recursiveFlag = rec ?? true;
     onComplete = onComp ?? 'nothing';
-    if (remember && pwd) password = pwd;
   });
 
   onMount(() => {
@@ -146,7 +143,6 @@
       toastStore.show(localeStore.t('compress.errorPrefix', { message: msg }), 'error');
     }
   }
-
 
 </script>
 

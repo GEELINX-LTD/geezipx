@@ -149,13 +149,6 @@
       "nothing": "Do nothing",
       "openOutput": "Open output directory"
     },
-    "defaultPassword": {
-      "label": "Default password",
-      "help": "Pre-fills encryption and extraction password fields. Note: stored in plaintext in the local settings file."
-    },
-    "rememberPassword": {
-      "label": "Remember default password"
-    },
     "theme": {
       "label": "Theme",
       "system": "Follow system",

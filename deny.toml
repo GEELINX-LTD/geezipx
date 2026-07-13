@@ -22,6 +22,10 @@ allow = [
     "MPL-2.0",
 ]
 
+[[licenses.exceptions]]
+name = "xxhash-rust"
+allow = ["BSL-1.0"]
+
 [bans]
 multiple-versions = "warn"
 wildcards = "deny"

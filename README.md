@@ -66,7 +66,6 @@ The desktop GUI exposes the following settings (persisted locally via the Tauri 
 | Behavior after completion | General | `Do nothing` or `Open output directory` after a successful task. |
 | Default format / level | Compression | Pre-selected archive format and compression level. |
 | Add directories recursively | Compression | When off, a folder source contributes only its immediate files (subfolders are skipped). |
-| Default password / Remember | Compression | Pre-fills encryption and extraction password fields. Password is stored in plaintext in the local settings file. |
 | Theme | Appearance | `Follow system`, `Light`, or `Dark`. |
 
 Unsaved setting changes are flagged; navigating away from the Settings tab prompts for confirmation before discarding.

@@ -95,6 +95,7 @@ pub fn execute(
         );
     }
 
+    crate::signal::CancellationToken::reset();
     let cancel_token = crate::signal::CancellationToken::new();
 
     // Ensure the output directory exists.
@@ -1729,6 +1730,7 @@ fn execute_decompress_volume(
         );
     }
 
+    crate::signal::CancellationToken::reset();
     let cancel_token = crate::signal::CancellationToken::new();
 
     if !stdout {

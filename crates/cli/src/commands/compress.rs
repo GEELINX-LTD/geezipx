@@ -117,6 +117,7 @@ pub fn execute(
         );
     }
 
+    crate::signal::CancellationToken::reset();
     let cancel_token = crate::signal::CancellationToken::new();
 
     // Build 7z-specific options and validate
