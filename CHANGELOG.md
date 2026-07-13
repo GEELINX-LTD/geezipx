@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.3] - 2026-07-13
+
+### Fixed
+
+- **CLI — CancellationToken multi-token isolation**: Added explicit `CancellationToken::reset()` before each compress/decompress operation, preventing cancellation state from being spuriously cleared across concurrent or sequential operations. Test isolation is improved with per-operation reset semantics.
+
+### Changed
+
+- **Deps — Replace GPL-3.0 archive dependency**: Vendored `hadris-common` (MIT) locally and patched its `Cargo.toml` to use `planck-noalloc` 0.1.1 (MIT) instead of `noalloc` 0.0.1 (GPL-3.0), restoring GeeZipX's MIT-only distribution. Added BSL-1.0 exception for `xxhash-rust` in `deny.toml`. Extended `cargo-deny` audit workflow to run on PR and main branch pushes in addition to tag-triggered runs.
+
+- **GUI — Remove default password and remember-password settings**: Removed `default_password` and `remember_password` from the GUI settings store and preferences UI. Passwords are now accepted only as per-operation parameters for single-use compress/extract operations. Legacy plaintext password keys are cleaned up on settings store initialization, ensuring no password data persists beyond an individual operation session.
+
 ## [0.7.2] - 2026-07-13
 
 ### Fixed
@@ -656,7 +668,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Benchmark compile check on every push/PR
   - Manual trigger benchmark workflow with optional filter parameter
 
-[Unreleased]: https://github.com/GEELINX-LTD/geezipx/compare/v0.7.2...HEAD
+[Unreleased]: https://github.com/GEELINX-LTD/geezipx/compare/v0.7.3...HEAD
+[0.7.3]: https://github.com/GEELINX-LTD/geezipx/compare/v0.7.2...v0.7.3
 [0.7.2]: https://github.com/GEELINX-LTD/geezipx/compare/v0.7.1...v0.7.2
 [0.7.1]: https://github.com/GEELINX-LTD/geezipx/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/GEELINX-LTD/geezipx/releases/tag/v0.7.0
