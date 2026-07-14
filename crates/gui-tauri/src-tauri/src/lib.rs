@@ -250,6 +250,8 @@ pub fn run() {
             commands::drag::prepare_drag_entries,
             commands::drag::cleanup_drag_temp_dir,
             commands::drag::cleanup_stale_drag_temp_dirs,
+            commands::shell_menu::get_shell_menu_state,
+            commands::shell_menu::set_shell_menu,
         ])
         .setup(move |app| {
             // Store cold-start file paths (if any) into state.

@@ -14,4 +14,5 @@ pub mod formats;
 pub mod list;
 pub mod preview_entry;
 pub mod progress;
+pub mod shell_menu;
 pub mod test;

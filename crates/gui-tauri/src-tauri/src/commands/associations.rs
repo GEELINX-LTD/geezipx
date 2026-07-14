@@ -10,14 +10,19 @@
 //! - **macOS** (non-sandboxed): Launch Services
 //!   `LSSetDefaultRoleHandlerForContentType` / `LSCopyDefaultRoleHandlerForContentType`.
 //!   Toggling makes GeeZipX the default directly.
-//! - **Windows**: We register a per-user ProgID + `OpenWithProgids` (no admin) so
-//!   GeeZipX shows up in "Open with…" / Default Apps. Windows protects the
-//!   `UserChoice` default and provides no supported runtime API to set it, so the
-//!   *default* must be confirmed by the user in System Settings — we open the
-//!   official `ms-settings:defaultapps?registeredAppUser=GeeZipX` deep link for that.
+//! - **Windows**: We register a per-user ProgID + `OpenWithProgids` (no admin) via the
+//!   [`windows-registry`] safe API so GeeZipX shows up in "Open with…" / Default Apps.
+//!   Windows protects the `UserChoice` default and provides no supported runtime API to
+//!   set it, so the *default* must be confirmed by the user in System Settings — we open
+//!   the official `ms-settings:defaultapps?registeredAppUser=GeeZipX` deep link for that.
 
 use crate::state::AppState;
 use serde::Serialize;
+
+#[cfg(target_os = "linux")]
+use std::process::Command;
+
+#[cfg(target_os = "macos")]
 use std::process::Command;
 
 /// One bindable archive format.
@@ -300,7 +305,16 @@ pub fn get_file_associations() -> AssociationsResult {
     let items = DEFS
         .iter()
         .map(|d| {
-            let state = platform::query_state(d.mime, d.ext, d.uti);
+            let state = platform::query_state(d.mime, d.ext, d.uti).unwrap_or_else(|e| {
+                eprintln!(
+                    "warning: failed to query association state for {}: {e}",
+                    d.ext
+                );
+                AssocState {
+                    is_default: None,
+                    is_registered: false,
+                }
+            });
             AssocItem {
                 ext: d.ext.to_string(),
                 exts: d.exts.iter().map(|s| s.to_string()).collect(),
@@ -341,17 +355,21 @@ pub fn open_association_settings(ext: Option<String>) -> Result<(), String> {
 }
 
 // ---------------------------------------------------------------------------
+// Shared state for platform module return types
+// ---------------------------------------------------------------------------
+
+pub struct AssocState {
+    pub is_default: Option<bool>,
+    pub is_registered: bool,
+}
+
+// ---------------------------------------------------------------------------
 // Platform-specific implementations
 // ---------------------------------------------------------------------------
 
 #[cfg(target_os = "linux")]
 mod platform {
     use super::*;
-
-    pub struct AssocState {
-        pub is_default: Option<bool>,
-        pub is_registered: bool,
-    }
 
     /// Locate our installed `.desktop` file by scanning the standard
     /// application directories for a file that references our bundle identifier
@@ -402,14 +420,14 @@ mod platform {
             .map(|s| s.trim().to_string())
     }
 
-    pub fn query_state(mime: &str, _ext: &str, _uti: &str) -> AssocState {
+    pub fn query_state(mime: &str, _ext: &str, _uti: &str) -> Result<AssocState, String> {
         let desktop = our_desktop();
         let cur = xdg_mime(&["query", "default", mime]).filter(|s| !s.is_empty());
         let is_default = cur.as_ref().map(|c| c.eq_ignore_ascii_case(&desktop));
-        AssocState {
+        Ok(AssocState {
             is_default,
             is_registered: is_default.unwrap_or(false),
-        }
+        })
     }
 
     pub fn apply(
@@ -467,11 +485,6 @@ mod platform {
     use core_foundation_sys::array::CFArrayRef;
     use core_foundation_sys::string::CFStringRef;
 
-    pub struct AssocState {
-        pub is_default: Option<bool>,
-        pub is_registered: bool,
-    }
-
     const ROLE_VIEWER: u32 = 1 << 1;
 
     #[link(name = "CoreServices", kind = "framework")]
@@ -493,7 +506,7 @@ mod platform {
         "com.geelinx.geezipx".into()
     }
 
-    pub fn query_state(_mime: &str, _ext: &str, uti: &str) -> AssocState {
+    pub fn query_state(_mime: &str, _ext: &str, uti: &str) -> Result<AssocState, String> {
         let uti_cf = CFString::new(uti);
         let bid = bundle_id();
 
@@ -522,10 +535,10 @@ mod platform {
             }
         };
 
-        AssocState {
+        Ok(AssocState {
             is_default,
             is_registered,
-        }
+        })
     }
 
     pub fn apply(
@@ -578,10 +591,14 @@ mod platform {
 #[cfg(target_os = "windows")]
 mod platform {
     use super::*;
-    use std::os::windows::process::CommandExt;
-    use std::os::windows::process::ExitStatusExt;
+    use windows_registry::{self as wr, CURRENT_USER};
 
-    const CREATE_NO_WINDOW: u32 = 0x08000000;
+    // HRESULT for Win32 ERROR_FILE_NOT_FOUND (0x2).
+    const HR_FILE_NOT_FOUND: i32 = 0x80070002u32 as i32;
+
+    fn is_not_found(err: &wr::Error) -> bool {
+        err.code().0 == HR_FILE_NOT_FOUND
+    }
 
     extern "system" {
         /// Opens a file, URL, or folder via the Windows shell. Returns a value
@@ -597,11 +614,6 @@ mod platform {
         ) -> isize;
     }
 
-    pub struct AssocState {
-        pub is_default: Option<bool>,
-        pub is_registered: bool,
-    }
-
     fn our_exe() -> String {
         std::env::current_exe()
             .map(|p| p.to_string_lossy().to_string())
@@ -613,36 +625,24 @@ mod platform {
         format!("GeeZipX{ext}")
     }
 
-    /// Run `reg` via cmd. Returns a dummy failed output if `reg` is unavailable.
-    fn reg(args: &[&str]) -> std::process::Output {
-        Command::new("cmd")
-            .args(["/c", "reg"])
-            .args(args)
-            .creation_flags(CREATE_NO_WINDOW)
-            .output()
-            .unwrap_or_else(|_| std::process::Output {
-                status: ExitStatusExt::from_raw(1),
-                stdout: Vec::new(),
-                stderr: Vec::new(),
-            })
-    }
-
-    pub fn query_state(_mime: &str, ext: &str, _uti: &str) -> AssocState {
+    pub fn query_state(_mime: &str, ext: &str, _uti: &str) -> Result<AssocState, String> {
         let pid = prog_id(ext);
-        let out = reg(&[
-            "query",
-            &format!(r"HKCU\Software\Classes\{ext}\OpenWithProgids"),
-            "/v",
-            &pid,
-        ]);
-        let registered =
-            out.status.success() && String::from_utf8_lossy(&out.stdout).contains(&pid);
+        let ow_path = format!(r"Software\Classes\{ext}\OpenWithProgids");
+
+        let registered = match CURRENT_USER.open(&ow_path) {
+            Ok(key) => key.get_string(&pid).is_ok(),
+            Err(e) if is_not_found(&e) => false,
+            Err(e) => {
+                return Err(format!("failed to query {ow_path}: {e}"));
+            }
+        };
+
         // Windows does not expose the default handler reliably, so we only
         // report whether we are registered as a handler.
-        AssocState {
+        Ok(AssocState {
             is_default: None,
             is_registered: registered,
-        }
+        })
     }
 
     pub fn apply(
@@ -657,76 +657,87 @@ mod platform {
 
         if enabled {
             // 1) ProgID -> open command.
-            let prog_key = format!(r"HKCU\Software\Classes\{pid}");
-            let _ = reg(&[
-                "add",
-                &prog_key,
-                "/ve",
-                "/t",
-                "REG_SZ",
-                "/d",
-                "GeeZipX Archive",
-                "/f",
-            ]);
-            let cmd_key = format!(r"{prog_key}\shell\open\command");
+            let prog_key_path = format!(r"Software\Classes\{pid}");
+            let prog_key = CURRENT_USER
+                .create(&prog_key_path)
+                .map_err(|e| format!("failed to create ProgID key {prog_key_path}: {e}"))?;
+            prog_key
+                .set_string("", "GeeZipX Archive")
+                .map_err(|e| format!("failed to set ProgID default value: {e}"))?;
+
+            let cmd_key_path = format!(r"{prog_key_path}\shell\open\command");
             let cmd = format!("\"{exe}\" \"%1\"");
-            let _ = reg(&["add", &cmd_key, "/ve", "/t", "REG_SZ", "/d", &cmd, "/f"]);
+            let cmd_key = CURRENT_USER
+                .create(&cmd_key_path)
+                .map_err(|e| format!("failed to create command key {cmd_key_path}: {e}"))?;
+            cmd_key
+                .set_string("", &cmd)
+                .map_err(|e| format!("failed to set command default value: {e}"))?;
 
             // 2) Register as an "Open with…" handler for the extension.
-            let ow_key = format!(r"HKCU\Software\Classes\{ext}\OpenWithProgids");
-            let _ = reg(&["add", &ow_key, "/v", &pid, "/t", "REG_SZ", "/d", "", "/f"]);
+            let ow_path = format!(r"Software\Classes\{ext}\OpenWithProgids");
+            let ow_key = CURRENT_USER
+                .create(&ow_path)
+                .map_err(|e| format!("failed to create OpenWithProgids key {ow_path}: {e}"))?;
+            ow_key
+                .set_string(&pid, "")
+                .map_err(|e| format!("failed to set OpenWithProgids value for {pid}: {e}"))?;
 
             // 3) Register in Default Apps so `ms-settings:defaultapps` finds us.
-            let cap_key = r"HKCU\Software\Classes\Applications\geezipx.exe\Capabilities";
-            let _ = reg(&[
-                "add",
-                &format!(r"{cap_key}\FileAssociations"),
-                "/v",
-                ext,
-                "/t",
-                "REG_SZ",
-                "/d",
-                &pid,
-                "/f",
-            ]);
-            let _ = reg(&[
-                "add",
-                cap_key,
-                "/v",
-                "ApplicationName",
-                "/t",
-                "REG_SZ",
-                "/d",
-                "GeeZipX",
-                "/f",
-            ]);
-            let _ = reg(&[
-                "add",
-                cap_key,
-                "/v",
-                "ApplicationDescription",
-                "/t",
-                "REG_SZ",
-                "/d",
-                "GeeZipX Archive Tool",
-                "/f",
-            ]);
-            let _ = reg(&[
-                "add",
-                r"HKCU\Software\RegisteredApplications",
-                "/v",
-                "GeeZipX",
-                "/t",
-                "REG_SZ",
-                "/d",
-                cap_key,
-                "/f",
-            ]);
+            let cap_path = r"Software\Classes\Applications\geezipx.exe\Capabilities";
+            let cap_key = CURRENT_USER
+                .create(cap_path)
+                .map_err(|e| format!("failed to create Capabilities key: {e}"))?;
+            cap_key
+                .set_string("ApplicationName", "GeeZipX")
+                .map_err(|e| format!("failed to set ApplicationName: {e}"))?;
+            cap_key
+                .set_string("ApplicationDescription", "GeeZipX Archive Tool")
+                .map_err(|e| format!("failed to set ApplicationDescription: {e}"))?;
+
+            let fa_path = format!(r"{cap_path}\FileAssociations");
+            let fa_key = CURRENT_USER
+                .create(&fa_path)
+                .map_err(|e| format!("failed to create FileAssociations key: {e}"))?;
+            fa_key
+                .set_string(ext, &pid)
+                .map_err(|e| format!("failed to set FileAssociations for {ext}: {e}"))?;
+
+            let ra_path = r"Software\RegisteredApplications";
+            let ra_key = CURRENT_USER
+                .create(ra_path)
+                .map_err(|e| format!("failed to create RegisteredApplications key: {e}"))?;
+            ra_key
+                .set_string("GeeZipX", cap_path)
+                .map_err(|e| format!("failed to set RegisteredApplications for GeeZipX: {e}"))?;
         } else {
-            // Remove the handler registration (best-effort, ignore errors).
-            let ow_key = format!(r"HKCU\Software\Classes\{ext}\OpenWithProgids");
-            let _ = reg(&["delete", &ow_key, "/v", &pid, "/f"]);
-            let _ = reg(&["delete", &format!(r"HKCU\Software\Classes\{pid}"), "/f"]);
+            // Remove the OpenWithProgids value for this extension.  A missing
+            // value is a no-op; other errors are propagated.
+            let ow_path = format!(r"Software\Classes\{ext}\OpenWithProgids");
+            match CURRENT_USER.open(&ow_path) {
+                Ok(key) => match key.remove_value(&pid) {
+                    Ok(()) | Err(e) if is_not_found(&e) => {}
+                    Err(e) => {
+                        return Err(format!(
+                            "failed to remove OpenWithProgids value for {pid}: {e}"
+                        ))
+                    }
+                },
+                Err(e) if is_not_found(&e) => {}
+                Err(e) => return Err(format!("failed to open {ow_path}: {e}")),
+            }
+
+            // Delete the ProgID key for this extension.  A missing key is a
+            // no-op.
+            let prog_path = format!(r"Software\Classes\{pid}");
+            match CURRENT_USER.remove_tree(&prog_path) {
+                Ok(()) | Err(e) if is_not_found(&e) => {}
+                Err(e) => return Err(format!("failed to delete ProgID {pid}: {e}")),
+            }
+
+            // Do NOT delete Capabilities or RegisteredApplications — they are
+            // shared across all extensions and may still be needed by other
+            // bound formats.
         }
         Ok(())
     }
@@ -770,16 +781,11 @@ mod platform {
 mod platform {
     use super::*;
 
-    pub struct AssocState {
-        pub is_default: Option<bool>,
-        pub is_registered: bool,
-    }
-
-    pub fn query_state(_mime: &str, _ext: &str, _uti: &str) -> AssocState {
-        AssocState {
+    pub fn query_state(_mime: &str, _ext: &str, _uti: &str) -> Result<AssocState, String> {
+        Ok(AssocState {
             is_default: None,
             is_registered: false,
-        }
+        })
     }
 
     pub fn apply(
