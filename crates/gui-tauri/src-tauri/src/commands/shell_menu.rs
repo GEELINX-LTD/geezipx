@@ -6,14 +6,28 @@
 //! administrator privileges are required and no external `reg.exe` process
 //! is spawned.
 //!
-//! Verbs (registry key suffix is always PascalCase)
-//! ------------------------------------------------
-//! | Verb            | Key suffix     | Target                  | CLI flag         |
-//! |-----------------|----------------|-------------------------|------------------|
-//! | `extract`       | Extract        | archive file extensions | `/extract`       |
-//! | `extract_here`  | ExtractHere    | archive file extensions | `/extract-here`  |
-//! | `compress_zip`  | CompressZip    | `*` and `Directory`     | `/compress-zip`  |
-//! | `compress`      | Compress       | `*` and `Directory`     | `/compress`      |
+//! Sub-menu structure (v0.7.6+)
+//! -----------------------------
+//! Four verb entries are grouped under a parent `GeeZipX` key using the
+//! Windows `SubCommands` mechanism, producing a fly-out sub-menu instead
+//! of scattering entries at the top level:
+//!
+//! ```text
+//! SystemFileAssociations\.zip\shell\GeeZipX          ← parent (MUIVerb, SubCommands, Icon)
+//! SystemFileAssociations\.zip\shell\GeeZipX.Extract   ← child (MUIVerb, command)
+//! SystemFileAssociations\.zip\shell\GeeZipX.ExtractHere
+//! ```
+//!
+//! Child keys only carry `MUIVerb` and `command`; the parent holds `Icon`,
+//! `SubCommands`, and the parent label.  Sub-commands are listed in display
+//! order: `GeeZipX.Extract;GeeZipX.ExtractHere` for archive files,
+//! `GeeZipX.Compress;GeeZipX.CompressZip` for `*` / `Directory`.
+//!
+//! i18n
+//! ----
+//! The frontend passes the current locale (`"zh-CN"` or `"en"`) when saving
+//! settings.  Menu labels (`MUIVerb`) are written in the corresponding
+//! language; the parent label is always "GeeZipX" regardless of locale.
 //!
 //! On Windows 11 these entries appear under "Show more options" (the classic
 //! context menu) — this is a system limitation that cannot be worked around
@@ -88,8 +102,34 @@ pub fn verb_key_name(verb: ShellMenuVerb) -> &'static str {
     }
 }
 
-/// Build the HKCU-relative registry key path for an extract verb on a given
-/// extension.
+/// Full SubCommands name for a verb (e.g. `"GeeZipX.ExtractHere"`).
+pub fn subcommand_name(verb: ShellMenuVerb) -> String {
+    format!("GeeZipX.{}", verb_key_name(verb))
+}
+
+/// Build the HKCU-relative registry key path for an extract **parent** key
+/// on a given extension.
+///
+/// Example: `reg_parent_key_for_ext(".zip")` →
+/// `Software\Classes\SystemFileAssociations\.zip\shell\GeeZipX`
+pub fn reg_parent_key_for_ext(ext: &str) -> String {
+    format!(r"Software\Classes\SystemFileAssociations\{ext}\shell\GeeZipX")
+}
+
+/// Build the HKCU-relative registry key path for the compress **parent** key
+/// on `*` (all files).
+pub fn reg_parent_key_for_any_file() -> String {
+    r"Software\Classes\*\shell\GeeZipX".to_string()
+}
+
+/// Build the HKCU-relative registry key path for the compress **parent** key
+/// on `Directory`.
+pub fn reg_parent_key_for_dir() -> String {
+    r"Software\Classes\Directory\shell\GeeZipX".to_string()
+}
+
+/// Build the HKCU-relative registry key path for a **child** extract verb on
+/// a given extension.
 ///
 /// Example: `reg_key_for_ext(".zip", ShellMenuVerb::Extract)` →
 /// `Software\Classes\SystemFileAssociations\.zip\shell\GeeZipX.Extract`
@@ -98,14 +138,14 @@ pub fn reg_key_for_ext(ext: &str, verb: ShellMenuVerb) -> String {
     format!(r"Software\Classes\SystemFileAssociations\{ext}\shell\GeeZipX.{name}")
 }
 
-/// Build the HKCU-relative registry key path for a compress verb on `*`
-/// (all files).
+/// Build the HKCU-relative registry key path for a **child** compress verb
+/// on `*` (all files).
 pub fn reg_key_for_any_file(verb: ShellMenuVerb) -> String {
     format!(r"Software\Classes\*\shell\GeeZipX.{}", verb_key_name(verb))
 }
 
-/// Build the HKCU-relative registry key path for a compress verb on
-/// `Directory`.
+/// Build the HKCU-relative registry key path for a **child** compress verb
+/// on `Directory`.
 pub fn reg_key_for_dir(verb: ShellMenuVerb) -> String {
     format!(
         r"Software\Classes\Directory\shell\GeeZipX.{}",
@@ -138,14 +178,29 @@ pub fn cli_flag_for_verb(verb: ShellMenuVerb) -> &'static str {
     }
 }
 
-/// English display label for a verb (used as the MUIVerb registry value).
-pub fn label_for_verb(verb: ShellMenuVerb) -> &'static str {
-    match verb {
-        ShellMenuVerb::Extract => "Extract to...",
-        ShellMenuVerb::ExtractHere => "Extract here",
-        ShellMenuVerb::CompressZip => "Compress as ZIP",
-        ShellMenuVerb::Compress => "Compress as...",
+/// Localized display label for a verb (used as the MUIVerb value on child
+/// verb keys).  Falls back to English for unknown locales.
+pub fn verb_label(verb: ShellMenuVerb, locale: &str) -> &'static str {
+    match locale {
+        "zh-CN" => match verb {
+            ShellMenuVerb::Extract => "解压缩到...",
+            ShellMenuVerb::ExtractHere => "解压缩到当前文件夹",
+            ShellMenuVerb::CompressZip => "压缩为 ZIP",
+            ShellMenuVerb::Compress => "压缩为...",
+        },
+        _ => match verb {
+            ShellMenuVerb::Extract => "Extract to...",
+            ShellMenuVerb::ExtractHere => "Extract here",
+            ShellMenuVerb::CompressZip => "Compress as ZIP",
+            ShellMenuVerb::Compress => "Compress as...",
+        },
     }
+}
+
+/// Localized display label for the parent sub-menu key.  Currently the same
+/// in all locales ("GeeZipX"), but provided as a function for extensibility.
+pub fn parent_label(_locale: &str) -> &'static str {
+    "GeeZipX"
 }
 
 /// Parse a verb string (from the frontend) into a `ShellMenuVerb`.
@@ -222,6 +277,7 @@ fn query_verbs() -> Vec<ShellMenuVerb> {
 ///
 /// - `enabled`: master on/off switch (`false` removes all verbs).
 /// - `verbs`: which specific verbs to register (only meaningful when `enabled` is `true`).
+/// - `locale`: current UI language (`"zh-CN"` or `"en"`) for localized MUIVerb labels.
 ///
 /// On Windows the function writes / deletes registry keys under
 /// `HKCU\Software\Classes`, calls `SHChangeNotify` to refresh Explorer, and
@@ -230,16 +286,16 @@ fn query_verbs() -> Vec<ShellMenuVerb> {
 ///
 /// On other platforms it returns `Err("unsupported platform")`.
 #[tauri::command]
-pub fn set_shell_menu(enabled: bool, verbs: Vec<String>) -> Result<(), String> {
-    set_shell_menu_impl(enabled, verbs)
+pub fn set_shell_menu(enabled: bool, verbs: Vec<String>, locale: String) -> Result<(), String> {
+    set_shell_menu_impl(enabled, verbs, &locale)
 }
 
 #[cfg(target_os = "windows")]
-fn set_shell_menu_impl(enabled: bool, verbs: Vec<String>) -> Result<(), String> {
+fn set_shell_menu_impl(enabled: bool, verbs: Vec<String>, locale: &str) -> Result<(), String> {
     let parsed: Vec<ShellMenuVerb> = verbs.iter().filter_map(|v| parse_verb(v)).collect();
 
     if enabled {
-        platform::register_verbs(&parsed)?;
+        platform::register_verbs(&parsed, locale)?;
     } else {
         platform::remove_all_verbs()?;
     }
@@ -255,7 +311,7 @@ fn set_shell_menu_impl(enabled: bool, verbs: Vec<String>) -> Result<(), String> 
 }
 
 #[cfg(not(target_os = "windows"))]
-fn set_shell_menu_impl(_enabled: bool, _verbs: Vec<String>) -> Result<(), String> {
+fn set_shell_menu_impl(_enabled: bool, _verbs: Vec<String>, _locale: &str) -> Result<(), String> {
     Err("Shell context menu is only supported on Windows".into())
 }
 
@@ -361,22 +417,26 @@ mod platform {
             .unwrap_or_else(|_| "geezipx-gui.exe".into())
     }
 
-    /// Write a single verb for one extract extension.
-    fn write_extract_verb(ext: &str, verb: ShellMenuVerb, exe: &str) -> Result<(), String> {
+    /// Write a single **child** extract verb under one extension.
+    ///
+    /// Child keys only carry `MUIVerb` and `command`; `Icon` and the default
+    /// value live on the parent key (see [`write_parent_key`]).
+    fn write_extract_verb(
+        ext: &str,
+        verb: ShellMenuVerb,
+        exe: &str,
+        locale: &str,
+    ) -> Result<(), String> {
         let root = reg_key_for_ext(ext, verb);
-        let label = label_for_verb(verb);
+        let label = verb_label(verb, locale);
         let flag = cli_flag_for_verb(verb);
         let cmd = build_command(exe, flag);
 
         let key = CURRENT_USER
             .create(&root)
             .map_err(|e| format!("failed to create key {root}: {e}"))?;
-        key.set_string("", label)
-            .map_err(|e| format!("failed to set default value at {root}: {e}"))?;
         key.set_string("MUIVerb", label)
             .map_err(|e| format!("failed to set MUIVerb at {root}: {e}"))?;
-        key.set_string("Icon", &format!("\"{exe}\",0"))
-            .map_err(|e| format!("failed to set Icon at {root}: {e}"))?;
 
         let cmd_key_path = format!("{root}\\command");
         let cmd_key = CURRENT_USER
@@ -389,9 +449,13 @@ mod platform {
         Ok(())
     }
 
-    /// Write a single compress verb for `*` and `Directory`.
-    fn write_compress_verb(verb: ShellMenuVerb, exe: &str) -> Result<(), String> {
-        let label = label_for_verb(verb);
+    /// Write a single **child** compress verb for `*` and `Directory`.
+    ///
+    /// Same child-only pattern as [`write_extract_verb`]: only `MUIVerb` and
+    /// `command`, no `Icon` or default value.  `MultiSelectModel` is kept on
+    /// the Compress child.
+    fn write_compress_verb(verb: ShellMenuVerb, exe: &str, locale: &str) -> Result<(), String> {
+        let label = verb_label(verb, locale);
         let flag = cli_flag_for_verb(verb);
         let cmd = build_command(exe, flag);
 
@@ -399,12 +463,8 @@ mod platform {
             let key = CURRENT_USER
                 .create(&root_path)
                 .map_err(|e| format!("failed to create key {root_path}: {e}"))?;
-            key.set_string("", label)
-                .map_err(|e| format!("failed to set default value at {root_path}: {e}"))?;
             key.set_string("MUIVerb", label)
                 .map_err(|e| format!("failed to set MUIVerb at {root_path}: {e}"))?;
-            key.set_string("Icon", &format!("\"{exe}\",0"))
-                .map_err(|e| format!("failed to set Icon at {root_path}: {e}"))?;
 
             // MultiSelectModel is an optional enhancement for the Compress
             // verb — a failure to write it is logged but does not abort the
@@ -424,6 +484,30 @@ mod platform {
                 .map_err(|e| format!("failed to set default value at {cmd_key_path}: {e}"))?;
         }
 
+        Ok(())
+    }
+
+    /// Write a **parent** key that groups child verbs under a `SubCommands`
+    /// fly-out menu.
+    ///
+    /// The parent key holds `MUIVerb` (localized parent label), `SubCommands`
+    /// (semicolon-separated sub-command names), and `Icon`.
+    fn write_parent_key(
+        key_path: &str,
+        exe: &str,
+        locale: &str,
+        sub_commands: &str,
+    ) -> Result<(), String> {
+        let label = parent_label(locale);
+        let key = CURRENT_USER
+            .create(key_path)
+            .map_err(|e| format!("failed to create parent key {key_path}: {e}"))?;
+        key.set_string("MUIVerb", label)
+            .map_err(|e| format!("failed to set MUIVerb at {key_path}: {e}"))?;
+        key.set_string("SubCommands", sub_commands)
+            .map_err(|e| format!("failed to set SubCommands at {key_path}: {e}"))?;
+        key.set_string("Icon", &format!("\"{exe}\",0"))
+            .map_err(|e| format!("failed to set Icon at {key_path}: {e}"))?;
         Ok(())
     }
 
@@ -490,8 +574,10 @@ mod platform {
         Ok(registered)
     }
 
-    /// Register the given set of verbs. Removes all existing GeeZipX verbs
-    /// first so stale keys from a previous configuration are cleaned up.
+    /// Register the given set of verbs with parent key + SubCommands structure.
+    ///
+    /// Removes all existing GeeZipX verbs first so stale keys from a previous
+    /// configuration are cleaned up.
     ///
     /// The remove-then-write sequence is not wrapped in a registry transaction
     /// because `windows-registry` does not expose transaction support for
@@ -499,21 +585,61 @@ mod platform {
     /// a transaction handle.  A partial failure during registration leaves the
     /// shell menu in an intermediate state (some keys removed, not all
     /// re-created), which the user can repair by toggling the setting again.
-    pub fn register_verbs(verbs: &[ShellMenuVerb]) -> Result<(), String> {
+    pub fn register_verbs(verbs: &[ShellMenuVerb], locale: &str) -> Result<(), String> {
         let exe = our_exe();
 
         // Start from a clean slate.
         remove_all_verbs()?;
 
+        // --- build SubCommands strings in display order --------------------
+
+        // Extract SubCommands: Extract first, then ExtractHere.
+        let mut extract_sc: Vec<String> = Vec::new();
+        for verb in [ShellMenuVerb::Extract, ShellMenuVerb::ExtractHere] {
+            if verbs.contains(&verb) {
+                extract_sc.push(subcommand_name(verb));
+            }
+        }
+        let extract_sc_str = extract_sc.join(";");
+
+        // Compress SubCommands: Compress first, then CompressZip.
+        let mut compress_sc: Vec<String> = Vec::new();
+        for verb in [ShellMenuVerb::Compress, ShellMenuVerb::CompressZip] {
+            if verbs.contains(&verb) {
+                compress_sc.push(subcommand_name(verb));
+            }
+        }
+        let compress_sc_str = compress_sc.join(";");
+
+        // --- write parent keys ---------------------------------------------
+
+        if !extract_sc_str.is_empty() {
+            for ext in ARCHIVE_EXTS {
+                write_parent_key(&reg_parent_key_for_ext(ext), &exe, locale, &extract_sc_str)?;
+            }
+        }
+
+        if !compress_sc_str.is_empty() {
+            write_parent_key(
+                &reg_parent_key_for_any_file(),
+                &exe,
+                locale,
+                &compress_sc_str,
+            )?;
+            write_parent_key(&reg_parent_key_for_dir(), &exe, locale, &compress_sc_str)?;
+        }
+
+        // --- write child verb keys -----------------------------------------
+
         for &verb in verbs {
             match verb {
                 ShellMenuVerb::Extract | ShellMenuVerb::ExtractHere => {
                     for ext in ARCHIVE_EXTS {
-                        write_extract_verb(ext, verb, &exe)?;
+                        write_extract_verb(ext, verb, &exe, locale)?;
                     }
                 }
                 ShellMenuVerb::CompressZip | ShellMenuVerb::Compress => {
-                    write_compress_verb(verb, &exe)?;
+                    write_compress_verb(verb, &exe, locale)?;
                 }
             }
         }
@@ -521,18 +647,26 @@ mod platform {
         Ok(())
     }
 
-    /// Remove ALL GeeZipX shell verbs from HKCU.  Missing keys are silently
-    /// skipped; any real failure (e.g. access denied) is propagated.
+    /// Remove ALL GeeZipX shell verb keys (children + parents) from HKCU.
+    /// Missing keys are silently skipped; any real failure (e.g. access
+    /// denied) is propagated.
     pub fn remove_all_verbs() -> Result<(), String> {
+        // Remove child extract keys
         for ext in ARCHIVE_EXTS {
             for verb in extract_verbs() {
                 reg_delete_tree(&reg_key_for_ext(ext, verb))?;
             }
+            // Also remove extract parent keys
+            reg_delete_tree(&reg_parent_key_for_ext(ext))?;
         }
+        // Remove child compress keys
         for verb in compress_verbs() {
             reg_delete_tree(&reg_key_for_any_file(verb))?;
             reg_delete_tree(&reg_key_for_dir(verb))?;
         }
+        // Remove compress parent keys
+        reg_delete_tree(&reg_parent_key_for_any_file())?;
+        reg_delete_tree(&reg_parent_key_for_dir())?;
         Ok(())
     }
 
@@ -570,6 +704,22 @@ mod tests {
         assert_eq!(verb_key_name(ShellMenuVerb::Compress), "Compress");
     }
 
+    // -- subcommand_name ----------------------------------------------------
+
+    #[test]
+    fn test_subcommand_name() {
+        assert_eq!(subcommand_name(ShellMenuVerb::Extract), "GeeZipX.Extract");
+        assert_eq!(
+            subcommand_name(ShellMenuVerb::ExtractHere),
+            "GeeZipX.ExtractHere"
+        );
+        assert_eq!(
+            subcommand_name(ShellMenuVerb::CompressZip),
+            "GeeZipX.CompressZip"
+        );
+        assert_eq!(subcommand_name(ShellMenuVerb::Compress), "GeeZipX.Compress");
+    }
+
     // -- reg key paths (now HKCU-relative) ----------------------------------
 
     #[test]
@@ -597,6 +747,32 @@ mod tests {
         );
     }
 
+    // -- parent key paths ---------------------------------------------------
+
+    #[test]
+    fn test_reg_parent_key_for_ext() {
+        assert_eq!(
+            reg_parent_key_for_ext(".zip"),
+            r"Software\Classes\SystemFileAssociations\.zip\shell\GeeZipX"
+        );
+    }
+
+    #[test]
+    fn test_reg_parent_key_for_any_file() {
+        assert_eq!(
+            reg_parent_key_for_any_file(),
+            r"Software\Classes\*\shell\GeeZipX"
+        );
+    }
+
+    #[test]
+    fn test_reg_parent_key_for_dir() {
+        assert_eq!(
+            reg_parent_key_for_dir(),
+            r"Software\Classes\Directory\shell\GeeZipX"
+        );
+    }
+
     // -- registry path format invariants ------------------------------------
 
     #[test]
@@ -614,6 +790,15 @@ mod tests {
                     "path {p:?} must start with Software\\Classes\\"
                 );
             }
+            let p = reg_parent_key_for_ext(ext);
+            assert!(
+                !p.to_lowercase().starts_with("hkcu"),
+                "parent path {p:?} must not contain HKCU prefix"
+            );
+            assert!(
+                p.starts_with("Software\\Classes\\"),
+                "parent path {p:?} must start with Software\\Classes\\"
+            );
         }
         for verb in compress_verbs() {
             let p = reg_key_for_any_file(verb);
@@ -627,6 +812,16 @@ mod tests {
                 "path {p:?} must not contain HKCU prefix"
             );
         }
+        assert!(
+            !reg_parent_key_for_any_file()
+                .to_lowercase()
+                .starts_with("hkcu"),
+            "parent path must not contain HKCU prefix"
+        );
+        assert!(
+            !reg_parent_key_for_dir().to_lowercase().starts_with("hkcu"),
+            "parent path must not contain HKCU prefix"
+        );
         assert!(
             !SENTINEL_KEY.to_lowercase().starts_with("hkcu"),
             "sentinel key must not contain HKCU prefix"
@@ -667,17 +862,48 @@ mod tests {
         assert_eq!(cli_flag_for_verb(ShellMenuVerb::Compress), "/compress");
     }
 
-    // -- label_for_verb -----------------------------------------------------
+    // -- verb_label (i18n) --------------------------------------------------
 
     #[test]
-    fn test_label_for_verb_english() {
-        assert_eq!(label_for_verb(ShellMenuVerb::Extract), "Extract to...");
-        assert_eq!(label_for_verb(ShellMenuVerb::ExtractHere), "Extract here");
+    fn test_verb_label_locales() {
+        // English
+        assert_eq!(verb_label(ShellMenuVerb::Extract, "en"), "Extract to...");
+        assert_eq!(verb_label(ShellMenuVerb::ExtractHere, "en"), "Extract here");
         assert_eq!(
-            label_for_verb(ShellMenuVerb::CompressZip),
+            verb_label(ShellMenuVerb::CompressZip, "en"),
             "Compress as ZIP"
         );
-        assert_eq!(label_for_verb(ShellMenuVerb::Compress), "Compress as...");
+        assert_eq!(verb_label(ShellMenuVerb::Compress, "en"), "Compress as...");
+
+        // Chinese
+        assert_eq!(verb_label(ShellMenuVerb::Extract, "zh-CN"), "解压缩到...");
+        assert_eq!(
+            verb_label(ShellMenuVerb::ExtractHere, "zh-CN"),
+            "解压缩到当前文件夹"
+        );
+        assert_eq!(
+            verb_label(ShellMenuVerb::CompressZip, "zh-CN"),
+            "压缩为 ZIP"
+        );
+        assert_eq!(verb_label(ShellMenuVerb::Compress, "zh-CN"), "压缩为...");
+
+        // Unknown locale falls back to English
+        assert_eq!(verb_label(ShellMenuVerb::Extract, "fr"), "Extract to...");
+        assert_eq!(verb_label(ShellMenuVerb::ExtractHere, "de"), "Extract here");
+        assert_eq!(
+            verb_label(ShellMenuVerb::CompressZip, "ja"),
+            "Compress as ZIP"
+        );
+        assert_eq!(verb_label(ShellMenuVerb::Compress, "es"), "Compress as...");
+    }
+
+    // -- parent_label -------------------------------------------------------
+
+    #[test]
+    fn test_parent_label() {
+        assert_eq!(parent_label("en"), "GeeZipX");
+        assert_eq!(parent_label("zh-CN"), "GeeZipX");
+        assert_eq!(parent_label("fr"), "GeeZipX");
     }
 
     // -- parse_verb ---------------------------------------------------------

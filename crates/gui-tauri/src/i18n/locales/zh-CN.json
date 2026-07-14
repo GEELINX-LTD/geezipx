@@ -167,6 +167,7 @@
       "openSettings": "打开系统设置"
     },
     "shellMenu": {
+      "parentLabel": "GeeZipX",
       "label": "右键菜单",
       "help": "在 Windows 资源管理器右键菜单中显示 GeeZipX 操作。保存后立即生效。",
       "win11Hint": "在 Windows 11 中，这些菜单项位于\u201c显示更多选项\u201d中（Shift+F10 或 Shift+右键）。",

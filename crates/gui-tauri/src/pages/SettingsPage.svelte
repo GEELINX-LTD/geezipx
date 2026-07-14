@@ -65,6 +65,13 @@
       associations = a;
       shellMenuState = shellState;
       loaded = true;
+
+      // Sync shell menu labels to current locale on startup (don't change user's selected verbs).
+      if (shellState?.supported && d.shell_menu_enabled) {
+        setShellMenu(d.shell_menu_enabled, [...d.shell_menu_verbs], d.locale).catch((e) => {
+          console.error('Startup shell menu sync failed', e);
+        });
+      }
     });
 
     getVersion().then(v => version = v);
@@ -170,7 +177,7 @@
 
       if (shellMenuSupported) {
         try {
-          await setShellMenu(next.shell_menu_enabled, [...next.shell_menu_verbs]);
+          await setShellMenu(next.shell_menu_enabled, [...next.shell_menu_verbs], next.locale);
         } catch (e) {
           console.error('setShellMenu failed', e);
 
@@ -200,7 +207,7 @@
         console.error('settingsStore.saveAll failed', e);
         if (shellMenuSupported) {
           try {
-            await setShellMenu(previousRegistered.length > 0, [...previousRegistered]);
+            await setShellMenu(previousRegistered.length > 0, [...previousRegistered], original.locale);
           } catch (rollbackError) {
             console.error('setShellMenu rollback failed', rollbackError);
           }

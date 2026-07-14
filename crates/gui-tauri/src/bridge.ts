@@ -316,9 +316,23 @@ export async function getShellMenuState(): Promise<ShellMenuState> {
   return invoke<ShellMenuState>('get_shell_menu_state');
 }
 
-/** Enable or disable shell context menu verbs. */
-export async function setShellMenu(enabled: boolean, verbs: string[]): Promise<void> {
-  return invoke<void>('set_shell_menu', { enabled, verbs });
+/**
+ * Enable or disable shell context menu verbs.
+ *
+ * @param enabled  Master on/off switch (`false` removes all verbs).
+ * @param verbs    Which specific verbs to register (snake_case strings:
+ *                 `'extract'`, `'extract_here'`, `'compress_zip'`, `'compress'`).
+ *                 Only meaningful when `enabled` is `true`.
+ * @param locale   Current UI language (`'zh-CN'` or `'en'`) so menu labels
+ *                 (MUIVerb) are written in the correct language. Defaults to
+ *                 `'en'` for backward compatibility.
+ */
+export async function setShellMenu(
+  enabled: boolean,
+  verbs: string[],
+  locale: string = 'en',
+): Promise<void> {
+  return invoke<void>('set_shell_menu', { enabled, verbs, locale });
 }
 
 /** Retrieve the application version from the Rust backend. */

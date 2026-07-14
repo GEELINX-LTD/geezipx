@@ -1,11 +1,33 @@
 ; GeeZipX NSIS installer hooks
 ; =====================================================================
-; Strategy (v0.7.5+)
+; Strategy (v0.7.6+)
 ; ------------------
 ; Registry keys are written to HKCU\Software\Classes (per-user, no
 ; admin required). This matches the runtime `set_shell_menu` Tauri
 ; command, which also writes to HKCU, so the Settings page can
 ; dynamically toggle verbs without fighting the installer.
+;
+; Sub-menu structure (v0.7.6+)
+; -----------------------------
+; Verbs are grouped under a parent `GeeZipX` key using the Windows
+; `SubCommands` mechanism:
+;
+;   Archive extensions:
+;     HKCU\...\shell\GeeZipX             ← parent (MUIVerb, SubCommands, Icon)
+;     HKCU\...\shell\GeeZipX.Extract     ← child  (MUIVerb, command)
+;     HKCU\...\shell\GeeZipX.ExtractHere
+;
+;   * (all files) / Directory:
+;     HKCU\...\shell\GeeZipX             ← parent
+;     HKCU\...\shell\GeeZipX.Compress    ← child
+;     HKCU\...\shell\GeeZipX.CompressZip
+;
+; i18n
+; ----
+; NSIS variable $LANGUAGE is set by the installer UI language selection
+; (1033 = English, 2052 = SimpChinese).  Labels are written in the
+; matching language so the menu matches the installer language on first
+; install.  The runtime Setings page can override later.
 ;
 ; Tauri NSIS defaults to `installMode: "currentUser"`, so HKCU is
 ; always the correct hive. If `installMode` is changed to `perMachine`
@@ -33,44 +55,85 @@
 ; preUnInstall cleans:
 ;   1. Sentinel key
 ;   2. HKCU\Software\Classes verb keys (current location)
-;   3. HKCR verb keys (legacy v0.7.4 and earlier)
+;   3. HKCU\Software\Classes parent keys (current location)
+;   4. HKCR verb keys (legacy v0.7.4 and earlier)
 ;
-; Verbs registered (PascalCase key suffixes)
-; ------------------------------------------
-;   Archive files (.zip / .7z / .rar / ...):
-;     - Extract here      (GeeZipX.ExtractHere)  → /extract-here "%1"
-;     - Extract to...     (GeeZipX.Extract)       → /extract "%1"
-;
-;   All files (*) and directories:
-;     - Compress as ZIP   (GeeZipX.CompressZip)   → /compress-zip "%1"
-;     - Compress as...    (GeeZipX.Compress)      → /compress "%1"
-;
-; Labels are in English (matching the runtime) so toggling via the
-; Settings page does not leave stale localised strings.
-;
-; On Windows 11 these appear under "Show more options" (classic menu)
-; — this is a system limitation.
+; On Windows 11 these entries appear under "Show more options" (classic
+; menu) — this is a system limitation.
 ; =====================================================================
 
-!macro AddExtractMenus ext
-  ; ── "Extract here" (top) ──
-  WriteRegStr HKCU "Software\Classes\SystemFileAssociations\${ext}\shell\GeeZipX.ExtractHere" "" "Extract here"
-  WriteRegStr HKCU "Software\Classes\SystemFileAssociations\${ext}\shell\GeeZipX.ExtractHere" "MUIVerb" "Extract here"
-  WriteRegStr HKCU "Software\Classes\SystemFileAssociations\${ext}\shell\GeeZipX.ExtractHere" "Icon" "$INSTDIR\geezipx-gui.exe,0"
-  WriteRegStr HKCU "Software\Classes\SystemFileAssociations\${ext}\shell\GeeZipX.ExtractHere\command" "" '"$INSTDIR\geezipx-gui.exe" /extract-here "%1"'
+; ---------------------------------------------------------------------
+; i18n helper: resolve localised labels from NSIS $LANGUAGE
+; ---------------------------------------------------------------------
 
-  ; ── "Extract to..." (bottom) ──
-  WriteRegStr HKCU "Software\Classes\SystemFileAssociations\${ext}\shell\GeeZipX.Extract" "" "Extract to..."
-  WriteRegStr HKCU "Software\Classes\SystemFileAssociations\${ext}\shell\GeeZipX.Extract" "MUIVerb" "Extract to..."
-  WriteRegStr HKCU "Software\Classes\SystemFileAssociations\${ext}\shell\GeeZipX.Extract" "Icon" "$INSTDIR\geezipx-gui.exe,0"
+Var _geezip_lang
+
+!macro GeeZipXDetectLocale
+  ${If} $LANGUAGE == ${LANG_SIMPCHINESE}
+    StrCpy $_geezip_lang "zh"
+  ${Else}
+    StrCpy $_geezip_lang "en"
+  ${EndIf}
+!macroend
+
+!macro GeeZipXExtractLabel lang_out
+  ${If} $LANGUAGE == ${LANG_SIMPCHINESE}
+    StrCpy ${lang_out} "解压缩到..."
+  ${Else}
+    StrCpy ${lang_out} "Extract to..."
+  ${EndIf}
+!macroend
+
+!macro GeeZipXExtractHereLabel lang_out
+  ${If} $LANGUAGE == ${LANG_SIMPCHINESE}
+    StrCpy ${lang_out} "解压缩到当前文件夹"
+  ${Else}
+    StrCpy ${lang_out} "Extract here"
+  ${EndIf}
+!macroend
+
+!macro GeeZipXCompressLabel lang_out
+  ${If} $LANGUAGE == ${LANG_SIMPCHINESE}
+    StrCpy ${lang_out} "压缩为..."
+  ${Else}
+    StrCpy ${lang_out} "Compress as..."
+  ${EndIf}
+!macroend
+
+!macro GeeZipXCompressZipLabel lang_out
+  ${If} $LANGUAGE == ${LANG_SIMPCHINESE}
+    StrCpy ${lang_out} "压缩为 ZIP"
+  ${Else}
+    StrCpy ${lang_out} "Compress as ZIP"
+  ${EndIf}
+!macroend
+
+; ---------------------------------------------------------------------
+; Extract menus (per extension) — parent + two children
+; ---------------------------------------------------------------------
+
+!macro AddExtractMenus ext
+  ; ── Parent key (groups children under a fly-out) ──
+  WriteRegStr HKCU "Software\Classes\SystemFileAssociations\${ext}\shell\GeeZipX" "MUIVerb" "GeeZipX"
+  WriteRegStr HKCU "Software\Classes\SystemFileAssociations\${ext}\shell\GeeZipX" "SubCommands" "GeeZipX.Extract;GeeZipX.ExtractHere"
+  WriteRegStr HKCU "Software\Classes\SystemFileAssociations\${ext}\shell\GeeZipX" "Icon" "$INSTDIR\geezipx-gui.exe,0"
+
+  ; ── Child: "Extract to..." ──
+  !insertmacro GeeZipXExtractLabel $0
+  WriteRegStr HKCU "Software\Classes\SystemFileAssociations\${ext}\shell\GeeZipX.Extract" "MUIVerb" "$0"
   WriteRegStr HKCU "Software\Classes\SystemFileAssociations\${ext}\shell\GeeZipX.Extract\command" "" '"$INSTDIR\geezipx-gui.exe" /extract "%1"'
+
+  ; ── Child: "Extract here" ──
+  !insertmacro GeeZipXExtractHereLabel $0
+  WriteRegStr HKCU "Software\Classes\SystemFileAssociations\${ext}\shell\GeeZipX.ExtractHere" "MUIVerb" "$0"
+  WriteRegStr HKCU "Software\Classes\SystemFileAssociations\${ext}\shell\GeeZipX.ExtractHere\command" "" '"$INSTDIR\geezipx-gui.exe" /extract-here "%1"'
 !macroend
 
 !macro RemoveExtractMenus ext
-  ; ── HKCU (current location) ──
-  DeleteRegKey HKCU "Software\Classes\SystemFileAssociations\${ext}\shell\GeeZipX.ExtractHere"
+  ; ── HKCU (current location) — children + parent ──
   DeleteRegKey HKCU "Software\Classes\SystemFileAssociations\${ext}\shell\GeeZipX.Extract"
-  DeleteRegKey /ifempty HKCU "Software\Classes\SystemFileAssociations\${ext}\shell\GeeZipX"
+  DeleteRegKey HKCU "Software\Classes\SystemFileAssociations\${ext}\shell\GeeZipX.ExtractHere"
+  DeleteRegKey HKCU "Software\Classes\SystemFileAssociations\${ext}\shell\GeeZipX"
   DeleteRegKey /ifempty HKCU "Software\Classes\SystemFileAssociations\${ext}\shell"
   DeleteRegKey /ifempty HKCU "Software\Classes\SystemFileAssociations\${ext}"
 
@@ -82,6 +145,62 @@
   DeleteRegKey /ifempty HKCR "SystemFileAssociations\${ext}\shell"
   DeleteRegKey /ifempty HKCR "SystemFileAssociations\${ext}"
 !macroend
+
+; ---------------------------------------------------------------------
+; Compress menus (* and Directory) — parent + two children
+; ---------------------------------------------------------------------
+
+!macro AddCompressMenus
+  ; ── Parent key for * (all files) ──
+  WriteRegStr HKCU "Software\Classes\*\shell\GeeZipX" "MUIVerb" "GeeZipX"
+  WriteRegStr HKCU "Software\Classes\*\shell\GeeZipX" "SubCommands" "GeeZipX.Compress;GeeZipX.CompressZip"
+  WriteRegStr HKCU "Software\Classes\*\shell\GeeZipX" "Icon" "$INSTDIR\geezipx-gui.exe,0"
+
+  ; ── Parent key for Directory ──
+  WriteRegStr HKCU "Software\Classes\Directory\shell\GeeZipX" "MUIVerb" "GeeZipX"
+  WriteRegStr HKCU "Software\Classes\Directory\shell\GeeZipX" "SubCommands" "GeeZipX.Compress;GeeZipX.CompressZip"
+  WriteRegStr HKCU "Software\Classes\Directory\shell\GeeZipX" "Icon" "$INSTDIR\geezipx-gui.exe,0"
+
+  ; ── Child: "Compress as..." (*) ──
+  !insertmacro GeeZipXCompressLabel $0
+  WriteRegStr HKCU "Software\Classes\*\shell\GeeZipX.Compress" "MUIVerb" "$0"
+  WriteRegStr HKCU "Software\Classes\*\shell\GeeZipX.Compress" "MultiSelectModel" "Player"
+  WriteRegStr HKCU "Software\Classes\*\shell\GeeZipX.Compress\command" "" '"$INSTDIR\geezipx-gui.exe" /compress "%1"'
+
+  ; ── Child: "Compress as..." (Directory) ──
+  WriteRegStr HKCU "Software\Classes\Directory\shell\GeeZipX.Compress" "MUIVerb" "$0"
+  WriteRegStr HKCU "Software\Classes\Directory\shell\GeeZipX.Compress" "MultiSelectModel" "Player"
+  WriteRegStr HKCU "Software\Classes\Directory\shell\GeeZipX.Compress\command" "" '"$INSTDIR\geezipx-gui.exe" /compress "%1"'
+
+  ; ── Child: "Compress as ZIP" (*) ──
+  !insertmacro GeeZipXCompressZipLabel $0
+  WriteRegStr HKCU "Software\Classes\*\shell\GeeZipX.CompressZip" "MUIVerb" "$0"
+  WriteRegStr HKCU "Software\Classes\*\shell\GeeZipX.CompressZip\command" "" '"$INSTDIR\geezipx-gui.exe" /compress-zip "%1"'
+
+  ; ── Child: "Compress as ZIP" (Directory) ──
+  WriteRegStr HKCU "Software\Classes\Directory\shell\GeeZipX.CompressZip" "MUIVerb" "$0"
+  WriteRegStr HKCU "Software\Classes\Directory\shell\GeeZipX.CompressZip\command" "" '"$INSTDIR\geezipx-gui.exe" /compress-zip "%1"'
+!macroend
+
+!macro RemoveCompressMenus
+  ; ── HKCU (current location) — children + parents ──
+  DeleteRegKey HKCU "Software\Classes\*\shell\GeeZipX.Compress"
+  DeleteRegKey HKCU "Software\Classes\*\shell\GeeZipX.CompressZip"
+  DeleteRegKey HKCU "Software\Classes\*\shell\GeeZipX"
+  DeleteRegKey HKCU "Software\Classes\Directory\shell\GeeZipX.Compress"
+  DeleteRegKey HKCU "Software\Classes\Directory\shell\GeeZipX.CompressZip"
+  DeleteRegKey HKCU "Software\Classes\Directory\shell\GeeZipX"
+
+  ; ── HKCR (legacy v0.7.4 and earlier) ──
+  DeleteRegKey HKCR "*\shell\GeeZipX.CompressZip"
+  DeleteRegKey HKCR "*\shell\GeeZipX.Compress"
+  DeleteRegKey HKCR "Directory\shell\GeeZipX.CompressZip"
+  DeleteRegKey HKCR "Directory\shell\GeeZipX.Compress"
+!macroend
+
+; ---------------------------------------------------------------------
+; preInstall — smart registration on first install or upgrade
+; ---------------------------------------------------------------------
 
 !macro preInstall
   ; ===================================================================
@@ -106,8 +225,8 @@
   ${EndIf}
 
   ; ===================================================================
-  ; Step 3 — Fresh install. Register all four verbs and write the
-  ; sentinel.
+  ; Step 3 — Fresh install. Register all four verbs (parent + children)
+  ; and write the sentinel.
   ; ===================================================================
 
   ; Extract menus — one per supported archive extension
@@ -136,36 +255,18 @@
   !insertmacro AddExtractMenus ".wim"
   !insertmacro AddExtractMenus ".isz"
 
-  ; ── "Compress as ZIP" — headless one-click ZIP (all files) ──
-  WriteRegStr HKCU "Software\Classes\*\shell\GeeZipX.CompressZip" "" "Compress as ZIP"
-  WriteRegStr HKCU "Software\Classes\*\shell\GeeZipX.CompressZip" "MUIVerb" "Compress as ZIP"
-  WriteRegStr HKCU "Software\Classes\*\shell\GeeZipX.CompressZip" "Icon" "$INSTDIR\geezipx-gui.exe,0"
-  WriteRegStr HKCU "Software\Classes\*\shell\GeeZipX.CompressZip\command" "" '"$INSTDIR\geezipx-gui.exe" /compress-zip "%1"'
-
-  ; ── "Compress as..." — jump to compress page (all files) ──
-  WriteRegStr HKCU "Software\Classes\*\shell\GeeZipX.Compress" "" "Compress as..."
-  WriteRegStr HKCU "Software\Classes\*\shell\GeeZipX.Compress" "MUIVerb" "Compress as..."
-  WriteRegStr HKCU "Software\Classes\*\shell\GeeZipX.Compress" "Icon" "$INSTDIR\geezipx-gui.exe,0"
-  WriteRegStr HKCU "Software\Classes\*\shell\GeeZipX.Compress" "MultiSelectModel" "Player"
-  WriteRegStr HKCU "Software\Classes\*\shell\GeeZipX.Compress\command" "" '"$INSTDIR\geezipx-gui.exe" /compress "%1"'
-
-  ; Same for directories
-  WriteRegStr HKCU "Software\Classes\Directory\shell\GeeZipX.CompressZip" "" "Compress as ZIP"
-  WriteRegStr HKCU "Software\Classes\Directory\shell\GeeZipX.CompressZip" "MUIVerb" "Compress as ZIP"
-  WriteRegStr HKCU "Software\Classes\Directory\shell\GeeZipX.CompressZip" "Icon" "$INSTDIR\geezipx-gui.exe,0"
-  WriteRegStr HKCU "Software\Classes\Directory\shell\GeeZipX.CompressZip\command" "" '"$INSTDIR\geezipx-gui.exe" /compress-zip "%1"'
-
-  WriteRegStr HKCU "Software\Classes\Directory\shell\GeeZipX.Compress" "" "Compress as..."
-  WriteRegStr HKCU "Software\Classes\Directory\shell\GeeZipX.Compress" "MUIVerb" "Compress as..."
-  WriteRegStr HKCU "Software\Classes\Directory\shell\GeeZipX.Compress" "Icon" "$INSTDIR\geezipx-gui.exe,0"
-  WriteRegStr HKCU "Software\Classes\Directory\shell\GeeZipX.Compress" "MultiSelectModel" "Player"
-  WriteRegStr HKCU "Software\Classes\Directory\shell\GeeZipX.Compress\command" "" '"$INSTDIR\geezipx-gui.exe" /compress "%1"'
+  ; Compress menus — * + Directory (parent + children, with i18n labels)
+  !insertmacro AddCompressMenus
 
   ; Write the sentinel so future upgrades skip registration
   WriteRegStr HKCU "Software\Classes\GeeZipX\ShellMenu" "Configured" "1"
 
   skip_all_menus:
 !macroend
+
+; ---------------------------------------------------------------------
+; preUnInstall — thorough cleanup
+; ---------------------------------------------------------------------
 
 !macro preUnInstall
   ; ===================================================================
@@ -204,16 +305,5 @@
   ; ===================================================================
   ; Remove compress menus — HKCU + legacy HKCR
   ; ===================================================================
-
-  ; ── HKCU (current location) ──
-  DeleteRegKey HKCU "Software\Classes\*\shell\GeeZipX.CompressZip"
-  DeleteRegKey HKCU "Software\Classes\*\shell\GeeZipX.Compress"
-  DeleteRegKey HKCU "Software\Classes\Directory\shell\GeeZipX.CompressZip"
-  DeleteRegKey HKCU "Software\Classes\Directory\shell\GeeZipX.Compress"
-
-  ; ── HKCR (legacy v0.7.4 and earlier) ──
-  DeleteRegKey HKCR "*\shell\GeeZipX.CompressZip"
-  DeleteRegKey HKCR "*\shell\GeeZipX.Compress"
-  DeleteRegKey HKCR "Directory\shell\GeeZipX.CompressZip"
-  DeleteRegKey HKCR "Directory\shell\GeeZipX.Compress"
+  !insertmacro RemoveCompressMenus
 !macroend
