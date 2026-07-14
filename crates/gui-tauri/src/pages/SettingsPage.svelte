@@ -3,11 +3,32 @@
   import { settingsStore } from '../stores/settingsStore.svelte';
   import { settingsGuard } from '../stores/settingsGuard.svelte';
   import { localeStore } from '../stores/localeStore.svelte';
-  import type { GeeZipXSettings } from '../bridge';
-  import { getFormats, getVersion, getFileAssociations, setFileAssociation, openAssociationSettings, type FormatInfo, type AssociationsResult } from '../bridge';
+  import { toastStore } from '../stores/toastStore.svelte';
+  import {
+    getFileAssociations,
+    getFormats,
+    getShellMenuState,
+    getVersion,
+    openAssociationSettings,
+    setFileAssociation,
+    setShellMenu,
+    type AssocItem,
+    type AssociationsResult,
+    type FormatInfo,
+    type GeeZipXSettings,
+    type ShellMenuState,
+    type ShellMenuVerb,
+  } from '../bridge';
   import { open } from '@tauri-apps/plugin-dialog';
 
   type Tab = 'general' | 'compression' | 'appearance' | 'associations' | 'about';
+
+  const SHELL_MENU_OPTIONS: { verb: ShellMenuVerb; labelKey: string }[] = [
+    { verb: 'extract', labelKey: 'settings.shellMenu.verbs.extract' },
+    { verb: 'extract_here', labelKey: 'settings.shellMenu.verbs.extract_here' },
+    { verb: 'compress_zip', labelKey: 'settings.shellMenu.verbs.compress_zip' },
+    { verb: 'compress', labelKey: 'settings.shellMenu.verbs.compress' },
+  ];
 
   let activeTab = $state<Tab>('general');
   let formData = $state<GeeZipXSettings>(settingsStore.DEFAULTS);
@@ -16,7 +37,9 @@
   let saved = $state(false);
   let formats = $state<FormatInfo[]>([]);
   let associations = $state<AssociationsResult | null>(null);
+  let shellMenuState = $state<ShellMenuState | null>(null);
   let assocBusy = $state<Record<string, boolean>>({});
+  let saving = $state(false);
   let levelInput = $state('');
   let version = $state('');
 
@@ -33,12 +56,14 @@
       settingsStore.loadAll(),
       getFormats(),
       getFileAssociations().catch(() => null),
-    ]).then(([d, f, a]) => {
-      formData = { ...d };
+      getShellMenuState().catch(() => null),
+    ]).then(([d, f, a, shellState]) => {
+      formData = { ...d, shell_menu_verbs: [...d.shell_menu_verbs] };
       levelInput = d.default_level != null ? String(d.default_level) : '';
-      original = { ...d };
+      original = { ...d, shell_menu_verbs: [...d.shell_menu_verbs] };
       formats = f;
       associations = a;
+      shellMenuState = shellState;
       loaded = true;
     });
 
@@ -76,9 +101,50 @@
     formData = { ...formData, default_level: c };
   }
 
+  function updateShellMenuVerb(verb: ShellMenuVerb, enabled: boolean) {
+    const selected = enabled
+      ? [...formData.shell_menu_verbs, verb]
+      : formData.shell_menu_verbs.filter((selectedVerb) => selectedVerb !== verb);
+    formData = {
+      ...formData,
+      shell_menu_verbs: SHELL_MENU_OPTIONS
+        .map((option) => option.verb)
+        .filter((option) => selected.includes(option)),
+    };
+  }
+
+  function cloneSettings(settings: GeeZipXSettings): GeeZipXSettings {
+    return { ...settings, shell_menu_verbs: [...settings.shell_menu_verbs] };
+  }
+
+  function applySavedSettings(settings: GeeZipXSettings) {
+    const d = document.documentElement;
+    if (settings.theme === 'light') {
+      d.setAttribute('data-theme', 'light');
+    } else if (settings.theme === 'dark') {
+      d.setAttribute('data-theme', 'dark');
+    } else {
+      d.removeAttribute('data-theme');
+    }
+
+    if (settings.locale !== localeStore.locale) {
+      localeStore.switchLocale(settings.locale);
+    }
+  }
+
+  async function refreshShellMenuState() {
+    try {
+      shellMenuState = await getShellMenuState();
+    } catch (e) {
+      console.error('getShellMenuState refresh failed', e);
+    }
+  }
+
   async function handleSave() {
+    if (saving) return;
+
     // --- Validation / normalization ---
-    const next = { ...formData };
+    const next = cloneSettings(formData);
 
     // Clamp compression level to the engine's accepted range.
     if (next.default_level !== null) {
@@ -94,36 +160,81 @@
     }
 
     formData = next;
-    await settingsStore.saveAll(formData);
-    original = { ...formData };
-    settingsGuard.dirty = false;
+    saving = true;
+    try {
+      const shellStateSnapshot = shellMenuState;
+      const shellMenuSupported = shellStateSnapshot?.supported === true;
+      const previousRegistered = shellMenuSupported
+        ? [...shellStateSnapshot.registered]
+        : [];
 
-    // Apply theme immediately
-    const d = document.documentElement;
-    if (formData.theme === 'light') {
-      d.setAttribute('data-theme', 'light');
-    } else if (formData.theme === 'dark') {
-      d.setAttribute('data-theme', 'dark');
-    } else {
-      d.removeAttribute('data-theme');
+      if (shellMenuSupported) {
+        try {
+          await setShellMenu(next.shell_menu_enabled, [...next.shell_menu_verbs]);
+        } catch (e) {
+          console.error('setShellMenu failed', e);
+
+          const partialBaseline: GeeZipXSettings = {
+            ...next,
+            shell_menu_enabled: original.shell_menu_enabled,
+            shell_menu_verbs: [...original.shell_menu_verbs],
+          };
+          try {
+            await settingsStore.saveAll(partialBaseline);
+          } catch (saveError) {
+            console.error('settingsStore.saveAll partial save failed', saveError);
+            toastStore.show(localeStore.t('common.error'), 'error');
+            return;
+          }
+
+          original = cloneSettings(partialBaseline);
+          applySavedSettings(partialBaseline);
+          toastStore.show(localeStore.t('settings.shellMenu.saveError'), 'error');
+          return;
+        }
+      }
+
+      try {
+        await settingsStore.saveAll(next);
+      } catch (e) {
+        console.error('settingsStore.saveAll failed', e);
+        if (shellMenuSupported) {
+          try {
+            await setShellMenu(previousRegistered.length > 0, [...previousRegistered]);
+          } catch (rollbackError) {
+            console.error('setShellMenu rollback failed', rollbackError);
+          }
+          await refreshShellMenuState();
+        }
+        toastStore.show(localeStore.t('common.error'), 'error');
+        return;
+      }
+
+      original = cloneSettings(next);
+      settingsGuard.dirty = false;
+      applySavedSettings(next);
+
+      saved = true;
+      setTimeout(() => (saved = false), 2000);
+
+      if (shellMenuSupported) {
+        await refreshShellMenuState();
+      }
+    } finally {
+      saving = false;
     }
-
-    // Apply locale if changed
-    if (formData.locale !== localeStore.locale) {
-      localeStore.switchLocale(formData.locale);
-    }
-
-    saved = true;
-    setTimeout(() => (saved = false), 2000);
   }
 
   function handleCancel() {
-    formData = { ...original };
+    formData = { ...original, shell_menu_verbs: [...original.shell_menu_verbs] };
     settingsGuard.dirty = false;
   }
 
   function handleReset() {
-    formData = { ...settingsStore.DEFAULTS };
+    formData = {
+      ...settingsStore.DEFAULTS,
+      shell_menu_verbs: [...settingsStore.DEFAULTS.shell_menu_verbs],
+    };
   }
 
   async function toggleAssociation(item: AssocItem, enabled: boolean) {
@@ -351,6 +462,48 @@
           </div>
         </fieldset>
       {:else if activeTab === 'associations'}
+        {#if shellMenuState?.supported}
+          <section class="shell-menu-section" aria-labelledby="shell-menu-heading">
+            <h2 id="shell-menu-heading" class="section-title">
+              {localeStore.t('settings.shellMenu.label')}
+            </h2>
+            <p class="field-help">{localeStore.t('settings.shellMenu.help')}</p>
+
+            <label class="checkbox-row shell-menu-toggle">
+              <input
+                type="checkbox"
+                checked={formData.shell_menu_enabled}
+                disabled={saving}
+                onchange={(e) => (formData = {
+                  ...formData,
+                  shell_menu_enabled: (e.currentTarget as HTMLInputElement).checked,
+                })}
+              />
+              <span>{localeStore.t('settings.shellMenu.enabled')}</span>
+            </label>
+
+            <div class="shell-menu-verbs">
+              {#each SHELL_MENU_OPTIONS as option (option.verb)}
+                <label class="checkbox-row">
+                  <input
+                    type="checkbox"
+                    checked={formData.shell_menu_verbs.includes(option.verb)}
+                    disabled={saving || !formData.shell_menu_enabled}
+                    onchange={(e) => updateShellMenuVerb(
+                      option.verb,
+                      (e.currentTarget as HTMLInputElement).checked,
+                    )}
+                  />
+                  <span>{localeStore.t(option.labelKey)}</span>
+                </label>
+              {/each}
+            </div>
+
+            <p class="shell-menu-hint">{localeStore.t('settings.shellMenu.win11Hint')}</p>
+          </section>
+        {/if}
+
+        <section class="file-associations-section">
         {#if !associations}
           <p class="loading">{localeStore.t('common.loading')}</p>
         {:else}
@@ -407,6 +560,7 @@
             {/each}
           </div>
         {/if}
+        </section>
       {:else if activeTab === 'about'}
         <div class="about-card">
           <h2 class="about-title">GeeZipX</h2>
@@ -435,9 +589,9 @@
       {#if saved}
         <span class="saved-msg">{localeStore.t('settings.saved')}</span>
       {/if}
-      <button class="btn-tertiary" onclick={handleReset} disabled={!dirty}>{localeStore.t('settings.reset')}</button>
-      <button class="btn-secondary" onclick={handleCancel} disabled={!dirty}>{localeStore.t('settings.cancel')}</button>
-      <button class="btn-primary" onclick={handleSave} disabled={!dirty}>{localeStore.t('settings.save')}</button>
+      <button class="btn-tertiary" onclick={handleReset} disabled={!dirty || saving}>{localeStore.t('settings.reset')}</button>
+      <button class="btn-secondary" onclick={handleCancel} disabled={!dirty || saving}>{localeStore.t('settings.cancel')}</button>
+      <button class="btn-primary" onclick={handleSave} disabled={!dirty || saving}>{localeStore.t('settings.save')}</button>
     </div>
   {/if}
 </div>
@@ -588,6 +742,11 @@
     height: 16px;
   }
 
+  .checkbox-row:has(input:disabled) {
+    color: var(--color-text-muted);
+    cursor: not-allowed;
+  }
+
   /* --- Action bar --- */
   .action-bar {
     display: flex;
@@ -663,7 +822,44 @@
     cursor: not-allowed;
   }
 
-  /* --- File associations tab --- */
+  /* --- Associations tab --- */
+  .shell-menu-section {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    padding-bottom: var(--space-5);
+    border-bottom: 1px solid var(--color-border-light);
+  }
+
+  .section-title {
+    margin: 0;
+    font-size: var(--text-base);
+    font-weight: 600;
+    color: var(--color-text);
+  }
+
+  .shell-menu-toggle {
+    font-weight: 600;
+  }
+
+  .shell-menu-verbs {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-1) var(--space-4);
+    padding-left: var(--space-4);
+  }
+
+  .shell-menu-hint {
+    margin: var(--space-1) 0 0;
+    font-size: var(--text-xs);
+    color: var(--color-text-muted);
+  }
+
+  .file-associations-section {
+    display: flex;
+    flex-direction: column;
+  }
+
   .notice {
     display: flex;
     flex-direction: column;

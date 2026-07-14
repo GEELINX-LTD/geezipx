@@ -158,13 +158,26 @@
     "fileAssociations": {
       "label": "文件关联",
       "help": "绑定归档格式，使操作系统默认用 GeeZipX 打开它们。开启某个格式后，双击文件即可在此打开。",
-      "windowsNote": "Windows 不允许程序自行设为默认打开程序。请先开启某个格式，再点击“设为默认”在系统设置中完成绑定。",
+      "windowsNote": "Windows 不允许程序自行设为默认打开程序。请先开启某个格式，再点击\u201c设为默认\u201d在系统设置中完成绑定。",
       "default": "默认程序",
       "registered": "已注册",
       "notBound": "未绑定",
       "bind": "绑定",
       "setDefault": "设为默认",
       "openSettings": "打开系统设置"
+    },
+    "shellMenu": {
+      "label": "右键菜单",
+      "help": "在 Windows 资源管理器右键菜单中显示 GeeZipX 操作。保存后立即生效。",
+      "win11Hint": "在 Windows 11 中，这些菜单项位于\u201c显示更多选项\u201d中（Shift+F10 或 Shift+右键）。",
+      "enabled": "启用右键菜单",
+      "verbs": {
+        "extract": "解压缩到…",
+        "extract_here": "解压缩到当前文件夹",
+        "compress_zip": "压缩为 ZIP",
+        "compress": "压缩为…"
+      },
+      "saveError": "应用右键菜单设置失败，请重试。"
     },
     "reset": "恢复默认",
     "dirty": "有未保存的更改",
