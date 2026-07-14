@@ -5,6 +5,7 @@ members = [
     "crates/cli",
     "crates/gui-tauri/src-tauri",
     "crates/sfx-stub",
+    "crates/shell-extension",
     "crates/vendor/unrar-sys",
 ]
 

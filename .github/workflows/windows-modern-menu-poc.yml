@@ -1,0 +1,267 @@
+# GeeZipX — Windows Modern Context Menu PoC CI
+#
+# Builds and validates the IExplorerCommand COM DLL and sparse MSIX package
+# on a real Windows runner.  This workflow is **experimental** — it does NOT
+# modify the release pipeline.  It only runs on `workflow_dispatch` or when
+# files in the shell-extension crate change (PR check, informational only).
+#
+# IMPORTANT: This workflow generates ephemeral self-signed certificates
+# that are destroyed at the end of the run.  No PFX/P12 files are ever
+# uploaded as artifacts.  The MSIX artifact is labelled DEVELOPMENT-ONLY.
+
+name: Windows Modern Menu PoC
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'crates/shell-extension/**'
+      - 'scripts/windows-modern-menu/**'
+      - '.github/workflows/windows-modern-menu-poc.yml'
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-and-validate:
+    name: Build and Validate (x64)
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      # ------------------------------------------------------------------
+      # Lint and Test (shell-extension crate only)
+      # ------------------------------------------------------------------
+      - name: cargo fmt (shell-extension)
+        run: cargo fmt -p geezipx-shell-extension -- --check
+
+      - name: cargo check (shell-extension)
+        run: cargo check -p geezipx-shell-extension
+
+      - name: cargo test (shell-extension)
+        run: cargo test -p geezipx-shell-extension
+
+      # ------------------------------------------------------------------
+      # Build release DLL
+      # ------------------------------------------------------------------
+      - name: Build release DLL
+        run: cargo build --release -p geezipx-shell-extension
+
+      # ------------------------------------------------------------------
+      # Validate DLL exports
+      # ------------------------------------------------------------------
+      - name: Verify DLL exports (dumpbin)
+        shell: pwsh
+        run: |
+          $dll = 'target\release\geezipx_shell_extension.dll'
+          if (-not (Test-Path $dll)) {
+            throw "DLL not found: $dll"
+          }
+          Write-Host "DLL size: $((Get-Item $dll).Length) bytes"
+
+          # Find dumpbin in VS toolchain.
+          $vsPath = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" `
+            -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 `
+            -property installationPath 2>$null
+          if ($vsPath) {
+            $dumpbinDir = Get-ChildItem -Path $vsPath -Recurse -Filter dumpbin.exe -ErrorAction SilentlyContinue |
+              Select-Object -First 1 | ForEach-Object { $_.DirectoryName }
+            if ($dumpbinDir) { $env:Path += ";$dumpbinDir" }
+          }
+
+          dumpbin /EXPORTS $dll 2>&1 | Out-File -FilePath target\exports.txt
+          Write-Host "--- DLL Exports ---"
+          Get-Content target\exports.txt | Select-String -Pattern "DllGetClassObject|DllCanUnloadNow|DllMain" | ForEach-Object { Write-Host $_ }
+          Write-Host "--- End Exports ---"
+
+          $content = Get-Content target\exports.txt -Raw
+          if ($content -notmatch "DllGetClassObject") { throw "DllGetClassObject not exported!" }
+          if ($content -notmatch "DllCanUnloadNow") { throw "DllCanUnloadNow not exported!" }
+
+      # ------------------------------------------------------------------
+      # Generate ephemeral self-signed cert (destroyed after run)
+      # ------------------------------------------------------------------
+      - name: Create ephemeral dev certificate
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          New-Item -ItemType Directory -Path target\msix -Force | Out-Null
+
+          $certSubject = "CN=GeeZipX Development"
+          Write-Host "Creating self-signed code-signing certificate..."
+          $cert = New-SelfSignedCertificate `
+            -Type CodeSigningCert `
+            -Subject $certSubject `
+            -KeyUsage DigitalSignature `
+            -KeyLength 4096 `
+            -CertStoreLocation Cert:\CurrentUser\My `
+            -NotAfter (Get-Date).AddDays(1)
+
+          $thumbprint = $cert.Thumbprint
+          Write-Host "Certificate thumbprint: $thumbprint"
+
+          $cerPath = "target\msix\dev-cert.cer"
+          Export-Certificate -Cert $cert -FilePath $cerPath -Type CERT
+          Write-Host "CER exported: $cerPath"
+
+          $pfxPath = "target\msix\dev-cert.pfx"
+          $pwd = ConvertTo-SecureString -String "ci-temp-pwd" -Force -AsPlainText
+          Export-PfxCertificate -Cert $cert -FilePath $pfxPath -Password $pwd
+          Write-Host "PFX exported (temporary): $pfxPath"
+
+          $thumbprint | Out-File -FilePath target\msix\thumbprint.txt
+
+      # ------------------------------------------------------------------
+      # Build and sign sparse MSIX package
+      # ------------------------------------------------------------------
+      - name: Build MSIX package
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $repoRoot = $env:GITHUB_WORKSPACE
+          $crateDir = "$repoRoot\crates\shell-extension"
+          $packageDir = "$crateDir\package"
+          $dllFullPath = (Resolve-Path "$repoRoot\target\release\geezipx_shell_extension.dll").Path
+
+          # Staging directory
+          $stagingDir = "$repoRoot\target\msix\staging"
+          if (Test-Path $stagingDir) { Remove-Item -Recurse -Force $stagingDir }
+          New-Item -ItemType Directory -Path $stagingDir -Force | Out-Null
+
+          # Assets (placeholder 1x1 PNG)
+          $assetsDir = "$stagingDir\assets"
+          New-Item -ItemType Directory -Path $assetsDir -Force | Out-Null
+          $pngBase64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQI12P4//8/AwAI/AL+hF2oKQAAAABJRU5ErkJggg=="
+          [System.IO.File]::WriteAllBytes("$assetsDir\StoreLogo.png", [Convert]::FromBase64String($pngBase64))
+
+          # Build archive extension menu XML blocks
+          $archiveExts = @(
+            ".zip", ".zipx", ".tar", ".gz", ".bz2", ".br", ".lz4", ".zst", ".xz",
+            ".lzma", ".lz", ".7z", ".rar", ".cab", ".asar", ".deb", ".cpio",
+            ".iso", ".udf", ".lzh", ".lha", ".zpaq", ".wim", ".isz"
+          )
+          $extMenusXml = ""
+          foreach ($ext in $archiveExts) {
+            $idExt = $ext.TrimStart('.')
+            $extMenusXml += "`n"
+            $extMenusXml += "    <desktop4:Extension Category=`"windows.fileExplorerContextMenus`">`n"
+            $extMenusXml += "      <desktop4:FileExplorerContextMenus>`n"
+            $extMenusXml += "        <desktop4:Item Type=`"$ext`">`n"
+            $extMenusXml += "          <desktop4:Verb Id=`"GeeZipX.ExtractHere_$idExt`" Clsid=`"{9E2B1D70-5C3F-4C6B-B2E9-8F7E6D5C4B32}`" />`n"
+            $extMenusXml += "          <desktop4:Verb Id=`"GeeZipX.Extract_$idExt`" Clsid=`"{8F3A1C60-4D2E-4B5A-A1F8-7E6D5C4B3A21}`" />`n"
+            $extMenusXml += "          <desktop4:Verb Id=`"GeeZipX.CompressZip_$idExt`" Clsid=`"{A0C3E4D0-6D4E-4D7C-C3F0-9A8F7E6D5C43}`" />`n"
+            $extMenusXml += "          <desktop4:Verb Id=`"GeeZipX.Compress_$idExt`" Clsid=`"{B1D4F5E0-7E5F-4E8D-D4A1-0B9A8F7E6D54}`" />`n"
+            $extMenusXml += "        </desktop4:Item>`n"
+            $extMenusXml += "      </desktop4:FileExplorerContextMenus>`n"
+            $extMenusXml += "    </desktop4:Extension>`n"
+          }
+
+          # Load template and substitute
+          $template = Get-Content "$packageDir\AppxManifest.xml.in" -Raw -Encoding UTF8
+          $manifest = $template
+          $manifest = $manifest.Replace('@PACKAGE_NAME@', 'GeeZipXShellExtensionDev')
+          $manifest = $manifest.Replace('@PUBLISHER_DN@', 'CN=GeeZipX Development')
+          $manifest = $manifest.Replace('@VERSION@', '0.7.5.0')
+          $manifest = $manifest.Replace('@ARCH@', 'x64')
+          $manifest = $manifest.Replace('@COM_APPID@', '{E5D4C3B2-A1F0-4E9D-8C7B-6A5F4E3D2C10}')
+          $manifest = $manifest.Replace('@DLL_PATH@', $dllFullPath.Replace('\', '\\'))
+          $manifest = $manifest.Replace('@ARCHIVE_EXT_MENUS@', $extMenusXml)
+
+          $manifestPath = "$stagingDir\AppxManifest.xml"
+          [System.IO.File]::WriteAllText($manifestPath, $manifest, [System.Text.Encoding]::UTF8)
+
+          # MakeAppx pack
+          $msixPath = "$repoRoot\target\msix\GeeZipXShellExtension_0.7.5_x64_Dev.msix"
+          & makeappx.exe pack /d $stagingDir /p $msixPath /o
+          if ($LASTEXITCODE -ne 0) { throw "MakeAppx failed" }
+
+          # SignTool sign (random password)
+          $pfxPath = "$repoRoot\target\msix\dev-cert.pfx"
+          $ciPwd = -join ((48..57)+(65..90)+(97..122) | Get-Random -Count 24 | ForEach-Object {[char]$_})
+          & signtool.exe sign /fd SHA256 /a /f $pfxPath /p $ciPwd /tr https://timestamp.digicert.com /td SHA256 $msixPath
+          if ($LASTEXITCODE -ne 0) { throw "SignTool failed" }
+
+          Write-Host "MSIX created: $msixPath"
+
+      # ------------------------------------------------------------------
+      # Register package, verify, unregister
+      # ------------------------------------------------------------------
+      - name: Import cert and register package
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $repoRoot = $env:GITHUB_WORKSPACE
+
+          Import-Certificate -FilePath "$repoRoot\target\msix\dev-cert.cer" -CertStoreLocation Cert:\CurrentUser\TrustedPeople
+          Write-Host "Certificate imported to TrustedPeople."
+
+          $msixPath = "$repoRoot\target\msix\GeeZipXShellExtension_0.7.5_x64_Dev.msix"
+          $externalPath = "$repoRoot\target\release"
+
+          Add-AppxPackage -Path $msixPath -ExternalLocation $externalPath
+          # Verify that the four CLSIDs are present in the manifest
+          Write-Host "Verifying CLSIDs in registered package..."
+          $manifest = Get-AppxPackageManifest -Package (Get-AppxPackage -Name GeeZipXShellExtensionDev)
+          $expected = @(
+            "{8F3A1C60-4D2E-4B5A-A1F8-7E6D5C4B3A21}",
+            "{9E2B1D70-5C3F-4C6B-B2E9-8F7E6D5C4B32}",
+            "{A0C3E4D0-6D4E-4D7C-C3F0-9A8F7E6D5C43}",
+            "{B1D4F5E0-7E5F-4E8D-D4A1-0B9A8F7E6D54}"
+          )
+          foreach ($id in $expected) {
+            if ($manifest -match [regex]::Escape($id)) {
+              Write-Host "  CLSID found: $id"
+            } else {
+              throw "CLSID NOT FOUND in manifest: $id"
+            }
+          }
+          Write-Host "All 4 CLSIDs verified in registered package."
+
+          $pkg = Get-AppxPackage -Name "GeeZipXShellExtensionDev"
+          if ($pkg) {
+            Write-Host "Package found: $($pkg.PackageFullName)"
+            Write-Host "Status: $($pkg.Status)"
+          } else {
+            throw "Package not found after Add-AppxPackage!"
+          }
+
+      - name: Unregister package and remove cert
+        shell: pwsh
+        if: always()
+        run: |
+          $ErrorActionPreference = "Continue"
+          $repoRoot = $env:GITHUB_WORKSPACE
+
+          $pkg = Get-AppxPackage -Name "GeeZipXShellExtensionDev" -ErrorAction SilentlyContinue
+          if ($pkg) {
+            Remove-AppxPackage -Package $pkg.PackageFullName
+            Write-Host "Package removed."
+          }
+
+          $thumbprint = Get-Content "$repoRoot\target\msix\thumbprint.txt" -ErrorAction SilentlyContinue
+          if ($thumbprint) {
+            $tp = $thumbprint.Trim()
+            $cert = Get-ChildItem -Path Cert:\CurrentUser\TrustedPeople | Where-Object { $_.Thumbprint -eq $tp } | Select-Object -First 1
+            if ($cert) { Remove-Item -Path $cert.PSPath -Force; Write-Host "Certificate removed from TrustedPeople." }
+            $cert2 = Get-ChildItem -Path Cert:\CurrentUser\My | Where-Object { $_.Thumbprint -eq $tp } | Select-Object -First 1
+            if ($cert2) { Remove-Item -Path $cert2.PSPath -Force; Write-Host "Certificate removed from My store." }
+          }
+
+      # ------------------------------------------------------------------
+      # Upload DLL artifact only (DEVELOPMENT-ONLY)
+      # No MSIX/PFX/CER uploaded — those would contain certificate material.
+      # ------------------------------------------------------------------
+      - name: Upload DLL artifact (DEVELOPMENT-ONLY)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: shell-extension-dll-x64-DEVELOPMENT-ONLY
+          path: target/release/geezipx_shell_extension.dll
+          retention-days: 7
