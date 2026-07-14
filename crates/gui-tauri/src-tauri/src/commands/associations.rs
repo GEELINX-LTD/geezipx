@@ -596,9 +596,7 @@ mod platform {
     // HRESULT for Win32 ERROR_FILE_NOT_FOUND (0x2).
     const HR_FILE_NOT_FOUND: i32 = 0x80070002u32 as i32;
 
-    fn is_not_found(err: &windows_result::error::Error) -> bool {
-        err.code().0 == HR_FILE_NOT_FOUND
-    }
+    // NOTE: `is_not_found` is inlined at call sites because
 
     extern "system" {
         /// Opens a file, URL, or folder via the Windows shell. Returns a value
@@ -631,7 +629,7 @@ mod platform {
 
         let registered = match CURRENT_USER.open(&ow_path) {
             Ok(key) => key.get_string(&pid).is_ok(),
-            Err(e) if is_not_found(&e) => false,
+            Err(e) if e.code().0 == HR_FILE_NOT_FOUND => false,
             Err(e) => {
                 return Err(format!("failed to query {ow_path}: {e}"));
             }
@@ -717,14 +715,14 @@ mod platform {
             match CURRENT_USER.open(&ow_path) {
                 Ok(key) => match key.remove_value(&pid) {
                     Ok(()) => {}
-                    Err(e) if is_not_found(&e) => {}
+                    Err(e) if e.code().0 == HR_FILE_NOT_FOUND => {}
                     Err(e) => {
                         return Err(format!(
                             "failed to remove OpenWithProgids value for {pid}: {e}"
                         ))
                     }
                 },
-                Err(e) if is_not_found(&e) => {}
+                Err(e) if e.code().0 == HR_FILE_NOT_FOUND => {}
                 Err(e) => return Err(format!("failed to open {ow_path}: {e}")),
             }
 
@@ -733,7 +731,7 @@ mod platform {
             let prog_path = format!(r"Software\Classes\{pid}");
             match CURRENT_USER.remove_tree(&prog_path) {
                 Ok(()) => {}
-                Err(e) if is_not_found(&e) => {}
+                Err(e) if e.code().0 == HR_FILE_NOT_FOUND => {}
                 Err(e) => return Err(format!("failed to delete ProgID {pid}: {e}")),
             }
 

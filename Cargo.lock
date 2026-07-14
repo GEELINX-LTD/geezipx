@@ -2230,7 +2230,6 @@ dependencies = [
  "tempfile",
  "tokio",
  "windows-registry",
- "windows-result 0.4.1",
  "zpaq_rs",
 ]
 

@@ -291,10 +291,8 @@ mod platform {
     // `pub(super)` so the unit test can verify the constant value.
     pub(super) const HR_FILE_NOT_FOUND: i32 = 0x80070002u32 as i32;
 
-    /// Returns `true` if `err` represents a missing key or value.
-    fn is_not_found(err: &windows_result::error::Error) -> bool {
-        err.code().0 == HR_FILE_NOT_FOUND
-    }
+    // NOTE: `is_not_found` is inlined at call sites because
+    // `windows_result::Error` is not publicly nameable in v0.4.x.
 
     // -- Win32 FFI for SHChangeNotify ---------------------------------------
 
@@ -339,7 +337,7 @@ mod platform {
     fn reg_key_exists(key_path: &str) -> Result<bool, String> {
         match CURRENT_USER.open(key_path) {
             Ok(_) => Ok(true),
-            Err(e) if is_not_found(&e) => Ok(false),
+            Err(e) if e.code().0 == HR_FILE_NOT_FOUND => Ok(false),
             Err(e) => Err(format!("failed to query {key_path}: {e}")),
         }
     }
@@ -349,7 +347,7 @@ mod platform {
     fn reg_delete_tree(key_path: &str) -> Result<(), String> {
         match CURRENT_USER.remove_tree(key_path) {
             Ok(()) => Ok(()),
-            Err(e) if is_not_found(&e) => Ok(()),
+            Err(e) if e.code().0 == HR_FILE_NOT_FOUND => Ok(()),
             Err(e) => Err(format!("failed to delete {key_path}: {e}")),
         }
     }
