@@ -2241,17 +2241,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "geezipx-shell-extension"
-version = "0.7.4"
-dependencies = [
- "paste",
- "windows 0.61.3",
- "windows-core 0.61.2",
- "windows-registry",
- "windows-result 0.4.1",
-]
-
-[[package]]
 name = "generic-array"
 version = "0.14.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3862,12 +3851,6 @@ dependencies = [
  "rand_core 0.6.4",
  "subtle",
 ]
-
-[[package]]
-name = "paste"
-version = "1.0.15"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "57c0d7b74b563b49d38dae00a0c37d4d6de9b432382b2892f0574ddcae73fd0a"
 
 [[package]]
 name = "pbkdf2"

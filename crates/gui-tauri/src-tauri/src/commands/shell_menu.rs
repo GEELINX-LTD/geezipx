@@ -8,20 +8,21 @@
 //!
 //! Sub-menu structure (v0.7.6+)
 //! -----------------------------
-//! Four verb entries are grouped under a parent `GeeZipX` key using the
-//! Windows `SubCommands` mechanism, producing a fly-out sub-menu instead
-//! of scattering entries at the top level:
+//! Four verb entries are grouped under a parent `GeeZipX` key using
+//! nested `shell` sub-keys, producing a fly-out sub-menu:
 //!
 //! ```text
-//! SystemFileAssociations\.zip\shell\GeeZipX          ← parent (MUIVerb, SubCommands, Icon)
-//! SystemFileAssociations\.zip\shell\GeeZipX.Extract   ← child (MUIVerb, command)
-//! SystemFileAssociations\.zip\shell\GeeZipX.ExtractHere
+//! SystemFileAssociations\.zip\shell\GeeZipX          ← parent (MUIVerb, Icon)
+//! SystemFileAssociations\.zip\shell\GeeZipX\shell\Extract   ← child (MUIVerb, command)
+//! SystemFileAssociations\.zip\shell\GeeZipX\shell\ExtractHere
 //! ```
 //!
-//! Child keys only carry `MUIVerb` and `command`; the parent holds `Icon`,
-//! `SubCommands`, and the parent label.  Sub-commands are listed in display
-//! order: `GeeZipX.Extract;GeeZipX.ExtractHere` for archive files,
-//! `GeeZipX.Compress;GeeZipX.CompressZip` for `*` / `Directory`.
+//! Child keys carry `MUIVerb` and `command`; the parent holds `Icon`
+//! and `MUIVerb`.  No `SubCommands` — Explorer uses nested `shell` keys
+//! to render cascaded menus for static verbs.
+//!
+//! For `*` / `Directory` the nested compress verbs follow the same pattern:
+//! `*\shell\GeeZipX\shell\CompressZip` etc.
 //!
 //! i18n
 //! ----
@@ -102,11 +103,6 @@ pub fn verb_key_name(verb: ShellMenuVerb) -> &'static str {
     }
 }
 
-/// Full SubCommands name for a verb (e.g. `"GeeZipX.ExtractHere"`).
-pub fn subcommand_name(verb: ShellMenuVerb) -> String {
-    format!("GeeZipX.{}", verb_key_name(verb))
-}
-
 /// Build the HKCU-relative registry key path for an extract **parent** key
 /// on a given extension.
 ///
@@ -128,27 +124,31 @@ pub fn reg_parent_key_for_dir() -> String {
     r"Software\Classes\Directory\shell\GeeZipX".to_string()
 }
 
-/// Build the HKCU-relative registry key path for a **child** extract verb on
-/// a given extension.
+/// Build the HKCU-relative registry key path for a **nested child** extract
+/// verb for a given extension. Explorer renders children nested under the
+/// parent `GeeZipX` key as a cascaded sub-menu.
 ///
 /// Example: `reg_key_for_ext(".zip", ShellMenuVerb::Extract)` →
-/// `Software\Classes\SystemFileAssociations\.zip\shell\GeeZipX.Extract`
+/// `Software\Classes\SystemFileAssociations\.zip\shell\GeeZipX\shell\Extract`
 pub fn reg_key_for_ext(ext: &str, verb: ShellMenuVerb) -> String {
     let name = verb_key_name(verb);
-    format!(r"Software\Classes\SystemFileAssociations\{ext}\shell\GeeZipX.{name}")
+    format!(r"Software\Classes\SystemFileAssociations\{ext}\shell\GeeZipX\shell\{name}")
 }
 
-/// Build the HKCU-relative registry key path for a **child** compress verb
-/// on `*` (all files).
+/// Build the HKCU-relative registry key path for a **nested child** compress
+/// verb on `*` (all files).
 pub fn reg_key_for_any_file(verb: ShellMenuVerb) -> String {
-    format!(r"Software\Classes\*\shell\GeeZipX.{}", verb_key_name(verb))
+    format!(
+        r"Software\Classes\*\shell\GeeZipX\shell\{}",
+        verb_key_name(verb)
+    )
 }
 
-/// Build the HKCU-relative registry key path for a **child** compress verb
-/// on `Directory`.
+/// Build the HKCU-relative registry key path for a **nested child** compress
+/// verb on `Directory`.
 pub fn reg_key_for_dir(verb: ShellMenuVerb) -> String {
     format!(
-        r"Software\Classes\Directory\shell\GeeZipX.{}",
+        r"Software\Classes\Directory\shell\GeeZipX\shell\{}",
         verb_key_name(verb)
     )
 }
@@ -487,25 +487,15 @@ mod platform {
         Ok(())
     }
 
-    /// Write a **parent** key that groups child verbs under a `SubCommands`
-    /// fly-out menu.
-    ///
-    /// The parent key holds `MUIVerb` (localized parent label), `SubCommands`
-    /// (semicolon-separated sub-command names), and `Icon`.
-    fn write_parent_key(
-        key_path: &str,
-        exe: &str,
-        locale: &str,
-        sub_commands: &str,
-    ) -> Result<(), String> {
+    /// Write a **parent** key with MUIVerb and Icon (no command, no SubCommands).
+    /// Explorer renders nested `shell` children as a cascaded sub-menu.
+    fn write_parent_key(key_path: &str, exe: &str, locale: &str) -> Result<(), String> {
         let label = parent_label(locale);
         let key = CURRENT_USER
             .create(key_path)
             .map_err(|e| format!("failed to create parent key {key_path}: {e}"))?;
         key.set_string("MUIVerb", label)
             .map_err(|e| format!("failed to set MUIVerb at {key_path}: {e}"))?;
-        key.set_string("SubCommands", sub_commands)
-            .map_err(|e| format!("failed to set SubCommands at {key_path}: {e}"))?;
         key.set_string("Icon", &format!("\"{exe}\",0"))
             .map_err(|e| format!("failed to set Icon at {key_path}: {e}"))?;
         Ok(())
@@ -574,7 +564,7 @@ mod platform {
         Ok(registered)
     }
 
-    /// Register the given set of verbs with parent key + SubCommands structure.
+    /// Register the given set of verbs with nested shell structure.
     ///
     /// Removes all existing GeeZipX verbs first so stale keys from a previous
     /// configuration are cleaned up.
@@ -591,42 +581,26 @@ mod platform {
         // Start from a clean slate.
         remove_all_verbs()?;
 
-        // --- build SubCommands strings in display order --------------------
+        // --- detect which verb groups are active --------------------------
 
-        // Extract SubCommands: Extract first, then ExtractHere.
-        let mut extract_sc: Vec<String> = Vec::new();
-        for verb in [ShellMenuVerb::Extract, ShellMenuVerb::ExtractHere] {
-            if verbs.contains(&verb) {
-                extract_sc.push(subcommand_name(verb));
-            }
-        }
-        let extract_sc_str = extract_sc.join(";");
+        let has_extract = verbs
+            .iter()
+            .any(|v| matches!(v, ShellMenuVerb::Extract | ShellMenuVerb::ExtractHere));
+        let has_compress = verbs
+            .iter()
+            .any(|v| matches!(v, ShellMenuVerb::CompressZip | ShellMenuVerb::Compress));
 
-        // Compress SubCommands: Compress first, then CompressZip.
-        let mut compress_sc: Vec<String> = Vec::new();
-        for verb in [ShellMenuVerb::Compress, ShellMenuVerb::CompressZip] {
-            if verbs.contains(&verb) {
-                compress_sc.push(subcommand_name(verb));
-            }
-        }
-        let compress_sc_str = compress_sc.join(";");
+        // --- write parent keys (MUIVerb + Icon only, no SubCommands) ------
 
-        // --- write parent keys ---------------------------------------------
-
-        if !extract_sc_str.is_empty() {
+        if has_extract {
             for ext in ARCHIVE_EXTS {
-                write_parent_key(&reg_parent_key_for_ext(ext), &exe, locale, &extract_sc_str)?;
+                write_parent_key(&reg_parent_key_for_ext(ext), &exe, locale)?;
             }
         }
 
-        if !compress_sc_str.is_empty() {
-            write_parent_key(
-                &reg_parent_key_for_any_file(),
-                &exe,
-                locale,
-                &compress_sc_str,
-            )?;
-            write_parent_key(&reg_parent_key_for_dir(), &exe, locale, &compress_sc_str)?;
+        if has_compress {
+            write_parent_key(&reg_parent_key_for_any_file(), &exe, locale)?;
+            write_parent_key(&reg_parent_key_for_dir(), &exe, locale)?;
         }
 
         // --- write child verb keys -----------------------------------------
@@ -651,22 +625,33 @@ mod platform {
     /// Missing keys are silently skipped; any real failure (e.g. access
     /// denied) is propagated.
     pub fn remove_all_verbs() -> Result<(), String> {
-        // Remove child extract keys
+        // Remove parent trees (recursive — also removes all nested children).
         for ext in ARCHIVE_EXTS {
-            for verb in extract_verbs() {
-                reg_delete_tree(&reg_key_for_ext(ext, verb))?;
-            }
-            // Also remove extract parent keys
             reg_delete_tree(&reg_parent_key_for_ext(ext))?;
         }
-        // Remove child compress keys
-        for verb in compress_verbs() {
-            reg_delete_tree(&reg_key_for_any_file(verb))?;
-            reg_delete_tree(&reg_key_for_dir(verb))?;
-        }
-        // Remove compress parent keys
         reg_delete_tree(&reg_parent_key_for_any_file())?;
         reg_delete_tree(&reg_parent_key_for_dir())?;
+
+        // Legacy cleanup: remove old flat sibling keys from pre-nested versions.
+        // These have path pattern `...\shell\GeeZipX.Extract` (sibling, not nested).
+        for ext in ARCHIVE_EXTS {
+            for verb in extract_verbs() {
+                let legacy = format!(
+                    r"Software\Classes\SystemFileAssociations\{ext}\shell\GeeZipX.{}",
+                    verb_key_name(verb)
+                );
+                reg_delete_tree(&legacy)?;
+            }
+        }
+        for verb in compress_verbs() {
+            let legacy_file = format!(r"Software\Classes\*\shell\GeeZipX.{}", verb_key_name(verb));
+            let legacy_dir = format!(
+                r"Software\Classes\Directory\shell\GeeZipX.{}",
+                verb_key_name(verb)
+            );
+            reg_delete_tree(&legacy_file)?;
+            reg_delete_tree(&legacy_dir)?;
+        }
         Ok(())
     }
 
@@ -704,22 +689,6 @@ mod tests {
         assert_eq!(verb_key_name(ShellMenuVerb::Compress), "Compress");
     }
 
-    // -- subcommand_name ----------------------------------------------------
-
-    #[test]
-    fn test_subcommand_name() {
-        assert_eq!(subcommand_name(ShellMenuVerb::Extract), "GeeZipX.Extract");
-        assert_eq!(
-            subcommand_name(ShellMenuVerb::ExtractHere),
-            "GeeZipX.ExtractHere"
-        );
-        assert_eq!(
-            subcommand_name(ShellMenuVerb::CompressZip),
-            "GeeZipX.CompressZip"
-        );
-        assert_eq!(subcommand_name(ShellMenuVerb::Compress), "GeeZipX.Compress");
-    }
-
     // -- reg key paths (now HKCU-relative) ----------------------------------
 
     #[test]
@@ -727,7 +696,7 @@ mod tests {
         let key = reg_key_for_ext(".zip", ShellMenuVerb::Extract);
         assert_eq!(
             key,
-            r"Software\Classes\SystemFileAssociations\.zip\shell\GeeZipX.Extract"
+            r"Software\Classes\SystemFileAssociations\.zip\shell\GeeZipX\shell\Extract"
         );
     }
 
@@ -735,7 +704,7 @@ mod tests {
     fn test_reg_key_for_any_file() {
         assert_eq!(
             reg_key_for_any_file(ShellMenuVerb::CompressZip),
-            r"Software\Classes\*\shell\GeeZipX.CompressZip"
+            r"Software\Classes\*\shell\GeeZipX\shell\CompressZip"
         );
     }
 
@@ -743,7 +712,7 @@ mod tests {
     fn test_reg_key_for_dir() {
         assert_eq!(
             reg_key_for_dir(ShellMenuVerb::Compress),
-            r"Software\Classes\Directory\shell\GeeZipX.Compress"
+            r"Software\Classes\Directory\shell\GeeZipX\shell\Compress"
         );
     }
 

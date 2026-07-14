@@ -9,18 +9,18 @@
 ;
 ; Sub-menu structure (v0.7.6+)
 ; -----------------------------
-; Verbs are grouped under a parent `GeeZipX` key using the Windows
-; `SubCommands` mechanism:
+; Verbs are grouped under a parent `GeeZipX` key using nested `shell`
+; sub-keys (Explorer renders these as a cascaded fly-out menu):
 ;
 ;   Archive extensions:
-;     HKCU\...\shell\GeeZipX             ← parent (MUIVerb, SubCommands, Icon)
-;     HKCU\...\shell\GeeZipX.Extract     ← child  (MUIVerb, command)
-;     HKCU\...\shell\GeeZipX.ExtractHere
+;     HKCU\...\shell\GeeZipX                        ← parent (MUIVerb, Icon)
+;     HKCU\...\shell\GeeZipX\shell\Extract           ← child  (MUIVerb, command)
+;     HKCU\...\shell\GeeZipX\shell\ExtractHere
 ;
 ;   * (all files) / Directory:
-;     HKCU\...\shell\GeeZipX             ← parent
-;     HKCU\...\shell\GeeZipX.Compress    ← child
-;     HKCU\...\shell\GeeZipX.CompressZip
+;     HKCU\...\shell\GeeZipX                        ← parent
+;     HKCU\...\shell\GeeZipX\shell\Compress          ← child
+;     HKCU\...\shell\GeeZipX\shell\CompressZip
 ;
 ; i18n
 ; ----
@@ -113,31 +113,30 @@ Var _geezip_lang
 ; ---------------------------------------------------------------------
 
 !macro AddExtractMenus ext
-  ; ── Parent key (groups children under a fly-out) ──
+  ; parent key (MUIVerb + Icon only; nested shell children form cascaded menu)
   WriteRegStr HKCU "Software\Classes\SystemFileAssociations\${ext}\shell\GeeZipX" "MUIVerb" "GeeZipX"
-  WriteRegStr HKCU "Software\Classes\SystemFileAssociations\${ext}\shell\GeeZipX" "SubCommands" "GeeZipX.Extract;GeeZipX.ExtractHere"
   WriteRegStr HKCU "Software\Classes\SystemFileAssociations\${ext}\shell\GeeZipX" "Icon" "$INSTDIR\geezipx-gui.exe,0"
 
-  ; ── Child: "Extract to..." ──
+  ; child: "Extract to..." (nested under parent)
   !insertmacro GeeZipXExtractLabel $0
-  WriteRegStr HKCU "Software\Classes\SystemFileAssociations\${ext}\shell\GeeZipX.Extract" "MUIVerb" "$0"
-  WriteRegStr HKCU "Software\Classes\SystemFileAssociations\${ext}\shell\GeeZipX.Extract\command" "" '"$INSTDIR\geezipx-gui.exe" /extract "%1"'
+  WriteRegStr HKCU "Software\Classes\SystemFileAssociations\${ext}\shell\GeeZipX\shell\Extract" "MUIVerb" "$0"
+  WriteRegStr HKCU "Software\Classes\SystemFileAssociations\${ext}\shell\GeeZipX\shell\Extract\command" "" '"$INSTDIR\geezipx-gui.exe" /extract "%1"'
 
-  ; ── Child: "Extract here" ──
+  ; child: "Extract here" (nested under parent)
   !insertmacro GeeZipXExtractHereLabel $0
-  WriteRegStr HKCU "Software\Classes\SystemFileAssociations\${ext}\shell\GeeZipX.ExtractHere" "MUIVerb" "$0"
-  WriteRegStr HKCU "Software\Classes\SystemFileAssociations\${ext}\shell\GeeZipX.ExtractHere\command" "" '"$INSTDIR\geezipx-gui.exe" /extract-here "%1"'
+  WriteRegStr HKCU "Software\Classes\SystemFileAssociations\${ext}\shell\GeeZipX\shell\ExtractHere" "MUIVerb" "$0"
+  WriteRegStr HKCU "Software\Classes\SystemFileAssociations\${ext}\shell\GeeZipX\shell\ExtractHere\command" "" '"$INSTDIR\geezipx-gui.exe" /extract-here "%1"'
 !macroend
 
 !macro RemoveExtractMenus ext
-  ; ── HKCU (current location) — children + parent ──
+  ; recursively delete the GeeZipX parent tree (also removes nested children)
+  DeleteRegKey HKCU "Software\Classes\SystemFileAssociations\${ext}\shell\GeeZipX"
+  ; legacy: clean old flat sibling keys from pre-nested versions
   DeleteRegKey HKCU "Software\Classes\SystemFileAssociations\${ext}\shell\GeeZipX.Extract"
   DeleteRegKey HKCU "Software\Classes\SystemFileAssociations\${ext}\shell\GeeZipX.ExtractHere"
-  DeleteRegKey HKCU "Software\Classes\SystemFileAssociations\${ext}\shell\GeeZipX"
   DeleteRegKey /ifempty HKCU "Software\Classes\SystemFileAssociations\${ext}\shell"
   DeleteRegKey /ifempty HKCU "Software\Classes\SystemFileAssociations\${ext}"
-
-  ; ── HKCR (legacy v0.7.4 and earlier) ──
+  ; HKCR legacy
   DeleteRegKey HKCR "SystemFileAssociations\${ext}\shell\GeeZipX.ExtractHere"
   DeleteRegKey HKCR "SystemFileAssociations\${ext}\shell\GeeZipX.Extract"
   DeleteRegKey HKCR "SystemFileAssociations\${ext}\shell\GeeZipX.Open"
@@ -151,47 +150,39 @@ Var _geezip_lang
 ; ---------------------------------------------------------------------
 
 !macro AddCompressMenus
-  ; ── Parent key for * (all files) ──
+  ; Parent keys (MUIVerb + Icon only; nested shell children form cascaded menu)
   WriteRegStr HKCU "Software\Classes\*\shell\GeeZipX" "MUIVerb" "GeeZipX"
-  WriteRegStr HKCU "Software\Classes\*\shell\GeeZipX" "SubCommands" "GeeZipX.Compress;GeeZipX.CompressZip"
   WriteRegStr HKCU "Software\Classes\*\shell\GeeZipX" "Icon" "$INSTDIR\geezipx-gui.exe,0"
-
-  ; ── Parent key for Directory ──
   WriteRegStr HKCU "Software\Classes\Directory\shell\GeeZipX" "MUIVerb" "GeeZipX"
-  WriteRegStr HKCU "Software\Classes\Directory\shell\GeeZipX" "SubCommands" "GeeZipX.Compress;GeeZipX.CompressZip"
   WriteRegStr HKCU "Software\Classes\Directory\shell\GeeZipX" "Icon" "$INSTDIR\geezipx-gui.exe,0"
 
-  ; ── Child: "Compress as..." (*) ──
+  ; Child: "Compress as..." (nested under parent)
   !insertmacro GeeZipXCompressLabel $0
-  WriteRegStr HKCU "Software\Classes\*\shell\GeeZipX.Compress" "MUIVerb" "$0"
-  WriteRegStr HKCU "Software\Classes\*\shell\GeeZipX.Compress" "MultiSelectModel" "Player"
-  WriteRegStr HKCU "Software\Classes\*\shell\GeeZipX.Compress\command" "" '"$INSTDIR\geezipx-gui.exe" /compress "%1"'
+  WriteRegStr HKCU "Software\Classes\*\shell\GeeZipX\shell\Compress" "MUIVerb" "$0"
+  WriteRegStr HKCU "Software\Classes\*\shell\GeeZipX\shell\Compress" "MultiSelectModel" "Player"
+  WriteRegStr HKCU "Software\Classes\*\shell\GeeZipX\shell\Compress\command" "" '"$INSTDIR\geezipx-gui.exe" /compress "%1"'
+  WriteRegStr HKCU "Software\Classes\Directory\shell\GeeZipX\shell\Compress" "MUIVerb" "$0"
+  WriteRegStr HKCU "Software\Classes\Directory\shell\GeeZipX\shell\Compress" "MultiSelectModel" "Player"
+  WriteRegStr HKCU "Software\Classes\Directory\shell\GeeZipX\shell\Compress\command" "" '"$INSTDIR\geezipx-gui.exe" /compress "%1"'
 
-  ; ── Child: "Compress as..." (Directory) ──
-  WriteRegStr HKCU "Software\Classes\Directory\shell\GeeZipX.Compress" "MUIVerb" "$0"
-  WriteRegStr HKCU "Software\Classes\Directory\shell\GeeZipX.Compress" "MultiSelectModel" "Player"
-  WriteRegStr HKCU "Software\Classes\Directory\shell\GeeZipX.Compress\command" "" '"$INSTDIR\geezipx-gui.exe" /compress "%1"'
-
-  ; ── Child: "Compress as ZIP" (*) ──
+  ; Child: "Compress as ZIP" (nested under parent)
   !insertmacro GeeZipXCompressZipLabel $0
-  WriteRegStr HKCU "Software\Classes\*\shell\GeeZipX.CompressZip" "MUIVerb" "$0"
-  WriteRegStr HKCU "Software\Classes\*\shell\GeeZipX.CompressZip\command" "" '"$INSTDIR\geezipx-gui.exe" /compress-zip "%1"'
-
-  ; ── Child: "Compress as ZIP" (Directory) ──
-  WriteRegStr HKCU "Software\Classes\Directory\shell\GeeZipX.CompressZip" "MUIVerb" "$0"
-  WriteRegStr HKCU "Software\Classes\Directory\shell\GeeZipX.CompressZip\command" "" '"$INSTDIR\geezipx-gui.exe" /compress-zip "%1"'
+  WriteRegStr HKCU "Software\Classes\*\shell\GeeZipX\shell\CompressZip" "MUIVerb" "$0"
+  WriteRegStr HKCU "Software\Classes\*\shell\GeeZipX\shell\CompressZip\command" "" '"$INSTDIR\geezipx-gui.exe" /compress-zip "%1"'
+  WriteRegStr HKCU "Software\Classes\Directory\shell\GeeZipX\shell\CompressZip" "MUIVerb" "$0"
+  WriteRegStr HKCU "Software\Classes\Directory\shell\GeeZipX\shell\CompressZip\command" "" '"$INSTDIR\geezipx-gui.exe" /compress-zip "%1"'
 !macroend
 
 !macro RemoveCompressMenus
-  ; ── HKCU (current location) — children + parents ──
+  ; recursively delete parent trees (also removes nested children)
+  DeleteRegKey HKCU "Software\Classes\*\shell\GeeZipX"
+  DeleteRegKey HKCU "Software\Classes\Directory\shell\GeeZipX"
+  ; legacy: clean old flat sibling keys
   DeleteRegKey HKCU "Software\Classes\*\shell\GeeZipX.Compress"
   DeleteRegKey HKCU "Software\Classes\*\shell\GeeZipX.CompressZip"
-  DeleteRegKey HKCU "Software\Classes\*\shell\GeeZipX"
   DeleteRegKey HKCU "Software\Classes\Directory\shell\GeeZipX.Compress"
   DeleteRegKey HKCU "Software\Classes\Directory\shell\GeeZipX.CompressZip"
-  DeleteRegKey HKCU "Software\Classes\Directory\shell\GeeZipX"
-
-  ; ── HKCR (legacy v0.7.4 and earlier) ──
+  ; HKCR legacy
   DeleteRegKey HKCR "*\shell\GeeZipX.CompressZip"
   DeleteRegKey HKCR "*\shell\GeeZipX.Compress"
   DeleteRegKey HKCR "Directory\shell\GeeZipX.CompressZip"
