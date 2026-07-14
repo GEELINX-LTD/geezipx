@@ -429,6 +429,7 @@ crates/gui-tauri/
     │   │   ├── list.rs
     │   │   ├── preview_entry.rs
     │   │   ├── progress.rs
+    │   │   ├── shell_menu.rs
     │   │   └── test.rs
     │   ├── lib.rs
     │   └── state.rs
@@ -444,6 +445,8 @@ crates/gui-tauri/
 - 选择性提取、条目预览、拖出归档条目等 GUI 专属交互都建立在 core 的只读/提取能力之上；
 - 前端已内置 i18n 支持（`en.json` / `zh-CN.json` 双语），由 `i18n/index.ts` 管理语言切换；
 - 偏好设置/默认行为配置已在 v0.7.0 中实现（默认输出目录、覆盖策略等）。
+- **Windows 右键菜单运行时管理**（v0.7.5）— `commands/shell_menu.rs` 通过 `HKCU\Software\Classes` 动态管理四项 Explorer 右键动词（`Extract here`、`Extract to...`、`Compress as ZIP`、`Compress as...`），无需管理员权限。实现使用 Microsoft [`windows-registry`](https://crates.io/crates/windows-registry) 0.6.1 安全 API 进行进程内注册表操作，不再通过 `reg.exe` 子进程。保存后通过 Win32 `SHChangeNotify(SHCNE_ASSOCCHANGED)` 即时刷新。Sentinel 机制（`HKCU\Software\Classes\GeeZipX\ShellMenu\Configured=1`）防止 NSIS 安装器升级时覆盖用户选择。非 Windows 平台返回 `supported: false`。Win11 限制：传统菜单项显示于“显示更多选项”(Shift+F10)。
+- **Windows 文件关联**（v0.7.5）— `commands/associations.rs` 的 Windows 平台模块同样迁移至 `windows-registry`，通过程序化 API 管理 ProgID、`OpenWithProgids`、`Capabilities` 与 `RegisteredApplications`，不再依赖外部 `reg.exe` 进程。
 
 | 风险 | 影响 | 当前缓解 |
 |------|------|----------|
@@ -572,3 +575,17 @@ path = "src/main.rs"
 ```
 
 > 注意：以上 `Cargo.toml` 版本号仅作示例，需以 crates.io 上的实际最新稳定版本为准。
+
+## 7. 实验性组件
+
+### 7.1 Windows Shell Extension (PoC)
+
+`crates/shell-extension/` 是一个实验性 IExplorerCommand COM DLL，配合稀疏 MSIX 包标识，实现在 Windows 11 一级现代右键菜单中显示 GeeZipX 压缩/解压操作（无需"显示更多选项"）。
+
+- **状态**: 实验性 PoC，不包含在正式构建中
+- **文档**: `docs/WINDOWS_MODERN_CONTEXT_MENU_POC.md`
+- **构建**: `scripts/windows-modern-menu/build-dev-package.ps1`
+- **CI**: `.github/workflows/windows-modern-menu-poc.yml`（仅 workflow_dispatch / shell-extension 相关 PR）
+- **依赖**: `windows 0.61` + `windows-registry 0.6.1`（Windows-only cdylib）
+
+正式发布前需迁移至受信任的证书（Azure Trusted Signing 或 CA 颁发），并将 MSIX 打包集成到 NSIS 安装器流程中。现有静态 HKCU verb（Settings 页面管理）在 Windows 11"显示更多选项"中始终作为回退保留。

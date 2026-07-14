@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Windows GUI — Configurable shell context menu**: The right-click menu in Explorer is now dynamically manageable from the Settings page. Users can toggle a master on/off switch and individually enable four verbs: Extract here, Extract to..., Compress as ZIP, and Compress as.... Settings are written to `HKCU\Software\Classes` (no admin required) and take effect immediately via `SHChangeNotify`. A persistent sentinel (`HKCU\Software\Classes\GeeZipX\ShellMenu\Configured=1`) prevents the NSIS installer from re-registering defaults on upgrade when the user has turned the menu off.
+- **Windows Shell Extension (experimental PoC)**: Added `crates/shell-extension/` — an `IExplorerCommand` COM DLL with sparse MSIX package identity for Windows 11 first-level modern context menu (no "Show more options" required). Includes PowerShell build/register/unregister scripts, CI workflow, and documentation. **Default-off; development-only.** Requires a trusted certificate (Azure Trusted Signing / CA) for production.
+
+### Changed
+
+- **Windows GUI — Migrate registry access to `windows-registry` 0.6.1**: Replaced all `reg.exe` subprocess calls in `shell_menu.rs` and `associations.rs` with the Microsoft [`windows-registry`](https://crates.io/crates/windows-registry) safe in-process API. Registry operations now use structured `windows_result::HRESULT` error codes (with `ERROR_FILE_NOT_FOUND` detection) instead of locale-dependent stderr text from `reg.exe`. All registry paths are HKCU-relative (`Software\Classes\...`). `CommandExt` / `ExitStatusExt` / `CREATE_NO_WINDOW` imports removed from the Windows platform modules. The `SHChangeNotify` FFI and NSIS installer registry paths are unchanged.
+- **Windows NSIS installer — Shell menu migration**: Shell context menu registration moved from `HKCR` (machine-wide) to `HKCU\Software\Classes` (per-user), matching the runtime management path. Legacy `HKCR` keys are cleaned on uninstall. Menu labels changed from Chinese to English to avoid stale localised strings when toggling verbs via Settings.
+
+### Fixed
+
+- **Windows shell context menu reliability**: Right-click menu verbs are now written to the per-user registry hive and refreshed immediately via `SHChangeNotify(SHCNE_ASSOCCHANGED)`, eliminating the previous issue where verbs registered only by the installer would not appear reliably after system updates or would fail to reflect Settings changes.
+
 ## [0.7.4] - 2026-07-13
 
 ### Fixed
