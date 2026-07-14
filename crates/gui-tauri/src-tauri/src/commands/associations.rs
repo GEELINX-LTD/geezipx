@@ -591,12 +591,12 @@ mod platform {
 #[cfg(target_os = "windows")]
 mod platform {
     use super::*;
-    use windows_registry::{self as wr, CURRENT_USER};
+    use windows_registry::CURRENT_USER;
 
     // HRESULT for Win32 ERROR_FILE_NOT_FOUND (0x2).
     const HR_FILE_NOT_FOUND: i32 = 0x80070002u32 as i32;
 
-    fn is_not_found(err: &wr::Error) -> bool {
+    fn is_not_found(err: &windows_registry::Error) -> bool {
         err.code().0 == HR_FILE_NOT_FOUND
     }
 
@@ -716,7 +716,8 @@ mod platform {
             let ow_path = format!(r"Software\Classes\{ext}\OpenWithProgids");
             match CURRENT_USER.open(&ow_path) {
                 Ok(key) => match key.remove_value(&pid) {
-                    Ok(()) | Err(e) if is_not_found(&e) => {}
+                    Ok(()) => {}
+                    Err(e) if is_not_found(&e) => {}
                     Err(e) => {
                         return Err(format!(
                             "failed to remove OpenWithProgids value for {pid}: {e}"
@@ -731,7 +732,8 @@ mod platform {
             // no-op.
             let prog_path = format!(r"Software\Classes\{pid}");
             match CURRENT_USER.remove_tree(&prog_path) {
-                Ok(()) | Err(e) if is_not_found(&e) => {}
+                Ok(()) => {}
+                Err(e) if is_not_found(&e) => {}
                 Err(e) => return Err(format!("failed to delete ProgID {pid}: {e}")),
             }
 
