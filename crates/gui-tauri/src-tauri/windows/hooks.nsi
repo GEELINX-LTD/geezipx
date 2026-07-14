@@ -10,10 +10,11 @@
 ; Sub-menu structure (v0.7.6+)
 ; -----------------------------
 ; Verbs are grouped under a parent `GeeZipX` key using nested `shell`
-; sub-keys (Explorer renders these as a cascaded fly-out menu):
+; sub-keys and an `ExtendedSubCommandsKey` (self-referencing, HKCR-relative)
+; so Explorer discovers the children and renders a cascaded fly-out menu:
 ;
 ;   Archive extensions:
-;     HKCU\...\shell\GeeZipX                        ← parent (MUIVerb, Icon)
+;     HKCU\...\shell\GeeZipX                        ← parent (MUIVerb, Icon, ExtendedSubCommandsKey)
 ;     HKCU\...\shell\GeeZipX\shell\Extract           ← child  (MUIVerb, command)
 ;     HKCU\...\shell\GeeZipX\shell\ExtractHere
 ;
@@ -113,9 +114,12 @@ Var _geezip_lang
 ; ---------------------------------------------------------------------
 
 !macro AddExtractMenus ext
-  ; parent key (MUIVerb + Icon only; nested shell children form cascaded menu)
+  ; parent key (MUIVerb + Icon + ExtendedSubCommandsKey)
+  ; ExtendedSubCommandsKey (self-referencing, HKCR-relative) is required for
+  ; Explorer to expand the nested shell children into a cascading menu.
   WriteRegStr HKCU "Software\Classes\SystemFileAssociations\${ext}\shell\GeeZipX" "MUIVerb" "GeeZipX"
   WriteRegStr HKCU "Software\Classes\SystemFileAssociations\${ext}\shell\GeeZipX" "Icon" "$INSTDIR\geezipx-gui.exe,0"
+  WriteRegStr HKCU "Software\Classes\SystemFileAssociations\${ext}\shell\GeeZipX" "ExtendedSubCommandsKey" "SystemFileAssociations\${ext}\shell\GeeZipX"
 
   ; child: "Extract to..." (nested under parent)
   !insertmacro GeeZipXExtractLabel $0
@@ -150,11 +154,15 @@ Var _geezip_lang
 ; ---------------------------------------------------------------------
 
 !macro AddCompressMenus
-  ; Parent keys (MUIVerb + Icon only; nested shell children form cascaded menu)
+  ; Parent keys (MUIVerb + Icon + ExtendedSubCommandsKey)
+  ; ExtendedSubCommandsKey (self-referencing, HKCR-relative) is required for
+  ; Explorer to expand the nested shell children into a cascading menu.
   WriteRegStr HKCU "Software\Classes\*\shell\GeeZipX" "MUIVerb" "GeeZipX"
   WriteRegStr HKCU "Software\Classes\*\shell\GeeZipX" "Icon" "$INSTDIR\geezipx-gui.exe,0"
+  WriteRegStr HKCU "Software\Classes\*\shell\GeeZipX" "ExtendedSubCommandsKey" "*\shell\GeeZipX"
   WriteRegStr HKCU "Software\Classes\Directory\shell\GeeZipX" "MUIVerb" "GeeZipX"
   WriteRegStr HKCU "Software\Classes\Directory\shell\GeeZipX" "Icon" "$INSTDIR\geezipx-gui.exe,0"
+  WriteRegStr HKCU "Software\Classes\Directory\shell\GeeZipX" "ExtendedSubCommandsKey" "Directory\shell\GeeZipX"
 
   ; Child: "Compress as..." (nested under parent)
   !insertmacro GeeZipXCompressLabel $0
@@ -190,30 +198,109 @@ Var _geezip_lang
 !macroend
 
 ; ---------------------------------------------------------------------
+; Fix parent keys — repair intermediate-build state without recreating
+; verbs the user may have turned off.  Only operates on keys that
+; already exist (detected via MUIVerb, a stable named value).
+; Also cleans old flat sibling keys so they don't coexist with the
+; nested shell structure.
+; ---------------------------------------------------------------------
+
+!macro FixExtractParentKey ext
+  ; Check if parent key exists by reading MUIVerb — a stable named
+  ; value written by every version of the nested shell installer.
+  ; ClearErrors + ReadRegStr + ${IfNot} ${Errors} is the recommended
+  ; NSIS pattern to distinguish "key exists" from "key does not exist".
+  ClearErrors
+  ReadRegStr $0 HKCU "Software\Classes\SystemFileAssociations\${ext}\shell\GeeZipX" "MUIVerb"
+  ${IfNot} ${Errors}
+    ; Parent key exists — write the ExtendedSubCommandsKey required
+    ; for Explorer to render the cascaded fly-out, and remove any old
+    ; SubCommands value left from pre-nested or intermediate builds.
+    WriteRegStr HKCU "Software\Classes\SystemFileAssociations\${ext}\shell\GeeZipX" "ExtendedSubCommandsKey" "SystemFileAssociations\${ext}\shell\GeeZipX"
+    DeleteRegValue HKCU "Software\Classes\SystemFileAssociations\${ext}\shell\GeeZipX" "SubCommands"
+  ${EndIf}
+  ; Clean old flat sibling keys (idempotent — DeleteRegKey on missing
+  ; targets is a no-op in NSIS).
+  DeleteRegKey HKCU "Software\Classes\SystemFileAssociations\${ext}\shell\GeeZipX.Extract"
+  DeleteRegKey HKCU "Software\Classes\SystemFileAssociations\${ext}\shell\GeeZipX.ExtractHere"
+  ; HKCR legacy
+  DeleteRegKey HKCR "SystemFileAssociations\${ext}\shell\GeeZipX.Extract"
+  DeleteRegKey HKCR "SystemFileAssociations\${ext}\shell\GeeZipX.ExtractHere"
+!macroend
+
+!macro FixExtractParentKeys
+  !insertmacro FixExtractParentKey ".zip"
+  !insertmacro FixExtractParentKey ".zipx"
+  !insertmacro FixExtractParentKey ".tar"
+  !insertmacro FixExtractParentKey ".gz"
+  !insertmacro FixExtractParentKey ".bz2"
+  !insertmacro FixExtractParentKey ".br"
+  !insertmacro FixExtractParentKey ".lz4"
+  !insertmacro FixExtractParentKey ".zst"
+  !insertmacro FixExtractParentKey ".xz"
+  !insertmacro FixExtractParentKey ".lzma"
+  !insertmacro FixExtractParentKey ".lz"
+  !insertmacro FixExtractParentKey ".7z"
+  !insertmacro FixExtractParentKey ".rar"
+  !insertmacro FixExtractParentKey ".cab"
+  !insertmacro FixExtractParentKey ".asar"
+  !insertmacro FixExtractParentKey ".deb"
+  !insertmacro FixExtractParentKey ".cpio"
+  !insertmacro FixExtractParentKey ".iso"
+  !insertmacro FixExtractParentKey ".udf"
+  !insertmacro FixExtractParentKey ".lzh"
+  !insertmacro FixExtractParentKey ".lha"
+  !insertmacro FixExtractParentKey ".zpaq"
+  !insertmacro FixExtractParentKey ".wim"
+  !insertmacro FixExtractParentKey ".isz"
+!macroend
+
+!macro FixCompressParentKey class
+  ClearErrors
+  ReadRegStr $0 HKCU "Software\Classes\${class}\shell\GeeZipX" "MUIVerb"
+  ${IfNot} ${Errors}
+    WriteRegStr HKCU "Software\Classes\${class}\shell\GeeZipX" "ExtendedSubCommandsKey" "${class}\shell\GeeZipX"
+    DeleteRegValue HKCU "Software\Classes\${class}\shell\GeeZipX" "SubCommands"
+  ${EndIf}
+  DeleteRegKey HKCU "Software\Classes\${class}\shell\GeeZipX.Compress"
+  DeleteRegKey HKCU "Software\Classes\${class}\shell\GeeZipX.CompressZip"
+  DeleteRegKey HKCR "${class}\shell\GeeZipX.Compress"
+  DeleteRegKey HKCR "${class}\shell\GeeZipX.CompressZip"
+!macroend
+
+!macro FixCompressParentKeys
+  !insertmacro FixCompressParentKey "*"
+  !insertmacro FixCompressParentKey "Directory"
+!macroend
+
+; ---------------------------------------------------------------------
 ; preInstall — smart registration on first install or upgrade
 ; ---------------------------------------------------------------------
 
 !macro preInstall
   ; ===================================================================
   ; Step 1 — Check sentinel. If the runtime has ever written the
-  ; sentinel, the user has made a deliberate choice. Skip everything.
+  ; sentinel, the user has made a deliberate choice.  Fix any existing
+  ; parent keys that are missing ExtendedSubCommandsKey (e.g. from the
+  ; intermediate v0.7.6 build that had nested shell but no cascading
+  ; declaration), clean old flat siblings, and exit.  Do NOT recreate
+  ; verbs the user may have manually turned off.
   ; ===================================================================
+  ClearErrors
   ReadRegStr $0 HKCU "Software\Classes\GeeZipX\ShellMenu" "Configured"
-  ${If} $0 == "1"
+  ${IfNot} ${Errors}
+  ${AndIf} $0 == "1"
+    !insertmacro FixExtractParentKeys
+    !insertmacro FixCompressParentKeys
     Goto skip_all_menus
   ${EndIf}
 
   ; ===================================================================
-  ; Step 2 — Fallback: check for existing verb keys (pre-sentinel
-  ; users). If ANY GeeZipX verb key exists under HKCU, treat it as
-  ; evidence of prior configuration. Write the sentinel so future
-  ; upgrades also skip, then bail out.
+  ; Step 2 — No sentinel.  Clean any old flat sibling or lingering
+  ; nested structures, then register the current defaults.
   ; ===================================================================
-  ReadRegStr $0 HKCU "Software\Classes\SystemFileAssociations\.zip\shell\GeeZipX.ExtractHere" ""
-  ${If} $0 != ""
-    WriteRegStr HKCU "Software\Classes\GeeZipX\ShellMenu" "Configured" "1"
-    Goto skip_all_menus
-  ${EndIf}
+  !insertmacro FixExtractParentKeys
+  !insertmacro FixCompressParentKeys
 
   ; ===================================================================
   ; Step 3 — Fresh install. Register all four verbs (parent + children)

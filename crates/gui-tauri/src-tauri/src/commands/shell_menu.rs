@@ -12,14 +12,15 @@
 //! nested `shell` sub-keys, producing a fly-out sub-menu:
 //!
 //! ```text
-//! SystemFileAssociations\.zip\shell\GeeZipX          ← parent (MUIVerb, Icon)
+//! SystemFileAssociations\.zip\shell\GeeZipX          ← parent (MUIVerb, Icon, ExtendedSubCommandsKey)
 //! SystemFileAssociations\.zip\shell\GeeZipX\shell\Extract   ← child (MUIVerb, command)
 //! SystemFileAssociations\.zip\shell\GeeZipX\shell\ExtractHere
 //! ```
 //!
-//! Child keys carry `MUIVerb` and `command`; the parent holds `Icon`
-//! and `MUIVerb`.  No `SubCommands` — Explorer uses nested `shell` keys
-//! to render cascaded menus for static verbs.
+//! Child keys carry `MUIVerb` and `command`; the parent holds `Icon`,
+//! `MUIVerb`, and `ExtendedSubCommandsKey` (self-referencing, HKCR-relative)
+//! so Explorer discovers the nested `shell` children and renders a
+//! cascaded fly-out sub-menu.
 //!
 //! For `*` / `Directory` the nested compress verbs follow the same pattern:
 //! `*\shell\GeeZipX\shell\CompressZip` etc.
@@ -159,6 +160,37 @@ pub fn reg_key_for_dir(verb: ShellMenuVerb) -> String {
 pub const SENTINEL_KEY: &str = r"Software\Classes\GeeZipX\ShellMenu";
 pub const SENTINEL_VALUE: &str = "Configured";
 pub const SENTINEL_DATA: &str = "1";
+
+/// Convert an HKCU-relative `Software\Classes\...` registry path to an
+/// HKCR-relative path by stripping the `Software\Classes\` prefix.
+///
+/// This is needed for `ExtendedSubCommandsKey` values, which Explorer
+/// resolves relative to `HKCR`.
+///
+/// # Examples
+///
+/// ```ignore
+/// assert_eq!(
+///     hkcu_to_hkcr_path(r"Software\Classes\*\shell\GeeZipX").unwrap(),
+///     r"*\shell\GeeZipX"
+/// );
+/// assert_eq!(
+///     hkcu_to_hkcr_path(r"Software\Classes\Directory\shell\GeeZipX").unwrap(),
+///     r"Directory\shell\GeeZipX"
+/// );
+/// assert_eq!(
+///     hkcu_to_hkcr_path(r"Software\Classes\SystemFileAssociations\.zip\shell\GeeZipX").unwrap(),
+///     r"SystemFileAssociations\.zip\shell\GeeZipX"
+/// );
+/// ```
+///
+/// Returns an error if the path does not start with `Software\Classes\`.
+pub fn hkcu_to_hkcr_path(key_path: &str) -> Result<String, String> {
+    key_path
+        .strip_prefix("Software\\Classes\\")
+        .map(|s| s.to_string())
+        .ok_or_else(|| format!("path does not start with Software\\Classes\\: {key_path}"))
+}
 
 /// Build the shell command string for a given executable path and CLI flag.
 ///
@@ -487,8 +519,10 @@ mod platform {
         Ok(())
     }
 
-    /// Write a **parent** key with MUIVerb and Icon (no command, no SubCommands).
-    /// Explorer renders nested `shell` children as a cascaded sub-menu.
+    /// Write a **parent** key with MUIVerb, Icon, and ExtendedSubCommandsKey.
+    /// The ExtendedSubCommandsKey (self-referencing, HKCR-relative) tells
+    /// Explorer to look for nested `shell` children under this key, producing
+    /// a cascaded fly-out sub-menu.
     fn write_parent_key(key_path: &str, exe: &str, locale: &str) -> Result<(), String> {
         let label = parent_label(locale);
         let key = CURRENT_USER
@@ -498,6 +532,12 @@ mod platform {
             .map_err(|e| format!("failed to set MUIVerb at {key_path}: {e}"))?;
         key.set_string("Icon", &format!("\"{exe}\",0"))
             .map_err(|e| format!("failed to set Icon at {key_path}: {e}"))?;
+        // ExtendedSubCommandsKey is REQUIRED for Explorer to expand nested
+        // shell children into a cascading menu.  The value is an HKCR-relative
+        // path pointing to this same key (self-referencing).
+        let hkcr_path = hkcu_to_hkcr_path(key_path)?;
+        key.set_string("ExtendedSubCommandsKey", &hkcr_path)
+            .map_err(|e| format!("failed to set ExtendedSubCommandsKey at {key_path}: {e}"))?;
         Ok(())
     }
 
@@ -590,7 +630,7 @@ mod platform {
             .iter()
             .any(|v| matches!(v, ShellMenuVerb::CompressZip | ShellMenuVerb::Compress));
 
-        // --- write parent keys (MUIVerb + Icon only, no SubCommands) ------
+        // --- write parent keys (MUIVerb + Icon + ExtendedSubCommandsKey) ---
 
         if has_extract {
             for ext in ARCHIVE_EXTS {
@@ -926,6 +966,49 @@ mod tests {
                 "extension {ext:?} must start with a dot"
             );
         }
+    }
+
+    // -- hkcu_to_hkcr_path --------------------------------------------------
+
+    #[test]
+    fn test_hkcu_to_hkcr_path_ext() {
+        let result =
+            hkcu_to_hkcr_path(r"Software\Classes\SystemFileAssociations\.zip\shell\GeeZipX")
+                .unwrap();
+        assert_eq!(result, r"SystemFileAssociations\.zip\shell\GeeZipX");
+    }
+
+    #[test]
+    fn test_hkcu_to_hkcr_path_star() {
+        let result = hkcu_to_hkcr_path(r"Software\Classes\*\shell\GeeZipX").unwrap();
+        assert_eq!(result, r"*\shell\GeeZipX");
+    }
+
+    #[test]
+    fn test_hkcu_to_hkcr_path_directory() {
+        let result = hkcu_to_hkcr_path(r"Software\Classes\Directory\shell\GeeZipX").unwrap();
+        assert_eq!(result, r"Directory\shell\GeeZipX");
+    }
+
+    #[test]
+    fn test_hkcu_to_hkcr_path_no_prefix() {
+        let result = hkcu_to_hkcr_path(r"*\shell\GeeZipX");
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .contains("path does not start with Software\\Classes\\"));
+    }
+
+    #[test]
+    fn test_hkcu_to_hkcr_path_empty() {
+        let result = hkcu_to_hkcr_path("");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_hkcu_to_hkcr_path_sentinel() {
+        let result = hkcu_to_hkcr_path(r"Software\Classes\GeeZipX\ShellMenu").unwrap();
+        assert_eq!(result, r"GeeZipX\ShellMenu");
     }
 
     // -- sentinel constants -------------------------------------------------
