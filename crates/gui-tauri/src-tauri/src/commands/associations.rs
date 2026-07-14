@@ -596,7 +596,7 @@ mod platform {
     // HRESULT for Win32 ERROR_FILE_NOT_FOUND (0x2).
     const HR_FILE_NOT_FOUND: i32 = 0x80070002u32 as i32;
 
-    fn is_not_found(err: &windows_registry::Error) -> bool {
+    fn is_not_found(err: &windows_result::error::Error) -> bool {
         err.code().0 == HR_FILE_NOT_FOUND
     }
 
