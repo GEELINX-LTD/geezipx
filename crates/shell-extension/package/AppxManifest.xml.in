@@ -1,0 +1,138 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  GeeZipX Shell Extension — Sparse MSIX Package Manifest Template.
+
+  This manifest registers an IExplorerCommand COM DLL for the Windows 11
+  modern context menu.  The placeholder tokens (@TOKEN@) are substituted
+  by the build script.
+
+  The package is *sparse* (external), meaning:
+    - The DLL and GUI exe live at their existing install path
+    - Only the MSIX manifest + signature are packed
+    - ExternalLocation points to the real build/install directory during dev
+
+  Namespaces:
+    - com:       COM server registration (SurrogateServer = dllhost.exe)
+    - desktop4:  File Explorer context menu extensions (Win11 22000+)
+    - rescap:    Restricted capabilities (allowExternalContent)
+
+  Production note:
+    This manifest uses a self-signed development publisher.  A production
+    release MUST use an Azure Trusted Signing certificate or a CA-issued
+    code-signing certificate whose Subject exactly matches the Identity
+    Publisher.
+-->
+<Package
+  xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+  xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+  xmlns:com="http://schemas.microsoft.com/appx/manifest/com/windows10"
+  xmlns:desktop4="http://schemas.microsoft.com/appx/manifest/desktop/windows4"
+  xmlns:desktop5="http://schemas.microsoft.com/appx/manifest/desktop/windows5"
+  xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+  IgnorableNamespaces="uap com desktop4 desktop5 rescap">
+
+  <Identity
+    Name="@PACKAGE_NAME@"
+    Publisher="@PUBLISHER_DN@"
+    Version="@VERSION@.0"
+    ProcessorArchitecture="@ARCH@" />
+
+  <Properties>
+    <DisplayName>GeeZipX Shell Extension (Dev)</DisplayName>
+    <PublisherDisplayName>GeeZipX Development</PublisherDisplayName>
+    <Description>GeeZipX Windows 11 modern context menu — experimental PoC</Description>
+  </Properties>
+
+  <Resources>
+    <Resource Language="en-US" />
+  </Resources>
+
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Universal" MinVersion="10.0.22000.0" MaxVersionTested="10.0.26100.0" />
+  </Dependencies>
+
+  <!-- Allow external (non-packaged) content: the DLL and EXE remain at their
+       installed location, not inside the MSIX. -->
+  <rescap:Capabilities>
+    <rescap:Capability Name="allowExternalContent" />
+  </rescap:Capabilities>
+
+  <Applications>
+    <Application Id="GeeZipXShellExt" Executable="geezipx-gui.exe">
+      <uap:VisualElements
+        DisplayName="GeeZipX Shell Extension"
+        Description="GeeZipX Windows 11 modern context menu"
+        BackgroundColor="transparent"
+        Square150x150Logo="assets\StoreLogo.png"
+        Square44x44Logo="assets\StoreLogo.png" />
+    </Application>
+  </Applications>
+
+  <Extensions>
+    <!-- =================================================================
+         COM surrogate server registration
+         All four CLSIDs are served by the same DLL, hosted in dllhost.exe.
+         ================================================================= -->
+    <com:Extension Category="windows.comServer">
+      <com:ComServer>
+        <com:SurrogateServer DisplayName="GeeZipX Shell Extension" AppId="@COM_APPID@">
+          <!-- Extract -->
+          <com:Class Id="{8F3A1C60-4D2E-4B5A-A1F8-7E6D5C4B3A21}"
+                     Path="geezipx_shell_extension.dll"
+                     ThreadingModel="STA"
+                     Description="Extract to... — open GeeZipX extract page" />
+          <!-- Extract here -->
+          <com:Class Id="{9E2B1D70-5C3F-4C6B-B2E9-8F7E6D5C4B32}"
+                     Path="geezipx_shell_extension.dll"
+                     ThreadingModel="STA"
+                     Description="Extract here — smart extract to parent folder" />
+          <!-- Compress as ZIP -->
+          <com:Class Id="{A0C3E4D0-6D4E-4D7C-C3F0-9A8F7E6D5C43}"
+                     Path="geezipx_shell_extension.dll"
+                     ThreadingModel="STA"
+                     Description="Compress as ZIP — headless quick ZIP" />
+          <!-- Compress as... -->
+          <com:Class Id="{B1D4F5E0-7E5F-4E8D-D4A1-0B9A8F7E6D54}"
+                     Path="geezipx_shell_extension.dll"
+                     ThreadingModel="STA"
+                     Description="Compress as... — open GeeZipX compress page" />
+        </com:SurrogateServer>
+      </com:ComServer>
+    </com:Extension>
+
+    <!-- =================================================================
+         File Explorer context menus (Windows 11 level-1 menu)
+
+         Verbs registered here appear in the *modern* context menu.
+         Each file-type/verb pair maps to one of the four CLSIDs above.
+         ================================================================= -->
+
+    <!-- ── All files (*) ── Compress verbs only ── -->
+    <desktop4:Extension Category="windows.fileExplorerContextMenus">
+      <desktop4:FileExplorerContextMenus>
+        <desktop4:Item Type="*">
+          <desktop4:Verb Id="GeeZipX.CompressZip"
+                         Clsid="{A0C3E4D0-6D4E-4D7C-C3F0-9A8F7E6D5C43}" />
+          <desktop4:Verb Id="GeeZipX.Compress"
+                         Clsid="{B1D4F5E0-7E5F-4E8D-D4A1-0B9A8F7E6D54}" />
+        </desktop4:Item>
+      </desktop4:FileExplorerContextMenus>
+    </desktop4:Extension>
+
+    <!-- ── Directories ── Compress verbs only ── -->
+    <desktop4:Extension Category="windows.fileExplorerContextMenus">
+      <desktop4:FileExplorerContextMenus>
+        <desktop4:Item Type="Directory">
+          <desktop4:Verb Id="GeeZipX.CompressZip"
+                         Clsid="{A0C3E4D0-6D4E-4D7C-C3F0-9A8F7E6D5C43}" />
+          <desktop4:Verb Id="GeeZipX.Compress"
+                         Clsid="{B1D4F5E0-7E5F-4E8D-D4A1-0B9A8F7E6D54}" />
+        </desktop4:Item>
+      </desktop4:FileExplorerContextMenus>
+    </desktop4:Extension>
+
+    <!-- ── Archive file extensions ── Extract + Compress verbs ── -->
+    @ARCHIVE_EXT_MENUS@
+  </Extensions>
+
+</Package>
