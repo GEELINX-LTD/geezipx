@@ -22,8 +22,11 @@
 //! so Explorer discovers the nested `shell` children and renders a
 //! cascaded fly-out sub-menu.
 //!
-//! For `*` / `Directory` the nested compress verbs follow the same pattern:
-//! `*\shell\GeeZipX\shell\CompressZip` etc.
+//! For `AllFilesystemObjects` the nested compress verbs follow the same
+//! pattern: `AllFilesystemObjects\shell\GeeZipX\shell\CompressZip` etc.
+//! `AllFilesystemObjects` is the canonical Shell class for multi-select —
+//! it covers files, folders, and mixed selections together, unlike `*`
+//! and `Directory` which only cover their respective item types.
 //!
 //! i18n
 //! ----
@@ -154,6 +157,26 @@ pub fn reg_key_for_dir(verb: ShellMenuVerb) -> String {
     )
 }
 
+/// Build the HKCU-relative registry key path for the compress **parent** key
+/// on `AllFilesystemObjects`.
+///
+/// `AllFilesystemObjects` is the canonical Shell class for multi-select
+/// scenarios — it covers files, folders, and mixed selections together,
+/// avoiding the gap where selecting a file + a folder produces no common
+/// `*` or `Directory` context menu.
+pub fn reg_parent_key_for_all_filesystem_objects() -> String {
+    r"Software\Classes\AllFilesystemObjects\shell\GeeZipX".to_string()
+}
+
+/// Build the HKCU-relative registry key path for a **nested child** compress
+/// verb on `AllFilesystemObjects`.
+pub fn reg_key_for_all_filesystem_objects(verb: ShellMenuVerb) -> String {
+    format!(
+        r"Software\Classes\AllFilesystemObjects\shell\GeeZipX\shell\{}",
+        verb_key_name(verb)
+    )
+}
+
 /// HKCU-relative path of the sentinel key.  When present the NSIS installer
 /// skips its default verb registration on upgrade (preserving the user's
 /// choice).
@@ -194,10 +217,26 @@ pub fn hkcu_to_hkcr_path(key_path: &str) -> Result<String, String> {
 
 /// Build the shell command string for a given executable path and CLI flag.
 ///
+/// Uses `"%1"` (single quoted path placeholder) — suitable for extract
+/// verbs that operate on one archive at a time.
+///
 /// Example: `build_command(r"C:\Program Files\GeeZipX\geezipx-gui.exe", "/extract")` →
 /// `"C:\Program Files\GeeZipX\geezipx-gui.exe" /extract "%1"`
 pub fn build_command(exe_path: &str, cli_flag: &str) -> String {
     format!("\"{exe_path}\" {cli_flag} \"%1\"")
+}
+
+/// Build a multi-select shell command string using bare `%*`.
+///
+/// Explorer expands `%*` to all selected paths (space-separated).  The
+/// placeholder must NOT be quoted — Explorer handles quoting internally
+/// for paths containing spaces.  A quoted `"%*"` would pass the literal
+/// text `%*` to the application instead of the selected paths.
+///
+/// Example: `build_multiselect_command(r"C:\...\geezipx-gui.exe", "/compress")` →
+/// `"C:\...\geezipx-gui.exe" /compress %*`
+pub fn build_multiselect_command(exe_path: &str, cli_flag: &str) -> String {
+    format!("\"{exe_path}\" {cli_flag} %*")
 }
 
 /// Shell verb name → CLI flag mapping.
@@ -481,40 +520,38 @@ mod platform {
         Ok(())
     }
 
-    /// Write a single **child** compress verb for `*` and `Directory`.
+    /// Write a single **child** compress verb on `AllFilesystemObjects`.
     ///
     /// Same child-only pattern as [`write_extract_verb`]: only `MUIVerb` and
-    /// `command`, no `Icon` or default value.  `MultiSelectModel` is kept on
-    /// the Compress child.
+    /// `command`, no `Icon` or default value.  Both `Compress` and
+    /// `CompressZip` get `MultiSelectModel=Player` so they appear in
+    /// multi-select context menus.  The command uses bare `%*` (not `"%1"`)
+    /// so Explorer passes all selected paths to the application.
     fn write_compress_verb(verb: ShellMenuVerb, exe: &str, locale: &str) -> Result<(), String> {
         let label = verb_label(verb, locale);
         let flag = cli_flag_for_verb(verb);
-        let cmd = build_command(exe, flag);
+        let cmd = build_multiselect_command(exe, flag);
 
-        for root_path in [reg_key_for_any_file(verb), reg_key_for_dir(verb)] {
-            let key = CURRENT_USER
-                .create(&root_path)
-                .map_err(|e| format!("failed to create key {root_path}: {e}"))?;
-            key.set_string("MUIVerb", label)
-                .map_err(|e| format!("failed to set MUIVerb at {root_path}: {e}"))?;
+        let root_path = reg_key_for_all_filesystem_objects(verb);
+        let key = CURRENT_USER
+            .create(&root_path)
+            .map_err(|e| format!("failed to create key {root_path}: {e}"))?;
+        key.set_string("MUIVerb", label)
+            .map_err(|e| format!("failed to set MUIVerb at {root_path}: {e}"))?;
 
-            // MultiSelectModel is an optional enhancement for the Compress
-            // verb — a failure to write it is logged but does not abort the
-            // registration.
-            if matches!(verb, ShellMenuVerb::Compress) {
-                if let Err(e) = key.set_string("MultiSelectModel", "Player") {
-                    eprintln!("warning: failed to set MultiSelectModel at {root_path}: {e}");
-                }
-            }
-
-            let cmd_key_path = format!("{root_path}\\command");
-            let cmd_key = CURRENT_USER
-                .create(&cmd_key_path)
-                .map_err(|e| format!("failed to create key {cmd_key_path}: {e}"))?;
-            cmd_key
-                .set_string("", &cmd)
-                .map_err(|e| format!("failed to set default value at {cmd_key_path}: {e}"))?;
+        // Both compress verbs need MultiSelectModel=Player for multi-select.
+        // A failure to write it is logged but does not abort registration.
+        if let Err(e) = key.set_string("MultiSelectModel", "Player") {
+            eprintln!("warning: failed to set MultiSelectModel at {root_path}: {e}");
         }
+
+        let cmd_key_path = format!("{root_path}\\command");
+        let cmd_key = CURRENT_USER
+            .create(&cmd_key_path)
+            .map_err(|e| format!("failed to create key {cmd_key_path}: {e}"))?;
+        cmd_key
+            .set_string("", &cmd)
+            .map_err(|e| format!("failed to set default value at {cmd_key_path}: {e}"))?;
 
         Ok(())
     }
@@ -523,7 +560,17 @@ mod platform {
     /// The ExtendedSubCommandsKey (self-referencing, HKCR-relative) tells
     /// Explorer to look for nested `shell` children under this key, producing
     /// a cascaded fly-out sub-menu.
-    fn write_parent_key(key_path: &str, exe: &str, locale: &str) -> Result<(), String> {
+    ///
+    /// When `multi_select` is true also writes `MultiSelectModel=Player` so
+    /// the parent verb appears for multi-selected items.  This is needed for
+    /// `AllFilesystemObjects` (compress) but not for per-extension extract
+    /// parents.
+    fn write_parent_key(
+        key_path: &str,
+        exe: &str,
+        locale: &str,
+        multi_select: bool,
+    ) -> Result<(), String> {
         let label = parent_label(locale);
         let key = CURRENT_USER
             .create(key_path)
@@ -538,6 +585,10 @@ mod platform {
         let hkcr_path = hkcu_to_hkcr_path(key_path)?;
         key.set_string("ExtendedSubCommandsKey", &hkcr_path)
             .map_err(|e| format!("failed to set ExtendedSubCommandsKey at {key_path}: {e}"))?;
+        if multi_select {
+            key.set_string("MultiSelectModel", "Player")
+                .map_err(|e| format!("failed to set MultiSelectModel at {key_path}: {e}"))?;
+        }
         Ok(())
     }
 
@@ -589,11 +640,19 @@ mod platform {
                     any
                 }
                 ShellMenuVerb::CompressZip | ShellMenuVerb::Compress => {
-                    let file_path = reg_key_for_any_file(verb);
-                    let dir_path = reg_key_for_dir(verb);
-                    let file_ok = reg_key_exists(&file_path)?;
-                    let dir_ok = reg_key_exists(&dir_path)?;
-                    file_ok || dir_ok
+                    // Check new AllFilesystemObjects location first.
+                    let new_path = reg_key_for_all_filesystem_objects(verb);
+                    if reg_key_exists(&new_path)? {
+                        true
+                    } else {
+                        // Fall back to legacy * / Directory locations
+                        // (pre-v0.7.7, before AllFilesystemObjects migration).
+                        let file_path = reg_key_for_any_file(verb);
+                        let dir_path = reg_key_for_dir(verb);
+                        let file_ok = reg_key_exists(&file_path)?;
+                        let dir_ok = reg_key_exists(&dir_path)?;
+                        file_ok || dir_ok
+                    }
                 }
             };
             if exists {
@@ -634,13 +693,17 @@ mod platform {
 
         if has_extract {
             for ext in ARCHIVE_EXTS {
-                write_parent_key(&reg_parent_key_for_ext(ext), &exe, locale)?;
+                write_parent_key(&reg_parent_key_for_ext(ext), &exe, locale, false)?;
             }
         }
 
         if has_compress {
-            write_parent_key(&reg_parent_key_for_any_file(), &exe, locale)?;
-            write_parent_key(&reg_parent_key_for_dir(), &exe, locale)?;
+            write_parent_key(
+                &reg_parent_key_for_all_filesystem_objects(),
+                &exe,
+                locale,
+                true,
+            )?;
         }
 
         // --- write child verb keys -----------------------------------------
@@ -669,6 +732,9 @@ mod platform {
         for ext in ARCHIVE_EXTS {
             reg_delete_tree(&reg_parent_key_for_ext(ext))?;
         }
+        // New AllFilesystemObjects compress parent tree.
+        reg_delete_tree(&reg_parent_key_for_all_filesystem_objects())?;
+        // Legacy * and Directory compress parent trees (pre-v0.7.7).
         reg_delete_tree(&reg_parent_key_for_any_file())?;
         reg_delete_tree(&reg_parent_key_for_dir())?;
 
@@ -756,6 +822,28 @@ mod tests {
         );
     }
 
+    // -- AllFilesystemObjects paths ------------------------------------
+
+    #[test]
+    fn test_reg_parent_key_for_all_filesystem_objects() {
+        assert_eq!(
+            reg_parent_key_for_all_filesystem_objects(),
+            r"Software\Classes\AllFilesystemObjects\shell\GeeZipX"
+        );
+    }
+
+    #[test]
+    fn test_reg_key_for_all_filesystem_objects() {
+        assert_eq!(
+            reg_key_for_all_filesystem_objects(ShellMenuVerb::Compress),
+            r"Software\Classes\AllFilesystemObjects\shell\GeeZipX\shell\Compress"
+        );
+        assert_eq!(
+            reg_key_for_all_filesystem_objects(ShellMenuVerb::CompressZip),
+            r"Software\Classes\AllFilesystemObjects\shell\GeeZipX\shell\CompressZip"
+        );
+    }
+
     // -- parent key paths ---------------------------------------------------
 
     #[test]
@@ -820,6 +908,16 @@ mod tests {
                 !p.to_lowercase().starts_with("hkcu"),
                 "path {p:?} must not contain HKCU prefix"
             );
+            // AllFilesystemObjects paths
+            let p = reg_key_for_all_filesystem_objects(verb);
+            assert!(
+                !p.to_lowercase().starts_with("hkcu"),
+                "AFSO path {p:?} must not contain HKCU prefix"
+            );
+            assert!(
+                p.starts_with("Software\\Classes\\"),
+                "AFSO path {p:?} must start with Software\\Classes\\"
+            );
         }
         assert!(
             !reg_parent_key_for_any_file()
@@ -830,6 +928,16 @@ mod tests {
         assert!(
             !reg_parent_key_for_dir().to_lowercase().starts_with("hkcu"),
             "parent path must not contain HKCU prefix"
+        );
+        assert!(
+            !reg_parent_key_for_all_filesystem_objects()
+                .to_lowercase()
+                .starts_with("hkcu"),
+            "AFSO parent path must not contain HKCU prefix"
+        );
+        assert!(
+            reg_parent_key_for_all_filesystem_objects().starts_with("Software\\Classes\\"),
+            "AFSO parent path must start with Software\\Classes\\"
         );
         assert!(
             !SENTINEL_KEY.to_lowercase().starts_with("hkcu"),
@@ -853,6 +961,29 @@ mod tests {
         let cmd = build_command(r"C:\My Programs\GeeZipX\geezipx-gui.exe", "/compress");
         assert!(cmd.starts_with('"'));
         assert!(cmd.contains("\" /compress \"%1\""));
+    }
+
+    // -- build_multiselect_command -----------------------------------------
+
+    #[test]
+    fn test_build_multiselect_command() {
+        let cmd =
+            build_multiselect_command(r"C:\Program Files\GeeZipX\geezipx-gui.exe", "/compress");
+        assert_eq!(
+            cmd,
+            r#""C:\Program Files\GeeZipX\geezipx-gui.exe" /compress %*"#
+        );
+    }
+
+    #[test]
+    fn test_build_multiselect_command_bare_percent_star() {
+        // The %* placeholder must NOT be quoted — Explorer handles quoting
+        // internally.  A quoted "%*" would pass the literal text "%*" to
+        // the application.
+        let cmd = build_multiselect_command(r"C:\test.exe", "/compress-zip");
+        assert!(cmd.ends_with(" %*"));
+        assert!(!cmd.ends_with("\"%*\""));
+        assert!(!cmd.contains("%1"));
     }
 
     // -- cli_flag_for_verb --------------------------------------------------
@@ -988,6 +1119,13 @@ mod tests {
     fn test_hkcu_to_hkcr_path_directory() {
         let result = hkcu_to_hkcr_path(r"Software\Classes\Directory\shell\GeeZipX").unwrap();
         assert_eq!(result, r"Directory\shell\GeeZipX");
+    }
+
+    #[test]
+    fn test_hkcu_to_hkcr_path_all_filesystem_objects() {
+        let result =
+            hkcu_to_hkcr_path(r"Software\Classes\AllFilesystemObjects\shell\GeeZipX").unwrap();
+        assert_eq!(result, r"AllFilesystemObjects\shell\GeeZipX");
     }
 
     #[test]

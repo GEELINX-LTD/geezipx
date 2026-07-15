@@ -18,9 +18,9 @@
 ;     HKCU\...\shell\GeeZipX\shell\Extract           ← child  (MUIVerb, command)
 ;     HKCU\...\shell\GeeZipX\shell\ExtractHere
 ;
-;   * (all files) / Directory:
-;     HKCU\...\shell\GeeZipX                        ← parent
-;     HKCU\...\shell\GeeZipX\shell\Compress          ← child
+;   AllFilesystemObjects (compress — covers multi-select, files, folders):
+;     HKCU\...\shell\GeeZipX                        ← parent (MUIVerb, Icon, ExtendedSubCommandsKey, MultiSelectModel)
+;     HKCU\...\shell\GeeZipX\shell\Compress          ← child  (MUIVerb, MultiSelectModel, command with %*)
 ;     HKCU\...\shell\GeeZipX\shell\CompressZip
 ;
 ; i18n
@@ -68,6 +68,8 @@
 ; ---------------------------------------------------------------------
 
 Var _geezip_lang
+Var _mig_compress
+Var _mig_compresszip
 
 !macro GeeZipXDetectLocale
   ${If} $LANGUAGE == ${LANG_SIMPCHINESE}
@@ -150,42 +152,37 @@ Var _geezip_lang
 !macroend
 
 ; ---------------------------------------------------------------------
-; Compress menus (* and Directory) — parent + two children
+; Compress menus (AllFilesystemObjects) — parent + two children
 ; ---------------------------------------------------------------------
 
 !macro AddCompressMenus
-  ; Parent keys (MUIVerb + Icon + ExtendedSubCommandsKey)
-  ; ExtendedSubCommandsKey (self-referencing, HKCR-relative) is required for
-  ; Explorer to expand the nested shell children into a cascading menu.
-  WriteRegStr HKCU "Software\Classes\*\shell\GeeZipX" "MUIVerb" "GeeZipX"
-  WriteRegStr HKCU "Software\Classes\*\shell\GeeZipX" "Icon" "$INSTDIR\geezipx-gui.exe,0"
-  WriteRegStr HKCU "Software\Classes\*\shell\GeeZipX" "ExtendedSubCommandsKey" "*\shell\GeeZipX"
-  WriteRegStr HKCU "Software\Classes\Directory\shell\GeeZipX" "MUIVerb" "GeeZipX"
-  WriteRegStr HKCU "Software\Classes\Directory\shell\GeeZipX" "Icon" "$INSTDIR\geezipx-gui.exe,0"
-  WriteRegStr HKCU "Software\Classes\Directory\shell\GeeZipX" "ExtendedSubCommandsKey" "Directory\shell\GeeZipX"
+  ; Parent key under AllFilesystemObjects (covers multi-select + single
+  ; files + single folders — all in one class).
+  WriteRegStr HKCU "Software\Classes\AllFilesystemObjects\shell\GeeZipX" "MUIVerb" "GeeZipX"
+  WriteRegStr HKCU "Software\Classes\AllFilesystemObjects\shell\GeeZipX" "Icon" "$INSTDIR\geezipx-gui.exe,0"
+  WriteRegStr HKCU "Software\Classes\AllFilesystemObjects\shell\GeeZipX" "ExtendedSubCommandsKey" "AllFilesystemObjects\shell\GeeZipX"
+  WriteRegStr HKCU "Software\Classes\AllFilesystemObjects\shell\GeeZipX" "MultiSelectModel" "Player"
 
-  ; Child: "Compress as..." (nested under parent)
+  ; Child: "Compress as..." (nested under parent, bare %* for multi-select)
   !insertmacro GeeZipXCompressLabel $0
-  WriteRegStr HKCU "Software\Classes\*\shell\GeeZipX\shell\Compress" "MUIVerb" "$0"
-  WriteRegStr HKCU "Software\Classes\*\shell\GeeZipX\shell\Compress" "MultiSelectModel" "Player"
-  WriteRegStr HKCU "Software\Classes\*\shell\GeeZipX\shell\Compress\command" "" '"$INSTDIR\geezipx-gui.exe" /compress "%1"'
-  WriteRegStr HKCU "Software\Classes\Directory\shell\GeeZipX\shell\Compress" "MUIVerb" "$0"
-  WriteRegStr HKCU "Software\Classes\Directory\shell\GeeZipX\shell\Compress" "MultiSelectModel" "Player"
-  WriteRegStr HKCU "Software\Classes\Directory\shell\GeeZipX\shell\Compress\command" "" '"$INSTDIR\geezipx-gui.exe" /compress "%1"'
+  WriteRegStr HKCU "Software\Classes\AllFilesystemObjects\shell\GeeZipX\shell\Compress" "MUIVerb" "$0"
+  WriteRegStr HKCU "Software\Classes\AllFilesystemObjects\shell\GeeZipX\shell\Compress" "MultiSelectModel" "Player"
+  WriteRegStr HKCU "Software\Classes\AllFilesystemObjects\shell\GeeZipX\shell\Compress\command" "" '"$INSTDIR\geezipx-gui.exe" /compress %*'
 
-  ; Child: "Compress as ZIP" (nested under parent)
+  ; Child: "Compress as ZIP" (nested under parent, bare %* for multi-select)
   !insertmacro GeeZipXCompressZipLabel $0
-  WriteRegStr HKCU "Software\Classes\*\shell\GeeZipX\shell\CompressZip" "MUIVerb" "$0"
-  WriteRegStr HKCU "Software\Classes\*\shell\GeeZipX\shell\CompressZip\command" "" '"$INSTDIR\geezipx-gui.exe" /compress-zip "%1"'
-  WriteRegStr HKCU "Software\Classes\Directory\shell\GeeZipX\shell\CompressZip" "MUIVerb" "$0"
-  WriteRegStr HKCU "Software\Classes\Directory\shell\GeeZipX\shell\CompressZip\command" "" '"$INSTDIR\geezipx-gui.exe" /compress-zip "%1"'
+  WriteRegStr HKCU "Software\Classes\AllFilesystemObjects\shell\GeeZipX\shell\CompressZip" "MUIVerb" "$0"
+  WriteRegStr HKCU "Software\Classes\AllFilesystemObjects\shell\GeeZipX\shell\CompressZip" "MultiSelectModel" "Player"
+  WriteRegStr HKCU "Software\Classes\AllFilesystemObjects\shell\GeeZipX\shell\CompressZip\command" "" '"$INSTDIR\geezipx-gui.exe" /compress-zip %*'
 !macroend
 
 !macro RemoveCompressMenus
-  ; recursively delete parent trees (also removes nested children)
+  ; New AllFilesystemObjects parent tree (recursive — also removes children).
+  DeleteRegKey HKCU "Software\Classes\AllFilesystemObjects\shell\GeeZipX"
+  ; Legacy * and Directory parent trees (pre-v0.7.7).
   DeleteRegKey HKCU "Software\Classes\*\shell\GeeZipX"
   DeleteRegKey HKCU "Software\Classes\Directory\shell\GeeZipX"
-  ; legacy: clean old flat sibling keys
+  ; Legacy flat sibling keys (pre-nested versions).
   DeleteRegKey HKCU "Software\Classes\*\shell\GeeZipX.Compress"
   DeleteRegKey HKCU "Software\Classes\*\shell\GeeZipX.CompressZip"
   DeleteRegKey HKCU "Software\Classes\Directory\shell\GeeZipX.Compress"
@@ -255,22 +252,120 @@ Var _geezip_lang
   !insertmacro FixExtractParentKey ".isz"
 !macroend
 
-!macro FixCompressParentKey class
-  ClearErrors
-  ReadRegStr $0 HKCU "Software\Classes\${class}\shell\GeeZipX" "MUIVerb"
-  ${IfNot} ${Errors}
-    WriteRegStr HKCU "Software\Classes\${class}\shell\GeeZipX" "ExtendedSubCommandsKey" "${class}\shell\GeeZipX"
-    DeleteRegValue HKCU "Software\Classes\${class}\shell\GeeZipX" "SubCommands"
-  ${EndIf}
-  DeleteRegKey HKCU "Software\Classes\${class}\shell\GeeZipX.Compress"
-  DeleteRegKey HKCU "Software\Classes\${class}\shell\GeeZipX.CompressZip"
-  DeleteRegKey HKCR "${class}\shell\GeeZipX.Compress"
-  DeleteRegKey HKCR "${class}\shell\GeeZipX.CompressZip"
-!macroend
+; ---------------------------------------------------------------------
+; MigrateCompressMenus — upgrade sentinel users from old * / Directory
+; to AllFilesystemObjects.  Preserves the enabled/disabled state of each
+; compress verb so users who turned verbs off are not re-enabled.
+; ---------------------------------------------------------------------
 
-!macro FixCompressParentKeys
-  !insertmacro FixCompressParentKey "*"
-  !insertmacro FixCompressParentKey "Directory"
+!macro MigrateCompressMenus
+  ; ===================================================================
+  ; 1. If AllFilesystemObjects parent already exists, do idempotent fix.
+  ; ===================================================================
+  ClearErrors
+  ReadRegStr $0 HKCU "Software\Classes\AllFilesystemObjects\shell\GeeZipX" "MUIVerb"
+  ${IfNot} ${Errors}
+    ; Parent exists — ensure cascading + multi-select declarations.
+    WriteRegStr HKCU "Software\Classes\AllFilesystemObjects\shell\GeeZipX" "ExtendedSubCommandsKey" "AllFilesystemObjects\shell\GeeZipX"
+    WriteRegStr HKCU "Software\Classes\AllFilesystemObjects\shell\GeeZipX" "MultiSelectModel" "Player"
+
+    ; Fix child Compress if present.
+    ClearErrors
+    ReadRegStr $0 HKCU "Software\Classes\AllFilesystemObjects\shell\GeeZipX\shell\Compress" "MUIVerb"
+    ${IfNot} ${Errors}
+      WriteRegStr HKCU "Software\Classes\AllFilesystemObjects\shell\GeeZipX\shell\Compress" "MultiSelectModel" "Player"
+      WriteRegStr HKCU "Software\Classes\AllFilesystemObjects\shell\GeeZipX\shell\Compress\command" "" '"$INSTDIR\geezipx-gui.exe" /compress %*'
+    ${EndIf}
+
+    ; Fix child CompressZip if present.
+    ClearErrors
+    ReadRegStr $0 HKCU "Software\Classes\AllFilesystemObjects\shell\GeeZipX\shell\CompressZip" "MUIVerb"
+    ${IfNot} ${Errors}
+      WriteRegStr HKCU "Software\Classes\AllFilesystemObjects\shell\GeeZipX\shell\CompressZip" "MultiSelectModel" "Player"
+      WriteRegStr HKCU "Software\Classes\AllFilesystemObjects\shell\GeeZipX\shell\CompressZip\command" "" '"$INSTDIR\geezipx-gui.exe" /compress-zip %*'
+    ${EndIf}
+
+    Goto migrate_cleanup_old_compress
+  ${EndIf}
+
+  ; ===================================================================
+  ; 2. Not yet migrated — detect enabled verbs from old locations.
+  ; ===================================================================
+
+  ; Default to not enabled.
+  StrCpy $_mig_compress 0
+  StrCpy $_mig_compresszip 0
+
+  ; Check old * location for Compress (read MUIVerb as existence probe).
+  ClearErrors
+  ReadRegStr $0 HKCU "Software\Classes\*\shell\GeeZipX\shell\Compress" "MUIVerb"
+  ${IfNot} ${Errors}
+    StrCpy $_mig_compress 1
+  ${Else}
+    ClearErrors
+    ReadRegStr $0 HKCU "Software\Classes\Directory\shell\GeeZipX\shell\Compress" "MUIVerb"
+    ${IfNot} ${Errors}
+      StrCpy $_mig_compress 1
+    ${EndIf}
+  ${EndIf}
+
+  ; Check old * location for CompressZip.
+  ClearErrors
+  ReadRegStr $0 HKCU "Software\Classes\*\shell\GeeZipX\shell\CompressZip" "MUIVerb"
+  ${IfNot} ${Errors}
+    StrCpy $_mig_compresszip 1
+  ${Else}
+    ClearErrors
+    ReadRegStr $0 HKCU "Software\Classes\Directory\shell\GeeZipX\shell\CompressZip" "MUIVerb"
+    ${IfNot} ${Errors}
+      StrCpy $_mig_compresszip 1
+    ${EndIf}
+  ${EndIf}
+
+  ; ===================================================================
+  ; 3. Create parent + children only for enabled verbs.
+  ;    If both are disabled, do NOT create the parent key — preserve
+  ;    the "all off" state.
+  ; ===================================================================
+  ${If} $_mig_compress == 1
+  ${OrIf} $_mig_compresszip == 1
+    WriteRegStr HKCU "Software\Classes\AllFilesystemObjects\shell\GeeZipX" "MUIVerb" "GeeZipX"
+    WriteRegStr HKCU "Software\Classes\AllFilesystemObjects\shell\GeeZipX" "Icon" "$INSTDIR\geezipx-gui.exe,0"
+    WriteRegStr HKCU "Software\Classes\AllFilesystemObjects\shell\GeeZipX" "ExtendedSubCommandsKey" "AllFilesystemObjects\shell\GeeZipX"
+    WriteRegStr HKCU "Software\Classes\AllFilesystemObjects\shell\GeeZipX" "MultiSelectModel" "Player"
+
+    ${If} $_mig_compress == 1
+      !insertmacro GeeZipXCompressLabel $0
+      WriteRegStr HKCU "Software\Classes\AllFilesystemObjects\shell\GeeZipX\shell\Compress" "MUIVerb" "$0"
+      WriteRegStr HKCU "Software\Classes\AllFilesystemObjects\shell\GeeZipX\shell\Compress" "MultiSelectModel" "Player"
+      WriteRegStr HKCU "Software\Classes\AllFilesystemObjects\shell\GeeZipX\shell\Compress\command" "" '"$INSTDIR\geezipx-gui.exe" /compress %*'
+    ${EndIf}
+
+    ${If} $_mig_compresszip == 1
+      !insertmacro GeeZipXCompressZipLabel $0
+      WriteRegStr HKCU "Software\Classes\AllFilesystemObjects\shell\GeeZipX\shell\CompressZip" "MUIVerb" "$0"
+      WriteRegStr HKCU "Software\Classes\AllFilesystemObjects\shell\GeeZipX\shell\CompressZip" "MultiSelectModel" "Player"
+      WriteRegStr HKCU "Software\Classes\AllFilesystemObjects\shell\GeeZipX\shell\CompressZip\command" "" '"$INSTDIR\geezipx-gui.exe" /compress-zip %*'
+    ${EndIf}
+  ${EndIf}
+
+  ; ===================================================================
+  ; 4. Remove old * and Directory parent trees and flat siblings.
+  ;    NEVER write DeleteRegKey HKCR for AllFilesystemObjects\shell\GeeZipX
+  ;    — HKCR is a merged view and that would delete the HKCU key we just
+  ;    created (or the existing one we fixed in step 1).
+  ; ===================================================================
+  migrate_cleanup_old_compress:
+  DeleteRegKey HKCU "Software\Classes\*\shell\GeeZipX"
+  DeleteRegKey HKCU "Software\Classes\Directory\shell\GeeZipX"
+  DeleteRegKey HKCU "Software\Classes\*\shell\GeeZipX.Compress"
+  DeleteRegKey HKCU "Software\Classes\*\shell\GeeZipX.CompressZip"
+  DeleteRegKey HKCU "Software\Classes\Directory\shell\GeeZipX.Compress"
+  DeleteRegKey HKCU "Software\Classes\Directory\shell\GeeZipX.CompressZip"
+  DeleteRegKey HKCR "*\shell\GeeZipX.Compress"
+  DeleteRegKey HKCR "*\shell\GeeZipX.CompressZip"
+  DeleteRegKey HKCR "Directory\shell\GeeZipX.Compress"
+  DeleteRegKey HKCR "Directory\shell\GeeZipX.CompressZip"
 !macroend
 
 ; ---------------------------------------------------------------------
@@ -281,26 +376,27 @@ Var _geezip_lang
   ; ===================================================================
   ; Step 1 — Check sentinel. If the runtime has ever written the
   ; sentinel, the user has made a deliberate choice.  Fix any existing
-  ; parent keys that are missing ExtendedSubCommandsKey (e.g. from the
-  ; intermediate v0.7.6 build that had nested shell but no cascading
-  ; declaration), clean old flat siblings, and exit.  Do NOT recreate
-  ; verbs the user may have manually turned off.
+  ; extract parent keys that are missing ExtendedSubCommandsKey, and
+  ; migrate old * / Directory compress registrations to the new
+  ; AllFilesystemObjects location (preserving each verb's enabled
+  ; state).  Do NOT recreate verbs the user may have manually turned off.
   ; ===================================================================
   ClearErrors
   ReadRegStr $0 HKCU "Software\Classes\GeeZipX\ShellMenu" "Configured"
   ${IfNot} ${Errors}
   ${AndIf} $0 == "1"
     !insertmacro FixExtractParentKeys
-    !insertmacro FixCompressParentKeys
+    !insertmacro MigrateCompressMenus
     Goto skip_all_menus
   ${EndIf}
 
   ; ===================================================================
-  ; Step 2 — No sentinel.  Clean any old flat sibling or lingering
-  ; nested structures, then register the current defaults.
+  ; Step 2 — No sentinel.  Remove old compress registrations (*,
+  ; Directory, flat siblings) so the fresh install path below starts
+  ; from a clean slate, then register the current defaults.
   ; ===================================================================
   !insertmacro FixExtractParentKeys
-  !insertmacro FixCompressParentKeys
+  !insertmacro RemoveCompressMenus
 
   ; ===================================================================
   ; Step 3 — Fresh install. Register all four verbs (parent + children)
@@ -333,7 +429,7 @@ Var _geezip_lang
   !insertmacro AddExtractMenus ".wim"
   !insertmacro AddExtractMenus ".isz"
 
-  ; Compress menus — * + Directory (parent + children, with i18n labels)
+  ; Compress menus — AllFilesystemObjects (parent + children, with i18n labels)
   !insertmacro AddCompressMenus
 
   ; Write the sentinel so future upgrades skip registration
