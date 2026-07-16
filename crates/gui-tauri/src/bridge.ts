@@ -117,6 +117,10 @@ export interface GeeZipXSettings {
   theme: 'system' | 'light' | 'dark';
   /** Behavior after a compress/extract task finishes. */
   on_complete: 'nothing' | 'open_output';
+  /** Enable/disable the Windows Explorer right-click context menu entirely. */
+  shell_menu_enabled: boolean;
+  /** Which specific verbs to show (only meaningful when shell_menu_enabled is true). */
+  shell_menu_verbs: ShellMenuVerb[];
 }
 
 // ---------------------------------------------------------------------------
@@ -278,6 +282,21 @@ export { listen };
 // Shell context menu types and wrappers
 // ---------------------------------------------------------------------------
 
+/** Individual shell menu verb, mirrors the Rust `ShellMenuVerb` enum (serde snake_case). */
+export type ShellMenuVerb = 'extract' | 'extract_here' | 'compress_zip' | 'compress';
+
+/** Result of `get_shell_menu_state`, mirrors the Rust `ShellMenuState` struct. */
+export interface ShellMenuState {
+  /** `"windows"` | `"linux"` | `"macos"` | `"unknown"`. */
+  platform: string;
+  /** `true` on Windows; `false` everywhere else. */
+  supported: boolean;
+  /** Which verbs are currently registered (only meaningful on Windows). */
+  registered: ShellMenuVerb[];
+  /** Archive extensions that extract verbs apply to. */
+  archive_extensions: string[];
+}
+
 /** Payload of `shell-action` event emitted when launched from context menu. */
 export interface ShellActionPayload {
   action: 'open' | 'extract' | 'extract-here' | 'compress-zip' | 'compress';
@@ -290,6 +309,30 @@ export interface ShellActionPayload {
 /** Retrieve the shell action from cold start (if app was launched from context menu). */
 export async function getShellAction(): Promise<ShellActionPayload | null> {
   return invoke<ShellActionPayload | null>('get_shell_action');
+}
+
+/** Return the current shell menu state (platform, supported, registered verbs). */
+export async function getShellMenuState(): Promise<ShellMenuState> {
+  return invoke<ShellMenuState>('get_shell_menu_state');
+}
+
+/**
+ * Enable or disable shell context menu verbs.
+ *
+ * @param enabled  Master on/off switch (`false` removes all verbs).
+ * @param verbs    Which specific verbs to register (snake_case strings:
+ *                 `'extract'`, `'extract_here'`, `'compress_zip'`, `'compress'`).
+ *                 Only meaningful when `enabled` is `true`.
+ * @param locale   Current UI language (`'zh-CN'` or `'en'`) so menu labels
+ *                 (MUIVerb) are written in the correct language. Defaults to
+ *                 `'en'` for backward compatibility.
+ */
+export async function setShellMenu(
+  enabled: boolean,
+  verbs: string[],
+  locale: string = 'en',
+): Promise<void> {
+  return invoke<void>('set_shell_menu', { enabled, verbs, locale });
 }
 
 /** Retrieve the application version from the Rust backend. */

@@ -429,6 +429,7 @@ crates/gui-tauri/
     │   │   ├── list.rs
     │   │   ├── preview_entry.rs
     │   │   ├── progress.rs
+    │   │   ├── shell_menu.rs
     │   │   └── test.rs
     │   ├── lib.rs
     │   └── state.rs
@@ -444,6 +445,14 @@ crates/gui-tauri/
 - 选择性提取、条目预览、拖出归档条目等 GUI 专属交互都建立在 core 的只读/提取能力之上；
 - 前端已内置 i18n 支持（`en.json` / `zh-CN.json` 双语），由 `i18n/index.ts` 管理语言切换；
 - 偏好设置/默认行为配置已在 v0.7.0 中实现（默认输出目录、覆盖策略等）。
+- **Windows 右键菜单运行时管理**（当前开发分支，待发布、待原生 Windows 验证/多选支持）— `commands/shell_menu.rs` 通过 `HKCU\Software\Classes` 动态管理四项 Explorer 右键动词。压缩父键注册于 `AllFilesystemObjects`（文件/目录/混合多选均支持），父子均声明 `MultiSelectModel=Player`；提取仍使用 `SystemFileAssociations` + `"%1"` 单归档路径。
+  - **COM DelegateExecute 多选**（当前开发分支）：压缩动词（`Compress`、`CompressZip`）通过 `DelegateExecute` 委托获得完整 `IShellItemArray`，而非静态 `"%*"` 命令——`%*` 在实机测试中确认传递空参数列表，不可作为支持方案。
+  - **LocalServer32 双 CLSID**：两个稳定 GUID 各自注册 `HKCU\Software\Classes\CLSID\{...}\LocalServer32` 指向同一 `geezipx-gui.exe`。Explorer 通过 COM 启动时传入 `-Embedding`，程序跳过 Tauri 进入 STA 消息泵，实例化 `IExecuteCommand` + `IObjectWithSelection` 实现类，接收 `IShellItemArray`，将选中路径写入版本化二进制 action 文件（`.gzsa`, UTF-16LE，限 `%LOCALAPPDATA%\GeeZipX\ShellActions\` 目录内，上限 1 MiB / 10 000 条 / 32 767 码元），然后以 `--shell-action-file` 参数启动正常 GUI 进程消费。cold/warm 共用 `resolve_shell_action` 解析路径。action 文件读取后 best-effort 删除。
+  - **提取动词**继续保持 `SystemFileAssociations` + `"%1"` 静态命令，不涉及 COM，无多选需求。
+  - **Sentinel 保护**保持：`HKCU\Software\Classes\GeeZipX\ShellMenu\Configured=1`，NSIS fresh-install/uninstall 维护注册状态，upgrade 检测 sentinel 跳过默认注册保留用户选择。
+  - **验证状态**：Linux 纯协议级单元测试通过（action 编解码、resolve 优先级、CLSID 映射、Embedding 检测）；原生 Windows COM 编译/NSIS 安装/Explorer 右键实测尚未完成。禁止 cfg stub 冒充 Windows 通过 CI。
+  - 非 Windows 平台返回 `supported: false`。Win11 限制：传统菜单项显示于"显示更多选项"(Shift+F10)。
+- **Windows 文件关联**（v0.7.5）— `commands/associations.rs` 的 Windows 平台模块同样迁移至 `windows-registry`，通过程序化 API 管理 ProgID、`OpenWithProgids`、`Capabilities` 与 `RegisteredApplications`，不再依赖外部 `reg.exe` 进程。
 
 | 风险 | 影响 | 当前缓解 |
 |------|------|----------|
@@ -453,6 +462,7 @@ crates/gui-tauri/
 | RAR / ARJ / ACE / ARC / ALZ / Z 仍为只读 | GUI 不能创建这些格式 | 在产品文档中明确范围（PRD §5.2 永久排除） |
 || WIM / ISZ writer 为标准模式外的实现 | WIM 为无压缩写入、ISZ 为单流引擎（非 ArchiveWriter trait） | 在文档中明确能力边界 |
 | LZH/LHA writer 为缓冲写入（lh0-lh7 压缩均支持） | 不支持加密、多卷、extended header；单个 entry payload 会缓冲 | 在产品文档中明确限制范围 |
+| Windows COM DelegateExecute 右键菜单尚未完成原生 Explorer 实测 | COM 启动、IShellItemArray 传递、action 文件读写链路可能在实机环境暴露 Linux 测试无法覆盖的问题 | 状态标注为“待验证”；仅 Linux 协议级单元测试通过，禁止 cfg stub 冒充 Windows |
 ## 附录：Cargo Workspace 配置
 
 ```toml
@@ -572,3 +582,9 @@ path = "src/main.rs"
 ```
 
 > 注意：以上 `Cargo.toml` 版本号仅作示例，需以 crates.io 上的实际最新稳定版本为准。
+
+## 7. 实验性组件
+
+### 7.1 Windows Shell 右键菜单（历史）
+
+旧版 `crates/shell-extension/`（IExplorerCommand COM DLL + 稀疏 MSIX 包标识）PoC 已归档移除。当前 Windows 右键菜单统一使用运行时 HKCU 静态 verb + DelegateExecute COM LocalServer32（详见 §8），无需 MSIX/package identity，不涉及 IExplorerCommand。

@@ -166,6 +166,20 @@
       "setDefault": "Set as default",
       "openSettings": "Open system settings"
     },
+    "shellMenu": {
+      "parentLabel": "GeeZipX",
+      "label": "Right-click Menu",
+      "help": "Show GeeZipX actions in the Windows Explorer right-click menu. Changes take effect immediately after saving.",
+      "win11Hint": "On Windows 11 these entries appear under \"Show more options\" (Shift+F10 or Shift+right-click).",
+      "enabled": "Enable right-click menu",
+      "verbs": {
+        "extract": "Extract to…",
+        "extract_here": "Extract here",
+        "compress_zip": "Compress as ZIP",
+        "compress": "Compress as…"
+      },
+      "saveError": "Failed to apply right-click menu settings. Please try again."
+    },
     "reset": "Reset to defaults",
     "dirty": "Unsaved changes",
     "unsavedConfirm": "Settings have not been saved. Leave and discard changes?",
