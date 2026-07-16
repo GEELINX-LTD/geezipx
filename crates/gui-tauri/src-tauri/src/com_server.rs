@@ -144,9 +144,12 @@ mod platform {
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicU32, Ordering};
 
-    use windows::core::{implement, IUnknown, Ref, GUID, HRESULT};
+    use super::{action_for_clsid, CLSID_COMPRESS, CLSID_COMPRESS_ZIP};
+    use crate::shell_action_file::{self, ShellActionFileAction};
+    use windows::core::{implement, IUnknown, Interface, Ref, GUID, HRESULT};
     use windows::Win32::Foundation::{
-        CLASS_E_NOAGGREGATION, E_FAIL, E_INVALIDARG, E_NOTIMPL, E_POINTER, E_UNEXPECTED,
+        CLASS_E_NOAGGREGATION, E_FAIL, E_INVALIDARG, E_NOINTERFACE, E_NOTIMPL, E_POINTER,
+        E_UNEXPECTED, LPARAM, WPARAM,
     };
     use windows::Win32::System::Com::{
         CoInitializeEx, CoRegisterClassObject, CoRevokeClassObject, CoTaskMemFree,
@@ -155,16 +158,12 @@ mod platform {
     use windows::Win32::System::Diagnostics::Debug::OutputDebugStringW;
     use windows::Win32::System::Threading::GetCurrentThreadId;
     use windows::Win32::UI::Shell::{
-        IExecuteCommand_Impl, IObjectWithSelection_Impl, IShellItem, IShellItemArray,
-        SIGDN_FILESYSPATH,
+        IExecuteCommand, IExecuteCommand_Impl, IObjectWithSelection, IObjectWithSelection_Impl,
+        IShellItem, IShellItemArray, SIGDN_FILESYSPATH,
     };
     use windows::Win32::UI::WindowsAndMessaging::{
         DispatchMessageW, GetMessageW, PostThreadMessageW, TranslateMessage, MSG, WM_QUIT,
     };
-    use windows_core as windows;
-
-    use super::{action_for_clsid, CLSID_COMPRESS, CLSID_COMPRESS_ZIP};
-    use crate::shell_action_file::{self, ShellActionFileAction};
 
     // ------------------------------------------------------------------
     // Global lifetime counters
@@ -191,7 +190,7 @@ mod platform {
             // OutputDebugStringW so they are visible in DebugView/WinDbg.
             let tid = unsafe { GetCurrentThreadId() };
             unsafe {
-                if PostThreadMessageW(tid, WM_QUIT, None, None).is_err() {
+                if PostThreadMessageW(tid, WM_QUIT, WPARAM(0), LPARAM(0)).is_err() {
                     debug_output("GeeZipX COM: PostThreadMessageW(WM_QUIT) failed");
                 }
             }
