@@ -2229,6 +2229,7 @@ dependencies = [
  "tauri-plugin-window-state",
  "tempfile",
  "tokio",
+ "windows 0.61.3",
  "windows-registry",
  "zpaq_rs",
 ]

@@ -6,27 +6,39 @@
 //! administrator privileges are required and no external `reg.exe` process
 //! is spawned.
 //!
-//! Sub-menu structure (v0.7.6+)
+//! Sub-menu structure (v0.8.0+)
 //! -----------------------------
 //! Four verb entries are grouped under a parent `GeeZipX` key using
 //! nested `shell` sub-keys, producing a fly-out sub-menu:
 //!
 //! ```text
 //! SystemFileAssociations\.zip\shell\GeeZipX          ← parent (MUIVerb, Icon, ExtendedSubCommandsKey)
-//! SystemFileAssociations\.zip\shell\GeeZipX\shell\Extract   ← child (MUIVerb, command)
+//! SystemFileAssociations\.zip\shell\GeeZipX\shell\Extract   ← child (MUIVerb, command with "%1")
 //! SystemFileAssociations\.zip\shell\GeeZipX\shell\ExtractHere
 //! ```
 //!
-//! Child keys carry `MUIVerb` and `command`; the parent holds `Icon`,
-//! `MUIVerb`, and `ExtendedSubCommandsKey` (self-referencing, HKCR-relative)
-//! so Explorer discovers the nested `shell` children and renders a
-//! cascaded fly-out sub-menu.
+//! Child extract keys carry `MUIVerb` and `command` (static `"%1"` verb);
+//! the parent holds `Icon`, `MUIVerb`, and `ExtendedSubCommandsKey`
+//! (self-referencing, HKCR-relative) so Explorer discovers the nested
+//! `shell` children and renders a cascaded fly-out sub-menu.
 //!
-//! For `AllFilesystemObjects` the nested compress verbs follow the same
-//! pattern: `AllFilesystemObjects\shell\GeeZipX\shell\CompressZip` etc.
+//! For `AllFilesystemObjects` the nested compress verbs use `DelegateExecute`
+//! COM handlers instead of static `command` values:
+//!
+//! ```text
+//! AllFilesystemObjects\shell\GeeZipX                         ← parent
+//! AllFilesystemObjects\shell\GeeZipX\shell\Compress           ← child (MUIVerb, MultiSelectModel, DelegateExecute)
+//! AllFilesystemObjects\shell\GeeZipX\shell\Compress\command   ← DelegateExecute = {CLSID}
+//! ```
+//!
 //! `AllFilesystemObjects` is the canonical Shell class for multi-select —
-//! it covers files, folders, and mixed selections together, unlike `*`
-//! and `Directory` which only cover their respective item types.
+//! it covers files, folders, and mixed selections together.  The COM
+//! handler receives the full `IShellItemArray` from Explorer and writes a
+//! versioned action file that the main GUI reads via `--shell-action-file`.
+//!
+//! Each compress CLSID is also registered under
+//! `HKCU\Software\Classes\CLSID\{...}\LocalServer32` pointing at this EXE
+//! so Explorer can launch `geezipx-gui.exe -Embedding` on demand.
 //!
 //! i18n
 //! ----
@@ -35,8 +47,8 @@
 //! language; the parent label is always "GeeZipX" regardless of locale.
 //!
 //! On Windows 11 these entries appear under "Show more options" (the classic
-//! context menu) — this is a system limitation that cannot be worked around
-//! without an IExplorerCommand COM server / MSIX package.
+//! context menu) — the modern IExplorerCommand menu requires an MSIX package
+//! and is not targeted here.
 //!
 //! Non-Windows platforms return `supported: false` — the commands exist so
 //! the frontend can call them unconditionally without platform checks.
@@ -215,6 +227,51 @@ pub fn hkcu_to_hkcr_path(key_path: &str) -> Result<String, String> {
         .ok_or_else(|| format!("path does not start with Software\\Classes\\: {key_path}"))
 }
 
+/// Build the HKCU-relative registry key path for a CLSID.
+///
+/// Example: `reg_clsid_key(CLSID_COMPRESS_STR)` →
+/// `Software\Classes\CLSID\{C1E5F6A0-8F6A-4F9E-B5C2-1C0A9B8F7E6D}`
+pub fn reg_clsid_key(clsid: &str) -> String {
+    format!("Software\\Classes\\CLSID\\{clsid}")
+}
+
+/// Build the HKCU-relative registry key path for a CLSID LocalServer32.
+///
+/// Example: `reg_local_server32_key(CLSID_COMPRESS_STR)` →
+/// `Software\Classes\CLSID\{C1E5F6A0-8F6A-4F9E-B5C2-1C0A9B8F7E6D}\LocalServer32`
+pub fn reg_local_server32_key(clsid: &str) -> String {
+    format!("Software\\Classes\\CLSID\\{clsid}\\LocalServer32")
+}
+
+/// Map a compress verb to its DelegateExecute CLSID string.
+///
+/// Returns `None` for extract verbs (which use static `"%1"` commands).
+pub fn verb_to_clsid(verb: ShellMenuVerb) -> Option<&'static str> {
+    use crate::com_server::{CLSID_COMPRESS_STR, CLSID_COMPRESS_ZIP_STR};
+    match verb {
+        ShellMenuVerb::Compress => Some(CLSID_COMPRESS_STR),
+        ShellMenuVerb::CompressZip => Some(CLSID_COMPRESS_ZIP_STR),
+        _ => None,
+    }
+}
+
+/// Human-readable default value for a compress CLSID registry key.
+///
+/// These names match the NSIS installer registration and serve as the
+/// default value of the CLSID key under `HKCU\Software\Classes\CLSID\{...}`.
+/// They are purely cosmetic (for registry inspection) and do not affect
+/// COM activation.
+///
+/// Returns `None` for unrecognised CLSIDs.
+pub fn clsid_display_name(clsid: &str) -> Option<&'static str> {
+    use crate::com_server::{CLSID_COMPRESS_STR, CLSID_COMPRESS_ZIP_STR};
+    match clsid {
+        CLSID_COMPRESS_STR => Some("GeeZipX Compress Handler"),
+        CLSID_COMPRESS_ZIP_STR => Some("GeeZipX Compress ZIP Handler"),
+        _ => None,
+    }
+}
+
 /// Build the shell command string for a given executable path and CLI flag.
 ///
 /// Uses `"%1"` (single quoted path placeholder) — suitable for extract
@@ -224,19 +281,6 @@ pub fn hkcu_to_hkcr_path(key_path: &str) -> Result<String, String> {
 /// `"C:\Program Files\GeeZipX\geezipx-gui.exe" /extract "%1"`
 pub fn build_command(exe_path: &str, cli_flag: &str) -> String {
     format!("\"{exe_path}\" {cli_flag} \"%1\"")
-}
-
-/// Build a multi-select shell command string using bare `%*`.
-///
-/// Explorer expands `%*` to all selected paths (space-separated).  The
-/// placeholder must NOT be quoted — Explorer handles quoting internally
-/// for paths containing spaces.  A quoted `"%*"` would pass the literal
-/// text `%*` to the application instead of the selected paths.
-///
-/// Example: `build_multiselect_command(r"C:\...\geezipx-gui.exe", "/compress")` →
-/// `"C:\...\geezipx-gui.exe" /compress %*`
-pub fn build_multiselect_command(exe_path: &str, cli_flag: &str) -> String {
-    format!("\"{exe_path}\" {cli_flag} %*")
 }
 
 /// Shell verb name → CLI flag mapping.
@@ -410,7 +454,7 @@ fn platform_name() -> String {
 #[cfg(target_os = "windows")]
 mod platform {
     use super::*;
-    use windows_registry::CURRENT_USER;
+    use windows_registry::{Key, CURRENT_USER};
 
     // HRESULT value for Win32 ERROR_FILE_NOT_FOUND (0x2), as produced by
     // `HRESULT::from_win32(2)`.  Used to distinguish "key/value does not
@@ -522,15 +566,17 @@ mod platform {
 
     /// Write a single **child** compress verb on `AllFilesystemObjects`.
     ///
-    /// Same child-only pattern as [`write_extract_verb`]: only `MUIVerb` and
-    /// `command`, no `Icon` or default value.  Both `Compress` and
-    /// `CompressZip` get `MultiSelectModel=Player` so they appear in
-    /// multi-select context menus.  The command uses bare `%*` (not `"%1"`)
-    /// so Explorer passes all selected paths to the application.
-    fn write_compress_verb(verb: ShellMenuVerb, exe: &str, locale: &str) -> Result<(), String> {
+    /// Write a single **child** compress verb on `AllFilesystemObjects`.
+    ///
+    /// Writes `MUIVerb` and `MultiSelectModel=Player` on the verb key, then
+    /// creates the `command` subkey with `DelegateExecute` pointing at the
+    /// verb's CLSID.  No static default command value is written — Explorer
+    /// invokes the COM handler registered under `LocalServer32` instead.
+    ///
+    /// Returns an error if the verb is not a compress verb (no CLSID).
+    fn write_compress_verb(verb: ShellMenuVerb, _exe: &str, locale: &str) -> Result<(), String> {
         let label = verb_label(verb, locale);
-        let flag = cli_flag_for_verb(verb);
-        let cmd = build_multiselect_command(exe, flag);
+        let clsid = verb_to_clsid(verb).ok_or_else(|| format!("no CLSID for verb {verb:?}"))?;
 
         let root_path = reg_key_for_all_filesystem_objects(verb);
         let key = CURRENT_USER
@@ -549,9 +595,13 @@ mod platform {
         let cmd_key = CURRENT_USER
             .create(&cmd_key_path)
             .map_err(|e| format!("failed to create key {cmd_key_path}: {e}"))?;
+
+        // Remove any stale default value from previous static-command builds,
+        // then write DelegateExecute.
+        let _ = cmd_key.remove_value("");
         cmd_key
-            .set_string("", &cmd)
-            .map_err(|e| format!("failed to set default value at {cmd_key_path}: {e}"))?;
+            .set_string("DelegateExecute", clsid)
+            .map_err(|e| format!("failed to set DelegateExecute at {cmd_key_path}: {e}"))?;
 
         Ok(())
     }
@@ -602,6 +652,53 @@ mod platform {
             .map_err(|e| format!("failed to create sentinel key: {e}"))?;
         key.set_string(SENTINEL_VALUE, SENTINEL_DATA)
             .map_err(|e| format!("failed to set sentinel value: {e}"))
+    }
+
+    // -- CLSID LocalServer32 registration ----------------------------------
+
+    /// Register both compress CLSID `LocalServer32` keys so Explorer can
+    /// launch `geezipx-gui.exe -Embedding` when a user clicks a compress
+    /// verb with `DelegateExecute`.
+    ///
+    /// Both CLSIDs are always registered together because a single
+    /// `LocalServer32` process hosts both class factories.  The caller
+    /// (`register_verbs`) only invokes this when at least one compress
+    /// verb is enabled, so the keys are never created without a matching
+    /// `DelegateExecute` entry.
+    ///
+    /// Idempotent: overwrites existing values with the current EXE path.
+    pub fn register_clsid_servers(exe: &str) -> Result<(), String> {
+        use crate::com_server::{CLSID_COMPRESS_STR, CLSID_COMPRESS_ZIP_STR};
+
+        for clsid in [CLSID_COMPRESS_STR, CLSID_COMPRESS_ZIP_STR] {
+            // Write CLSID default display name (optional but helps registry inspection).
+            let clsid_path = reg_clsid_key(clsid);
+            let clsid_key = CURRENT_USER
+                .create(&clsid_path)
+                .map_err(|e| format!("failed to create CLSID key {clsid_path}: {e}"))?;
+            let display = clsid_display_name(clsid).unwrap_or(clsid);
+            let _ = clsid_key.set_string("", display);
+
+            // Write LocalServer32 default value pointing at this EXE.
+            let ls32_path = reg_local_server32_key(clsid);
+            let ls32_key = CURRENT_USER
+                .create(&ls32_path)
+                .map_err(|e| format!("failed to create LocalServer32 key {ls32_path}: {e}"))?;
+            ls32_key
+                .set_string("", &format!("\"{exe}\""))
+                .map_err(|e| format!("failed to set LocalServer32 default at {ls32_path}: {e}"))?;
+        }
+        Ok(())
+    }
+
+    /// Delete both GeeZipX CLSID keys from HKCU.
+    /// Missing keys are silently skipped.
+    pub fn remove_clsid_servers() -> Result<(), String> {
+        use crate::com_server::{CLSID_COMPRESS_STR, CLSID_COMPRESS_ZIP_STR};
+        for clsid in [CLSID_COMPRESS_STR, CLSID_COMPRESS_ZIP_STR] {
+            reg_delete_tree(&reg_clsid_key(clsid))?;
+        }
+        Ok(())
     }
 
     /// Check whether the sentinel key exists.
@@ -706,6 +803,14 @@ mod platform {
             )?;
         }
 
+        // --- write CLSID LocalServer32 keys BEFORE child verbs -------------
+        // COM servers must be registered before writing DelegateExecute
+        // entries, otherwise Explorer can show menu items with no handler.
+        // Only register if at least one compress verb is enabled.
+        if has_compress {
+            register_clsid_servers(&exe)?;
+        }
+
         // --- write child verb keys -----------------------------------------
 
         for &verb in verbs {
@@ -737,6 +842,9 @@ mod platform {
         // Legacy * and Directory compress parent trees (pre-v0.7.7).
         reg_delete_tree(&reg_parent_key_for_any_file())?;
         reg_delete_tree(&reg_parent_key_for_dir())?;
+
+        // Remove GeeZipX CLSID keys (per-user COM LocalServer32 registration).
+        remove_clsid_servers()?;
 
         // Legacy cleanup: remove old flat sibling keys from pre-nested versions.
         // These have path pattern `...\shell\GeeZipX.Extract` (sibling, not nested).
@@ -963,27 +1071,108 @@ mod tests {
         assert!(cmd.contains("\" /compress \"%1\""));
     }
 
-    // -- build_multiselect_command -----------------------------------------
+    // -- CLSID path helpers ------------------------------------------------
 
     #[test]
-    fn test_build_multiselect_command() {
-        let cmd =
-            build_multiselect_command(r"C:\Program Files\GeeZipX\geezipx-gui.exe", "/compress");
+    fn test_reg_clsid_key() {
+        let path = reg_clsid_key("{C1E5F6A0-8F6A-4F9E-B5C2-1C0A9B8F7E6D}");
         assert_eq!(
-            cmd,
-            r#""C:\Program Files\GeeZipX\geezipx-gui.exe" /compress %*"#
+            path,
+            r"Software\Classes\CLSID\{C1E5F6A0-8F6A-4F9E-B5C2-1C0A9B8F7E6D}"
+        );
+        assert!(path.starts_with("Software\\Classes\\CLSID\\"));
+    }
+
+    #[test]
+    fn test_reg_local_server32_key() {
+        let path = reg_local_server32_key("{D2F6A7B1-9A7B-4A0F-C6D3-2D1B0C9A8F7E}");
+        assert!(path.ends_with("\\LocalServer32"));
+        assert!(path.starts_with("Software\\Classes\\CLSID\\"));
+        assert_eq!(
+            path,
+            r"Software\Classes\CLSID\{D2F6A7B1-9A7B-4A0F-C6D3-2D1B0C9A8F7E}\LocalServer32"
         );
     }
 
     #[test]
-    fn test_build_multiselect_command_bare_percent_star() {
-        // The %* placeholder must NOT be quoted — Explorer handles quoting
-        // internally.  A quoted "%*" would pass the literal text "%*" to
-        // the application.
-        let cmd = build_multiselect_command(r"C:\test.exe", "/compress-zip");
-        assert!(cmd.ends_with(" %*"));
-        assert!(!cmd.ends_with("\"%*\""));
-        assert!(!cmd.contains("%1"));
+    fn test_clsid_paths_are_hkcu_relative() {
+        for clsid in [
+            "{C1E5F6A0-8F6A-4F9E-B5C2-1C0A9B8F7E6D}",
+            "{D2F6A7B1-9A7B-4A0F-C6D3-2D1B0C9A8F7E}",
+        ] {
+            let p = reg_clsid_key(clsid);
+            assert!(
+                p.starts_with("Software\\Classes\\"),
+                "CLSID path must be HKCU-relative"
+            );
+            let p = reg_local_server32_key(clsid);
+            assert!(
+                p.starts_with("Software\\Classes\\"),
+                "LocalServer32 path must be HKCU-relative"
+            );
+        }
+    }
+
+    // -- verb_to_clsid ------------------------------------------------------
+
+    #[test]
+    fn test_verb_to_clsid_compress() {
+        let clsid = verb_to_clsid(ShellMenuVerb::Compress);
+        assert_eq!(clsid, Some("{C1E5F6A0-8F6A-4F9E-B5C2-1C0A9B8F7E6D}"));
+    }
+
+    #[test]
+    fn test_verb_to_clsid_compress_zip() {
+        let clsid = verb_to_clsid(ShellMenuVerb::CompressZip);
+        assert_eq!(clsid, Some("{D2F6A7B1-9A7B-4A0F-C6D3-2D1B0C9A8F7E}"));
+    }
+
+    #[test]
+    fn test_verb_to_clsid_extract_returns_none() {
+        assert_eq!(verb_to_clsid(ShellMenuVerb::Extract), None);
+        assert_eq!(verb_to_clsid(ShellMenuVerb::ExtractHere), None);
+    }
+
+    #[test]
+    fn test_verb_to_clsid_compress_different() {
+        let a = verb_to_clsid(ShellMenuVerb::Compress).unwrap();
+        let b = verb_to_clsid(ShellMenuVerb::CompressZip).unwrap();
+        assert_ne!(a, b);
+    }
+
+    // -- clsid_display_name -------------------------------------------------
+
+    #[test]
+    fn test_clsid_display_name_compress() {
+        let name = clsid_display_name("{C1E5F6A0-8F6A-4F9E-B5C2-1C0A9B8F7E6D}");
+        assert_eq!(name, Some("GeeZipX Compress Handler"));
+    }
+
+    #[test]
+    fn test_clsid_display_name_compress_zip() {
+        let name = clsid_display_name("{D2F6A7B1-9A7B-4A0F-C6D3-2D1B0C9A8F7E}");
+        assert_eq!(name, Some("GeeZipX Compress ZIP Handler"));
+    }
+
+    #[test]
+    fn test_clsid_display_name_unknown() {
+        assert_eq!(
+            clsid_display_name("{00000000-0000-0000-0000-000000000000}"),
+            None
+        );
+        assert_eq!(clsid_display_name("not-a-clsid"), None);
+        assert_eq!(clsid_display_name(""), None);
+    }
+
+    #[test]
+    fn test_clsid_display_name_round_trip() {
+        // Every CLSID mapped by verb_to_clsid must have a display name.
+        for verb in [ShellMenuVerb::Compress, ShellMenuVerb::CompressZip] {
+            let clsid = verb_to_clsid(verb).unwrap();
+            let name = clsid_display_name(clsid);
+            assert!(name.is_some(), "missing display name for {clsid}");
+            assert!(!name.unwrap().is_empty());
+        }
     }
 
     // -- cli_flag_for_verb --------------------------------------------------

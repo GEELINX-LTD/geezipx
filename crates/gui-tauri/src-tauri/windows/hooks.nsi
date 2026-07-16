@@ -20,8 +20,12 @@
 ;
 ;   AllFilesystemObjects (compress — covers multi-select, files, folders):
 ;     HKCU\...\shell\GeeZipX                        ← parent (MUIVerb, Icon, ExtendedSubCommandsKey, MultiSelectModel)
-;     HKCU\...\shell\GeeZipX\shell\Compress          ← child  (MUIVerb, MultiSelectModel, command with %*)
+;     HKCU\...\shell\GeeZipX\shell\Compress          ← child  (MUIVerb, MultiSelectModel, command\DelegateExecute = CLSID)
 ;     HKCU\...\shell\GeeZipX\shell\CompressZip
+;
+; Each compress CLSID is also registered under
+; HKCU\Software\Classes\CLSID\{...}\LocalServer32 so Explorer can
+; launch geezipx-gui.exe -Embedding to handle multi-select properly.
 ;
 ; i18n
 ; ----
@@ -61,7 +65,22 @@
 ;
 ; On Windows 11 these entries appear under "Show more options" (classic
 ; menu) — this is a system limitation.
+;
+; DelegateExecute COM servers (v0.8.0+)
+; -------------------------------------
+; Compress and CompressZip use COM DelegateExecute instead of static
+; "%1" commands.  Two CLSIDs are registered under LocalServer32, and
+; each child verb's command key carries DelegateExecute = CLSID.
+; Explorer launches geezipx-gui.exe -Embedding which acts as a
+; LocalServer32, receives the full IShellItemArray from Explorer, and
+; writes an action file for the main GUI to consume.
 ; =====================================================================
+
+; ---------------------------------------------------------------------
+; CLSID constants — must match com_server.rs and shell_menu.rs
+; ---------------------------------------------------------------------
+!define GEEZIPX_CLSID_COMPRESS "{C1E5F6A0-8F6A-4F9E-B5C2-1C0A9B8F7E6D}"
+!define GEEZIPX_CLSID_COMPRESS_ZIP "{D2F6A7B1-9A7B-4A0F-C6D3-2D1B0C9A8F7E}"
 
 ; ---------------------------------------------------------------------
 ; i18n helper: resolve localised labels from NSIS $LANGUAGE
@@ -109,6 +128,24 @@ Var _mig_compresszip
   ${Else}
     StrCpy ${lang_out} "Compress as ZIP"
   ${EndIf}
+!macroend
+
+; ---------------------------------------------------------------------
+; COM server registration (DelegateExecute handler — v0.8.0+)
+; ---------------------------------------------------------------------
+
+!macro RegisterComServers
+  ; Write CLSID default display name + LocalServer32 for both compress verbs.
+  ; The EXE is quoted so paths with spaces (e.g. Program Files) work.
+  WriteRegStr HKCU "Software\Classes\CLSID\${GEEZIPX_CLSID_COMPRESS}" "" "GeeZipX Compress Handler"
+  WriteRegStr HKCU "Software\Classes\CLSID\${GEEZIPX_CLSID_COMPRESS}\LocalServer32" "" '"$INSTDIR\geezipx-gui.exe"'
+  WriteRegStr HKCU "Software\Classes\CLSID\${GEEZIPX_CLSID_COMPRESS_ZIP}" "" "GeeZipX Compress ZIP Handler"
+  WriteRegStr HKCU "Software\Classes\CLSID\${GEEZIPX_CLSID_COMPRESS_ZIP}\LocalServer32" "" '"$INSTDIR\geezipx-gui.exe"'
+!macroend
+
+!macro UnregisterComServers
+  DeleteRegKey HKCU "Software\Classes\CLSID\${GEEZIPX_CLSID_COMPRESS}"
+  DeleteRegKey HKCU "Software\Classes\CLSID\${GEEZIPX_CLSID_COMPRESS_ZIP}"
 !macroend
 
 ; ---------------------------------------------------------------------
@@ -163,17 +200,21 @@ Var _mig_compresszip
   WriteRegStr HKCU "Software\Classes\AllFilesystemObjects\shell\GeeZipX" "ExtendedSubCommandsKey" "AllFilesystemObjects\shell\GeeZipX"
   WriteRegStr HKCU "Software\Classes\AllFilesystemObjects\shell\GeeZipX" "MultiSelectModel" "Player"
 
-  ; Child: "Compress as..." (nested under parent, bare %* for multi-select)
+  ; Child: "Compress as..." — DelegateExecute COM handler.
   !insertmacro GeeZipXCompressLabel $0
   WriteRegStr HKCU "Software\Classes\AllFilesystemObjects\shell\GeeZipX\shell\Compress" "MUIVerb" "$0"
   WriteRegStr HKCU "Software\Classes\AllFilesystemObjects\shell\GeeZipX\shell\Compress" "MultiSelectModel" "Player"
-  WriteRegStr HKCU "Software\Classes\AllFilesystemObjects\shell\GeeZipX\shell\Compress\command" "" '"$INSTDIR\geezipx-gui.exe" /compress %*'
+  ; Delete old static default value (if any), then write DelegateExecute.
+  DeleteRegValue HKCU "Software\Classes\AllFilesystemObjects\shell\GeeZipX\shell\Compress\command" ""
+  WriteRegStr HKCU "Software\Classes\AllFilesystemObjects\shell\GeeZipX\shell\Compress\command" "DelegateExecute" "${GEEZIPX_CLSID_COMPRESS}"
 
-  ; Child: "Compress as ZIP" (nested under parent, bare %* for multi-select)
+  ; Child: "Compress as ZIP" — DelegateExecute COM handler.
   !insertmacro GeeZipXCompressZipLabel $0
   WriteRegStr HKCU "Software\Classes\AllFilesystemObjects\shell\GeeZipX\shell\CompressZip" "MUIVerb" "$0"
   WriteRegStr HKCU "Software\Classes\AllFilesystemObjects\shell\GeeZipX\shell\CompressZip" "MultiSelectModel" "Player"
-  WriteRegStr HKCU "Software\Classes\AllFilesystemObjects\shell\GeeZipX\shell\CompressZip\command" "" '"$INSTDIR\geezipx-gui.exe" /compress-zip %*'
+  ; Delete old static default value (if any), then write DelegateExecute.
+  DeleteRegValue HKCU "Software\Classes\AllFilesystemObjects\shell\GeeZipX\shell\CompressZip\command" ""
+  WriteRegStr HKCU "Software\Classes\AllFilesystemObjects\shell\GeeZipX\shell\CompressZip\command" "DelegateExecute" "${GEEZIPX_CLSID_COMPRESS_ZIP}"
 !macroend
 
 !macro RemoveCompressMenus
@@ -269,20 +310,22 @@ Var _mig_compresszip
     WriteRegStr HKCU "Software\Classes\AllFilesystemObjects\shell\GeeZipX" "ExtendedSubCommandsKey" "AllFilesystemObjects\shell\GeeZipX"
     WriteRegStr HKCU "Software\Classes\AllFilesystemObjects\shell\GeeZipX" "MultiSelectModel" "Player"
 
-    ; Fix child Compress if present.
+    ; Fix child Compress if present — delete old default, write DelegateExecute.
     ClearErrors
     ReadRegStr $0 HKCU "Software\Classes\AllFilesystemObjects\shell\GeeZipX\shell\Compress" "MUIVerb"
     ${IfNot} ${Errors}
       WriteRegStr HKCU "Software\Classes\AllFilesystemObjects\shell\GeeZipX\shell\Compress" "MultiSelectModel" "Player"
-      WriteRegStr HKCU "Software\Classes\AllFilesystemObjects\shell\GeeZipX\shell\Compress\command" "" '"$INSTDIR\geezipx-gui.exe" /compress %*'
+      DeleteRegValue HKCU "Software\Classes\AllFilesystemObjects\shell\GeeZipX\shell\Compress\command" ""
+      WriteRegStr HKCU "Software\Classes\AllFilesystemObjects\shell\GeeZipX\shell\Compress\command" "DelegateExecute" "${GEEZIPX_CLSID_COMPRESS}"
     ${EndIf}
 
-    ; Fix child CompressZip if present.
+    ; Fix child CompressZip if present — delete old default, write DelegateExecute.
     ClearErrors
     ReadRegStr $0 HKCU "Software\Classes\AllFilesystemObjects\shell\GeeZipX\shell\CompressZip" "MUIVerb"
     ${IfNot} ${Errors}
       WriteRegStr HKCU "Software\Classes\AllFilesystemObjects\shell\GeeZipX\shell\CompressZip" "MultiSelectModel" "Player"
-      WriteRegStr HKCU "Software\Classes\AllFilesystemObjects\shell\GeeZipX\shell\CompressZip\command" "" '"$INSTDIR\geezipx-gui.exe" /compress-zip %*'
+      DeleteRegValue HKCU "Software\Classes\AllFilesystemObjects\shell\GeeZipX\shell\CompressZip\command" ""
+      WriteRegStr HKCU "Software\Classes\AllFilesystemObjects\shell\GeeZipX\shell\CompressZip\command" "DelegateExecute" "${GEEZIPX_CLSID_COMPRESS_ZIP}"
     ${EndIf}
 
     Goto migrate_cleanup_old_compress
@@ -325,7 +368,7 @@ Var _mig_compresszip
   ; ===================================================================
   ; 3. Create parent + children only for enabled verbs.
   ;    If both are disabled, do NOT create the parent key — preserve
-  ;    the "all off" state.
+  ;    the "all off" state.  Children use DelegateExecute, not static "%1".
   ; ===================================================================
   ${If} $_mig_compress == 1
   ${OrIf} $_mig_compresszip == 1
@@ -338,14 +381,16 @@ Var _mig_compresszip
       !insertmacro GeeZipXCompressLabel $0
       WriteRegStr HKCU "Software\Classes\AllFilesystemObjects\shell\GeeZipX\shell\Compress" "MUIVerb" "$0"
       WriteRegStr HKCU "Software\Classes\AllFilesystemObjects\shell\GeeZipX\shell\Compress" "MultiSelectModel" "Player"
-      WriteRegStr HKCU "Software\Classes\AllFilesystemObjects\shell\GeeZipX\shell\Compress\command" "" '"$INSTDIR\geezipx-gui.exe" /compress %*'
+      DeleteRegValue HKCU "Software\Classes\AllFilesystemObjects\shell\GeeZipX\shell\Compress\command" ""
+      WriteRegStr HKCU "Software\Classes\AllFilesystemObjects\shell\GeeZipX\shell\Compress\command" "DelegateExecute" "${GEEZIPX_CLSID_COMPRESS}"
     ${EndIf}
 
     ${If} $_mig_compresszip == 1
       !insertmacro GeeZipXCompressZipLabel $0
       WriteRegStr HKCU "Software\Classes\AllFilesystemObjects\shell\GeeZipX\shell\CompressZip" "MUIVerb" "$0"
       WriteRegStr HKCU "Software\Classes\AllFilesystemObjects\shell\GeeZipX\shell\CompressZip" "MultiSelectModel" "Player"
-      WriteRegStr HKCU "Software\Classes\AllFilesystemObjects\shell\GeeZipX\shell\CompressZip\command" "" '"$INSTDIR\geezipx-gui.exe" /compress-zip %*'
+      DeleteRegValue HKCU "Software\Classes\AllFilesystemObjects\shell\GeeZipX\shell\CompressZip\command" ""
+      WriteRegStr HKCU "Software\Classes\AllFilesystemObjects\shell\GeeZipX\shell\CompressZip\command" "DelegateExecute" "${GEEZIPX_CLSID_COMPRESS_ZIP}"
     ${EndIf}
   ${EndIf}
 
@@ -373,6 +418,13 @@ Var _mig_compresszip
 ; ---------------------------------------------------------------------
 
 !macro preInstall
+  ; ===================================================================
+  ; Step 0 — Register COM LocalServer32 CLSIDs unconditionally.
+  ; The COM servers must exist before any DelegateExecute entries are
+  ; written.  This is idempotent — it just points at the current EXE.
+  ; ===================================================================
+  !insertmacro RegisterComServers
+
   ; ===================================================================
   ; Step 1 — Check sentinel. If the runtime has ever written the
   ; sentinel, the user has made a deliberate choice.  Fix any existing
@@ -480,4 +532,9 @@ Var _mig_compresszip
   ; Remove compress menus — HKCU + legacy HKCR
   ; ===================================================================
   !insertmacro RemoveCompressMenus
+
+  ; ===================================================================
+  ; Remove COM LocalServer32 CLSID keys
+  ; ===================================================================
+  !insertmacro UnregisterComServers
 !macroend

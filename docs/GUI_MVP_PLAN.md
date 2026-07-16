@@ -128,7 +128,7 @@ GUI 提取使用 `overwrite: bool` 参数，关闭时 core 通过 `ClobberDenied
 - **Windows 右键菜单** — 运行时通过设置页动态管理，`HKCU\Software\Classes`（无需管理员），`SHChangeNotify` 即时刷新，sentinel 防安装器覆盖。Win11 显示于“显示更多选项”。
 - **三平台打包** — `.AppImage` / `.dmg` / `.exe (NSIS 安装器)` 构建就绪
 
-### 10.1 Windows 右键菜单运行时管理（v0.7.5）
+### 10.1 Windows 右键菜单运行时管理（当前开发分支，待发布/多选支持）
 
 右键菜单从安装器一次性写入升级为运行时动态管理：
 
@@ -137,7 +137,9 @@ GUI 提取使用 `overwrite: bool` 参数，关闭时 core 通过 `ClobberDenied
 - **注册表位置** — `HKCU\Software\Classes`（每用户，无需管理员权限），与安装器 hooks.nsi 一致。
 - **即时生效** — 保存后通过 `SHChangeNotify(SHCNE_ASSOCCHANGED)` 刷新 Explorer。
 - **Sentinel 保护** — 写入 `HKCU\Software\Classes\GeeZipX\ShellMenu\Configured=1`，安装器升级时检测到则跳过默认注册，保留用户选择。
-- **Win11 限制** — 传统右键菜单项显示于“显示更多选项”(Shift+F10)，这是系统限制，需要 IExplorerCommand COM server / MSIX 包才能进入一级菜单。
+- **COM DelegateExecute 多选**（当前开发分支）— 压缩动词注册于 `AllFilesystemObjects` 父键（文件/目录/混合多选均支持），父子均声明 `MultiSelectModel=Player`。使用 COM `DelegateExecute` 而非静态 `"%*"` 命令——`%*` 在实机测试中确认传递空参数列表，不可作为支持方案。两个稳定 CLSID 通过 `LocalServer32` 指向同一 `geezipx-gui.exe`；Explorer 启动时传入 `-Embedding`，程序跳过 Tauri 以 COM 服务身份运行，实现 `IExecuteCommand` + `IObjectWithSelection` 接收 `IShellItemArray`。选中路径写入版本化二进制 action 文件（`.gzsa`，UTF-16LE，限 `%LOCALAPPDATA%\GeeZipX\ShellActions` 目录，上限 1 MiB / 10 000条 / 32 767 码元），正常 GUI 通过 `--shell-action-file` 参数读取。提取动词仍保持 `SystemFileAssociations` + `"%1"` 静态命令。
+- **验证状态** — Linux 协议级单元测试通过（action 编解码、resolve 优先级、CLSID 映射、Embedding 检测）；原生 Windows COM 编译/NSIS 安装/Explorer 右键实测尚未完成。禁止 cfg stub 冒充 Windows 通过 CI。
+- **Win11 限制** — 传统菜单项显示于"显示更多选项"(Shift+F10)，这是系统限制，需要 IExplorerCommand COM server / MSIX 包标识才能进入一级菜单。
 - **跨平台** — 非 Windows 平台返回 `supported: false`，前端调用无报错。
 
 Rust 命令：`get_shell_menu_state` → `ShellMenuState`、`set_shell_menu(enabled, verbs)`
