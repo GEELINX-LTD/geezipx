@@ -501,8 +501,6 @@ pub fn read_action_file(
 /// extension.  Also checks that the file itself (if it already exists)
 /// does not resolve outside the directory via symlinks or junctions.
 ///
-/// This is the injectable core — `validate_action_file_path` delegates
-/// here with the real `%LOCALAPPDATA%\GeeZipX\ShellActions` directory.
 /// Tests can call this directly with a temporary directory.
 ///
 /// Available on all platforms for testing; the Windows-specific
@@ -585,16 +583,6 @@ fn validate_action_file_path_in_dir(
     }
 
     Ok(())
-}
-
-/// Validate that `path` is inside the expected ShellActions directory and
-/// has the expected extension.  Also checks that the file itself (if it
-/// already exists) does not resolve outside the directory via symlinks or
-/// junctions.
-#[cfg(target_os = "windows")]
-fn validate_action_file_path(path: &std::path::Path) -> Result<(), Error> {
-    let expected_dir = shell_actions_dir()?;
-    validate_action_file_path_in_dir(path, &expected_dir)
 }
 
 // ===========================================================================

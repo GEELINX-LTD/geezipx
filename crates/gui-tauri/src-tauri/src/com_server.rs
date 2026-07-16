@@ -465,8 +465,6 @@ mod platform {
 
     #[implement(IClassFactory)]
     struct ClassFactory {
-        /// The CLSID this factory responds to.
-        clsid: GUID,
         /// The shell action to embed in created ShellCommands.
         action: ShellActionFileAction,
     }
@@ -589,13 +587,11 @@ mod platform {
         // and released during CoRevokeClassObject + CoUninitialize.
         let factory_compress: windows::core::ComObject<ClassFactory> =
             windows::core::ComObject::new(ClassFactory {
-                clsid: CLSID_COMPRESS,
                 action: ShellActionFileAction::Compress,
             });
 
         let factory_compress_zip: windows::core::ComObject<ClassFactory> =
             windows::core::ComObject::new(ClassFactory {
-                clsid: CLSID_COMPRESS_ZIP,
                 action: ShellActionFileAction::CompressZip,
             });
 

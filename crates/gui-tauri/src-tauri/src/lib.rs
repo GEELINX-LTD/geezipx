@@ -125,6 +125,7 @@ fn extract_flag_value<'a>(args: &'a [String], flag: &str) -> Option<&'a str> {
 /// Parse action file bytes into a ShellActionPayload.
 /// Platform-independent core; used by both the Windows and non-Windows paths
 /// in `read_action_file_action`, and directly testable.
+#[cfg(any(test, not(target_os = "windows")))]
 fn parse_action_file_bytes(data: &[u8]) -> Result<ShellActionPayload, String> {
     let (action, wide_paths) =
         shell_action_file::decode(data).map_err(|e| format!("action file decode: {e}"))?;

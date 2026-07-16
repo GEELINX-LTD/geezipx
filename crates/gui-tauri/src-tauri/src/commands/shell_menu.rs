@@ -454,7 +454,7 @@ fn platform_name() -> String {
 #[cfg(target_os = "windows")]
 mod platform {
     use super::*;
-    use windows_registry::{Key, CURRENT_USER};
+    use windows_registry::CURRENT_USER;
 
     // HRESULT value for Win32 ERROR_FILE_NOT_FOUND (0x2), as produced by
     // `HRESULT::from_win32(2)`.  Used to distinguish "key/value does not
@@ -491,16 +491,6 @@ mod platform {
     }
 
     // -- Registry helpers ---------------------------------------------------
-
-    /// Open or create a key at `path` (HKCU-relative) and set `name` to
-    /// `data`.  An empty `name` writes the default value.
-    fn reg_set_string(key_path: &str, name: &str, data: &str) -> Result<(), String> {
-        let key = CURRENT_USER
-            .create(key_path)
-            .map_err(|e| format!("failed to create key {key_path}: {e}"))?;
-        key.set_string(name, data)
-            .map_err(|e| format!("failed to set value '{name}' at {key_path}: {e}"))
-    }
 
     /// Check whether a registry key exists (any content, not just a specific
     /// value).  Returns `Ok(true)` when the key is present, `Ok(false)` when
@@ -701,14 +691,6 @@ mod platform {
         Ok(())
     }
 
-    /// Check whether the sentinel key exists.
-    pub fn sentinel_exists() -> bool {
-        match CURRENT_USER.open(SENTINEL_KEY) {
-            Ok(key) => key.get_string(SENTINEL_VALUE).is_ok(),
-            Err(_) => false,
-        }
-    }
-
     // -- Public platform API ------------------------------------------------
 
     /// Check which verbs are currently registered.
@@ -767,7 +749,7 @@ mod platform {
     ///
     /// The remove-then-write sequence is not wrapped in a registry transaction
     /// because `windows-registry` does not expose transaction support for
-    /// [`Key::remove_tree`] — the underlying `RegDeleteTreeW` does not accept
+    /// `Key::remove_tree` — the underlying `RegDeleteTreeW` does not accept
     /// a transaction handle.  A partial failure during registration leaves the
     /// shell menu in an intermediate state (some keys removed, not all
     /// re-created), which the user can repair by toggling the setting again.
