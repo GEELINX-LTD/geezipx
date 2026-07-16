@@ -76,9 +76,20 @@ enum ResolvedAction {
 /// Returns `None` when no actionable paths were found (e.g. the `%*`
 /// placeholder was passed literally).
 fn resolve_shell_action(args: &[String]) -> Option<ResolvedAction> {
+    resolve_shell_action_with_reader(args, read_action_file_action)
+}
+
+/// Parameterized resolver — same logic as [`resolve_shell_action`] but with
+/// an injectable action-file reader.  Production code uses
+/// [`read_action_file_action`]; tests inject a reader that validates against
+/// a temporary directory.
+fn resolve_shell_action_with_reader(
+    args: &[String],
+    read_action: impl Fn(&str) -> Result<ShellActionPayload, String>,
+) -> Option<ResolvedAction> {
     // --- Priority 1: --shell-action-file ----------------------------------
     if let Some(file_path) = extract_flag_value(args, "--shell-action-file") {
-        match read_action_file_action(file_path) {
+        match read_action(file_path) {
             Ok(payload) => return Some(ResolvedAction::Action(payload)),
             Err(e) => {
                 eprintln!("shell-action-file error ({}): {e}", file_path);
@@ -438,6 +449,29 @@ mod tests {
         slice.iter().map(|s| s.to_string()).collect()
     }
 
+    /// Read an action file from a specific expected directory.  Used by
+    /// tests to validate action files written to a temporary directory
+    /// instead of the production `%LOCALAPPDATA%\GeeZipX\ShellActions`.
+    ///
+    /// Goes through the full validation chain: extension check, canonical
+    /// parent/file comparison, size guard, decode, and best-effort delete.
+    fn read_action_file_action_in_dir(
+        file_path: &str,
+        expected_dir: &Path,
+    ) -> Result<ShellActionPayload, String> {
+        let path = Path::new(file_path);
+        let (action, paths) = shell_action_file::read_action_file_in_dir(path, expected_dir)
+            .map_err(|e| format!("{e}"))?;
+        Ok(ShellActionPayload {
+            action: action.as_action_str().to_string(),
+            format: None,
+            paths: paths
+                .iter()
+                .map(|p| p.to_string_lossy().to_string())
+                .collect(),
+        })
+    }
+
     // -----------------------------------------------------------------------
     // parse_action_file_bytes
     // -----------------------------------------------------------------------
@@ -577,6 +611,7 @@ mod tests {
     #[test]
     fn shell_action_file_has_priority_over_legacy() {
         let dir = tempfile::tempdir().unwrap();
+        let expected_dir = dir.path().to_path_buf();
         let action_path = write_action_file(
             dir.path(),
             "priority_test.gzsa",
@@ -591,7 +626,10 @@ mod tests {
             "/compress-zip",
             &legacy_file.to_string_lossy(),
         ]);
-        let resolved = resolve_shell_action(&args).unwrap();
+        let resolved = resolve_shell_action_with_reader(&args, |fp| {
+            read_action_file_action_in_dir(fp, &expected_dir)
+        })
+        .unwrap();
         match resolved {
             ResolvedAction::Action(p) => {
                 assert_eq!(p.action, "compress"); // from action file, NOT compress-zip
@@ -604,27 +642,67 @@ mod tests {
 
     #[test]
     fn shell_action_file_missing_returns_none() {
-        let args = args_of(&["--shell-action-file", "/nonexistent/dir/missing.gzsa"]);
+        let dir = tempfile::tempdir().unwrap();
+        let expected_dir = dir.path().to_path_buf();
+        // Path inside the tempdir but the file itself does not exist.
+        let missing = dir.path().join("missing.gzsa");
+        let args = args_of(&["--shell-action-file", &missing.to_string_lossy()]);
+        let resolved = resolve_shell_action_with_reader(&args, |fp| {
+            read_action_file_action_in_dir(fp, &expected_dir)
+        });
         // Should return None (no fallthrough).
-        assert!(resolve_shell_action(&args).is_none());
+        assert!(resolved.is_none());
+    }
+
+    /// When `expected_dir` does not exist, the validator must return an
+    /// error (not silently fall back to the raw path).
+    #[test]
+    fn shell_action_file_expected_dir_missing_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        let actions_dir = dir.path().join("ShellActions");
+        std::fs::create_dir_all(&actions_dir).unwrap();
+
+        let action_path = write_action_file(
+            &actions_dir,
+            "valid.gzsa",
+            ShellActionFileAction::Compress,
+            &["/tmp/some.txt"],
+        );
+
+        // Point expected_dir to a non-existent directory.
+        let missing_dir = dir.path().join("does_not_exist");
+        let args = args_of(&["--shell-action-file", &action_path.to_string_lossy()]);
+        let resolved = resolve_shell_action_with_reader(&args, |fp| {
+            read_action_file_action_in_dir(fp, &missing_dir)
+        });
+        // Validator rejects because expected_dir cannot be canonicalized.
+        assert!(resolved.is_none());
     }
 
     #[test]
     fn shell_action_file_corrupt_returns_none() {
         let dir = tempfile::tempdir().unwrap();
+        let expected_dir = dir.path().to_path_buf();
         let bad = dir.path().join("corrupt.gzsa");
         std::fs::write(&bad, b"this is not a valid action file").unwrap();
         let args = args_of(&["--shell-action-file", &bad.to_string_lossy()]);
-        assert!(resolve_shell_action(&args).is_none());
+        let resolved = resolve_shell_action_with_reader(&args, |fp| {
+            read_action_file_action_in_dir(fp, &expected_dir)
+        });
+        assert!(resolved.is_none());
     }
 
     #[test]
     fn shell_action_file_empty_returns_none() {
         let dir = tempfile::tempdir().unwrap();
+        let expected_dir = dir.path().to_path_buf();
         let empty = dir.path().join("empty.gzsa");
         std::fs::write(&empty, b"").unwrap();
         let args = args_of(&["--shell-action-file", &empty.to_string_lossy()]);
-        assert!(resolve_shell_action(&args).is_none());
+        let resolved = resolve_shell_action_with_reader(&args, |fp| {
+            read_action_file_action_in_dir(fp, &expected_dir)
+        });
+        assert!(resolved.is_none());
     }
 
     #[test]
@@ -639,6 +717,7 @@ mod tests {
     #[test]
     fn duplicate_shell_action_file_takes_first() {
         let dir = tempfile::tempdir().unwrap();
+        let expected_dir = dir.path().to_path_buf();
         let first = write_action_file(
             dir.path(),
             "first.gzsa",
@@ -657,7 +736,10 @@ mod tests {
             "--shell-action-file",
             &_second.to_string_lossy(),
         ]);
-        let resolved = resolve_shell_action(&args).unwrap();
+        let resolved = resolve_shell_action_with_reader(&args, |fp| {
+            read_action_file_action_in_dir(fp, &expected_dir)
+        })
+        .unwrap();
         match resolved {
             ResolvedAction::Action(p) => {
                 assert_eq!(p.action, "compress"); // first wins
@@ -677,6 +759,7 @@ mod tests {
     #[test]
     fn same_function_for_cold_and_warm() {
         let dir = tempfile::tempdir().unwrap();
+        let expected_dir = dir.path().to_path_buf();
 
         // Cold-start simulation: bare archive paths.
         let f1 = touch(dir.path(), "cold.zip");
@@ -692,7 +775,10 @@ mod tests {
             &["/tmp/warm.txt"],
         );
         let warm_args = args_of(&["--shell-action-file", &action_path.to_string_lossy()]);
-        let warm = resolve_shell_action(&warm_args).unwrap();
+        let warm = resolve_shell_action_with_reader(&warm_args, |fp| {
+            read_action_file_action_in_dir(fp, &expected_dir)
+        })
+        .unwrap();
         match warm {
             ResolvedAction::Action(p) => {
                 assert_eq!(p.action, "compress-zip");

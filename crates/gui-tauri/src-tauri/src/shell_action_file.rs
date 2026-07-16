@@ -439,13 +439,15 @@ fn shell_actions_dir() -> Result<std::path::PathBuf, Error> {
 ///
 /// `expected_dir` is the directory the file must reside in (after symlink
 /// resolution).
-#[cfg(target_os = "windows")]
-fn read_action_file_in_dir(
+///
+/// On Windows, path conversion uses [`std::os::windows::ffi::OsStringExt::from_wide`]
+/// for correctness.  On non-Windows (test-only), paths are converted via
+/// [`String::from_utf16_lossy`].
+#[cfg(any(target_os = "windows", test))]
+pub(crate) fn read_action_file_in_dir(
     path: &std::path::Path,
     expected_dir: &std::path::Path,
 ) -> Result<(ShellActionFileAction, Vec<std::path::PathBuf>), Error> {
-    use std::os::windows::ffi::OsStringExt;
-
     // --- path validation ---------------------------------------------------
     validate_action_file_path_in_dir(path, expected_dir)?;
 
@@ -461,9 +463,18 @@ fn read_action_file_in_dir(
     let (action, wide_paths) = decode(&data)?;
 
     // --- convert to PathBufs -----------------------------------------------
+    #[cfg(target_os = "windows")]
+    let paths: Vec<std::path::PathBuf> = {
+        use std::os::windows::ffi::OsStringExt;
+        wide_paths
+            .into_iter()
+            .map(|w| std::path::PathBuf::from(std::ffi::OsString::from_wide(&w)))
+            .collect()
+    };
+    #[cfg(not(target_os = "windows"))]
     let paths: Vec<std::path::PathBuf> = wide_paths
         .into_iter()
-        .map(|w| std::path::PathBuf::from(std::ffi::OsString::from_wide(&w)))
+        .map(|w| std::path::PathBuf::from(String::from_utf16_lossy(&w)))
         .collect();
 
     // --- best-effort delete ------------------------------------------------
@@ -516,8 +527,15 @@ fn validate_action_file_path_in_dir(
         }
     }
 
-    let canonical_expected =
-        std::fs::canonicalize(expected_dir).unwrap_or_else(|_| expected_dir.to_path_buf());
+    let canonical_expected = std::fs::canonicalize(expected_dir).map_err(|e| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!(
+                "expected directory does not exist or is inaccessible: {}: {e}",
+                expected_dir.display()
+            ),
+        )
+    })?;
 
     // If the file already exists, canonicalize the file itself to detect
     // symlinks / junctions that point outside the expected directory.
@@ -862,7 +880,6 @@ mod tests {
     // Real file I/O tests (Windows-only — uses write_action_file & OsStringExt)
     // ======================================================================
 
-    #[cfg(target_os = "windows")]
     #[test]
     fn test_write_read_roundtrip() {
         let dir = tempfile::tempdir().unwrap();
@@ -890,7 +907,6 @@ mod tests {
         assert!(!file_path.exists());
     }
 
-    #[cfg(target_os = "windows")]
     #[test]
     fn test_write_read_compress_zip_roundtrip() {
         let dir = tempfile::tempdir().unwrap();
@@ -910,7 +926,6 @@ mod tests {
 
     /// Corrupted action files should return an error and NOT be deleted
     /// (preserved for diagnostics).
-    #[cfg(target_os = "windows")]
     #[test]
     fn test_corrupted_file_not_deleted() {
         let dir = tempfile::tempdir().unwrap();
@@ -929,7 +944,6 @@ mod tests {
 
     /// An action file with correct magic but truncated path data should
     /// fail decode and NOT be deleted.
-    #[cfg(target_os = "windows")]
     #[test]
     fn test_truncated_file_not_deleted() {
         let dir = tempfile::tempdir().unwrap();
@@ -953,7 +967,6 @@ mod tests {
     }
 
     /// Files outside the expected directory must be rejected and NOT deleted.
-    #[cfg(target_os = "windows")]
     #[test]
     fn test_path_outside_dir_rejected_not_deleted() {
         let dir = tempfile::tempdir().unwrap();
@@ -976,7 +989,6 @@ mod tests {
     }
 
     /// Wrong file extension must be rejected.
-    #[cfg(target_os = "windows")]
     #[test]
     fn test_wrong_extension_rejected() {
         let dir = tempfile::tempdir().unwrap();
@@ -992,7 +1004,6 @@ mod tests {
     }
 
     /// Files exceeding MAX_FILE_SIZE must be rejected before reading.
-    #[cfg(target_os = "windows")]
     #[test]
     fn test_file_too_large_rejected() {
         let dir = tempfile::tempdir().unwrap();
@@ -1016,7 +1027,6 @@ mod tests {
     }
 
     /// File with 0-byte size must fail on decode (truncated).
-    #[cfg(target_os = "windows")]
     #[test]
     fn test_empty_file_rejected() {
         let dir = tempfile::tempdir().unwrap();
@@ -1068,7 +1078,6 @@ mod tests {
     }
 
     /// Valid file inside the expected dir passes validation.
-    #[cfg(not(target_os = "windows"))]
     #[test]
     fn test_valid_file_in_dir_passes_validation() {
         let dir = tempfile::tempdir().unwrap();
