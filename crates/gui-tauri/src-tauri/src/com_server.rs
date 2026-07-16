@@ -144,15 +144,15 @@ mod platform {
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicU32, Ordering};
 
-    use super::{action_for_clsid, CLSID_COMPRESS, CLSID_COMPRESS_ZIP};
+    use super::{CLSID_COMPRESS, CLSID_COMPRESS_ZIP};
     use crate::shell_action_file::{self, ShellActionFileAction};
-    use windows::core::{implement, IUnknown, Interface, Ref, GUID, HRESULT};
+    use windows::core::{implement, IUnknown, Interface, Ref, GUID};
     use windows::Win32::Foundation::{
         CLASS_E_NOAGGREGATION, E_FAIL, E_INVALIDARG, E_NOINTERFACE, E_NOTIMPL, E_POINTER,
         E_UNEXPECTED, LPARAM, WPARAM,
     };
     use windows::Win32::System::Com::{
-        CoInitializeEx, CoRegisterClassObject, CoRevokeClassObject, CoTaskMemFree,
+        CoInitializeEx, CoRegisterClassObject, CoRevokeClassObject, CoTaskMemFree, IClassFactory,
         IClassFactory_Impl, CLSCTX_LOCAL_SERVER, COINIT_APARTMENTTHREADED, REGCLS_MULTIPLEUSE,
     };
     use windows::Win32::System::Diagnostics::Debug::OutputDebugStringW;
@@ -349,6 +349,7 @@ mod platform {
             // None if the pointer is null. We handle that case.
             let owned: IShellItemArray = psia
                 .as_ref()
+                .cloned()
                 .ok_or_else(|| windows::core::Error::new(E_INVALIDARG, "null IShellItemArray"))?;
             *self.selection.borrow_mut() = Some(owned);
             Ok(())
