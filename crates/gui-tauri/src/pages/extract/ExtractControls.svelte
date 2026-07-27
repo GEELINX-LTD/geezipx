@@ -8,25 +8,14 @@
   import { toastStore } from '../../stores/toastStore.svelte.ts';
 
   let disabled = $derived(taskStore.isVisible && taskStore.activeTask?.kind === 'extract');
-  let lastArchivePath = '';
-  let outputDir = $state('');
+  let outputDir = $state(archiveStore.suggestedOutputDir);
 
   // Settings-backed behavior.
-  let defaultOutputDir = $state<string | null>(null);
   let strategy = $state<'prompt' | 'skip' | 'overwrite'>('prompt');
   let onComplete = $state<'nothing' | 'open_output'>('nothing');
   let showPrompt = $state(false);
   let pendingKind = $state<'all' | 'selected'>('all');
   let extractPassword = $state('');
-
-  $effect(() => {
-    const current = archiveStore.archivePath;
-    if (current && current !== lastArchivePath) {
-      lastArchivePath = current;
-      // Prefer the configured default output directory; fall back to the suggestion.
-      outputDir = defaultOutputDir ?? archiveStore.suggestedOutputDir;
-    }
-  });
   let overwrite = $state(true);
 
   // Apply saved defaults
@@ -36,10 +25,8 @@
     settingsStore.get('on_complete'),
   ]).then(([strat, outDir, onComp]) => {
     strategy = strat ?? 'prompt';
-    defaultOutputDir = outDir ?? null;
-    // If the output dir hasn't been set yet (e.g. the archive was already open at
-    // mount, before settings resolved), seed it from the configured default.
-    if (outDir && !outputDir) outputDir = outDir;
+    // A configured default takes precedence over the archive-based suggestion.
+    if (outDir) outputDir = outDir;
     onComplete = onComp ?? 'nothing';
     // Initialize the per-run overwrite checkbox from the strategy.
     overwrite = strategy !== 'skip';
@@ -81,10 +68,11 @@
     error = null; result = null;
     const taskId = `extract-${Date.now()}`;
     taskStore.startTask(taskId, 'extract');
+    const password = extractPassword || archiveStore.archivePassword || undefined;
     try {
       const res = kind === 'all'
-        ? await extractArchive(archiveStore.archivePath, outputDir, overwrite, extractPassword || undefined, taskId)
-        : await extractEntries(archiveStore.archivePath, [...archiveStore.selectedPaths], outputDir, overwrite, extractPassword || undefined, taskId);
+        ? await extractArchive(archiveStore.archivePath, outputDir, overwrite, password, taskId)
+        : await extractEntries(archiveStore.archivePath, [...archiveStore.selectedPaths], outputDir, overwrite, password, taskId);
       taskStore.finishTask('finished');
       result = localeStore.t('extract.result', { files: res.files_extracted, bytes: res.bytes_extracted, skipped: res.files_skipped > 0 ? localeStore.t('extract.resultSkipped', { count: res.files_skipped }) : '' });
       toastStore.show(result, 'success', 5000);

@@ -75,6 +75,15 @@
     "promptSkip": "Skip",
     "promptOverwrite": "Overwrite"
   },
+  "archivePassword": {
+    "title": "Password required",
+    "description": "Enter the password to open {{archive}}.",
+    "label": "Password",
+    "placeholder": "Archive password",
+    "incorrect": "The password is incorrect. Try again.",
+    "submit": "Unlock",
+    "unlocking": "Unlocking..."
+  },
   "tab": {
     "close": "Close",
     "closeConfirmRunning": "An operation is in progress. Closing this tab will hide the progress but the operation will continue.",

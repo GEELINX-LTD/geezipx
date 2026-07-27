@@ -4,6 +4,7 @@
 // archiveStore remains a proxy for the active tab so that all consuming components
 // (ExtractPage, Breadcrumb, BrowserTable, etc.) need zero changes.
 
+import { SvelteSet } from 'svelte/reactivity';
 import { listArchiveStream, previewEntry } from '../bridge';
 import type { EntryInfo, PreviewResult } from '../bridge';
 
@@ -13,6 +14,26 @@ export interface DirChild {
   name: string;
   isDir: boolean;
   entry: EntryInfo;
+}
+
+export interface ArchivePasswordChallenge {
+  id: number;
+  path: string;
+  isSubmitting: boolean;
+  incorrectPassword: boolean;
+  closeOnCancel: boolean;
+}
+
+type OpenArchiveStatus =
+  | 'opened'
+  | 'password-required'
+  | 'failed'
+  | 'cancelled';
+
+interface OpenSnapshot {
+  error: string | null;
+  loadedCount: number;
+  totalCount: number;
 }
 
 // --- Helper functions (pure, top-level) ---
@@ -60,7 +81,7 @@ function getCurrentDirChildren(
   allEntries: EntryInfo[],
   prefix: string
 ): DirChild[] {
-  const seen = new Set<string>();
+  const seen = new SvelteSet<string>();
   const result: DirChild[] = [];
 
   for (const entry of allEntries) {
@@ -108,6 +129,22 @@ function tabName(path: string): string {
   return path.split(/[/\\]/).pop() || path;
 }
 
+const READ_ENTRIES_CRYPTO_PREFIX = 'Failed to read entries: crypto error: ';
+const PASSWORD_ERROR_DETAILS = new Set([
+  'ZIP password required: Password required to decrypt file',
+  'invalid ZIP password',
+  'encrypted 7z archive requires a password (use --password)',
+  'invalid password for 7z archive',
+  'RAR error: Password for encrypted archive not specified',
+  'RAR error: Wrong password was specified',
+]);
+
+function isPasswordError(message: string): boolean {
+  if (!message.startsWith(READ_ENTRIES_CRYPTO_PREFIX)) return false;
+  const detail = message.slice(READ_ENTRIES_CRYPTO_PREFIX.length).trim();
+  return PASSWORD_ERROR_DETAILS.has(detail);
+}
+
 // --- TabArchive: per-archive reactive state ---
 
 class TabArchive {
@@ -117,17 +154,25 @@ class TabArchive {
   archivePassword = $state('');
   entries = $state.raw<EntryInfo[]>([]);
   currentDir = $state(''); // "" = root, "photos/" = subdir
-  selectedPaths = $state.raw<Set<string>>(new Set());
+  selectedPaths = $state.raw<Set<string>>(new SvelteSet());
   isLoading = $state(false);
   loadedCount = $state(0);
   totalCount = $state(0);
   error = $state<string | null>(null);
+  pendingArchivePath = $state('');
+  passwordChallenge = $state<ArchivePasswordChallenge | null>(null);
   previewState = $state<{
     path: string;
     content: string;
     kind: string;
     sizeHint: string;
   } | null>(null);
+
+  private requestGeneration = 0;
+  private previewGeneration = 0;
+  private challengeId = 0;
+  private openSnapshot: OpenSnapshot | null = null;
+  private openWaiters = new Set<(opened: boolean) => void>();
 
   constructor(id: string) {
     this.id = id;
@@ -157,35 +202,138 @@ class TabArchive {
 
   // --- Methods ---
 
-  async openArchive(path: string, password?: string): Promise<void> {
+  private resolveOpenWaiters(opened: boolean): void {
+    for (const resolve of this.openWaiters) resolve(opened);
+    this.openWaiters.clear();
+  }
+
+  private restoreOpenSnapshot(): void {
+    if (!this.openSnapshot) return;
+    this.error = this.openSnapshot.error;
+    this.loadedCount = this.openSnapshot.loadedCount;
+    this.totalCount = this.openSnapshot.totalCount;
+  }
+
+  private abortPendingOpen(): void {
+    if (!this.pendingArchivePath && !this.passwordChallenge && !this.isLoading) return;
+    this.requestGeneration++;
+    this.restoreOpenSnapshot();
+    this.pendingArchivePath = '';
+    this.passwordChallenge = null;
+    this.isLoading = false;
+    this.openSnapshot = null;
+    this.resolveOpenWaiters(false);
+  }
+
+  private async tryOpenArchive(
+    path: string,
+    password: string | undefined,
+    generation: number,
+  ): Promise<OpenArchiveStatus> {
+    const nextEntries: EntryInfo[] = [];
     this.isLoading = true;
     this.error = null;
-    this.entries = [];
     this.loadedCount = 0;
     this.totalCount = 0;
-    this.currentDir = '';
-    this.selectedPaths = new Set();
-    this.previewState = null;
-    this.archivePassword = password ?? '';
 
     try {
       await listArchiveStream(
         path,
         (chunk) => {
-          this.entries = [...this.entries, ...chunk.entries];
-          this.loadedCount = this.entries.length;
+          if (generation !== this.requestGeneration) return;
+          nextEntries.push(...chunk.entries);
+          this.loadedCount = nextEntries.length;
           this.totalCount = chunk.total_entries;
         },
         password,
       );
+
+      if (generation !== this.requestGeneration) return 'cancelled';
+
       this.archivePath = path;
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      this.error = msg;
-      this.archivePath = '';
-    } finally {
+      this.archivePassword = password ?? '';
+      this.entries = nextEntries;
+      this.currentDir = '';
+      this.selectedPaths = new SvelteSet();
+      this.previewState = null;
+      this.pendingArchivePath = '';
+      this.passwordChallenge = null;
+      this.openSnapshot = null;
       this.isLoading = false;
+      this.resolveOpenWaiters(true);
+      return 'opened';
+    } catch (e) {
+      if (generation !== this.requestGeneration) return 'cancelled';
+
+      const msg = e instanceof Error ? e.message : String(e);
+      this.isLoading = false;
+
+      if (isPasswordError(msg)) {
+        this.restoreOpenSnapshot();
+        const existingChallenge = this.passwordChallenge;
+        this.error = null;
+        this.passwordChallenge = {
+          id: existingChallenge?.id ?? ++this.challengeId,
+          path,
+          isSubmitting: false,
+          incorrectPassword: Boolean(password),
+          closeOnCancel: existingChallenge?.closeOnCancel ?? !this.hasArchive,
+        };
+        return 'password-required';
+      }
+
+      this.restoreOpenSnapshot();
+      this.error = msg;
+      this.pendingArchivePath = '';
+      this.passwordChallenge = null;
+      this.openSnapshot = null;
+      this.resolveOpenWaiters(false);
+      return 'failed';
     }
+  }
+
+  async openArchive(path: string, password?: string): Promise<OpenArchiveStatus> {
+    this.abortPendingOpen();
+    this.openSnapshot = {
+      error: this.error,
+      loadedCount: this.loadedCount,
+      totalCount: this.totalCount,
+    };
+    this.pendingArchivePath = path;
+    const generation = ++this.requestGeneration;
+    return this.tryOpenArchive(path, password, generation);
+  }
+
+  async submitPassword(password: string): Promise<OpenArchiveStatus> {
+    const challenge = this.passwordChallenge;
+    if (!challenge || !password || challenge.isSubmitting) return 'cancelled';
+
+    this.passwordChallenge = {
+      ...challenge,
+      isSubmitting: true,
+      incorrectPassword: false,
+    };
+    const generation = ++this.requestGeneration;
+    return this.tryOpenArchive(challenge.path, password, generation);
+  }
+
+  cancelPasswordChallenge(): void {
+    if (!this.passwordChallenge && !this.pendingArchivePath) return;
+    this.requestGeneration++;
+    this.restoreOpenSnapshot();
+    this.pendingArchivePath = '';
+    this.passwordChallenge = null;
+    this.isLoading = false;
+    this.openSnapshot = null;
+    this.resolveOpenWaiters(false);
+  }
+
+  waitForOpenResult(path: string): Promise<boolean> {
+    if (this.archivePath === path && this.pendingArchivePath !== path) {
+      return Promise.resolve(true);
+    }
+    if (this.pendingArchivePath !== path) return Promise.resolve(false);
+    return new Promise((resolve) => this.openWaiters.add(resolve));
   }
 
   navigateTo(dir: string): void {
@@ -193,7 +341,7 @@ class TabArchive {
   }
 
   toggleSelection(path: string): void {
-    const next = new Set(this.selectedPaths);
+    const next = new SvelteSet(this.selectedPaths);
     if (next.has(path)) {
       next.delete(path);
     } else {
@@ -206,20 +354,23 @@ class TabArchive {
     const paths = this.currentChildren.map((c) =>
       this.currentDir ? this.currentDir + c.name : c.name
     );
-    this.selectedPaths = new Set(paths);
+    this.selectedPaths = new SvelteSet(paths);
   }
 
   clearSelection(): void {
-    this.selectedPaths = new Set();
+    this.selectedPaths = new SvelteSet();
   }
 
   async showPreview(path: string): Promise<void> {
+    const generation = ++this.previewGeneration;
+    const archivePath = this.archivePath;
     try {
       const result: PreviewResult = await previewEntry(
-        this.archivePath,
+        archivePath,
         path,
         this.archivePassword || undefined
       );
+      if (generation !== this.previewGeneration || archivePath !== this.archivePath) return;
       this.previewState = {
         path: result.entry_path,
         content: result.content,
@@ -227,6 +378,7 @@ class TabArchive {
         sizeHint: result.size_hint,
       };
     } catch (e) {
+      if (generation !== this.previewGeneration || archivePath !== this.archivePath) return;
       const msg = e instanceof Error ? e.message : String(e);
       this.previewState = {
         path,
@@ -238,20 +390,27 @@ class TabArchive {
   }
 
   closePreview(): void {
+    this.previewGeneration++;
     this.previewState = null;
   }
 
   resetArchive(): void {
+    this.requestGeneration++;
+    this.previewGeneration++;
+    this.resolveOpenWaiters(false);
     this.archivePath = '';
     this.archivePassword = '';
     this.entries = [];
     this.loadedCount = 0;
     this.totalCount = 0;
     this.currentDir = '';
-    this.selectedPaths = new Set();
+    this.selectedPaths = new SvelteSet();
     this.isLoading = false;
     this.error = null;
+    this.pendingArchivePath = '';
+    this.passwordChallenge = null;
     this.previewState = null;
+    this.openSnapshot = null;
   }
 }
 
@@ -261,51 +420,76 @@ class ArchiveManager {
   tabs = $state.raw(new Map<string, TabArchive>());
   tabOrder = $state<string[]>([]);
   activeTabId = $state<string | null>(null);
-  /** Tracks paths currently being opened to prevent duplicate tabs from concurrent calls. */
-  _openingPaths = new Set<string>();
+  /** Tracks initial opens so concurrent callers receive the same tab. */
+  private openingPaths = new Map<string, Promise<{ tabId: string; label: string }>>();
 
   get activeTab(): TabArchive | undefined {
     return this.activeTabId ? this.tabs.get(this.activeTabId) : undefined;
   }
 
   /** Open an archive in a new or existing tab. Returns the tab id and display label. */
-  async openArchive(path: string, password?: string): Promise<{ tabId: string; label: string }> {
-    // Deduplicate: reuse an existing tab for the same archive path
+  async openArchive(
+    path: string,
+    password?: string,
+    targetTabId?: string,
+  ): Promise<{ tabId: string; label: string }> {
+    const inFlight = this.openingPaths.get(path);
+    if (inFlight) {
+      return await inFlight;
+    }
+
+    // Deduplicate both committed archives and paths waiting for a password.
     for (const [id, tab] of this.tabs) {
-      if (tab.archivePath === path) {
-        this.activeTabId = id;
+      if (tab.archivePath === path || tab.pendingArchivePath === path) {
         return { tabId: id, label: tabName(path) };
       }
     }
-    // Guard against concurrent opens of the same path
-    // (e.g. cold-start + hot-start forwarding the same file simultaneously).
-    if (this._openingPaths.has(path)) {
-      // Wait briefly for the in-flight open to complete, then reuse the tab
-      for (const [id, tab] of this.tabs) {
-        if (tab.archivePath === path) {
-          this.activeTabId = id;
-          return { tabId: id, label: tabName(path) };
-        }
+
+    const opening = (async () => {
+      const existingTarget = targetTabId ? this.tabs.get(targetTabId) : undefined;
+      const tabId = existingTarget?.id ?? crypto.randomUUID();
+      const tab = existingTarget ?? new TabArchive(tabId);
+      if (!existingTarget) {
+        this.tabs.set(tabId, tab);
+        this.tabOrder = [...this.tabOrder, tabId];
       }
-    }
-    this._openingPaths.add(path);
-
-    const tabId = crypto.randomUUID();
-    const tab = new TabArchive(tabId);
-    this.tabs.set(tabId, tab);
-    this.tabOrder = [...this.tabOrder, tabId];
-    this.activeTabId = tabId;
-
-    try {
       await tab.openArchive(path, password);
       return { tabId, label: tabName(path) };
+    })();
+    this.openingPaths.set(path, opening);
+
+    try {
+      return await opening;
     } finally {
-      this._openingPaths.delete(path);
+      if (this.openingPaths.get(path) === opening) this.openingPaths.delete(path);
     }
+  }
+
+  async submitPassword(tabId: string, password: string): Promise<boolean> {
+    const tab = this.tabs.get(tabId);
+    if (!tab) return false;
+    return (await tab.submitPassword(password)) === 'opened';
+  }
+
+  cancelPasswordChallenge(tabId: string): { closed: boolean; nextTabId: string | null } {
+    const tab = this.tabs.get(tabId);
+    if (!tab) return { closed: false, nextTabId: this.activeTabId };
+
+    const closeOnCancel = tab.passwordChallenge?.closeOnCancel ?? false;
+    tab.cancelPasswordChallenge();
+    if (!closeOnCancel) return { closed: false, nextTabId: this.activeTabId };
+
+    return { closed: true, nextTabId: this.closeTab(tabId) };
+  }
+
+  waitForOpenResult(tabId: string, path: string): Promise<boolean> {
+    const tab = this.tabs.get(tabId);
+    return tab ? tab.waitForOpenResult(path) : Promise.resolve(false);
   }
 
   /** Close a tab. Returns the id of the next tab that should become active, or null. */
   closeTab(tabId: string): string | null {
+    this.tabs.get(tabId)?.resetArchive();
     this.tabs.delete(tabId);
     this.tabOrder = this.tabOrder.filter((id) => id !== tabId);
 
@@ -346,7 +530,7 @@ export const archiveStore = {
     return archiveManager.activeTab?.currentDir ?? '';
   },
   get selectedPaths() {
-    return archiveManager.activeTab?.selectedPaths ?? new Set<string>();
+    return archiveManager.activeTab?.selectedPaths ?? new SvelteSet<string>();
   },
   get isLoading() {
     return archiveManager.activeTab?.isLoading ?? false;
@@ -359,6 +543,9 @@ export const archiveStore = {
   },
   get error() {
     return archiveManager.activeTab?.error ?? null;
+  },
+  get passwordChallenge() {
+    return archiveManager.activeTab?.passwordChallenge ?? null;
   },
   get previewState() {
     return archiveManager.activeTab?.previewState ?? null;
@@ -383,7 +570,7 @@ export const archiveStore = {
   // The caller should check archiveManager.activeTab first and use
   // archiveManager.openArchive() when no tab exists.
   async openArchive(path: string, password?: string) {
-    await archiveManager.activeTab?.openArchive(path, password);
+    await archiveManager.openArchive(path, password, archiveManager.activeTabId ?? undefined);
   },
 
   navigateTo(dir: string) {

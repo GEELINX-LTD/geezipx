@@ -6,7 +6,7 @@
   import { getCurrentWindow } from '@tauri-apps/api/window';
   import { appStore } from './stores/appStore.svelte';
   import { taskStore } from './stores/taskStore.svelte';
-  import { archiveStore, archiveManager } from './stores/archiveStore.svelte';
+  import { archiveManager } from './stores/archiveStore.svelte';
   import { toastStore } from './stores/toastStore.svelte.ts';
   import { settingsStore } from './stores/settingsStore.svelte';
   import TabBar from './components/TabBar.svelte';
@@ -68,16 +68,30 @@
 
       // ── "解压缩到当前文件夹" — smart extract ──
       case 'extract-here': {
-        const { tabId, label } = await archiveManager.openArchive(payload.paths[0]);
-        appStore.addArchiveTab(tabId, label, payload.paths[0]);
+        const archivePath = payload.paths[0];
+        const { tabId, label } = await archiveManager.openArchive(archivePath);
+        appStore.addArchiveTab(tabId, label, archivePath);
         appStore.switchTab(tabId);
+
+        // A password challenge is resolved by the fixed tab that started this action.
+        // Cancelling or closing that tab resolves false and skips extraction.
+        const opened = await archiveManager.waitForOpenResult(tabId, archivePath);
+        const tab = archiveManager.tabs.get(tabId);
+        if (!opened || !tab || tab.archivePath !== archivePath) break;
+
         // suggestedOutputDir handles the smart logic: single top-level folder →
         // extract to parent; scattered → create folder named after archive.
-        const outputDir = archiveStore.suggestedOutputDir;
+        const outputDir = tab.suggestedOutputDir;
         const taskId = `extract-${Date.now()}`;
         taskStore.startTask(taskId, 'extract');
         try {
-          const res = await extractArchive(payload.paths[0], outputDir, true, undefined, taskId);
+          const res = await extractArchive(
+            tab.archivePath,
+            outputDir,
+            true,
+            tab.archivePassword || undefined,
+            taskId,
+          );
           taskStore.finishTask('finished');
           toastStore.show(
             `Extracted ${res.files_extracted} file(s) to ${outputDir}`,
@@ -167,7 +181,6 @@
         if (archiveManager.tabOrder.length > 0) {
           const lastId = archiveManager.tabOrder[archiveManager.tabOrder.length - 1];
           appStore.switchTab(lastId);
-          archiveManager.setActive(lastId);
         } else {
           appStore.switchTab('extract');
         }

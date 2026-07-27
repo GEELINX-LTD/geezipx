@@ -370,6 +370,13 @@ fn convert_zip_error(e: zip::result::ZipError) -> GeeZipError {
         zip::result::ZipError::FileNotFound => GeeZipError::EntryNotFound {
             name: "(unknown)".into(),
         },
+        zip::result::ZipError::UnsupportedArchive(msg)
+            if msg == zip::result::ZipError::PASSWORD_REQUIRED =>
+        {
+            GeeZipError::Crypto {
+                message: format!("ZIP password required: {msg}"),
+            }
+        }
         zip::result::ZipError::UnsupportedArchive(msg) => GeeZipError::Format {
             message: format!("unsupported ZIP feature: {msg}"),
             format: ArchiveFormat::Zip,
@@ -1001,10 +1008,14 @@ mod aes_tests {
             Ok(entries) => reader.extract(&entries[0], &mut Vec::new()).unwrap_err(),
             Err(e) => e,
         };
+        assert!(
+            matches!(&err, GeeZipError::Crypto { .. }),
+            "expected Crypto error for wrong password, got: {err}"
+        );
         let msg = err.to_string().to_lowercase();
         assert!(
-            msg.contains("password") || msg.contains("crypto"),
-            "expected password/crypto error, got: {err}"
+            msg.contains("password"),
+            "expected password error, got: {err}"
         );
     }
 
@@ -1015,10 +1026,14 @@ mod aes_tests {
 
         let mut reader = ZipReader::from_buf(data).unwrap();
         let err = reader.entries().unwrap_err();
+        assert!(
+            matches!(&err, GeeZipError::Crypto { .. }),
+            "expected Crypto error when ZIP password is missing, got: {err}"
+        );
         let msg = err.to_string().to_lowercase();
         assert!(
-            msg.contains("password") || msg.contains("crypto"),
-            "expected password/crypto error, got: {err}"
+            msg.contains("password"),
+            "expected password error, got: {err}"
         );
     }
 

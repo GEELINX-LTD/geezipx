@@ -75,6 +75,15 @@
     "promptSkip": "跳过",
     "promptOverwrite": "覆盖"
   },
+  "archivePassword": {
+    "title": "需要密码",
+    "description": "请输入密码以打开 {{archive}}。",
+    "label": "密码",
+    "placeholder": "归档密码",
+    "incorrect": "密码不正确，请重试。",
+    "submit": "解锁",
+    "unlocking": "正在解锁..."
+  },
   "tab": {
     "close": "关闭",
     "closeConfirmRunning": "当前有任务正在进行中。关闭标签页将隐藏进度，但任务将继续在后台运行。",

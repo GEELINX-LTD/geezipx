@@ -1,6 +1,8 @@
 <script lang="ts">
   import { localeStore } from '../stores/localeStore.svelte';
-  import { archiveStore } from '../stores/archiveStore.svelte';
+  import { appStore } from '../stores/appStore.svelte';
+  import { archiveStore, archiveManager } from '../stores/archiveStore.svelte';
+  import ArchivePasswordDialog from '../components/ArchivePasswordDialog.svelte';
   import ArchivePathBar from './extract/ArchivePathBar.svelte';
   import Breadcrumb from './extract/Breadcrumb.svelte';
   import BrowserTable from './extract/BrowserTable.svelte';
@@ -8,6 +10,12 @@
   import ExtractControls from './extract/ExtractControls.svelte';
   import ProgressDialog from '../components/ProgressDialog.svelte';
 
+  let activeChallenge = $derived.by(() => {
+    const tab = archiveManager.activeTab;
+    if (!tab || appStore.activeTab !== tab.id || !tab.passwordChallenge) return null;
+    return { tabId: tab.id, challengeId: tab.passwordChallenge.id };
+  });
+  let controlsKey = $derived(`${archiveManager.activeTabId ?? ''}:${archiveStore.archivePath}`);
 </script>
 
 <div class="extract-page">
@@ -15,22 +23,34 @@
 
   {#if archiveStore.isLoading}
     <div class="loading">{localeStore.t('extract.loading')}</div>
-  {:else if archiveStore.error}
-    <div class="error-msg">{localeStore.t('extract.errorPrefix', { message: archiveStore.error })}</div>
-  {:else if archiveStore.hasArchive}
-    <Breadcrumb />
-    <div class="browser-area">
-      <div class="browser-main">
-        <BrowserTable />
-        <PreviewPanel />
-      </div>
-    </div>
-      <ExtractControls />
-    <ProgressDialog kind="extract" />
   {:else}
-    <div class="empty-state">
-      <p>{localeStore.t('extract.emptyState')}</p>
-    </div>
+    {#if archiveStore.error}
+      <div class="error-msg">{localeStore.t('extract.errorPrefix', { message: archiveStore.error })}</div>
+    {/if}
+
+    {#if archiveStore.hasArchive}
+      <Breadcrumb />
+      <div class="browser-area">
+        <div class="browser-main">
+          <BrowserTable />
+          <PreviewPanel />
+        </div>
+      </div>
+      {#key controlsKey}
+        <ExtractControls />
+      {/key}
+      <ProgressDialog kind="extract" />
+    {:else if !archiveStore.error}
+      <div class="empty-state">
+        <p>{localeStore.t('extract.emptyState')}</p>
+      </div>
+    {/if}
+  {/if}
+
+  {#if activeChallenge}
+    {#key `${activeChallenge.tabId}:${activeChallenge.challengeId}`}
+      <ArchivePasswordDialog tabId={activeChallenge.tabId} />
+    {/key}
   {/if}
 </div>
 

@@ -59,7 +59,6 @@
 
   function activateArchiveTab(tabId: string): void {
     appStore.switchTab(tabId);
-    archiveManager.setActive(tabId);
   }
 
   /** Handle middle-click close on an archive tab. */
@@ -81,6 +80,7 @@
   {#each tabs as tab (tab.id)}
     <button
       class="tab"
+      data-tab-id={tab.id}
       class:active={appStore.activeTab === tab.id}
       onclick={() => navTo(tab.id)}
     >
@@ -96,6 +96,7 @@
         role="tab"
         tabindex="0"
         class="tab archive-tab"
+        data-tab-id={tab.id}
         class:active={appStore.activeTab === tab.id}
         onclick={() => activateArchiveTab(tab.id)}
         onauxclick={(e) => handleAuxClick(e, tab.id)}
@@ -116,6 +117,7 @@
   <div class="tab-spacer"></div>
   <button
     class="tab"
+    data-tab-id="settings"
     class:active={appStore.activeTab === 'settings'}
     onclick={() => navTo('settings')}
   >

@@ -10,16 +10,35 @@
       filters: [{ name: 'Archives', extensions: ['zip','tar','gz','7z','rar','xz','zst','bz2','tgz','tbz','tbz2','txz','tzst'] }]
     });
     if (selected && typeof selected === 'string') {
-      const tab = archiveManager.activeTab;
-      if (tab) {
-        // Replace current tab content
-        archiveStore.openArchive(selected);
-      } else {
-        // No active archive tab — create a new one
-        const { tabId, label } = await archiveManager.openArchive(selected);
+      const targetTabId = archiveManager.activeTabId ?? undefined;
+      const replacesExistingTab = targetTabId
+        ? appStore.archiveTabs.some((tab) => tab.id === targetTabId)
+        : false;
+      const { tabId, label } = await archiveManager.openArchive(
+        selected,
+        undefined,
+        targetTabId,
+      );
+      if (!archiveManager.tabs.has(tabId)) return;
+
+      if (!replacesExistingTab) {
         appStore.addArchiveTab(tabId, label, selected);
-        appStore.switchTab(tabId);
       }
+      appStore.switchTab(tabId);
+
+      if (!replacesExistingTab) return;
+
+      const opened = await archiveManager.waitForOpenResult(tabId, selected);
+      const tab = archiveManager.tabs.get(tabId);
+      if (
+        !opened ||
+        tabId !== targetTabId ||
+        !tab ||
+        tab.archivePath !== selected ||
+        tab.pendingArchivePath === selected
+      ) return;
+
+      appStore.updateArchiveTab(tabId, label, selected);
     }
   }
 </script>
