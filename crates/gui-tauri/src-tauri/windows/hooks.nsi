@@ -45,7 +45,7 @@
 ; After every successful `set_shell_menu` call the runtime writes:
 ;   HKCU\Software\Classes\GeeZipX\ShellMenu  Configured=1
 ;
-; preInstall checks this sentinel FIRST. If present, the user has
+; NSIS_HOOK_PREINSTALL checks this sentinel FIRST. If present, the user has
 ; deliberately configured the shell menu (even to "off") — skip all
 ; registration. As a fallback for users who ran the runtime before the
 ; sentinel was introduced, we also check for existing verb keys and
@@ -57,11 +57,9 @@
 ;
 ; Uninstall
 ; ----------
-; preUnInstall cleans:
-;   1. Sentinel key
-;   2. HKCU\Software\Classes verb keys (current location)
-;   3. HKCU\Software\Classes parent keys (current location)
-;   4. HKCR verb keys (legacy v0.7.4 and earlier)
+; NSIS_HOOK_PREUNINSTALL cleans current/legacy menu trees, COM servers,
+; runtime file associations and the sentinel. NSIS_HOOK_POSTUNINSTALL
+; notifies Explorer after all installer and runtime registrations are gone.
 ;
 ; On Windows 11 these entries appear under "Show more options" (classic
 ; menu) — this is a system limitation.
@@ -146,6 +144,8 @@ Var _mig_compresszip
 !macro UnregisterComServers
   DeleteRegKey HKCU "Software\Classes\CLSID\${GEEZIPX_CLSID_COMPRESS}"
   DeleteRegKey HKCU "Software\Classes\CLSID\${GEEZIPX_CLSID_COMPRESS_ZIP}"
+  DeleteRegKey HKCR "CLSID\${GEEZIPX_CLSID_COMPRESS}"
+  DeleteRegKey HKCR "CLSID\${GEEZIPX_CLSID_COMPRESS_ZIP}"
 !macroend
 
 ; ---------------------------------------------------------------------
@@ -177,13 +177,14 @@ Var _mig_compresszip
   ; legacy: clean old flat sibling keys from pre-nested versions
   DeleteRegKey HKCU "Software\Classes\SystemFileAssociations\${ext}\shell\GeeZipX.Extract"
   DeleteRegKey HKCU "Software\Classes\SystemFileAssociations\${ext}\shell\GeeZipX.ExtractHere"
+  DeleteRegKey HKCU "Software\Classes\SystemFileAssociations\${ext}\shell\GeeZipX.Open"
   DeleteRegKey /ifempty HKCU "Software\Classes\SystemFileAssociations\${ext}\shell"
   DeleteRegKey /ifempty HKCU "Software\Classes\SystemFileAssociations\${ext}"
   ; HKCR legacy
   DeleteRegKey HKCR "SystemFileAssociations\${ext}\shell\GeeZipX.ExtractHere"
   DeleteRegKey HKCR "SystemFileAssociations\${ext}\shell\GeeZipX.Extract"
   DeleteRegKey HKCR "SystemFileAssociations\${ext}\shell\GeeZipX.Open"
-  DeleteRegKey /ifempty HKCR "SystemFileAssociations\${ext}\shell\GeeZipX"
+  DeleteRegKey HKCR "SystemFileAssociations\${ext}\shell\GeeZipX"
   DeleteRegKey /ifempty HKCR "SystemFileAssociations\${ext}\shell"
   DeleteRegKey /ifempty HKCR "SystemFileAssociations\${ext}"
 !macroend
@@ -228,7 +229,10 @@ Var _mig_compresszip
   DeleteRegKey HKCU "Software\Classes\*\shell\GeeZipX.CompressZip"
   DeleteRegKey HKCU "Software\Classes\Directory\shell\GeeZipX.Compress"
   DeleteRegKey HKCU "Software\Classes\Directory\shell\GeeZipX.CompressZip"
-  ; HKCR legacy
+  ; HKCR legacy parent trees may still have nested children.
+  DeleteRegKey HKCR "AllFilesystemObjects\shell\GeeZipX"
+  DeleteRegKey HKCR "*\shell\GeeZipX"
+  DeleteRegKey HKCR "Directory\shell\GeeZipX"
   DeleteRegKey HKCR "*\shell\GeeZipX.CompressZip"
   DeleteRegKey HKCR "*\shell\GeeZipX.Compress"
   DeleteRegKey HKCR "Directory\shell\GeeZipX.CompressZip"
@@ -414,10 +418,11 @@ Var _mig_compresszip
 !macroend
 
 ; ---------------------------------------------------------------------
-; preInstall — smart registration on first install or upgrade
+; NSIS_HOOK_PREINSTALL — smart registration on first install or upgrade
+; Names are the Tauri NSIS hook ABI; unrecognised macros are never called.
 ; ---------------------------------------------------------------------
 
-!macro preInstall
+!macro NSIS_HOOK_PREINSTALL
   ; ===================================================================
   ; Step 0 — Register COM LocalServer32 CLSIDs unconditionally.
   ; The COM servers must exist before any DelegateExecute entries are
@@ -490,15 +495,30 @@ Var _mig_compresszip
   skip_all_menus:
 !macroend
 
+; Runtime associations use GeeZipX<extension> ProgIDs, independently of
+; the installer-managed associations. Delete only our value in shared keys.
+!macro RemoveRuntimeAssociation ext
+  DeleteRegValue HKCU "Software\Classes\${ext}\OpenWithProgids" "GeeZipX${ext}"
+  DeleteRegKey /ifempty HKCU "Software\Classes\${ext}\OpenWithProgids"
+  DeleteRegKey /ifempty HKCU "Software\Classes\${ext}"
+  DeleteRegKey HKCU "Software\Classes\GeeZipX${ext}"
+!macroend
+
 ; ---------------------------------------------------------------------
-; preUnInstall — thorough cleanup
+; NSIS_HOOK_PREUNINSTALL — thorough cleanup
 ; ---------------------------------------------------------------------
 
-!macro preUnInstall
+!macro NSIS_HOOK_PREUNINSTALL
+  ; Tauri's /UPDATE replacement preserves per-user integrations and choices.
+  ${If} $UpdateMode == 1
+    Goto geezipx_skip_uninstall_cleanup
+  ${EndIf}
+
   ; ===================================================================
   ; Remove sentinel
   ; ===================================================================
   DeleteRegKey HKCU "Software\Classes\GeeZipX\ShellMenu"
+  DeleteRegKey /ifempty HKCU "Software\Classes\GeeZipX"
 
   ; ===================================================================
   ; Remove extract menus — HKCU + legacy HKCR
@@ -537,4 +557,54 @@ Var _mig_compresszip
   ; Remove COM LocalServer32 CLSID keys
   ; ===================================================================
   !insertmacro UnregisterComServers
+
+  ; Runtime association aliases must match associations.rs DEFS.
+  !insertmacro RemoveRuntimeAssociation ".zip"
+  !insertmacro RemoveRuntimeAssociation ".zipx"
+  !insertmacro RemoveRuntimeAssociation ".tar"
+  !insertmacro RemoveRuntimeAssociation ".gz"
+  !insertmacro RemoveRuntimeAssociation ".tar.gz"
+  !insertmacro RemoveRuntimeAssociation ".tgz"
+  !insertmacro RemoveRuntimeAssociation ".bz2"
+  !insertmacro RemoveRuntimeAssociation ".tar.bz2"
+  !insertmacro RemoveRuntimeAssociation ".tbz"
+  !insertmacro RemoveRuntimeAssociation ".tbz2"
+  !insertmacro RemoveRuntimeAssociation ".br"
+  !insertmacro RemoveRuntimeAssociation ".tar.br"
+  !insertmacro RemoveRuntimeAssociation ".tbr"
+  !insertmacro RemoveRuntimeAssociation ".lz4"
+  !insertmacro RemoveRuntimeAssociation ".tar.lz4"
+  !insertmacro RemoveRuntimeAssociation ".zst"
+  !insertmacro RemoveRuntimeAssociation ".tar.zst"
+  !insertmacro RemoveRuntimeAssociation ".tzst"
+  !insertmacro RemoveRuntimeAssociation ".xz"
+  !insertmacro RemoveRuntimeAssociation ".tar.xz"
+  !insertmacro RemoveRuntimeAssociation ".txz"
+  !insertmacro RemoveRuntimeAssociation ".lzma"
+  !insertmacro RemoveRuntimeAssociation ".lz"
+  !insertmacro RemoveRuntimeAssociation ".7z"
+  !insertmacro RemoveRuntimeAssociation ".rar"
+  !insertmacro RemoveRuntimeAssociation ".cab"
+  !insertmacro RemoveRuntimeAssociation ".asar"
+  !insertmacro RemoveRuntimeAssociation ".deb"
+  !insertmacro RemoveRuntimeAssociation ".cpio"
+  !insertmacro RemoveRuntimeAssociation ".iso"
+  !insertmacro RemoveRuntimeAssociation ".udf"
+  !insertmacro RemoveRuntimeAssociation ".lzh"
+  !insertmacro RemoveRuntimeAssociation ".lha"
+  DeleteRegKey HKCU "Software\Classes\Applications\geezipx.exe\Capabilities"
+  DeleteRegKey /ifempty HKCU "Software\Classes\Applications\geezipx.exe"
+  DeleteRegKey HKCU "Software\Classes\Applications\geezipx-gui.exe"
+  DeleteRegValue HKCU "Software\RegisteredApplications" "GeeZipX"
+
+  geezipx_skip_uninstall_cleanup:
+!macroend
+
+; Notify Explorer after Tauri has also finished its own association changes.
+!macro NSIS_HOOK_POSTINSTALL
+  System::Call 'shell32::SHChangeNotify(i 0x08000000, i 0, p 0, p 0)'
+!macroend
+
+!macro NSIS_HOOK_POSTUNINSTALL
+  System::Call 'shell32::SHChangeNotify(i 0x08000000, i 0, p 0, p 0)'
 !macroend

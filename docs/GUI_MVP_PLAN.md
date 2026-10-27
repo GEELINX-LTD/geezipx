@@ -37,13 +37,14 @@
 
 1. **文件选择** — 原生对话框 + 拖拽；压缩页分别提供“添加文件”和“添加文件夹”，均支持多选与去重
 2. **压缩任务** — 格式选择、自动推荐、压缩级别、密码（ZIP/7z AES-256）、输出目录；使用 Tauri 原生路径 API 生成默认输出和打开结果目录，保留手动另存为选择并避免异步旧结果覆盖
-3. **解压缩任务** — 归档内容预览、选择性提取、覆盖策略、密码输入
+3. **解压缩任务** — 归档内容预览、选择性提取、覆盖策略、密码输入；默认输出按内容判断：只有一个顶层目录时直接解到归档所在目录，否则创建归档同名目录。识别不依赖目录条目顺序或末尾斜杠，并兼容条目中的 Windows 分隔符，避免 7z 多套一层目录。
 4. **归档浏览器** — virtua VList 虚拟滚动（5 万行仅 ~25 行 DOM）、文件夹导航、最近路径 chips
 5. **进度与结果** — 实时进度 + 速度/剩余时间、安全取消、Toast 通知；应用级进度窗口可切换并行任务，结果保留至单独关闭
 6. **文件预览** — 文本/图片条目在浏览器中预览
 7. **设置页面** — 5 标签页 + 右键菜单管理，`tauri-plugin-store` 持久化
 8. **多语言与主题** — zh-CN / en 实时切换；跟随系统/浅色/深色
-9. **窗口状态持久化** — `tauri-plugin-window-state`
+9. **页面切换** — 同步替换当前页面，保持单一页面容器与稳定高度；避免退出动画使两个页面同时参与布局。
+10. **窗口状态持久化** — `tauri-plugin-window-state`
 
 前端命令逻辑回归可在 `crates/gui-tauri` 执行 `npm test`（Node 内置测试运行器，无新增依赖）；`npx tsc --noEmit` 检查 TypeScript，`npm run build` 验证 Svelte 生产构建。CI 同时运行三项检查。路径和对话框测试注入原生 API，原生窗口交互仍需桌面实测。
 
@@ -153,7 +154,9 @@ GUI 提取使用 `overwrite: bool` 参数，关闭时跳过已有文件并返回
 - **注册表位置** — `HKCU\Software\Classes`（每用户，无需管理员权限），与安装器 hooks.nsi 一致。
 - **即时生效** — 保存后通过 `SHChangeNotify(SHCNE_ASSOCCHANGED)` 刷新 Explorer。
 - **Sentinel 保护** — 写入 `HKCU\Software\Classes\GeeZipX\ShellMenu\Configured=1`，安装器升级时检测到则跳过默认注册，保留用户选择。
+- **卸载清理** — 使用 Tauri 的 `NSIS_HOOK_PREUNINSTALL` / `NSIS_HOOK_POSTUNINSTALL` 钩子，清理当前与旧版 GeeZipX 菜单树、COM CLSID、sentinel，以及设置页创建的 ProgID / OpenWith / 默认应用能力注册；共享扩展名键仅删除 GeeZipX 值，保留其他应用。卸载完成后通知 Explorer 刷新。安装同样使用正式的 `NSIS_HOOK_PREINSTALL` / `NSIS_HOOK_POSTINSTALL`，升级继续保留用户关闭的菜单项。
 - **COM DelegateExecute 多选**（当前开发分支）— 压缩动词注册于 `AllFilesystemObjects` 父键（文件/目录/混合多选均支持），父子均声明 `MultiSelectModel=Player`。使用 COM `DelegateExecute` 而非静态 `"%*"` 命令——`%*` 在实机测试中确认传递空参数列表，不可作为支持方案。两个稳定 CLSID 通过 `LocalServer32` 指向同一 `geezipx-gui.exe`；Explorer 启动时传入 `-Embedding`，程序跳过 Tauri 以 COM 服务身份运行，实现 `IExecuteCommand` + `IObjectWithSelection` 接收 `IShellItemArray`。选中路径写入版本化二进制 action 文件（`.gzsa`，UTF-16LE，限 `%LOCALAPPDATA%\GeeZipX\ShellActions` 目录，上限 1 MiB / 10 000条 / 32 767 码元），正常 GUI 通过 `--shell-action-file` 参数读取。提取动词仍保持 `SystemFileAssociations` + `"%1"` 静态命令。
+- **快捷解压窗口** — 右键“解压缩到当前文件夹”在冷启动与已有实例中均打开独立小型进度窗口，不创建或激活主界面；每个窗口独立消费启动动作、显示密码提示并取消自己的任务，成功后关闭，失败保留错误供确认。普通启动与其他菜单动作仍进入主界面，窗口状态只保存主窗口。
 - **单实例交接** — 操作文件在单实例插件完成主进程判定后解析：冷启动由 setup 消费，热启动由已有进程回调消费，避免转发前删除文件。显式压缩/提取动作不再同时进入普通归档打开队列。
 - **验证状态** — Linux 协议级单元测试通过（action 编解码、resolve 优先级、CLSID 映射、Embedding 检测）；原生 Windows COM 编译/NSIS 安装/Explorer 右键实测尚未完成。禁止 cfg stub 冒充 Windows 通过 CI。
 - **Win11 限制** — 传统菜单项显示于"显示更多选项"(Shift+F10)，这是系统限制，需要 IExplorerCommand COM server / MSIX 包标识才能进入一级菜单。

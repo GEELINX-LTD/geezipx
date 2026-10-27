@@ -4,6 +4,7 @@
 //! No compression/decompression logic lives here.
 
 use serde::Serialize;
+use std::sync::atomic::{AtomicU64, Ordering};
 use tauri::Emitter;
 use tauri::Manager;
 
@@ -61,6 +62,12 @@ enum ResolvedAction {
     Action(ShellActionPayload),
     /// Legacy open-archives — paths without an explicit flag.
     OpenArchives(Vec<String>),
+}
+
+impl ResolvedAction {
+    fn is_quick_extract(&self) -> bool {
+        matches!(self, Self::Action(payload) if payload.action == "extract-here")
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -290,6 +297,99 @@ fn emit_resolved_action(window: &tauri::WebviewWindow, resolved: &ResolvedAction
     }
 }
 
+fn ensure_main_window(app: &tauri::AppHandle) -> tauri::Result<tauri::WebviewWindow> {
+    if let Some(window) = app.get_webview_window("main") {
+        return Ok(window);
+    }
+    let config = app
+        .config()
+        .app
+        .windows
+        .iter()
+        .find(|config| config.label == "main")
+        .expect("main window configuration is required");
+    tauri::WebviewWindowBuilder::from_config(app, config)?.build()
+}
+
+/// Both cold and warm shell launches use the same window routing. Each quick
+/// extraction owns a separate webview and task store, without creating or
+/// activating the archive browser.
+fn dispatch_resolved_action(app: &tauri::AppHandle, resolved: ResolvedAction) -> tauri::Result<()> {
+    if resolved.is_quick_extract() {
+        static NEXT_WINDOW: AtomicU64 = AtomicU64::new(1);
+        let label = format!(
+            "extract-here-{}",
+            NEXT_WINDOW.fetch_add(1, Ordering::Relaxed)
+        );
+        let ResolvedAction::Action(payload) = resolved else {
+            unreachable!("quick extraction always has an explicit action")
+        };
+        let state = app.state::<state::AppState>();
+        state
+            .pending_shell_actions
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .insert(label.clone(), payload);
+        let result = tauri::WebviewWindowBuilder::new(
+            app,
+            &label,
+            tauri::WebviewUrl::App("index.html?mode=extract-here".into()),
+        )
+        .title("GeeZipX")
+        .inner_size(520.0, 280.0)
+        .min_inner_size(420.0, 260.0)
+        .maximizable(false)
+        .center()
+        .visible(false)
+        .build();
+        if result.is_err() {
+            state
+                .pending_shell_actions
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .remove(&label);
+        }
+        let window = result?;
+        let handle = app.clone();
+        window.on_window_event(move |event| {
+            if matches!(event, tauri::WindowEvent::Destroyed) {
+                handle
+                    .state::<state::AppState>()
+                    .pending_shell_actions
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner())
+                    .remove(&label);
+            }
+        });
+        return Ok(());
+    }
+
+    if let Some(window) = app.get_webview_window("main") {
+        emit_resolved_action(&window, &resolved);
+        window.unminimize()?;
+        window.show()?;
+        window.set_focus()?;
+    } else {
+        let state = app.state::<state::AppState>();
+        match resolved {
+            ResolvedAction::OpenArchives(paths) => state
+                .pending_archives
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .extend(paths),
+            ResolvedAction::Action(payload) => {
+                state
+                    .pending_shell_actions
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner())
+                    .insert("main".into(), payload);
+            }
+        }
+        ensure_main_window(app)?;
+    }
+    Ok(())
+}
+
 /// Run the Tauri application.
 pub fn run() {
     // Single-instance initialization must forward the original argv before
@@ -299,16 +399,31 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_drag::init())
-        // Save/restore window position, size, and maximized state
-        .plugin(tauri_plugin_window_state::Builder::default().build())
+        // Compact progress windows keep their own size; restore only the main
+        // browser's geometry, and show each window after its frontend mounts.
+        .plugin(
+            tauri_plugin_window_state::Builder::default()
+                .with_filter(|label| label == "main")
+                .with_state_flags(
+                    tauri_plugin_window_state::StateFlags::all()
+                        & !tauri_plugin_window_state::StateFlags::VISIBLE,
+                )
+                .build(),
+        )
         .plugin(tauri_plugin_store::Builder::default().build())
         // Single-instance: second instance passes file paths + shell action to existing window.
         .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
             let args: Vec<String> = argv.into_iter().skip(1).collect();
-            if let Some(resolved) = resolve_shell_action(&args) {
-                if let Some(window) = app.get_webview_window("main") {
-                    emit_resolved_action(&window, &resolved);
-                }
+            let result = match resolve_shell_action(&args) {
+                Some(resolved) => dispatch_resolved_action(app, resolved),
+                None => ensure_main_window(app).and_then(|window| {
+                    window.unminimize()?;
+                    window.show()?;
+                    window.set_focus()
+                }),
+            };
+            if let Err(error) = result {
+                eprintln!("Failed to open shell action window: {error}");
             }
         }))
         .manage(state::AppState::new())
@@ -338,19 +453,10 @@ pub fn run() {
             // Plugin initialization has now established this as the primary
             // process. Do not queue explicit shell paths as ordinary archives.
             let args: Vec<String> = std::env::args().skip(1).collect();
-            if let Some(state) = app.try_state::<state::AppState>() {
-                match resolve_shell_action(&args) {
-                    Some(ResolvedAction::OpenArchives(paths)) => {
-                        if let Ok(mut pending) = state.pending_archives.lock() {
-                            pending.extend(paths);
-                        }
-                    }
-                    Some(ResolvedAction::Action(action)) => {
-                        if let Ok(mut pending) = state.pending_shell_action.lock() {
-                            *pending = Some(action);
-                        }
-                    }
-                    None => {}
+            match resolve_shell_action(&args) {
+                Some(resolved) => dispatch_resolved_action(app.handle(), resolved)?,
+                None => {
+                    ensure_main_window(app.handle())?;
                 }
             }
             // Clean up stale drag-out temp directories on startup
@@ -381,12 +487,11 @@ pub fn run() {
                 })
                 .collect();
             if !paths.is_empty() {
-                if let Some(state) = app_handle.try_state::<state::AppState>() {
-                    if let Ok(mut pending) = state.pending_archives.lock() {
-                        pending.extend(paths.clone());
-                    }
+                if let Err(error) =
+                    dispatch_resolved_action(app_handle, ResolvedAction::OpenArchives(paths))
+                {
+                    eprintln!("Failed to open archive window: {error}");
                 }
-                let _ = app_handle.emit("opened-archives", &paths);
             }
         }
     });
@@ -405,6 +510,25 @@ mod tests {
     // -----------------------------------------------------------------------
     // Helpers
     // -----------------------------------------------------------------------
+
+    #[test]
+    fn only_extract_here_uses_a_progress_window() {
+        for action in [
+            "open",
+            "extract",
+            "extract-here",
+            "compress-zip",
+            "compress",
+        ] {
+            let resolved = ResolvedAction::Action(ShellActionPayload {
+                action: action.into(),
+                format: None,
+                paths: vec!["archive.7z".into()],
+            });
+            assert_eq!(resolved.is_quick_extract(), action == "extract-here");
+        }
+        assert!(!ResolvedAction::OpenArchives(vec!["archive.7z".into()]).is_quick_extract());
+    }
 
     /// Create a real file in `dir` with dummy content (so `Path::exists()` passes).
     fn touch(dir: &Path, name: &str) -> std::path::PathBuf {

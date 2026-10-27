@@ -52,13 +52,22 @@ function computeSuggestedDir(archivePath: string, allEntries: EntryInfo[]): stri
   const archiveFileName = archivePath.split(/[/\\]/).pop() || 'archive';
   const archiveName = stripArchiveExtension(archiveFileName);
 
-  // Check if all entries share a single top-level directory prefix
-  const firstSlash = allEntries[0]?.path.indexOf('/') ?? -1;
-  if (firstSlash > 0) {
-    const commonPrefix = allEntries[0].path.slice(0, firstSlash + 1);
-    const allNested = allEntries.every(
-      (e) => e.path === commonPrefix || e.path.startsWith(commonPrefix)
-    );
+  // Normalize only comparison paths; preserve the original archive entry paths.
+  const normalizeEntryPath = (path: string): string =>
+    path.replace(/\\/g, '/').replace(/\/+$/, '');
+  const first = allEntries[0];
+  const firstPath = normalizeEntryPath(first.path);
+  const firstSlash = firstPath.indexOf('/');
+  const topLevelDir = firstSlash > 0
+    ? firstPath.slice(0, firstSlash)
+    : first.is_dir ? firstPath : '';
+
+  if (topLevelDir) {
+    const commonPrefix = `${topLevelDir}/`;
+    const allNested = allEntries.every((entry) => {
+      const path = normalizeEntryPath(entry.path);
+      return path.startsWith(commonPrefix) || (path === topLevelDir && entry.is_dir);
+    });
     if (allNested) {
       // All entries inside a single top-level folder -> extract to parent directory
       return parent;

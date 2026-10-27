@@ -1,0 +1,12 @@
+{
+  "$schema": "https://raw.githubusercontent.com/tauri-apps/tauri/dev/crates/tauri-utils/schema.json",
+  "identifier": "quick-extract",
+  "description": "Progress and password windows for Explorer Extract Here actions",
+  "windows": ["extract-here-*"],
+  "permissions": [
+    "core:default",
+    "core:window:allow-show",
+    "core:window:allow-close",
+    "store:default"
+  ]
+}

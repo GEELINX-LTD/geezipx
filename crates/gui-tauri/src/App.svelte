@@ -1,7 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { fly } from 'svelte/transition';
-  import { listen, getShellAction, getOpenedArchives, extractArchive, compressArchive } from './bridge';
+  import { listen, getShellAction, getOpenedArchives, compressArchive } from './bridge';
   import type { TaskProgressPayload, ShellActionPayload } from './bridge';
   import { getCurrentWindow } from '@tauri-apps/api/window';
   import { basename, dirname, join } from '@tauri-apps/api/path';
@@ -66,47 +65,6 @@
         const { tabId, label } = await archiveManager.openArchive(payload.paths[0]);
         appStore.addArchiveTab(tabId, label, payload.paths[0]);
         appStore.switchTab(tabId);
-        break;
-      }
-
-      // ── "解压缩到当前文件夹" — smart extract ──
-      case 'extract-here': {
-        const archivePath = payload.paths[0];
-        const { tabId, label } = await archiveManager.openArchive(archivePath);
-        appStore.addArchiveTab(tabId, label, archivePath);
-        appStore.switchTab(tabId);
-
-        // A password challenge is resolved by the fixed tab that started this action.
-        // Cancelling or closing that tab resolves false and skips extraction.
-        const opened = await archiveManager.waitForOpenResult(tabId, archivePath);
-        const tab = archiveManager.tabs.get(tabId);
-        if (!opened || !tab || tab.archivePath !== archivePath) break;
-
-        // suggestedOutputDir handles the smart logic: single top-level folder →
-        // extract to parent; scattered → create folder named after archive.
-        const outputDir = tab.suggestedOutputDir;
-        const taskId = taskStore.startTask('extract');
-        try {
-          const res = await extractArchive(
-            tab.archivePath,
-            outputDir,
-            true,
-            tab.archivePassword || undefined,
-            taskId,
-          );
-          const status = taskStore.finishTask(taskId, 'finished');
-          if (status === 'cancelled' || status === 'failed') return;
-          toastStore.show(
-            `Extracted ${res.files_extracted} file(s) to ${outputDir}`,
-            'success',
-            5000,
-          );
-        } catch (e: unknown) {
-          const msg = e instanceof Error ? e.message : String(e);
-          const status = taskStore.finishTask(taskId, 'failed', msg);
-          if (status === 'cancelled') return;
-          toastStore.show(`Extraction failed: ${msg}`, 'error');
-        }
         break;
       }
 
@@ -276,7 +234,7 @@
   <main class="app-content">
     <DropOverlay />
     {#key pageKey}
-      <div class="page-wrapper" in:fly={{ x: 20, duration: 120 }} out:fly={{ x: -20, duration: 120 }}>
+      <div class="page-wrapper">
         <PageComponent />
       </div>
     {/key}
