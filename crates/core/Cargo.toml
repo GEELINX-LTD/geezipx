@@ -22,6 +22,7 @@ default = ["rar", "zpaq", "wim"]
 [dependencies]
 thiserror = "2"
 log = "0.4"
+cap-std = "4"
 zip = { version = "2", default-features = false, features = ["deflate", "aes-crypto"] }
 
 tar = "0.4"

@@ -97,6 +97,8 @@ pub trait ArchiveWriter: Send {
 要点：
 
 - 多文件归档格式通过 `ArchiveReader` / `ArchiveWriter` 统一。
+- `archive::extraction::ExtractionDir` 用 `cap-std` 的目录句柄限制条目路径，拒绝符号链接和 Windows 重解析点；GUI、默认 reader 和 ZIP 批量解压复用该输出层。
+- 文件先流式写入同目录临时文件，读取或取消失败会清理临时文件；成功后才替换目标。禁止覆盖模式在发布文件时再次以原子方式保护已存在的目标。
 - `finish(self: Box<Self>) -> GeeZipResult<u64>` 负责结束写入并返回写出的总字节数。
 - `extract_all(..., overwrite)` 与 `extract_all_with_cancel(..., overwrite, ...)` 是当前真实批量提取入口。
 - 读取路径的密码接口由各 reader 覆盖；写入加密当前由 ZIP 与 7z writer 分别支持 AES-256。

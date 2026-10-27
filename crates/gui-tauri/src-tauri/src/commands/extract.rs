@@ -9,6 +9,7 @@
 //! These are not yet supported for extraction in the GUI. The command returns a
 //! clear error directing users to a future update.
 
+#[cfg(test)]
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -18,7 +19,7 @@ use serde::Serialize;
 use tauri::AppHandle;
 use tokio::task::spawn_blocking;
 
-use geezipx_core::archive::{check_entry_path_safety, ArchiveReader, Entry, ExtractReport};
+use geezipx_core::archive::{extraction::ExtractionDir, ArchiveReader, Entry, ExtractReport};
 use geezipx_core::detect::ArchiveFormat;
 use geezipx_core::{GeeZipError, ProgressWriter};
 
@@ -209,13 +210,8 @@ pub(crate) fn extract_entries_with_progress(
     emitter: &TaskProgressEmitter,
 ) -> Result<ExtractArchiveResult, ExtractTaskError> {
     let dest = normalize_path_for_extract(dest);
-    fs::create_dir_all(&dest).map_err(|e| {
-        ExtractTaskError::Message(format!(
-            "Cannot create output directory '{}': {}",
-            dest.display(),
-            e
-        ))
-    })?;
+    let output_dir =
+        ExtractionDir::new(&dest).map_err(|err| ExtractTaskError::Message(err.to_string()))?;
 
     let total_bytes = entries
         .iter()
@@ -236,150 +232,34 @@ pub(crate) fn extract_entries_with_progress(
             return Err(ExtractTaskError::Cancelled);
         }
 
-        let entry_path = Path::new(&entry.path);
-        let target = match check_entry_path_safety(entry_path, &entry.path, &dest) {
-            Ok(target) => target,
-            Err((name, err)) => {
-                report.errors.push((name, err));
-                progress_bytes = progress_bytes.saturating_add(entry.size);
-                completed_entries += 1;
-                emitter.emit_progress(
-                    TaskStage::Extracting,
-                    None,
-                    progress_bytes,
-                    Some(&entry.path),
-                    completed_entries,
-                    true,
-                );
-                continue;
-            }
-        };
-
-        if entry.is_dir {
-            if let Err(e) = fs::create_dir_all(&target) {
-                report.errors.push((
-                    entry.path.clone(),
-                    GeeZipError::io(e, "Cannot create directory"),
-                ));
-            } else {
-                report.files_extracted += 1;
-            }
-            completed_entries += 1;
-            emitter.emit_progress(
-                TaskStage::Extracting,
-                None,
-                progress_bytes,
-                Some(&entry.path),
-                completed_entries,
-                true,
-            );
-            continue;
-        }
-
-        if let Some(parent) = target.parent() {
-            if !parent.exists() {
-                if let Err(e) = fs::create_dir_all(parent) {
-                    report.errors.push((
-                        entry.path.clone(),
-                        GeeZipError::io(e, "Cannot create parent directory"),
-                    ));
-                    progress_bytes = progress_bytes.saturating_add(entry.size);
-                    completed_entries += 1;
-                    emitter.emit_progress(
-                        TaskStage::Extracting,
-                        None,
-                        progress_bytes,
-                        Some(&entry.path),
-                        completed_entries,
-                        true,
-                    );
-                    continue;
-                }
-            }
-        }
-
-        let output = if overwrite {
-            match fs::File::create(&target) {
-                Ok(file) => file,
-                Err(e) => {
-                    report.errors.push((
-                        entry.path.clone(),
-                        GeeZipError::io(e, "Cannot create output file"),
-                    ));
-                    progress_bytes = progress_bytes.saturating_add(entry.size);
-                    completed_entries += 1;
-                    emitter.emit_progress(
-                        TaskStage::Extracting,
-                        None,
-                        progress_bytes,
-                        Some(&entry.path),
-                        completed_entries,
-                        true,
-                    );
-                    continue;
-                }
-            }
+        let result = if entry.is_dir {
+            output_dir.create_dir(&entry.path).map(|()| 0)
         } else {
-            match fs::OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .open(&target)
-            {
-                Ok(file) => file,
-                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
-                    report.files_skipped += 1;
-                    report.errors.push((
-                        entry.path.clone(),
-                        GeeZipError::clobber_denied(entry.path.clone()),
-                    ));
-                    progress_bytes = progress_bytes.saturating_add(entry.size);
-                    completed_entries += 1;
-                    emitter.emit_progress(
-                        TaskStage::Extracting,
-                        None,
-                        progress_bytes,
-                        Some(&entry.path),
-                        completed_entries,
-                        true,
-                    );
-                    continue;
+            output_dir.write_file(&entry.path, overwrite, |writer| {
+                let callback = emitter.writer_callback(
+                    cancel_token.clone(),
+                    TaskStage::Extracting,
+                    progress_bytes,
+                    entry.path.clone(),
+                    completed_entries,
+                );
+                let mut writer = ProgressWriter::new(writer)
+                    .with_total(entry.size)
+                    .with_callback(Box::new(callback));
+                let result = reader.extract(entry, &mut writer);
+                if cancel_token.load(Ordering::SeqCst) {
+                    Err(GeeZipError::Cancelled)
+                } else {
+                    result
                 }
-                Err(e) => {
-                    report.errors.push((
-                        entry.path.clone(),
-                        GeeZipError::io(e, "Cannot create output file"),
-                    ));
-                    progress_bytes = progress_bytes.saturating_add(entry.size);
-                    completed_entries += 1;
-                    emitter.emit_progress(
-                        TaskStage::Extracting,
-                        None,
-                        progress_bytes,
-                        Some(&entry.path),
-                        completed_entries,
-                        true,
-                    );
-                    continue;
-                }
-            }
+            })
         };
-
-        let callback = emitter.writer_callback(
-            cancel_token.clone(),
-            TaskStage::Extracting,
-            progress_bytes,
-            entry.path.clone(),
-            completed_entries,
-        );
-        let mut output = ProgressWriter::new(output)
-            .with_total(entry.size)
-            .with_callback(Box::new(callback));
-
-        match reader.extract(entry, &mut output) {
+        match result {
             Ok(bytes) => {
                 report.files_extracted += 1;
                 report.bytes_extracted += bytes;
             }
+            Err(GeeZipError::ClobberDenied { .. }) => report.files_skipped += 1,
             Err(err) => {
                 if cancel_token.load(Ordering::SeqCst) || is_cancelled_error(&err) {
                     return Err(ExtractTaskError::Cancelled);
@@ -400,7 +280,24 @@ pub(crate) fn extract_entries_with_progress(
         );
     }
 
-    Ok(ExtractArchiveResult::from(report))
+    ensure_extraction_complete(ExtractArchiveResult::from(report))
+}
+
+fn ensure_extraction_complete(
+    result: ExtractArchiveResult,
+) -> Result<ExtractArchiveResult, ExtractTaskError> {
+    if result.errors.is_empty() {
+        return Ok(result);
+    }
+    let first = &result.errors[0];
+    Err(ExtractTaskError::Message(format!(
+        "Extraction incomplete: {} extracted, {} skipped, {} failed. {}: {}",
+        result.files_extracted,
+        result.files_skipped,
+        result.errors.len(),
+        first.path,
+        first.message
+    )))
 }
 
 /// Normalise a path for use as an extraction destination.
@@ -433,6 +330,35 @@ pub(crate) fn normalize_path_for_extract(path: &Path) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn partial_failure_is_not_reported_as_success() {
+        let result = ExtractArchiveResult {
+            files_extracted: 2,
+            bytes_extracted: 8,
+            files_skipped: 1,
+            errors: vec![ExtractErrorInfo {
+                path: "broken.txt".into(),
+                message: "CRC mismatch".into(),
+            }],
+        };
+        let Err(ExtractTaskError::Message(message)) = ensure_extraction_complete(result) else {
+            panic!("partial extraction must fail");
+        };
+        assert!(message.contains("2 extracted, 1 skipped, 1 failed"));
+        assert!(message.contains("CRC mismatch"));
+    }
+
+    #[test]
+    fn intentional_skips_are_successful() {
+        let result = ExtractArchiveResult {
+            files_extracted: 0,
+            bytes_extracted: 0,
+            files_skipped: 2,
+            errors: vec![],
+        };
+        assert!(ensure_extraction_complete(result).is_ok());
+    }
 
     #[test]
     fn normalize_non_existent_clean_path() {

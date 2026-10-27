@@ -25,6 +25,7 @@ pub mod bzip2;
 pub mod cab;
 pub mod cpio;
 pub mod deb;
+pub mod extraction;
 pub mod gzip;
 pub mod img;
 pub mod iso;
@@ -160,109 +161,7 @@ pub trait ArchiveReader: Send {
     /// Default implementation calls [`extract`](ArchiveReader::extract)
     /// for each entry, creating parent directories as needed.
     fn extract_all(&mut self, dest: &Path, overwrite: bool) -> GeeZipResult<ExtractReport> {
-        let entries = self.entries()?;
-        let mut report = ExtractReport::default();
-
-        // Normalise the destination once so we use a consistent base.
-        let dest = normalize_path(dest);
-
-        for entry in &entries {
-            let entry_path = Path::new(&entry.path);
-
-            // --- Path safety checks (Zip Slip protection) ---
-            let target = match check_entry_path_safety(entry_path, &entry.path, &dest) {
-                Ok(t) => t,
-                Err((name, err)) => {
-                    report.errors.push((name, err));
-                    continue;
-                }
-            };
-
-            // Handle directory entries — create directory and skip file I/O.
-            if entry.is_dir {
-                if let Err(e) = std::fs::create_dir_all(&target) {
-                    report.errors.push((
-                        entry.path.clone(),
-                        crate::error::GeeZipError::io(e, "creating directory"),
-                    ));
-                    continue;
-                }
-                report.files_extracted += 1;
-                continue;
-            }
-
-            // Create parent directory.
-            if let Some(parent) = target.parent() {
-                if !parent.exists() {
-                    if let Err(e) = std::fs::create_dir_all(parent) {
-                        report.errors.push((
-                            entry.path.clone(),
-                            crate::error::GeeZipError::io(e, "creating parent directory"),
-                        ));
-                        continue;
-                    }
-                }
-            }
-
-            // Write entry content — atomically create or fail (avoids TOCTOU
-            // between path-exists check and file creation for the no-clobber path).
-            let mut output = if overwrite {
-                match std::fs::File::create(&target) {
-                    Ok(f) => f,
-                    Err(e) => {
-                        report.errors.push((
-                            entry.path.clone(),
-                            crate::error::GeeZipError::io(
-                                e,
-                                format!("creating output file '{}'", target.display()),
-                            ),
-                        ));
-                        continue;
-                    }
-                }
-            } else {
-                match std::fs::OpenOptions::new()
-                    .write(true)
-                    .create_new(true)
-                    .open(&target)
-                {
-                    Ok(f) => f,
-                    Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
-                        report.files_skipped += 1;
-                        report.errors.push((
-                            entry.path.clone(),
-                            crate::error::GeeZipError::clobber_denied(target.display().to_string()),
-                        ));
-                        continue;
-                    }
-                    Err(e) => {
-                        report.errors.push((
-                            entry.path.clone(),
-                            crate::error::GeeZipError::io(
-                                e,
-                                format!("creating output file '{}'", target.display()),
-                            ),
-                        ));
-                        continue;
-                    }
-                }
-            };
-
-            let extract_result = self.extract(entry, &mut output);
-            drop(output);
-            match extract_result {
-                Ok(bytes) => {
-                    report.files_extracted += 1;
-                    report.bytes_extracted += bytes;
-                }
-                Err(e) => {
-                    let _ = std::fs::remove_file(&target);
-                    report.errors.push((entry.path.clone(), e));
-                }
-            }
-        }
-
-        Ok(report)
+        extract_all_safely(self, dest, overwrite, &|| false)
     }
 
     /// Extract all entries under `dest`, checking `is_cancelled()` before
@@ -281,123 +180,7 @@ pub trait ArchiveReader: Send {
         overwrite: bool,
         is_cancelled: &dyn Fn() -> bool,
     ) -> GeeZipResult<ExtractReport> {
-        let entries = self.entries()?;
-        let mut report = ExtractReport::default();
-
-        // Normalise the destination once so we use a consistent base.
-        let dest = normalize_path(dest);
-
-        for entry in &entries {
-            // Check cancellation before processing each entry.
-            if is_cancelled() {
-                return Err(GeeZipError::Cancelled);
-            }
-
-            let entry_path = Path::new(&entry.path);
-
-            // --- Path safety checks (Zip Slip protection) ---
-            let target = match check_entry_path_safety(entry_path, &entry.path, &dest) {
-                Ok(t) => t,
-                Err((name, err)) => {
-                    report.errors.push((name, err));
-                    continue;
-                }
-            };
-
-            // Handle directory entries — create directory and skip file I/O.
-            if entry.is_dir {
-                if let Err(e) = std::fs::create_dir_all(&target) {
-                    report.errors.push((
-                        entry.path.clone(),
-                        crate::error::GeeZipError::io(e, "creating directory"),
-                    ));
-                    continue;
-                }
-                report.files_extracted += 1;
-                continue;
-            }
-
-            // Create parent directory.
-            if let Some(parent) = target.parent() {
-                if !parent.exists() {
-                    if let Err(e) = std::fs::create_dir_all(parent) {
-                        report.errors.push((
-                            entry.path.clone(),
-                            crate::error::GeeZipError::io(e, "creating parent directory"),
-                        ));
-                        continue;
-                    }
-                }
-            }
-
-            // Write entry content — atomically create or fail.
-            let output = if overwrite {
-                match std::fs::File::create(&target) {
-                    Ok(f) => f,
-                    Err(e) => {
-                        report.errors.push((
-                            entry.path.clone(),
-                            crate::error::GeeZipError::io(
-                                e,
-                                format!("creating output file '{}'", target.display()),
-                            ),
-                        ));
-                        continue;
-                    }
-                }
-            } else {
-                match std::fs::OpenOptions::new()
-                    .write(true)
-                    .create_new(true)
-                    .open(&target)
-                {
-                    Ok(f) => f,
-                    Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
-                        report.files_skipped += 1;
-                        report.errors.push((
-                            entry.path.clone(),
-                            crate::error::GeeZipError::clobber_denied(target.display().to_string()),
-                        ));
-                        continue;
-                    }
-                    Err(e) => {
-                        report.errors.push((
-                            entry.path.clone(),
-                            crate::error::GeeZipError::io(
-                                e,
-                                format!("creating output file '{}'", target.display()),
-                            ),
-                        ));
-                        continue;
-                    }
-                }
-            };
-
-            let mut output = CancellableWriter::new(output, is_cancelled);
-
-            let extract_result = self.extract(entry, &mut output);
-            let was_cancelled = output.was_cancelled();
-            drop(output);
-            match extract_result {
-                Ok(bytes) => {
-                    if was_cancelled {
-                        let _ = std::fs::remove_file(&target);
-                        return Err(GeeZipError::Cancelled);
-                    }
-                    report.files_extracted += 1;
-                    report.bytes_extracted += bytes;
-                }
-                Err(e) => {
-                    let _ = std::fs::remove_file(&target);
-                    if was_cancelled {
-                        return Err(GeeZipError::Cancelled);
-                    }
-                    report.errors.push((entry.path.clone(), e));
-                }
-            }
-        }
-
-        Ok(report)
+        extract_all_safely(self, dest, overwrite, is_cancelled)
     }
 
     /// Set a password for decrypting encrypted entries.
@@ -407,6 +190,49 @@ pub trait ArchiveReader: Send {
     fn set_password(&mut self, _password: &str) -> GeeZipResult<()> {
         Ok(())
     }
+}
+
+pub(crate) fn extract_all_safely<R: ArchiveReader + ?Sized>(
+    reader: &mut R,
+    dest: &Path,
+    overwrite: bool,
+    is_cancelled: &dyn Fn() -> bool,
+) -> GeeZipResult<ExtractReport> {
+    let entries = reader.entries()?;
+    let output = extraction::ExtractionDir::new(dest)?;
+    let mut report = ExtractReport::default();
+    for entry in &entries {
+        if is_cancelled() {
+            return Err(GeeZipError::Cancelled);
+        }
+        let result = if entry.is_dir {
+            output.create_dir(&entry.path).map(|()| 0)
+        } else {
+            output.write_file(&entry.path, overwrite, |writer| {
+                let mut writer = CancellableWriter::new(writer, is_cancelled);
+                let result = reader.extract(entry, &mut writer);
+                if writer.was_cancelled() {
+                    Err(GeeZipError::Cancelled)
+                } else {
+                    result
+                }
+            })
+        };
+        match result {
+            Ok(bytes) => {
+                report.files_extracted += 1;
+                report.bytes_extracted += bytes;
+            }
+            Err(GeeZipError::Cancelled) => return Err(GeeZipError::Cancelled),
+            Err(err) => {
+                if matches!(err, GeeZipError::ClobberDenied { .. }) {
+                    report.files_skipped += 1;
+                }
+                report.errors.push((entry.path.clone(), err));
+            }
+        }
+    }
+    Ok(report)
 }
 
 /// Archive writer trait — add files and finalise.
@@ -561,6 +387,41 @@ pub fn check_entry_path_safety(
                 target: dest.display().to_string(),
             },
         ));
+    }
+
+    // Reject existing symlinks/reparse points in every entry component. Secure
+    // writers additionally use directory capabilities to close path-swap races.
+    let mut prefix = dest.to_path_buf();
+    if let Ok(relative) = target.strip_prefix(dest) {
+        for component in relative.components() {
+            prefix.push(component);
+            match std::fs::symlink_metadata(&prefix) {
+                Ok(metadata) => {
+                    let is_link = metadata.file_type().is_symlink();
+                    #[cfg(windows)]
+                    let is_link = {
+                        use std::os::windows::fs::MetadataExt;
+                        is_link || metadata.file_attributes() & 0x400 != 0
+                    };
+                    if is_link {
+                        return Err((
+                            entry_name.to_owned(),
+                            GeeZipError::PathTraversal {
+                                entry: entry_name.to_owned(),
+                                target: dest.display().to_string(),
+                            },
+                        ));
+                    }
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => break,
+                Err(e) => {
+                    return Err((
+                        entry_name.to_owned(),
+                        GeeZipError::io(e, "checking extraction path"),
+                    ))
+                }
+            }
+        }
     }
 
     Ok(target)

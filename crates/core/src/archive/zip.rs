@@ -12,9 +12,7 @@ use std::path::Path;
 use zip::write::SimpleFileOptions;
 use zip::AesMode;
 
-use crate::archive::{
-    check_entry_path_safety, normalize_path, ArchiveReader, ArchiveWriter, Entry, ExtractReport,
-};
+use crate::archive::{ArchiveReader, ArchiveWriter, Entry, ExtractReport};
 use crate::detect::ArchiveFormat;
 use crate::error::{GeeZipError, GeeZipResult};
 
@@ -146,98 +144,7 @@ impl<R: Read + Seek + Send> ArchiveReader for ZipReader<R> {
     }
 
     fn extract_all(&mut self, dest: &Path, overwrite: bool) -> GeeZipResult<ExtractReport> {
-        let entries = self.entries()?;
-        let mut report = ExtractReport::default();
-
-        let dest = normalize_path(dest);
-
-        for entry in &entries {
-            let entry_path = Path::new(&entry.path);
-
-            // --- Path safety checks (Zip Slip protection) ---
-            let target = match check_entry_path_safety(entry_path, &entry.path, &dest) {
-                Ok(t) => t,
-                Err((name, err)) => {
-                    report.errors.push((name, err));
-                    continue;
-                }
-            };
-
-            // Handle directory entries — create directory and skip file I/O.
-            if entry.is_dir {
-                if let Err(e) = std::fs::create_dir_all(&target) {
-                    report
-                        .errors
-                        .push((entry.path.clone(), GeeZipError::io(e, "creating directory")));
-                    continue;
-                }
-                report.files_extracted += 1;
-                continue;
-            }
-
-            // Create parent directory.
-            if let Some(parent) = target.parent() {
-                if !parent.exists() {
-                    if let Err(e) = std::fs::create_dir_all(parent) {
-                        report.errors.push((
-                            entry.path.clone(),
-                            GeeZipError::io(e, "creating parent directory"),
-                        ));
-                        continue;
-                    }
-                }
-            }
-
-            // Write entry content — atomically create or fail (avoids TOCTOU
-            // between path-exists check and file creation for the no-clobber path).
-            let mut output = if overwrite {
-                match std::fs::File::create(&target) {
-                    Ok(f) => f,
-                    Err(e) => {
-                        report.errors.push((
-                            entry.path.clone(),
-                            GeeZipError::io(e, format!("creating '{}'", target.display())),
-                        ));
-                        continue;
-                    }
-                }
-            } else {
-                match std::fs::OpenOptions::new()
-                    .write(true)
-                    .create_new(true)
-                    .open(&target)
-                {
-                    Ok(f) => f,
-                    Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
-                        report.files_skipped += 1;
-                        report.errors.push((
-                            entry.path.clone(),
-                            GeeZipError::clobber_denied(target.display().to_string()),
-                        ));
-                        continue;
-                    }
-                    Err(e) => {
-                        report.errors.push((
-                            entry.path.clone(),
-                            GeeZipError::io(e, format!("creating '{}'", target.display())),
-                        ));
-                        continue;
-                    }
-                }
-            };
-
-            match self.extract(entry, &mut output) {
-                Ok(bytes) => {
-                    report.files_extracted += 1;
-                    report.bytes_extracted += bytes;
-                }
-                Err(e) => {
-                    report.errors.push((entry.path.clone(), e));
-                }
-            }
-        }
-
-        Ok(report)
+        super::extract_all_safely(self, dest, overwrite, &|| false)
     }
 }
 
