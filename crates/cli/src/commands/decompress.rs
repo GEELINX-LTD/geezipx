@@ -1,35 +1,59 @@
-//! `geezipx decompress` — extract an archive or decompress a stream.
-use std::sync::atomic::Ordering;
-
+//! `geezipx decompress` — extract archives or decode streams.
+//!
+//! Stream destinations are published only after decoding succeeds. Archive
+//! extraction uses the core's safe extraction layer and reports partial failures.
 use std::fs;
-use std::io::Read;
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
-use geezipx_core::detect::ArchiveFormat;
-
 use anyhow::{Context, Result};
+use geezipx_core::archive::{aes, bin, brotli, bzip2, gzip, img, isz, lz, lz4, uu, xxe, xz, zstd};
+use geezipx_core::detect::ArchiveFormat;
+use geezipx_core::volume::{self, MultiVolumeReader};
+use geezipx_core::{ProgressReader, ProgressWriter};
 
 use super::common;
 use crate::render::progress::{ProgressBarWrapper, SharedCallback};
-use geezipx_core::archive::aes;
-use geezipx_core::archive::bin;
-use geezipx_core::archive::brotli;
-use geezipx_core::archive::bzip2;
-use geezipx_core::archive::gzip;
-use geezipx_core::archive::img;
-use geezipx_core::archive::isz;
-use geezipx_core::archive::lz;
-use geezipx_core::archive::lz4;
-use geezipx_core::archive::uu;
-use geezipx_core::archive::xxe;
-use geezipx_core::archive::xz;
-use geezipx_core::archive::zstd;
-use geezipx_core::volume::{self, MultiVolumeReader};
-use geezipx_core::ProgressReader;
-use std::sync::atomic::AtomicBool;
-use std::sync::Arc;
-use tempfile::NamedTempFile;
+use crate::signal::CancellationToken;
+
+fn is_stream(format: ArchiveFormat) -> bool {
+    matches!(
+        format,
+        ArchiveFormat::Gzip
+            | ArchiveFormat::Bzip2
+            | ArchiveFormat::Brotli
+            | ArchiveFormat::Lz4
+            | ArchiveFormat::Zstd
+            | ArchiveFormat::Xz
+            | ArchiveFormat::Lzma
+            | ArchiveFormat::Lz
+            | ArchiveFormat::Img
+            | ArchiveFormat::Bin
+            | ArchiveFormat::Isz
+            | ArchiveFormat::Aes
+            | ArchiveFormat::Uu
+            | ArchiveFormat::Xxe
+    )
+}
+
+fn is_wrapped(format: ArchiveFormat) -> bool {
+    matches!(
+        format,
+        ArchiveFormat::TarGz
+            | ArchiveFormat::TarBz2
+            | ArchiveFormat::TarBr
+            | ArchiveFormat::TarLz4
+            | ArchiveFormat::TarZst
+            | ArchiveFormat::TarXz
+    )
+}
+
+fn validate_password(format: ArchiveFormat, password: Option<&str>) -> Result<()> {
+    if format != ArchiveFormat::Aes {
+        common::validate_read_password_support(format, password)?;
+    }
+    Ok(())
+}
 
 /// Execute the `decompress` subcommand.
 #[allow(clippy::too_many_arguments)]
@@ -44,20 +68,40 @@ pub fn execute(
     use_stdin: bool,
     format: Option<&str>,
 ) -> Result<()> {
-    // ---- stdin mode: read from stdin, no archive file ----
+    CancellationToken::reset();
+    let cancel = CancellationToken::new();
     if use_stdin {
-        return decompress_stdin_mode(format, output_dir, stdout, overwrite, verbose);
+        let format =
+            common::parse_format(format.context("--format is required when using --stdin")?)?;
+        if !(is_stream(format) || is_wrapped(format)) || format == ArchiveFormat::Isz {
+            anyhow::bail!("--stdin is only supported for single-stream formats and tar-wrapped streams; got '{format}'");
+        }
+        validate_password(format, password.as_deref())?;
+        let reader = std::io::stdin().lock();
+        if stdout {
+            decode_to_stdout(reader, format, password.as_deref(), &cancel)?;
+        } else {
+            fs::create_dir_all(output_dir)
+                .with_context(|| format!("creating output directory '{}'", output_dir.display()))?;
+            let output = output_dir.join("output");
+            decode_to_file(
+                reader,
+                format,
+                password.as_deref(),
+                &output,
+                overwrite,
+                &cancel,
+            )?;
+        }
+        return Ok(());
     }
 
-    // ---- file-based mode ----
-    let archive = archive.unwrap();
+    let archive = archive.context("archive file is required (or use --stdin)")?;
     if !archive.exists() {
         anyhow::bail!("archive '{}' does not exist", archive.display());
     }
-
-    // ---- split volume detection ----
     if volume::is_volume_filename(archive) {
-        return execute_decompress_volume(
+        return decompress_volume(
             archive,
             output_dir,
             stdout,
@@ -65,1404 +109,209 @@ pub fn execute(
             no_progress,
             verbose,
             password.as_deref(),
-        );
-    }
-
-    let format = common::detect_archive_format(archive)?;
-
-    // Validate password: single-stream formats (gzip, bzip2, zstd, xz, lzma) do not support encryption (except AES).
-    if password.is_some()
-        && matches!(
             format,
-            ArchiveFormat::Gzip
-                | ArchiveFormat::Bzip2
-                | ArchiveFormat::Brotli
-                | ArchiveFormat::Lz4
-                | ArchiveFormat::Zstd
-                | ArchiveFormat::Xz
-                | ArchiveFormat::Lz
-                | ArchiveFormat::Lzma
-                | ArchiveFormat::Img
-                | ArchiveFormat::Bin
-                | ArchiveFormat::Isz
-                | ArchiveFormat::Uu
-                | ArchiveFormat::Xxe
-        )
-    {
-        anyhow::bail!(
-            "--password is only supported for ZIP, 7z, RAR, and AES formats; '{}' does not support encryption",
-            format
+            &cancel,
         );
     }
-
-    crate::signal::CancellationToken::reset();
-    let cancel_token = crate::signal::CancellationToken::new();
-
-    // Ensure the output directory exists.
+    let format = match format {
+        Some(format) => common::parse_format(format)?,
+        None => common::detect_archive_format(archive)?,
+    };
+    validate_password(format, password.as_deref())?;
+    if stdout && !(is_stream(format) || is_wrapped(format)) {
+        anyhow::bail!("--stdout is only supported for single-stream formats and tar-wrapped raw-stream output; '{format}' is a multi-file archive");
+    }
     if !stdout {
         fs::create_dir_all(output_dir)
             .with_context(|| format!("creating output directory '{}'", output_dir.display()))?;
     }
-
-    let show_progress = !no_progress && !verbose && crate::render::progress::progress_bar_enabled();
-
-    match format {
-        ArchiveFormat::Gzip => {
-            let cancel_flag = cancel_token.clone().into_inner();
-
-            let result = if stdout {
-                decompress_gzip_stdout(archive, cancel_flag)
-            } else {
-                decompress_gzip_to_file(archive, output_dir, overwrite, cancel_flag)
+    if is_stream(format) || stdout {
+        let input =
+            fs::File::open(archive).with_context(|| format!("opening '{}'", archive.display()))?;
+        if format == ArchiveFormat::Isz {
+            // ISZ needs seeking on its input, so cancellation wraps the writer.
+            let decode = |writer: &mut dyn Write| -> Result<()> {
+                let mut input = &input;
+                let mut writer =
+                    ProgressWriter::new(writer).with_callback(Box::new(callback(&cancel)));
+                isz::isz_decompress(&mut input, &mut writer)
+                    .with_context(|| format!("decompressing '{}'", archive.display()))?;
+                writer.flush()?;
+                check_cancelled(&cancel)
             };
-
-            let spinner = if show_progress {
-                Some(crate::render::progress::ProgressBarWrapper::spinner(
-                    "Decompressing...",
-                ))
-            } else {
-                None
-            };
-
-            match result {
-                Ok(()) => {
-                    if let Some(s) = &spinner {
-                        s.finish("Decompressed");
-                    }
-                }
-                Err(e) => {
-                    if let Some(s) = &spinner {
-                        s.finish("Decompression failed");
-                    }
-                    if cancel_token.is_cancelled() {
-                        eprintln!("Cancelled");
-                        std::process::exit(130);
-                    }
-                    return Err(anyhow::anyhow!("gzip decompression error: {}", e));
-                }
-            }
-        }
-        ArchiveFormat::Bzip2 => {
-            let cancel_flag = cancel_token.clone().into_inner();
-
-            let result = if stdout {
-                decompress_bzip2_stdout(archive, cancel_flag)
-            } else {
-                decompress_bzip2_to_file(archive, output_dir, overwrite, cancel_flag)
-            };
-
-            let spinner = if show_progress {
-                Some(crate::render::progress::ProgressBarWrapper::spinner(
-                    "Decompressing...",
-                ))
-            } else {
-                None
-            };
-
-            match result {
-                Ok(()) => {
-                    if let Some(s) = &spinner {
-                        s.finish("Decompressed");
-                    }
-                }
-                Err(e) => {
-                    if let Some(s) = &spinner {
-                        s.finish("Decompression failed");
-                    }
-                    if cancel_token.is_cancelled() {
-                        eprintln!("Cancelled");
-                        std::process::exit(130);
-                    }
-                    return Err(anyhow::anyhow!("bzip2 decompression error: {}", e));
-                }
-            }
-        }
-        ArchiveFormat::Brotli => {
-            let cancel_flag = cancel_token.clone().into_inner();
-
-            let result = if stdout {
-                decompress_brotli_stdout(archive, cancel_flag)
-            } else {
-                decompress_brotli_to_file(archive, output_dir, overwrite, cancel_flag)
-            };
-
-            let spinner = if show_progress {
-                Some(crate::render::progress::ProgressBarWrapper::spinner(
-                    "Decompressing...",
-                ))
-            } else {
-                None
-            };
-
-            match result {
-                Ok(()) => {
-                    if let Some(s) = &spinner {
-                        s.finish("Decompressed");
-                    }
-                }
-                Err(e) => {
-                    if let Some(s) = &spinner {
-                        s.finish("Decompression failed");
-                    }
-                    if cancel_token.is_cancelled() {
-                        eprintln!("Cancelled");
-                        std::process::exit(130);
-                    }
-                    return Err(anyhow::anyhow!("brotli decompression error: {}", e));
-                }
-            }
-        }
-        ArchiveFormat::Lz4 => {
-            let cancel_flag = cancel_token.clone().into_inner();
-
-            let result = if stdout {
-                decompress_lz4_stdout(archive, cancel_flag)
-            } else {
-                decompress_lz4_to_file(archive, output_dir, overwrite, cancel_flag)
-            };
-
-            let spinner = if show_progress {
-                Some(crate::render::progress::ProgressBarWrapper::spinner(
-                    "Decompressing...",
-                ))
-            } else {
-                None
-            };
-
-            match result {
-                Ok(()) => {
-                    if let Some(s) = &spinner {
-                        s.finish("Decompressed");
-                    }
-                }
-                Err(e) => {
-                    if let Some(s) = &spinner {
-                        s.finish("Decompression failed");
-                    }
-                    if cancel_token.is_cancelled() {
-                        eprintln!("Cancelled");
-                        std::process::exit(130);
-                    }
-                    return Err(anyhow::anyhow!("lz4 decompression error: {}", e));
-                }
-            }
-        }
-        ArchiveFormat::Zstd => {
-            let cancel_flag = cancel_token.clone().into_inner();
-
-            let result = if stdout {
-                decompress_zstd_stdout(archive, cancel_flag)
-            } else {
-                decompress_zstd_to_file(archive, output_dir, overwrite, cancel_flag)
-            };
-
-            let spinner = if show_progress {
-                Some(crate::render::progress::ProgressBarWrapper::spinner(
-                    "Decompressing...",
-                ))
-            } else {
-                None
-            };
-
-            match result {
-                Ok(()) => {
-                    if let Some(s) = &spinner {
-                        s.finish("Decompressed");
-                    }
-                }
-                Err(e) => {
-                    if let Some(s) = &spinner {
-                        s.finish("Decompression failed");
-                    }
-                    if cancel_token.is_cancelled() {
-                        eprintln!("Cancelled");
-                        std::process::exit(130);
-                    }
-                    return Err(anyhow::anyhow!("zstd decompression error: {}", e));
-                }
-            }
-        }
-        ArchiveFormat::Xz => {
-            let cancel_flag = cancel_token.clone().into_inner();
-
-            let result = if stdout {
-                decompress_xz_stdout(archive, cancel_flag)
-            } else {
-                decompress_xz_to_file(archive, output_dir, overwrite, cancel_flag)
-            };
-
-            let spinner = if show_progress {
-                Some(crate::render::progress::ProgressBarWrapper::spinner(
-                    "Decompressing...",
-                ))
-            } else {
-                None
-            };
-
-            match result {
-                Ok(()) => {
-                    if let Some(s) = &spinner {
-                        s.finish("Decompressed");
-                    }
-                }
-                Err(e) => {
-                    if let Some(s) = &spinner {
-                        s.finish("Decompression failed");
-                    }
-                    if cancel_token.is_cancelled() {
-                        eprintln!("Cancelled");
-                        std::process::exit(130);
-                    }
-                    return Err(anyhow::anyhow!("xz decompression error: {}", e));
-                }
-            }
-        }
-        ArchiveFormat::Lzma => {
-            let cancel_flag = cancel_token.clone().into_inner();
-
-            let result = if stdout {
-                decompress_lzma_stdout(archive, cancel_flag)
-            } else {
-                decompress_lzma_to_file(archive, output_dir, overwrite, cancel_flag)
-            };
-
-            let spinner = if show_progress {
-                Some(crate::render::progress::ProgressBarWrapper::spinner(
-                    "Decompressing...",
-                ))
-            } else {
-                None
-            };
-
-            match result {
-                Ok(()) => {
-                    if let Some(s) = &spinner {
-                        s.finish("Decompressed");
-                    }
-                }
-                Err(e) => {
-                    if let Some(s) = &spinner {
-                        s.finish("Decompression failed");
-                    }
-                    if cancel_token.is_cancelled() {
-                        eprintln!("Cancelled");
-                        std::process::exit(130);
-                    }
-                    return Err(anyhow::anyhow!("lzma decompression error: {}", e));
-                }
-            }
-        }
-        ArchiveFormat::Lz => {
-            let cancel_flag = cancel_token.clone().into_inner();
-
-            let result = if stdout {
-                decompress_lz_stdout(archive, cancel_flag)
-            } else {
-                decompress_lz_to_file(archive, output_dir, overwrite, cancel_flag)
-            };
-
-            let spinner = if show_progress {
-                Some(crate::render::progress::ProgressBarWrapper::spinner(
-                    "Decompressing...",
-                ))
-            } else {
-                None
-            };
-
-            match result {
-                Ok(()) => {
-                    if let Some(s) = &spinner {
-                        s.finish("Decompressed");
-                    }
-                }
-                Err(e) => {
-                    if let Some(s) = &spinner {
-                        s.finish("Decompression failed");
-                    }
-                    if cancel_token.is_cancelled() {
-                        eprintln!("Cancelled");
-                        std::process::exit(130);
-                    }
-                    return Err(anyhow::anyhow!("lz decompression error: {}", e));
-                }
-            }
-        }
-
-        ArchiveFormat::Img => {
-            let cancel_flag = cancel_token.clone().into_inner();
-
-            let result = if stdout {
-                decompress_img_stdout(archive, cancel_flag)
-            } else {
-                decompress_img_to_file(archive, output_dir, overwrite, cancel_flag)
-            };
-
-            let spinner = if show_progress {
-                Some(crate::render::progress::ProgressBarWrapper::spinner(
-                    "Decompressing...",
-                ))
-            } else {
-                None
-            };
-
-            match result {
-                Ok(()) => {
-                    if let Some(s) = &spinner {
-                        s.finish("Decompressed");
-                    }
-                }
-                Err(e) => {
-                    if let Some(s) = &spinner {
-                        s.finish("Decompression failed");
-                    }
-                    if cancel_token.is_cancelled() {
-                        eprintln!("Cancelled");
-                        std::process::exit(130);
-                    }
-                    return Err(anyhow::anyhow!("img pass-through error: {}", e));
-                }
-            }
-        }
-
-        ArchiveFormat::Bin => {
-            let cancel_flag = cancel_token.clone().into_inner();
-
-            let result = if stdout {
-                decompress_bin_stdout(archive, cancel_flag)
-            } else {
-                decompress_bin_to_file(archive, output_dir, overwrite, cancel_flag)
-            };
-
-            let spinner = if show_progress {
-                Some(crate::render::progress::ProgressBarWrapper::spinner(
-                    "Decompressing...",
-                ))
-            } else {
-                None
-            };
-
-            match result {
-                Ok(()) => {
-                    if let Some(s) = &spinner {
-                        s.finish("Decompressed");
-                    }
-                }
-                Err(e) => {
-                    if let Some(s) = &spinner {
-                        s.finish("Decompression failed");
-                    }
-                    if cancel_token.is_cancelled() {
-                        eprintln!("Cancelled");
-                        std::process::exit(130);
-                    }
-                    return Err(anyhow::anyhow!("bin pass-through error: {}", e));
-                }
-            }
-        }
-
-        ArchiveFormat::Isz => {
-            let cancel_flag = cancel_token.clone().into_inner();
-
-            let result = if stdout {
-                decompress_isz_stdout(archive, cancel_flag)
-            } else {
-                decompress_isz_to_file(archive, output_dir, overwrite, cancel_flag)
-            };
-
-            let spinner = if show_progress {
-                Some(crate::render::progress::ProgressBarWrapper::spinner(
-                    "Decompressing...",
-                ))
-            } else {
-                None
-            };
-
-            match result {
-                Ok(()) => {
-                    if let Some(s) = &spinner {
-                        s.finish("Decompressed");
-                    }
-                }
-                Err(e) => {
-                    if let Some(s) = &spinner {
-                        s.finish("Decompression failed");
-                    }
-                    if cancel_token.is_cancelled() {
-                        eprintln!("Cancelled");
-                        std::process::exit(130);
-                    }
-                    return Err(anyhow::anyhow!("isz decompression error: {}", e));
-                }
-            }
-        }
-
-        ArchiveFormat::Aes => {
-            let cancel_flag = cancel_token.clone().into_inner();
-            let aes_password = password.clone().unwrap_or_default();
-
-            let result = if stdout {
-                decompress_aes_stdout(archive, &aes_password, cancel_flag)
-            } else {
-                decompress_aes_to_file(archive, output_dir, overwrite, &aes_password, cancel_flag)
-            };
-
-            let spinner = if show_progress {
-                Some(crate::render::progress::ProgressBarWrapper::spinner(
-                    "Decrypting...",
-                ))
-            } else {
-                None
-            };
-
-            match result {
-                Ok(()) => {
-                    if let Some(s) = &spinner {
-                        s.finish("Decrypted");
-                    }
-                }
-                Err(e) => {
-                    if let Some(s) = &spinner {
-                        s.finish("Decryption failed");
-                    }
-                    if cancel_token.is_cancelled() {
-                        eprintln!("Cancelled");
-                        std::process::exit(130);
-                    }
-                    return Err(anyhow::anyhow!("aes decryption error: {}", e));
-                }
-            }
-        }
-
-        ArchiveFormat::Uu => {
-            let cancel_flag = cancel_token.clone().into_inner();
-
-            let result = if stdout {
-                decompress_uu_stdout(archive, cancel_flag)
-            } else {
-                decompress_uu_to_file(archive, output_dir, overwrite, cancel_flag)
-            };
-
-            let spinner = if show_progress {
-                Some(crate::render::progress::ProgressBarWrapper::spinner(
-                    "Decompressing...",
-                ))
-            } else {
-                None
-            };
-
-            match result {
-                Ok(()) => {
-                    if let Some(s) = &spinner {
-                        s.finish("Decompressed");
-                    }
-                }
-                Err(e) => {
-                    if let Some(s) = &spinner {
-                        s.finish("Decompression failed");
-                    }
-                    if cancel_token.is_cancelled() {
-                        eprintln!("Cancelled");
-                        std::process::exit(130);
-                    }
-                    return Err(anyhow::anyhow!("uu decompression error: {}", e));
-                }
-            }
-        }
-        ArchiveFormat::Xxe => {
-            let cancel_flag = cancel_token.clone().into_inner();
-
-            let result = if stdout {
-                decompress_xxe_stdout(archive, cancel_flag)
-            } else {
-                decompress_xxe_to_file(archive, output_dir, overwrite, cancel_flag)
-            };
-
-            let spinner = if show_progress {
-                Some(crate::render::progress::ProgressBarWrapper::spinner(
-                    "Decompressing...",
-                ))
-            } else {
-                None
-            };
-
-            match result {
-                Ok(()) => {
-                    if let Some(s) = &spinner {
-                        s.finish("Decompressed");
-                    }
-                }
-                Err(e) => {
-                    if let Some(s) = &spinner {
-                        s.finish("Decompression failed");
-                    }
-                    if cancel_token.is_cancelled() {
-                        eprintln!("Cancelled");
-                        std::process::exit(130);
-                    }
-                    return Err(anyhow::anyhow!("xxe decompression error: {}", e));
-                }
-            }
-        }
-        _ => {
             if stdout {
-                let cancel_flag = cancel_token.clone().into_inner();
-                match format {
-                    ArchiveFormat::TarGz => decompress_gzip_stdout(archive, cancel_flag),
-                    ArchiveFormat::TarBz2 => decompress_bzip2_stdout(archive, cancel_flag),
-                    ArchiveFormat::TarBr => decompress_brotli_stdout(archive, cancel_flag),
-                    ArchiveFormat::TarLz4 => decompress_lz4_stdout(archive, cancel_flag),
-                    ArchiveFormat::TarZst => decompress_zstd_stdout(archive, cancel_flag),
-                    ArchiveFormat::TarXz => decompress_xz_stdout(archive, cancel_flag),
-                    _ => anyhow::bail!(
-                        "--stdout is only supported for single-stream formats \
-                         (gzip, bzip2, brotli, lz4, zstd, xz, lzma) and tar-wrapped raw-stream output; '{}' is a multi-file archive",
-                        format
-                    ),
-                }?;
-                return Ok(());
-            }
-            let spinner = if show_progress {
-                Some(crate::render::progress::ProgressBarWrapper::spinner(
-                    "Extracting...",
-                ))
+                decode(&mut std::io::stdout().lock())?;
             } else {
-                None
-            };
-
-            let cancel_flag = cancel_token.clone().into_inner();
-            let result = decompress_archive(
-                archive,
-                output_dir,
+                let output = output_dir.join(output_filename(archive, format));
+                common::ensure_distinct_output(archive, &output)?;
+                if !skip_existing(&output, overwrite) {
+                    let mut pending = common::PendingOutput::new(&output, overwrite)?;
+                    decode(&mut pending)?;
+                    pending.commit()?;
+                }
+            }
+        } else if stdout {
+            decode_to_stdout(input, format, password.as_deref(), &cancel)?;
+        } else {
+            let output = output_dir.join(output_filename(archive, format));
+            common::ensure_distinct_output(archive, &output)?;
+            decode_to_file(
+                input,
                 format,
+                password.as_deref(),
+                &output,
                 overwrite,
-                verbose,
-                show_progress,
-                cancel_flag,
-                password,
-            );
-            match result {
-                Ok(()) => {
-                    if let Some(s) = &spinner {
-                        s.finish("Extraction complete");
-                    }
-                }
-                Err(e) => {
-                    if let Some(s) = &spinner {
-                        s.finish("Extraction failed");
-                    }
-                    if cancel_token.is_cancelled() {
-                        eprintln!(
-                            "Cancelled \u{2014} extracted files preserved in {}",
-                            output_dir.display()
-                        );
-                        std::process::exit(130);
-                    }
-                    return Err(anyhow::anyhow!("extraction error: {}", e));
-                }
-            }
+                &cancel,
+            )?;
         }
+        return Ok(());
     }
+    decompress_archive(
+        archive,
+        output_dir,
+        format,
+        overwrite,
+        verbose,
+        no_progress,
+        password.as_deref(),
+        &cancel,
+    )
+}
 
+fn callback(cancel: &CancellationToken) -> SharedCallback {
+    SharedCallback::new(ProgressBarWrapper::hidden(), cancel.clone().into_inner())
+}
+
+fn check_cancelled(cancel: &CancellationToken) -> Result<()> {
+    if cancel.is_cancelled() {
+        anyhow::bail!("Cancelled");
+    }
     Ok(())
 }
 
-/// Decompress single-stream format from stdin, writing to stdout or a file.
-fn decompress_stdin_mode(
-    format: Option<&str>,
-    output_dir: &Path,
-    to_stdout: bool,
-    overwrite: bool,
-    verbose: bool,
-) -> Result<()> {
-    let fmt = common::parse_format(format.context("--format is required when using --stdin")?)?;
-
-    // Validate: only single-stream formats work with stdin
-    match fmt {
-        ArchiveFormat::Gzip
-        | ArchiveFormat::Bzip2
-        | ArchiveFormat::Brotli
-        | ArchiveFormat::Lz4
-        | ArchiveFormat::Zstd
-        | ArchiveFormat::Xz
-        | ArchiveFormat::Lzma
-        | ArchiveFormat::Img
-        | ArchiveFormat::Uu
-        | ArchiveFormat::Xxe
-        | ArchiveFormat::TarGz
-        | ArchiveFormat::TarBz2
-        | ArchiveFormat::TarBr
-        | ArchiveFormat::TarLz4
-        | ArchiveFormat::TarZst
-        | ArchiveFormat::TarXz => {}
-        _ => anyhow::bail!(
-            "--stdin is only supported for single-stream formats \
-             (gzip, bzip2, brotli, lz4, zstd, xz, lzma, uu, uue, xxe, tar.gz, tar.bz2, tar.br, tar.lz4, tar.zst, tar.xz); got '{fmt}'"
-        ),
-    }
-
-    let mut reader = std::io::stdin().lock();
-
-    if to_stdout {
-        let mut writer = std::io::stdout().lock();
-        let bytes = match fmt {
-            ArchiveFormat::Gzip | ArchiveFormat::TarGz => {
-                gzip::gzip_decompress(&mut reader, &mut writer)?
-            }
-            ArchiveFormat::Bzip2 | ArchiveFormat::TarBz2 => {
-                bzip2::bzip2_decompress(&mut reader, &mut writer)?
-            }
-            ArchiveFormat::Brotli | ArchiveFormat::TarBr => {
-                brotli::brotli_decompress(&mut reader, &mut writer)?
-            }
-            ArchiveFormat::Lz4 | ArchiveFormat::TarLz4 => {
-                lz4::lz4_decompress(&mut reader, &mut writer)?
-            }
-            ArchiveFormat::Zstd | ArchiveFormat::TarZst => {
-                zstd::zstd_decompress(&mut reader, &mut writer)?
-            }
-            ArchiveFormat::Xz | ArchiveFormat::TarXz => {
-                xz::xz_decompress(&mut reader, &mut writer)?
-            }
-            ArchiveFormat::Uu => {
-                let mut content = String::new();
-                reader.read_to_string(&mut content)?;
-                let (_, data) = uu::uu_decode(&content)
-                    .ok_or_else(|| anyhow::anyhow!("failed to decode uu from stdin"))?;
-                let n = data.len() as u64;
-                writer.write_all(&data)?;
-                n
-            }
-            ArchiveFormat::Xxe => {
-                let mut content = String::new();
-                reader.read_to_string(&mut content)?;
-                let (_, data) = xxe::xxe_decode(&content)
-                    .map_err(|e| anyhow::anyhow!("failed to decode xxe from stdin: {}", e))?;
-                let n = data.len() as u64;
-                writer.write_all(&data)?;
-                n
-            }
-            ArchiveFormat::Lzma => xz::lzma_decompress(&mut reader, &mut writer)?,
-            _ => unreachable!(),
-        };
-        if verbose {
-            eprintln!("Decompressed stdin to stdout ({bytes} bytes)");
-        }
-        writer
-            .flush()
-            .context("flushing stdout after decompression")?;
+fn skip_existing(output: &Path, overwrite: bool) -> bool {
+    if !overwrite && fs::symlink_metadata(output).is_ok() {
+        eprintln!(
+            "Warning: '{}' already exists, skipping (use --force to overwrite)",
+            output.display()
+        );
+        true
     } else {
-        let output_path = output_dir.join("output");
-        if !overwrite && output_path.exists() {
-            eprintln!(
-                "Warning: '{}' already exists, skipping (use --force to overwrite)",
-                output_path.display()
-            );
-            return Ok(());
+        false
+    }
+}
+
+fn decode_to_stdout<R: Read>(
+    reader: R,
+    format: ArchiveFormat,
+    password: Option<&str>,
+    cancel: &CancellationToken,
+) -> Result<()> {
+    let mut writer = std::io::stdout().lock();
+    let bytes = decode(reader, format, &mut writer, password, cancel)?;
+    writer
+        .flush()
+        .context("flushing stdout after decompression")?;
+    eprintln!("Decompressed {bytes} bytes to stdout");
+    Ok(())
+}
+
+fn decode_to_file<R: Read>(
+    reader: R,
+    format: ArchiveFormat,
+    password: Option<&str>,
+    output: &Path,
+    overwrite: bool,
+    cancel: &CancellationToken,
+) -> Result<()> {
+    if skip_existing(output, overwrite) {
+        return Ok(());
+    }
+    let mut pending = common::PendingOutput::new(output, overwrite)?;
+    let bytes = decode(reader, format, &mut pending, password, cancel)
+        .with_context(|| format!("{format} decompression error"))?;
+    pending.commit()?;
+    eprintln!("Decompressed -> {} ({bytes} bytes)", output.display());
+    Ok(())
+}
+
+fn decode<R: Read, W: Write>(
+    reader: R,
+    format: ArchiveFormat,
+    writer: &mut W,
+    password: Option<&str>,
+    cancel: &CancellationToken,
+) -> Result<u64> {
+    let mut reader = ProgressReader::new(reader).with_callback(Box::new(callback(cancel)));
+    // Check cancellation on output too, including buffered or memory-backed decoders.
+    let mut writer = ProgressWriter::new(writer).with_callback(Box::new(callback(cancel)));
+    let bytes = match format {
+        ArchiveFormat::Gzip | ArchiveFormat::TarGz => {
+            gzip::gzip_decompress(&mut reader, &mut writer)?
         }
-        let mut writer = fs::File::create(&output_path)
-            .with_context(|| format!("creating output '{}'", output_path.display()))?;
-        let bytes = match fmt {
-            ArchiveFormat::Gzip | ArchiveFormat::TarGz => {
-                gzip::gzip_decompress(&mut reader, &mut writer)?
-            }
-            ArchiveFormat::Bzip2 | ArchiveFormat::TarBz2 => {
-                bzip2::bzip2_decompress(&mut reader, &mut writer)?
-            }
-            ArchiveFormat::Brotli | ArchiveFormat::TarBr => {
-                brotli::brotli_decompress(&mut reader, &mut writer)?
-            }
-            ArchiveFormat::Lz4 | ArchiveFormat::TarLz4 => {
-                lz4::lz4_decompress(&mut reader, &mut writer)?
-            }
-            ArchiveFormat::Zstd | ArchiveFormat::TarZst => {
-                zstd::zstd_decompress(&mut reader, &mut writer)?
-            }
-            ArchiveFormat::Xz | ArchiveFormat::TarXz => {
-                xz::xz_decompress(&mut reader, &mut writer)?
-            }
-            ArchiveFormat::Img => img::img_decompress(&mut reader, &mut writer)?,
-            ArchiveFormat::Bin => bin::bin_decompress(&mut reader, &mut writer)?,
-            ArchiveFormat::Uu => {
-                let mut content = String::new();
-                reader.read_to_string(&mut content)?;
-                let (_, data) = uu::uu_decode(&content)
-                    .ok_or_else(|| anyhow::anyhow!("failed to decode uu from stdin"))?;
-                let n = data.len() as u64;
-                writer.write_all(&data)?;
-                n
-            }
-            ArchiveFormat::Xxe => {
-                let mut content = String::new();
-                reader.read_to_string(&mut content)?;
-                let (_, data) = xxe::xxe_decode(&content)
-                    .map_err(|e| anyhow::anyhow!("failed to decode xxe from stdin: {}", e))?;
-                let n = data.len() as u64;
-                writer.write_all(&data)?;
-                n
-            }
-            ArchiveFormat::Lzma => xz::lzma_decompress(&mut reader, &mut writer)?,
-            _ => unreachable!(),
-        };
-        eprintln!(
-            "Decompressed stdin -> {} ({} bytes)",
-            output_path.display(),
-            bytes
-        );
+        ArchiveFormat::Bzip2 | ArchiveFormat::TarBz2 => {
+            bzip2::bzip2_decompress(&mut reader, &mut writer)?
+        }
+        ArchiveFormat::Brotli | ArchiveFormat::TarBr => {
+            brotli::brotli_decompress(&mut reader, &mut writer)?
+        }
+        ArchiveFormat::Lz4 | ArchiveFormat::TarLz4 => {
+            lz4::lz4_decompress(&mut reader, &mut writer)?
+        }
+        ArchiveFormat::Zstd | ArchiveFormat::TarZst => {
+            zstd::zstd_decompress(&mut reader, &mut writer)?
+        }
+        ArchiveFormat::Xz | ArchiveFormat::TarXz => xz::xz_decompress(&mut reader, &mut writer)?,
+        ArchiveFormat::Lzma => xz::lzma_decompress(&mut reader, &mut writer)?,
+        ArchiveFormat::Lz => lz::lz_decompress(&mut reader, &mut writer)?,
+        ArchiveFormat::Img => img::img_decompress(&mut reader, &mut writer)?,
+        ArchiveFormat::Bin => bin::bin_decompress(&mut reader, &mut writer)?,
+        ArchiveFormat::Aes => {
+            aes::aes_decrypt(&mut reader, &mut writer, password.unwrap_or_default())?
+        }
+        ArchiveFormat::Uu | ArchiveFormat::Xxe => {
+            let mut content = String::new();
+            reader.read_to_string(&mut content)?;
+            let (_, data) = if format == ArchiveFormat::Uu {
+                uu::uu_decode(&content).context("failed to decode uu stream")?
+            } else {
+                xxe::xxe_decode(&content)
+                    .map_err(|error| anyhow::anyhow!("failed to decode xxe stream: {error}"))?
+            };
+            writer.write_all(&data)?;
+            data.len() as u64
+        }
+        _ => anyhow::bail!("unsupported format for single-stream decompression: {format}"),
+    };
+    writer.flush()?;
+    check_cancelled(cancel)?;
+    Ok(bytes)
+}
+
+fn output_filename(archive: &Path, format: ArchiveFormat) -> PathBuf {
+    match format {
+        ArchiveFormat::Gzip => common::gzip_output_filename(archive),
+        ArchiveFormat::Bzip2 => common::bzip2_output_filename(archive),
+        ArchiveFormat::Brotli => common::brotli_output_filename(archive),
+        ArchiveFormat::Lz4 => common::lz4_output_filename(archive),
+        ArchiveFormat::Zstd => common::zstd_output_filename(archive),
+        ArchiveFormat::Xz => common::xz_output_filename(archive),
+        ArchiveFormat::Lzma => common::lzma_output_filename(archive),
+        ArchiveFormat::Lz => common::lz_output_filename(archive),
+        ArchiveFormat::Img => common::img_output_filename(archive),
+        ArchiveFormat::Bin => common::bin_output_filename(archive),
+        ArchiveFormat::Aes => common::aes_output_filename(archive),
+        ArchiveFormat::Uu => common::uu_output_filename(archive),
+        ArchiveFormat::Xxe => common::xxe_output_filename(archive),
+        ArchiveFormat::Isz => archive
+            .with_extension("iso")
+            .file_name()
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from("output.iso")),
+        _ => PathBuf::from("output"),
     }
-
-    Ok(())
 }
 
-/// Decompress a gzip stream to stdout.
-fn decompress_gzip_stdout(archive: &Path, cancel_flag: Arc<AtomicBool>) -> Result<()> {
-    let file_size = std::fs::metadata(archive).map(|m| m.len()).unwrap_or(0);
-    let file =
-        fs::File::open(archive).with_context(|| format!("opening '{}'", archive.display()))?;
-    let mut stdout = std::io::stdout().lock();
-
-    // Wrap reader with cancellation support.
-    let wrapper = crate::render::progress::ProgressBarWrapper::hidden();
-    let shared = crate::render::progress::SharedCallback::new(wrapper, cancel_flag);
-    let mut reader = geezipx_core::ProgressReader::new(file)
-        .with_total(file_size)
-        .with_callback(Box::new(shared));
-
-    let bytes = geezipx_core::archive::gzip::gzip_decompress(&mut reader, &mut stdout)
-        .with_context(|| format!("decompressing '{}'", archive.display()))?;
-    // Flush stdout to ensure all bytes are written before exiting.
-    stdout
-        .flush()
-        .context("flushing stdout after decompression")?;
-    eprintln!("Decompressed {} bytes to stdout", bytes);
-    Ok(())
-}
-
-/// Decompress a gzip file to a new file in the output directory.
-fn decompress_gzip_to_file(
-    archive: &Path,
-    output_dir: &Path,
-    overwrite: bool,
-    cancel_flag: Arc<AtomicBool>,
-) -> Result<()> {
-    let output_name = common::gzip_output_filename(archive);
-    let output_path = output_dir.join(&output_name);
-
-    let input_file =
-        fs::File::open(archive).with_context(|| format!("opening '{}'", archive.display()))?;
-    // Check for clobber (no-clobber mode).
-    if !overwrite && output_path.exists() {
-        eprintln!(
-            "Warning: '{}' already exists, skipping (use --force to overwrite)",
-            output_path.display()
-        );
-        return Ok(());
-    }
-
-    let mut output_file = fs::File::create(&output_path)
-        .with_context(|| format!("creating '{}'", output_path.display()))?;
-
-    // Wrap reader with cancellation support.
-    let wrapper = ProgressBarWrapper::hidden();
-    let shared = SharedCallback::new(wrapper, cancel_flag);
-    let mut reader = ProgressReader::new(input_file).with_callback(Box::new(shared));
-
-    let bytes = geezipx_core::archive::gzip::gzip_decompress(&mut reader, &mut output_file)
-        .with_context(|| format!("decompressing '{}'", archive.display()))?;
-
-    eprintln!(
-        "Decompressed {} -> {} ({} bytes)",
-        archive.display(),
-        output_path.display(),
-        bytes,
-    );
-    Ok(())
-}
-
-/// Decompress an lz stream to stdout.
-fn decompress_lz_stdout(archive: &Path, cancel_flag: Arc<AtomicBool>) -> Result<()> {
-    let file_size = std::fs::metadata(archive).map(|m| m.len()).unwrap_or(0);
-    let file =
-        fs::File::open(archive).with_context(|| format!("opening '{}'", archive.display()))?;
-    let mut stdout = std::io::stdout().lock();
-
-    let wrapper = crate::render::progress::ProgressBarWrapper::hidden();
-    let shared = crate::render::progress::SharedCallback::new(wrapper, cancel_flag);
-    let mut reader = geezipx_core::ProgressReader::new(file)
-        .with_total(file_size)
-        .with_callback(Box::new(shared));
-
-    let bytes = lz::lz_decompress(&mut reader, &mut stdout)
-        .with_context(|| format!("decompressing '{}'", archive.display()))?;
-    stdout
-        .flush()
-        .context("flushing stdout after decompression")?;
-    eprintln!("Decompressed {} bytes to stdout", bytes);
-    Ok(())
-}
-
-/// Decompress an lz file to a new file in the output directory.
-fn decompress_lz_to_file(
-    archive: &Path,
-    output_dir: &Path,
-    overwrite: bool,
-    cancel_flag: Arc<AtomicBool>,
-) -> Result<()> {
-    let output_name = common::lz_output_filename(archive);
-    let output_path = output_dir.join(&output_name);
-
-    if !overwrite && output_path.exists() {
-        eprintln!(
-            "Warning: '{}' already exists, skipping (use --force to overwrite)",
-            output_path.display()
-        );
-        return Ok(());
-    }
-
-    let input_file =
-        fs::File::open(archive).with_context(|| format!("opening '{}'", archive.display()))?;
-    let mut output_file = fs::File::create(&output_path)
-        .with_context(|| format!("creating '{}'", output_path.display()))?;
-
-    let wrapper = ProgressBarWrapper::hidden();
-    let shared = SharedCallback::new(wrapper, cancel_flag);
-    let mut reader = ProgressReader::new(input_file).with_callback(Box::new(shared));
-
-    let bytes = lz::lz_decompress(&mut reader, &mut output_file)
-        .with_context(|| format!("decompressing '{}'", archive.display()))?;
-
-    eprintln!(
-        "Decompressed {} -> {} ({} bytes)",
-        archive.display(),
-        output_path.display(),
-        bytes,
-    );
-    Ok(())
-}
-
-/// Decompress an IMG stream to stdout (pass-through).
-fn decompress_img_stdout(archive: &Path, cancel_flag: Arc<AtomicBool>) -> Result<()> {
-    let file_size = std::fs::metadata(archive).map(|m| m.len()).unwrap_or(0);
-    let file =
-        fs::File::open(archive).with_context(|| format!("opening '{}'", archive.display()))?;
-    let mut stdout = std::io::stdout().lock();
-
-    let wrapper = crate::render::progress::ProgressBarWrapper::hidden();
-    let shared = crate::render::progress::SharedCallback::new(wrapper, cancel_flag);
-    let mut reader = geezipx_core::ProgressReader::new(file)
-        .with_total(file_size)
-        .with_callback(Box::new(shared));
-
-    let bytes = geezipx_core::archive::img::img_decompress(&mut reader, &mut stdout)
-        .with_context(|| format!("decompressing '{}'", archive.display()))?;
-    stdout
-        .flush()
-        .context("flushing stdout after decompression")?;
-    eprintln!("Decompressed {} bytes to stdout", bytes);
-    Ok(())
-}
-
-/// Decompress an IMG file to a new file in the output directory (pass-through).
-fn decompress_img_to_file(
-    archive: &Path,
-    output_dir: &Path,
-    overwrite: bool,
-    cancel_flag: Arc<AtomicBool>,
-) -> Result<()> {
-    let output_name = common::img_output_filename(archive);
-    let output_path = output_dir.join(&output_name);
-
-    let input_file =
-        fs::File::open(archive).with_context(|| format!("opening '{}'", archive.display()))?;
-    if !overwrite && output_path.exists() {
-        eprintln!(
-            "Warning: '{}' already exists, skipping (use --force to overwrite)",
-            output_path.display()
-        );
-        return Ok(());
-    }
-
-    let mut output_file = fs::File::create(&output_path)
-        .with_context(|| format!("creating '{}'", output_path.display()))?;
-
-    let wrapper = ProgressBarWrapper::hidden();
-    let shared = SharedCallback::new(wrapper, cancel_flag);
-    let mut reader = ProgressReader::new(input_file).with_callback(Box::new(shared));
-
-    let bytes = geezipx_core::archive::img::img_decompress(&mut reader, &mut output_file)
-        .with_context(|| format!("decompressing '{}'", archive.display()))?;
-
-    eprintln!(
-        "Decompressed {} -> {} ({} bytes)",
-        archive.display(),
-        output_path.display(),
-        bytes,
-    );
-    Ok(())
-}
-
-/// Decompress a BIN stream to stdout (pass-through).
-fn decompress_bin_stdout(archive: &Path, cancel_flag: Arc<AtomicBool>) -> Result<()> {
-    let file_size = std::fs::metadata(archive).map(|m| m.len()).unwrap_or(0);
-    let file =
-        fs::File::open(archive).with_context(|| format!("opening '{}'", archive.display()))?;
-    let mut stdout = std::io::stdout().lock();
-
-    let wrapper = crate::render::progress::ProgressBarWrapper::hidden();
-    let shared = crate::render::progress::SharedCallback::new(wrapper, cancel_flag);
-    let mut reader = geezipx_core::ProgressReader::new(file)
-        .with_total(file_size)
-        .with_callback(Box::new(shared));
-
-    let bytes = bin::bin_decompress(&mut reader, &mut stdout)
-        .with_context(|| format!("decompressing '{}'", archive.display()))?;
-    stdout
-        .flush()
-        .context("flushing stdout after decompression")?;
-    eprintln!("Decompressed {} bytes to stdout", bytes);
-    Ok(())
-}
-
-/// Decompress a BIN file to a new file in the output directory (pass-through).
-fn decompress_bin_to_file(
-    archive: &Path,
-    output_dir: &Path,
-    overwrite: bool,
-    cancel_flag: Arc<AtomicBool>,
-) -> Result<()> {
-    let output_name = common::bin_output_filename(archive);
-    let output_path = output_dir.join(&output_name);
-
-    let input_file =
-        fs::File::open(archive).with_context(|| format!("opening '{}'", archive.display()))?;
-    if !overwrite && output_path.exists() {
-        eprintln!(
-            "Warning: '{}' already exists, skipping (use --force to overwrite)",
-            output_path.display()
-        );
-        return Ok(());
-    }
-
-    let mut output_file = fs::File::create(&output_path)
-        .with_context(|| format!("creating '{}'", output_path.display()))?;
-
-    let wrapper = ProgressBarWrapper::hidden();
-    let shared = SharedCallback::new(wrapper, cancel_flag);
-    let mut reader = ProgressReader::new(input_file).with_callback(Box::new(shared));
-
-    let bytes = bin::bin_decompress(&mut reader, &mut output_file)
-        .with_context(|| format!("decompressing '{}'", archive.display()))?;
-
-    eprintln!(
-        "Decompressed {} -> {} ({} bytes)",
-        archive.display(),
-        output_path.display(),
-        bytes,
-    );
-    Ok(())
-}
-
-/// Decrypt an AES-encrypted stream to stdout.
-fn decompress_aes_stdout(
-    archive: &Path,
-    password: &str,
-    cancel_flag: Arc<AtomicBool>,
-) -> Result<()> {
-    let file_size = std::fs::metadata(archive).map(|m| m.len()).unwrap_or(0);
-    let file =
-        fs::File::open(archive).with_context(|| format!("opening '{}'", archive.display()))?;
-    let mut stdout = std::io::stdout().lock();
-
-    let wrapper = crate::render::progress::ProgressBarWrapper::hidden();
-    let shared = crate::render::progress::SharedCallback::new(wrapper, cancel_flag);
-    let mut reader = geezipx_core::ProgressReader::new(file)
-        .with_total(file_size)
-        .with_callback(Box::new(shared));
-
-    let bytes = aes::aes_decrypt(&mut reader, &mut stdout, password)
-        .with_context(|| format!("decrypting '{}'", archive.display()))?;
-    stdout.flush().context("flushing stdout after decryption")?;
-    eprintln!("Decrypted {} bytes to stdout", bytes);
-    Ok(())
-}
-
-/// Decrypt an AES-encrypted file to a new file in the output directory.
-fn decompress_aes_to_file(
-    archive: &Path,
-    output_dir: &Path,
-    overwrite: bool,
-    password: &str,
-    cancel_flag: Arc<AtomicBool>,
-) -> Result<()> {
-    let output_name = common::aes_output_filename(archive);
-    let output_path = output_dir.join(&output_name);
-
-    let input_file =
-        fs::File::open(archive).with_context(|| format!("opening '{}'", archive.display()))?;
-    if !overwrite && output_path.exists() {
-        eprintln!(
-            "Warning: '{}' already exists, skipping (use --force to overwrite)",
-            output_path.display()
-        );
-        return Ok(());
-    }
-
-    let mut output_file = fs::File::create(&output_path)
-        .with_context(|| format!("creating '{}'", output_path.display()))?;
-
-    let wrapper = ProgressBarWrapper::hidden();
-    let shared = SharedCallback::new(wrapper, cancel_flag);
-    let mut reader = ProgressReader::new(input_file).with_callback(Box::new(shared));
-
-    let bytes = aes::aes_decrypt(&mut reader, &mut output_file, password)
-        .with_context(|| format!("decrypting '{}'", archive.display()))?;
-
-    eprintln!(
-        "Decrypted {} -> {} ({} bytes)",
-        archive.display(),
-        output_path.display(),
-        bytes,
-    );
-    Ok(())
-}
-
-/// Decompress a bzip2 stream to stdout.
-fn decompress_bzip2_stdout(archive: &Path, cancel_flag: Arc<AtomicBool>) -> Result<()> {
-    let file_size = std::fs::metadata(archive).map(|m| m.len()).unwrap_or(0);
-    let file =
-        fs::File::open(archive).with_context(|| format!("opening '{}'", archive.display()))?;
-    let mut stdout = std::io::stdout().lock();
-
-    let wrapper = crate::render::progress::ProgressBarWrapper::hidden();
-    let shared = crate::render::progress::SharedCallback::new(wrapper, cancel_flag);
-    let mut reader = geezipx_core::ProgressReader::new(file)
-        .with_total(file_size)
-        .with_callback(Box::new(shared));
-
-    let bytes = geezipx_core::archive::bzip2::bzip2_decompress(&mut reader, &mut stdout)
-        .with_context(|| format!("decompressing '{}'", archive.display()))?;
-    stdout
-        .flush()
-        .context("flushing stdout after decompression")?;
-    eprintln!("Decompressed {} bytes to stdout", bytes);
-    Ok(())
-}
-
-/// Decompress a bzip2 file to a new file in the output directory.
-fn decompress_bzip2_to_file(
-    archive: &Path,
-    output_dir: &Path,
-    overwrite: bool,
-    cancel_flag: Arc<AtomicBool>,
-) -> Result<()> {
-    let output_name = common::bzip2_output_filename(archive);
-    let output_path = output_dir.join(&output_name);
-
-    let input_file =
-        fs::File::open(archive).with_context(|| format!("opening '{}'", archive.display()))?;
-    if !overwrite && output_path.exists() {
-        eprintln!(
-            "Warning: '{}' already exists, skipping (use --force to overwrite)",
-            output_path.display()
-        );
-        return Ok(());
-    }
-
-    let mut output_file = fs::File::create(&output_path)
-        .with_context(|| format!("creating '{}'", output_path.display()))?;
-
-    let wrapper = ProgressBarWrapper::hidden();
-    let shared = SharedCallback::new(wrapper, cancel_flag);
-    let mut reader = ProgressReader::new(input_file).with_callback(Box::new(shared));
-
-    let bytes = geezipx_core::archive::bzip2::bzip2_decompress(&mut reader, &mut output_file)
-        .with_context(|| format!("decompressing '{}'", archive.display()))?;
-
-    eprintln!(
-        "Decompressed {} -> {} ({} bytes)",
-        archive.display(),
-        output_path.display(),
-        bytes,
-    );
-    Ok(())
-}
-
-/// Decompress a Brotli stream to stdout.
-fn decompress_brotli_stdout(archive: &Path, cancel_flag: Arc<AtomicBool>) -> Result<()> {
-    let file_size = std::fs::metadata(archive).map(|m| m.len()).unwrap_or(0);
-    let file =
-        fs::File::open(archive).with_context(|| format!("opening '{}'", archive.display()))?;
-    let mut stdout = std::io::stdout().lock();
-
-    let wrapper = crate::render::progress::ProgressBarWrapper::hidden();
-    let shared = crate::render::progress::SharedCallback::new(wrapper, cancel_flag);
-    let mut reader = geezipx_core::ProgressReader::new(file)
-        .with_total(file_size)
-        .with_callback(Box::new(shared));
-
-    let bytes = geezipx_core::archive::brotli::brotli_decompress(&mut reader, &mut stdout)
-        .with_context(|| format!("decompressing '{}'", archive.display()))?;
-    stdout
-        .flush()
-        .context("flushing stdout after decompression")?;
-    eprintln!("Decompressed {} bytes to stdout", bytes);
-    Ok(())
-}
-
-/// Decompress a Brotli file to a new file in the output directory.
-fn decompress_brotli_to_file(
-    archive: &Path,
-    output_dir: &Path,
-    overwrite: bool,
-    cancel_flag: Arc<AtomicBool>,
-) -> Result<()> {
-    let output_name = common::brotli_output_filename(archive);
-    let output_path = output_dir.join(&output_name);
-
-    let input_file =
-        fs::File::open(archive).with_context(|| format!("opening '{}'", archive.display()))?;
-    if !overwrite && output_path.exists() {
-        eprintln!(
-            "Warning: '{}' already exists, skipping (use --force to overwrite)",
-            output_path.display()
-        );
-        return Ok(());
-    }
-
-    let mut output_file = fs::File::create(&output_path)
-        .with_context(|| format!("creating '{}'", output_path.display()))?;
-
-    let wrapper = ProgressBarWrapper::hidden();
-    let shared = SharedCallback::new(wrapper, cancel_flag);
-    let mut reader = ProgressReader::new(input_file).with_callback(Box::new(shared));
-
-    let bytes = geezipx_core::archive::brotli::brotli_decompress(&mut reader, &mut output_file)
-        .with_context(|| format!("decompressing '{}'", archive.display()))?;
-
-    eprintln!(
-        "Decompressed {} -> {} ({} bytes)",
-        archive.display(),
-        output_path.display(),
-        bytes,
-    );
-    Ok(())
-}
-
-/// Decompress an lz4 stream to stdout.
-fn decompress_lz4_stdout(archive: &Path, cancel_flag: Arc<AtomicBool>) -> Result<()> {
-    let file_size = std::fs::metadata(archive).map(|m| m.len()).unwrap_or(0);
-    let file =
-        fs::File::open(archive).with_context(|| format!("opening '{}'", archive.display()))?;
-    let mut stdout = std::io::stdout().lock();
-
-    let wrapper = crate::render::progress::ProgressBarWrapper::hidden();
-    let shared = crate::render::progress::SharedCallback::new(wrapper, cancel_flag);
-    let mut reader = geezipx_core::ProgressReader::new(file)
-        .with_total(file_size)
-        .with_callback(Box::new(shared));
-
-    let bytes = geezipx_core::archive::lz4::lz4_decompress(&mut reader, &mut stdout)
-        .with_context(|| format!("decompressing '{}'", archive.display()))?;
-    stdout
-        .flush()
-        .context("flushing stdout after decompression")?;
-    eprintln!("Decompressed {} bytes to stdout", bytes);
-    Ok(())
-}
-
-/// Decompress an lz4 file to a new file in the output directory.
-fn decompress_lz4_to_file(
-    archive: &Path,
-    output_dir: &Path,
-    overwrite: bool,
-    cancel_flag: Arc<AtomicBool>,
-) -> Result<()> {
-    let output_name = common::lz4_output_filename(archive);
-    let output_path = output_dir.join(&output_name);
-
-    let input_file =
-        fs::File::open(archive).with_context(|| format!("opening '{}'", archive.display()))?;
-    if !overwrite && output_path.exists() {
-        eprintln!(
-            "Warning: '{}' already exists, skipping (use --force to overwrite)",
-            output_path.display()
-        );
-        return Ok(());
-    }
-
-    let mut output_file = fs::File::create(&output_path)
-        .with_context(|| format!("creating '{}'", output_path.display()))?;
-
-    let wrapper = ProgressBarWrapper::hidden();
-    let shared = SharedCallback::new(wrapper, cancel_flag);
-    let mut reader = ProgressReader::new(input_file).with_callback(Box::new(shared));
-
-    let bytes = geezipx_core::archive::lz4::lz4_decompress(&mut reader, &mut output_file)
-        .with_context(|| format!("decompressing '{}'", archive.display()))?;
-
-    eprintln!(
-        "Decompressed {} -> {} ({} bytes)",
-        archive.display(),
-        output_path.display(),
-        bytes,
-    );
-    Ok(())
-}
-
-/// Decompress a zstd stream to stdout.
-fn decompress_zstd_stdout(archive: &Path, cancel_flag: Arc<AtomicBool>) -> Result<()> {
-    let file_size = std::fs::metadata(archive).map(|m| m.len()).unwrap_or(0);
-    let file =
-        fs::File::open(archive).with_context(|| format!("opening '{}'", archive.display()))?;
-    let mut stdout = std::io::stdout().lock();
-
-    // Wrap reader with cancellation support.
-    let wrapper = crate::render::progress::ProgressBarWrapper::hidden();
-    let shared = crate::render::progress::SharedCallback::new(wrapper, cancel_flag);
-    let mut reader = geezipx_core::ProgressReader::new(file)
-        .with_total(file_size)
-        .with_callback(Box::new(shared));
-
-    let bytes = geezipx_core::archive::zstd::zstd_decompress(&mut reader, &mut stdout)
-        .with_context(|| format!("decompressing '{}'", archive.display()))?;
-    // Flush stdout to ensure all bytes are written before exiting.
-    stdout
-        .flush()
-        .context("flushing stdout after decompression")?;
-    eprintln!("Decompressed {} bytes to stdout", bytes);
-    Ok(())
-}
-
-/// Decompress a zstd file to a new file in the output directory.
-fn decompress_zstd_to_file(
-    archive: &Path,
-    output_dir: &Path,
-    overwrite: bool,
-    cancel_flag: Arc<AtomicBool>,
-) -> Result<()> {
-    let output_name = common::zstd_output_filename(archive);
-    let output_path = output_dir.join(&output_name);
-
-    let input_file =
-        fs::File::open(archive).with_context(|| format!("opening '{}'", archive.display()))?;
-    // Check for clobber (no-clobber mode).
-    if !overwrite && output_path.exists() {
-        eprintln!(
-            "Warning: '{}' already exists, skipping (use --force to overwrite)",
-            output_path.display()
-        );
-        return Ok(());
-    }
-
-    let mut output_file = fs::File::create(&output_path)
-        .with_context(|| format!("creating '{}'", output_path.display()))?;
-
-    // Wrap reader with cancellation support.
-    let wrapper = ProgressBarWrapper::hidden();
-    let shared = SharedCallback::new(wrapper, cancel_flag);
-    let mut reader = ProgressReader::new(input_file).with_callback(Box::new(shared));
-
-    let bytes = geezipx_core::archive::zstd::zstd_decompress(&mut reader, &mut output_file)
-        .with_context(|| format!("decompressing '{}'", archive.display()))?;
-
-    eprintln!(
-        "Decompressed {} -> {} ({} bytes)",
-        archive.display(),
-        output_path.display(),
-        bytes,
-    );
-    Ok(())
-}
-
-/// Decode a UU/UUE file to stdout.
-fn decompress_uu_stdout(archive: &Path, cancel_flag: Arc<AtomicBool>) -> Result<()> {
-    if cancel_flag.load(Ordering::Relaxed) {
-        anyhow::bail!("Cancelled");
-    }
-    let bytes = uu::uu_decode_to_writer(archive, &mut std::io::stdout().lock())
-        .context("decoding uu file")?;
-    eprintln!("Decoded {} bytes to stdout", bytes);
-    Ok(())
-}
-
-/// Decode a UU/UUE file to a file on disk.
-fn decompress_uu_to_file(
-    archive: &Path,
-    output_dir: &Path,
-    overwrite: bool,
-    cancel_flag: Arc<AtomicBool>,
-) -> Result<()> {
-    if cancel_flag.load(Ordering::Relaxed) {
-        anyhow::bail!("Cancelled");
-    }
-    let output_name = common::uu_output_filename(archive);
-    let output_path = output_dir.join(&output_name);
-    if !overwrite && output_path.exists() {
-        eprintln!(
-            "Warning: '{}' already exists, skipping (use --force to overwrite)",
-            output_path.display()
-        );
-        return Ok(());
-    }
-    let mut file = fs::File::create(&output_path)
-        .with_context(|| format!("creating '{}'", output_path.display()))?;
-    let bytes = uu::uu_decode_to_writer(archive, &mut file)
-        .with_context(|| format!("decoding '{}'", archive.display()))?;
-    eprintln!(
-        "Decoded {} -> {} ({} bytes)",
-        archive.display(),
-        output_path.display(),
-        bytes
-    );
-    Ok(())
-}
-
-/// Decode an XXE file to stdout.
-fn decompress_xxe_stdout(archive: &Path, cancel_flag: Arc<AtomicBool>) -> Result<()> {
-    if cancel_flag.load(Ordering::Relaxed) {
-        anyhow::bail!("Cancelled");
-    }
-    let bytes = xxe::xxe_decode_to_writer(archive, &mut std::io::stdout().lock())
-        .context("decoding xxe file")?;
-    eprintln!("Decoded {} bytes to stdout", bytes);
-    Ok(())
-}
-
-/// Decode an XXE file to a file on disk.
-fn decompress_xxe_to_file(
-    archive: &Path,
-    output_dir: &Path,
-    overwrite: bool,
-    cancel_flag: Arc<AtomicBool>,
-) -> Result<()> {
-    if cancel_flag.load(Ordering::Relaxed) {
-        anyhow::bail!("Cancelled");
-    }
-    let output_name = common::xxe_output_filename(archive);
-    let output_path = output_dir.join(&output_name);
-    if !overwrite && output_path.exists() {
-        eprintln!(
-            "Warning: '{}' already exists, skipping (use --force to overwrite)",
-            output_path.display()
-        );
-        return Ok(());
-    }
-    let mut file = fs::File::create(&output_path)
-        .with_context(|| format!("creating '{}'", output_path.display()))?;
-    let bytes = xxe::xxe_decode_to_writer(archive, &mut file)
-        .with_context(|| format!("decoding '{}'", archive.display()))?;
-    eprintln!(
-        "Decoded {} -> {} ({} bytes)",
-        archive.display(),
-        output_path.display(),
-        bytes
-    );
-    Ok(())
-}
-
-/// Decompress a multi-file archive (zip, tar, tar.gz) using `extract_all`.
-///
-/// If `cancel_flag` is set, extraction stops as early as possible and
-/// returns [`geezipx_core::GeeZipError::Cancelled`].
 #[allow(clippy::too_many_arguments)]
 fn decompress_archive(
     archive: &Path,
@@ -1470,240 +319,60 @@ fn decompress_archive(
     format: ArchiveFormat,
     overwrite: bool,
     verbose: bool,
-    show_progress: bool,
-    cancel_flag: Arc<AtomicBool>,
-    password: Option<String>,
+    no_progress: bool,
+    password: Option<&str>,
+    cancel: &CancellationToken,
 ) -> Result<()> {
-    let report = common::open_reader(archive, format, password.as_deref())?
-        .extract_all_with_cancel(output_dir, overwrite, &|| {
-            cancel_flag.load(std::sync::atomic::Ordering::SeqCst)
-        })
+    let spinner = if !no_progress && !verbose && crate::render::progress::progress_bar_enabled() {
+        Some(ProgressBarWrapper::spinner("Extracting..."))
+    } else {
+        None
+    };
+    let mut reader = common::open_reader(archive, format, password)?;
+    for entry in reader.entries().context("reading archive entries")? {
+        if !entry.is_dir {
+            common::ensure_distinct_output(archive, &output_dir.join(&entry.path))?;
+        }
+    }
+    let report = reader
+        .extract_all_with_cancel(output_dir, overwrite, &|| cancel.is_cancelled())
         .with_context(|| format!("extracting '{}'", archive.display()))?;
-
-    // Report any per-file errors.
-    for (entry_name, err) in &report.errors {
-        eprintln!("Warning: failed to extract '{entry_name}': {err}");
+    let mut failures = 0;
+    for (name, error) in &report.errors {
+        if matches!(error, geezipx_core::GeeZipError::ClobberDenied { .. }) {
+            eprintln!("Skipped '{name}': file already exists");
+        } else {
+            failures += 1;
+            eprintln!("Warning: failed to extract '{name}': {error}");
+        }
     }
-
-    // Skip summary message when progress bar already shows it.
-    if !show_progress || verbose {
-        eprintln!(
-            "Extracted {} ({} files, {} bytes, {} skipped)",
-            archive.display(),
-            report.files_extracted,
-            report.bytes_extracted,
-            report.files_skipped,
-        );
+    if let Some(spinner) = spinner {
+        spinner.finish(if failures == 0 {
+            "Extraction complete"
+        } else {
+            "Extraction failed"
+        });
     }
-
-    // Return error if nothing was extracted.
-    if report.files_extracted == 0 && report.errors.is_empty() {
+    eprintln!(
+        "Extracted {} ({} files, {} bytes, {} skipped)",
+        archive.display(),
+        report.files_extracted,
+        report.bytes_extracted,
+        report.files_skipped
+    );
+    if failures > 0 {
         anyhow::bail!(
-            "archive '{}' contained no extractable entries",
-            archive.display()
+            "extraction failed for {} entries ({} extracted, {} skipped)",
+            failures,
+            report.files_extracted,
+            report.files_skipped
         );
     }
-
-    Ok(())
+    check_cancelled(cancel)
 }
 
-/// Decompress an xz stream to stdout.
-fn decompress_xz_stdout(archive: &Path, cancel_flag: Arc<AtomicBool>) -> Result<()> {
-    let file_size = std::fs::metadata(archive).map(|m| m.len()).unwrap_or(0);
-    let file =
-        fs::File::open(archive).with_context(|| format!("opening '{}'", archive.display()))?;
-    let mut stdout = std::io::stdout().lock();
-
-    // Wrap reader with cancellation support.
-    let wrapper = crate::render::progress::ProgressBarWrapper::hidden();
-    let shared = crate::render::progress::SharedCallback::new(wrapper, cancel_flag);
-    let mut reader = geezipx_core::ProgressReader::new(file)
-        .with_total(file_size)
-        .with_callback(Box::new(shared));
-
-    let bytes = xz::xz_decompress(&mut reader, &mut stdout)
-        .with_context(|| format!("decompressing '{}'", archive.display()))?;
-    // Flush stdout to ensure all bytes are written before exiting.
-    stdout
-        .flush()
-        .context("flushing stdout after decompression")?;
-    eprintln!("Decompressed {} bytes to stdout", bytes);
-    Ok(())
-}
-
-/// Decompress an xz file to a new file in the output directory.
-fn decompress_xz_to_file(
-    archive: &Path,
-    output_dir: &Path,
-    overwrite: bool,
-    cancel_flag: Arc<AtomicBool>,
-) -> Result<()> {
-    let output_name = common::xz_output_filename(archive);
-    let output_path = output_dir.join(&output_name);
-
-    let input_file =
-        fs::File::open(archive).with_context(|| format!("opening '{}'", archive.display()))?;
-    // Check for clobber (no-clobber mode).
-    if !overwrite && output_path.exists() {
-        eprintln!(
-            "Warning: '{}' already exists, skipping (use --force to overwrite)",
-            output_path.display()
-        );
-        return Ok(());
-    }
-
-    let mut output_file = fs::File::create(&output_path)
-        .with_context(|| format!("creating '{}'", output_path.display()))?;
-
-    // Wrap reader with cancellation support.
-    let wrapper = ProgressBarWrapper::hidden();
-    let shared = SharedCallback::new(wrapper, cancel_flag);
-    let mut reader = ProgressReader::new(input_file).with_callback(Box::new(shared));
-
-    let bytes = xz::xz_decompress(&mut reader, &mut output_file)
-        .with_context(|| format!("decompressing '{}'", archive.display()))?;
-
-    eprintln!(
-        "Decompressed {} -> {} ({} bytes)",
-        archive.display(),
-        output_path.display(),
-        bytes,
-    );
-    Ok(())
-}
-
-/// Decompress an lzma stream to stdout.
-fn decompress_lzma_stdout(archive: &Path, cancel_flag: Arc<AtomicBool>) -> Result<()> {
-    let file_size = std::fs::metadata(archive).map(|m| m.len()).unwrap_or(0);
-    let file =
-        fs::File::open(archive).with_context(|| format!("opening '{}'", archive.display()))?;
-    let mut stdout = std::io::stdout().lock();
-
-    // Wrap reader with cancellation support.
-    let wrapper = crate::render::progress::ProgressBarWrapper::hidden();
-    let shared = crate::render::progress::SharedCallback::new(wrapper, cancel_flag);
-    let mut reader = geezipx_core::ProgressReader::new(file)
-        .with_total(file_size)
-        .with_callback(Box::new(shared));
-
-    let bytes = xz::lzma_decompress(&mut reader, &mut stdout)
-        .with_context(|| format!("decompressing '{}'", archive.display()))?;
-    // Flush stdout to ensure all bytes are written before exiting.
-    stdout
-        .flush()
-        .context("flushing stdout after decompression")?;
-    eprintln!("Decompressed {} bytes to stdout", bytes);
-    Ok(())
-}
-
-/// Decompress an lzma file to a new file in the output directory.
-fn decompress_lzma_to_file(
-    archive: &Path,
-    output_dir: &Path,
-    overwrite: bool,
-    cancel_flag: Arc<AtomicBool>,
-) -> Result<()> {
-    let output_name = common::lzma_output_filename(archive);
-    let output_path = output_dir.join(&output_name);
-
-    let input_file =
-        fs::File::open(archive).with_context(|| format!("opening '{}'", archive.display()))?;
-    // Check for clobber (no-clobber mode).
-    if !overwrite && output_path.exists() {
-        eprintln!(
-            "Warning: '{}' already exists, skipping (use --force to overwrite)",
-            output_path.display()
-        );
-        return Ok(());
-    }
-
-    let mut output_file = fs::File::create(&output_path)
-        .with_context(|| format!("creating '{}'", output_path.display()))?;
-
-    // Wrap reader with cancellation support.
-    let wrapper = ProgressBarWrapper::hidden();
-    let shared = SharedCallback::new(wrapper, cancel_flag);
-    let mut reader = ProgressReader::new(input_file).with_callback(Box::new(shared));
-
-    let bytes = xz::lzma_decompress(&mut reader, &mut output_file)
-        .with_context(|| format!("decompressing '{}'", archive.display()))?;
-
-    eprintln!(
-        "Decompressed {} -> {} ({} bytes)",
-        archive.display(),
-        output_path.display(),
-        bytes,
-    );
-    Ok(())
-}
-
-/// Determine the output filename for an ISZ — strip `.isz` and append `.iso`.
-fn isz_output_filename(archive: &Path) -> PathBuf {
-    let name = archive
-        .file_stem()
-        .map(|s| s.to_string_lossy().to_string())
-        .unwrap_or_else(|| "output".to_string());
-    PathBuf::from(format!("{}.iso", name))
-}
-
-/// Decompress an ISZ stream to stdout.
-fn decompress_isz_stdout(archive: &Path, cancel_flag: Arc<AtomicBool>) -> Result<()> {
-    let file =
-        fs::File::open(archive).with_context(|| format!("opening '{}'", archive.display()))?;
-    let mut stdout = std::io::stdout().lock();
-
-    let _cancel = cancel_flag; // ISZ requires seeking, progress wrapper not used
-    let bytes = isz::isz_decompress(&mut &file, &mut stdout).map_err(|e| anyhow::anyhow!("{e}"))?;
-    stdout
-        .flush()
-        .context("flushing stdout after decompression")?;
-    eprintln!("Decompressed {} bytes to stdout", bytes);
-    Ok(())
-}
-
-/// Decompress an ISZ file to `.iso` in the output directory.
-fn decompress_isz_to_file(
-    archive: &Path,
-    output_dir: &Path,
-    overwrite: bool,
-    cancel_flag: Arc<AtomicBool>,
-) -> Result<()> {
-    let output_name = isz_output_filename(archive);
-    let output_path = output_dir.join(&output_name);
-
-    if output_path.exists() && !overwrite {
-        eprintln!(
-            "Warning: '{}' already exists, skipping (use --force to overwrite)",
-            output_path.display()
-        );
-        return Ok(());
-    }
-
-    let _cancel = cancel_flag; // ISZ requires seeking, progress wrapper not used
-    let input_file =
-        fs::File::open(archive).with_context(|| format!("opening '{}'", archive.display()))?;
-    let output_file = fs::File::create(&output_path)
-        .with_context(|| format!("creating '{}'", output_path.display()))?;
-
-    let bytes = isz::isz_decompress(&mut &input_file, output_file)
-        .with_context(|| format!("decompressing '{}'", archive.display()))?;
-
-    eprintln!(
-        "Decompressed {} -> {} ({} bytes)",
-        archive.display(),
-        output_path.display(),
-        bytes,
-    );
-    Ok(())
-}
-
-// ---------------------------------------------------------------------------
-// Split volume decompression
-// ---------------------------------------------------------------------------
-
-/// Execute decompression for a split volume set (e.g. archive.001, archive.002 ...).
 #[allow(clippy::too_many_arguments)]
-fn execute_decompress_volume(
+fn decompress_volume(
     archive: &Path,
     output_dir: &Path,
     stdout: bool,
@@ -1711,182 +380,86 @@ fn execute_decompress_volume(
     no_progress: bool,
     verbose: bool,
     password: Option<&str>,
+    format: Option<&str>,
+    cancel: &CancellationToken,
 ) -> Result<()> {
     let mut reader = MultiVolumeReader::open(archive)
         .with_context(|| format!("opening split volume '{}'", archive.display()))?;
-    let base_name = reader.base_name().to_string();
-    let format = common::detect_archive_format_from_reader(&mut reader, None)?;
-
-    // Validate password
-    if password.is_some()
-        && !matches!(
-            format,
-            ArchiveFormat::Zip | ArchiveFormat::SevenZip | ArchiveFormat::Rar
-        )
-    {
-        anyhow::bail!(
-            "--password is only supported for ZIP, 7z, and RAR formats; '{}' does not support encryption",
-            format
-        );
-    }
-
-    crate::signal::CancellationToken::reset();
-    let cancel_token = crate::signal::CancellationToken::new();
-
+    let base = PathBuf::from(reader.base_name());
+    let format = match format {
+        Some(format) => common::parse_format(format)?,
+        None => common::detect_archive_format_from_reader(&mut reader, Some(&base))?,
+    };
+    validate_password(format, password)?;
     if !stdout {
-        fs::create_dir_all(output_dir)
-            .with_context(|| format!("creating output directory '{}'", output_dir.display()))?;
+        fs::create_dir_all(output_dir)?;
     }
-
-    match format {
-        ArchiveFormat::Gzip
-        | ArchiveFormat::Bzip2
-        | ArchiveFormat::Brotli
-        | ArchiveFormat::Lz4
-        | ArchiveFormat::Zstd
-        | ArchiveFormat::Xz
-        | ArchiveFormat::Lzma
-        | ArchiveFormat::Lz
-        | ArchiveFormat::Img
-        | ArchiveFormat::Bin => {
-            let show_progress =
-                !no_progress && !verbose && crate::render::progress::progress_bar_enabled();
-            let spinner = if show_progress {
-                Some(crate::render::progress::ProgressBarWrapper::spinner(
-                    "Decompressing...",
-                ))
-            } else {
-                None
-            };
-
-            let result = if stdout {
-                let mut writer = std::io::stdout().lock();
-                let bytes = decompress_single_stream(&mut reader, format, &mut writer)
-                    .with_context(|| format!("decompressing volume set '{}'", archive.display()))?;
-                writer
-                    .flush()
-                    .context("flushing stdout after decompression")?;
-                if verbose {
-                    eprintln!(
-                        "Decompressed {} bytes from {} parts to stdout",
-                        bytes,
-                        reader.volumes.len()
-                    );
-                }
-                Ok(())
-            } else {
-                let output_path = output_dir.join(&base_name);
-                if !overwrite && output_path.exists() {
-                    eprintln!(
-                        "Warning: '{}' already exists, skipping (use --force to overwrite)",
-                        output_path.display()
-                    );
-                    return Ok(());
-                }
-                let mut writer = fs::File::create(&output_path)
-                    .with_context(|| format!("creating '{}'", output_path.display()))?;
-                let bytes = decompress_single_stream(&mut reader, format, &mut writer)
-                    .with_context(|| format!("decompressing volume set '{}'", archive.display()))?;
-                eprintln!(
-                    "Decompressed {} -> {} ({} bytes)",
-                    archive.display(),
-                    output_path.display(),
-                    bytes,
-                );
-                Ok(())
-            };
-
-            match result {
-                Ok(()) => {
-                    if let Some(s) = &spinner {
-                        s.finish("Decompressed");
-                    }
-                }
-                Err(e) => {
-                    if let Some(s) = &spinner {
-                        s.finish("Decompression failed");
-                    }
-                    if cancel_token.is_cancelled() {
-                        eprintln!("Cancelled");
-                        std::process::exit(130);
-                    }
-                    return Err(e);
-                }
+    let protected_volumes: Vec<_> = reader
+        .volumes
+        .iter()
+        .map(|(path, _)| path.clone())
+        .collect();
+    if (is_stream(format) || (stdout && is_wrapped(format))) && format != ArchiveFormat::Isz {
+        if stdout {
+            decode_to_stdout(reader, format, password, cancel)
+        } else {
+            let output = output_dir.join(output_filename(&base, format));
+            for (part, _) in &reader.volumes {
+                common::ensure_distinct_output(part, &output)?;
             }
+            decode_to_file(reader, format, password, &output, overwrite, cancel)
         }
-        _ => {
-            // Archive format: spill volume data to a temp file.
-            if stdout {
-                anyhow::bail!("--stdout is not supported for multi-file archives in volume mode");
+    } else {
+        if stdout {
+            anyhow::bail!("--stdout is not supported for multi-file archives in volume mode");
+        }
+        // Keep ownership of the spill file so every error/cancellation cleans it up.
+        let mut temp =
+            tempfile::NamedTempFile::new().context("creating temp file for volume spill")?;
+        let mut reader = ProgressReader::new(reader).with_callback(Box::new(callback(cancel)));
+        std::io::copy(&mut reader, &mut temp).context("reassembling split volumes")?;
+        temp.flush()?;
+        check_cancelled(cancel)?;
+        // Path-backed readers reopen this file; close its handle on all platforms.
+        let path = temp.into_temp_path();
+        if format == ArchiveFormat::Isz {
+            let output = output_dir.join(output_filename(&base, format));
+            for part in &protected_volumes {
+                common::ensure_distinct_output(part, &output)?;
             }
-            let show_progress =
-                !no_progress && !verbose && crate::render::progress::progress_bar_enabled();
-            let spinner = if show_progress {
-                Some(crate::render::progress::ProgressBarWrapper::spinner(
-                    "Reassembling...",
-                ))
-            } else {
-                None
-            };
-
-            // Spill the combined volume stream to a temporary file.
-            let mut tmp = NamedTempFile::new().context("creating temp file for volume spill")?;
-            // Reader is already at position 0 (rewound by detect_archive_format_from_reader).
-            std::io::copy(&mut reader, &mut tmp)
-                .with_context(|| format!("spilling volume data for '{}'", archive.display()))?;
-            tmp.flush()
-                .context("flushing temp file after volume spill")?;
-            let (_, tmp_path) = tmp
-                .keep()
-                .map_err(|e| anyhow::anyhow!("failed to persist temp file: {}", e.error))?;
-
-            if let Some(s) = &spinner {
-                s.finish("Reassembled");
+            if skip_existing(&output, overwrite) {
+                return Ok(());
             }
-
-            let cancel_flag = cancel_token.clone().into_inner();
-            let result = decompress_archive(
-                &tmp_path,
+            let mut pending = common::PendingOutput::new(&output, overwrite)?;
+            let mut input = fs::File::open(&path)?;
+            {
+                let mut writer =
+                    ProgressWriter::new(&mut pending).with_callback(Box::new(callback(cancel)));
+                isz::isz_decompress(&mut input, &mut writer)?;
+                writer.flush()?;
+            }
+            check_cancelled(cancel)?;
+            pending.commit()
+        } else {
+            let mut archive_reader = common::open_reader(&path, format, password)?;
+            for entry in archive_reader.entries()? {
+                if !entry.is_dir {
+                    for part in &protected_volumes {
+                        common::ensure_distinct_output(part, &output_dir.join(&entry.path))?;
+                    }
+                }
+            }
+            drop(archive_reader);
+            decompress_archive(
+                &path,
                 output_dir,
                 format,
                 overwrite,
                 verbose,
-                show_progress,
-                cancel_flag,
-                password.map(|s| s.to_string()),
-            );
-
-            // Clean up temp file.
-            let _ = fs::remove_file(&tmp_path);
-
-            result?;
+                no_progress,
+                password,
+                cancel,
+            )
         }
     }
-
-    Ok(())
-}
-
-/// Decompress a single-stream format from a reader into a writer.
-fn decompress_single_stream<R: Read, W: Write>(
-    reader: &mut R,
-    format: ArchiveFormat,
-    writer: &mut W,
-) -> Result<u64> {
-    let bytes = match format {
-        ArchiveFormat::Gzip => gzip::gzip_decompress(reader, writer)?,
-        ArchiveFormat::Bzip2 => bzip2::bzip2_decompress(reader, writer)?,
-        ArchiveFormat::Brotli => brotli::brotli_decompress(reader, writer)?,
-        ArchiveFormat::Lz4 => lz4::lz4_decompress(reader, writer)?,
-        ArchiveFormat::Zstd => zstd::zstd_decompress(reader, writer)?,
-        ArchiveFormat::Xz => xz::xz_decompress(reader, writer)?,
-        ArchiveFormat::Lzma => xz::lzma_decompress(reader, writer)?,
-        ArchiveFormat::Lz => lz::lz_decompress(reader, writer)?,
-        ArchiveFormat::Img => img::img_decompress(reader, writer)?,
-        ArchiveFormat::Bin => bin::bin_decompress(reader, writer)?,
-        _ => anyhow::bail!(
-            "unsupported format for single-stream decompression: {}",
-            format
-        ),
-    };
-    Ok(bytes)
 }

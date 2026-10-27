@@ -21,36 +21,32 @@ pub fn execute(archive: &Path, json: bool, password: Option<String>) -> Result<(
 
     let format = common::detect_archive_format(archive)?;
 
-    // ISZ is a compressed ISO wrapper with no file entries.
-    if format == ArchiveFormat::Isz {
-        println!("ISZ is a compressed ISO image wrapper with no file entries.");
-        println!("Use 'geezipx decompress <file>.isz' to extract the raw ISO image.");
-        return Ok(());
-    }
-
-    // Validate password: single-stream formats do not support encryption.
-    if password.is_some()
-        && matches!(
-            format,
-            ArchiveFormat::Gzip
-                | ArchiveFormat::Bzip2
-                | ArchiveFormat::Brotli
-                | ArchiveFormat::Lz4
-                | ArchiveFormat::Zstd
-                | ArchiveFormat::Xz
-                | ArchiveFormat::Lzma
-                | ArchiveFormat::Lz
-                | ArchiveFormat::Uu
-                | ArchiveFormat::Xxe
-        )
-    {
-        anyhow::bail!(
-            "--password is only supported for ZIP, 7z, and RAR formats; '{}' does not support encryption",
-            format
-        );
-    }
+    common::validate_read_password_support(format, password.as_deref())?;
 
     let entries = match format {
+        ArchiveFormat::Img | ArchiveFormat::Bin | ArchiveFormat::Aes | ArchiveFormat::Isz => {
+            let inferred_name = match format {
+                ArchiveFormat::Img => common::img_output_filename(archive),
+                ArchiveFormat::Bin => common::bin_output_filename(archive),
+                ArchiveFormat::Aes => common::aes_output_filename(archive),
+                ArchiveFormat::Isz => archive
+                    .with_extension("iso")
+                    .file_name()
+                    .map(std::path::PathBuf::from)
+                    .unwrap_or_else(|| "output.iso".into()),
+                _ => unreachable!(),
+            };
+            vec![Entry {
+                path: inferred_name.to_string_lossy().into_owned(),
+                size: 0,
+                compressed_size: fs::metadata(archive)
+                    .map(|metadata| metadata.len())
+                    .unwrap_or(0),
+                crc32: None,
+                modified: None,
+                is_dir: false,
+            }]
+        }
         ArchiveFormat::Gzip => {
             // Gzip is a single-stream compression — produce a synthetic entry.
             let inferred_name = common::gzip_output_filename(archive);

@@ -234,7 +234,7 @@ enum Commands {
 fn main() {
     if let Err(e) = run() {
         eprintln!("error: {e:#}");
-        std::process::exit(1);
+        std::process::exit(if signal::is_cancelled() { 130 } else { 1 });
     }
 }
 
@@ -263,6 +263,9 @@ fn run() -> anyhow::Result<()> {
             solid,
             split_size,
         } => {
+            if stdin && password_stdin {
+                anyhow::bail!("--stdin and --password-stdin are mutually exclusive");
+            }
             let password = common::resolve_password(password, password_file, password_stdin)?;
 
             // Runtime validation
@@ -325,6 +328,9 @@ fn run() -> anyhow::Result<()> {
             stdin,
             format,
         } => {
+            if stdin && password_stdin {
+                anyhow::bail!("--stdin and --password-stdin are mutually exclusive");
+            }
             let password = common::resolve_password(password, password_file, password_stdin)?;
 
             // Runtime validation

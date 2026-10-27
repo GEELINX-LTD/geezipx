@@ -8718,12 +8718,13 @@ fn lzh_decompress_rejects_dangerous_raw_paths() {
             output.to_str().unwrap(),
         ])
         .assert()
-        .success()
+        .failure()
         .stderr(predicate::str::contains("path traversal detected"))
         .stderr(predicate::str::contains("../evil.txt"))
         .stderr(predicate::str::contains("0 files, 0 bytes, 0 skipped"));
 
     assert!(!output.join("evil.txt").exists());
+    assert!(!td.join("evil.txt").exists());
 }
 
 #[test]

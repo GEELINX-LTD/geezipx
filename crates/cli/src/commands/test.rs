@@ -57,9 +57,36 @@ fn run_verify(archive: &Path, json: bool, password: Option<String>) -> Result<()
         | ArchiveFormat::Lz4
         | ArchiveFormat::Zstd
         | ArchiveFormat::Xz
-        | ArchiveFormat::Lz
-        | ArchiveFormat::Lzma => verify_single_stream(archive, format)
+        | ArchiveFormat::Lzma
+        | ArchiveFormat::Isz => verify_single_stream(archive, format)
             .with_context(|| format!("verifying '{}'", archive.display()))?,
+        ArchiveFormat::Lz | ArchiveFormat::Img | ArchiveFormat::Bin | ArchiveFormat::Aes => {
+            let mut input = fs::File::open(archive)?;
+            let mut sink = std::io::sink();
+            let bytes_read = match format {
+                ArchiveFormat::Lz => {
+                    geezipx_core::archive::lz::lz_decompress(&mut input, &mut sink)?
+                }
+                ArchiveFormat::Img => {
+                    geezipx_core::archive::img::img_decompress(&mut input, &mut sink)?
+                }
+                ArchiveFormat::Bin => {
+                    geezipx_core::archive::bin::bin_decompress(&mut input, &mut sink)?
+                }
+                ArchiveFormat::Aes => geezipx_core::archive::aes::aes_decrypt(
+                    &mut input,
+                    &mut sink,
+                    password.as_deref().unwrap_or_default(),
+                )?,
+                _ => unreachable!(),
+            };
+            TestReport {
+                format,
+                entry_count: 1,
+                bytes_read,
+                crc32_verified: false,
+            }
+        }
         ArchiveFormat::Uu | ArchiveFormat::Xxe => {
             let data = match format {
                 ArchiveFormat::Uu => {
@@ -86,6 +113,13 @@ fn run_verify(archive: &Path, json: bool, password: Option<String>) -> Result<()
         ArchiveFormat::Zip
         | ArchiveFormat::SevenZip
         | ArchiveFormat::Rar
+        | ArchiveFormat::Udf
+        | ArchiveFormat::Wim
+        | ArchiveFormat::Arj
+        | ArchiveFormat::Ace
+        | ArchiveFormat::Arc
+        | ArchiveFormat::Alz
+        | ArchiveFormat::Z
         | ArchiveFormat::Asar
         | ArchiveFormat::Deb
         | ArchiveFormat::Cab

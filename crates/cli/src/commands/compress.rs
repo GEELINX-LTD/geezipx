@@ -110,7 +110,9 @@ pub fn execute(
     }
 
     // --split-size is only supported for archive (multi-file) formats.
-    if split_size.is_some() && (is_single_stream_format(format) || is_tar_wrapped_format(format)) {
+    if split_size.is_some()
+        && (is_single_stream_format(format) || (is_tar_wrapped_format(format) && use_stdin))
+    {
         anyhow::bail!(
             "--split-size is only supported for archive formats (zip, tar, 7z, etc.); '{}' is a stream format",
             format
@@ -149,6 +151,32 @@ pub fn execute(
     compress_options.seven_zip = seven_z_opts;
 
     validate_compress_inputs(inputs, format, &compress_options, use_stdin, use_stdout)?;
+    if let Some(output) = output {
+        for input in inputs {
+            common::ensure_distinct_output(input, output)?;
+        }
+    }
+    if let Some(size) = split_size {
+        parse_split_size(size)?;
+    }
+    if sfx && format != ArchiveFormat::Zip {
+        anyhow::bail!("--sfx requires ZIP format");
+    }
+    #[cfg(not(feature = "sfx"))]
+    if sfx {
+        anyhow::bail!("SFX support is disabled in this build");
+    }
+    #[cfg(feature = "sfx")]
+    {
+        let target = sfx_target
+            .map(common::parse_sfx_target)
+            .transpose()?
+            .unwrap_or_else(geezipx_core::sfx::SfxTarget::host);
+        if sfx {
+            geezipx_core::sfx::write_zip_sfx(std::io::empty(), std::io::sink(), target)
+                .context("checking SFX stub availability")?;
+        }
+    }
 
     if is_single_stream_format(format) || (is_tar_wrapped_format(format) && use_stdin) {
         return compress_single_stream_mode(
@@ -217,14 +245,14 @@ fn compress_single_stream_mode(
         } else {
             Some(output.unwrap())
         };
-        let writer: Box<dyn Write> =
-            if use_stdout {
-                Box::new(std::io::stdout().lock())
-            } else {
-                Box::new(fs::File::create(output_path.unwrap()).with_context(|| {
-                    format!("creating output '{}'", output_path.unwrap().display())
-                })?)
-            };
+        let pending = output_path
+            .map(|path| common::PendingOutput::new(path, true))
+            .transpose()?;
+        let writer: Box<dyn Write> = if let Some(ref pending) = pending {
+            Box::new(pending.reopen()?)
+        } else {
+            Box::new(std::io::stdout().lock())
+        };
 
         if verbose {
             eprintln!("Compressing: {input_display}");
@@ -232,17 +260,14 @@ fn compress_single_stream_mode(
         let wrapper = ProgressBarWrapper::hidden();
         let shared = SharedCallback::new(wrapper, cancel_token.clone().into_inner());
         let mut pr = ProgressReader::new(reader).with_callback(Box::new(shared));
-        let bytes = compress_single_stream(&mut pr, writer, compress_options, format).inspect_err(
-            |_| {
-                if cancel_token.is_cancelled() {
-                    if !use_stdout {
-                        let _ = std::fs::remove_file(output_path.unwrap());
-                    }
-                    eprintln!("Cancelled");
-                    std::process::exit(130);
-                }
-            },
-        )?;
+        let bytes = compress_single_stream(&mut pr, writer, compress_options, format)?;
+        if let Some(pending) = pending {
+            pending.commit()?;
+        } else {
+            std::io::stdout()
+                .flush()
+                .context("flushing compressed stdout")?;
+        }
         if verbose {
             eprintln!("  Done: {bytes} bytes");
         }
@@ -261,8 +286,8 @@ fn compress_single_stream_mode(
     // ---- file-to-file with progress bar (existing behavior) ----
     let input = &inputs[0];
     let output_path = output.unwrap();
-    let output_file = fs::File::create(output_path)
-        .with_context(|| format!("creating output '{}'", output_path.display()))?;
+    let pending = common::PendingOutput::new(output_path, true)?;
+    let output_file = pending.reopen()?;
     let show_progress = !no_progress
         && !verbose
         && file_size > 0
@@ -287,14 +312,11 @@ fn compress_single_stream_mode(
                 }
                 Err(e) => {
                     inner.lock().unwrap().finish("Compression failed");
-                    if cancel_token.is_cancelled() {
-                        let _ = std::fs::remove_file(output_path);
-                        eprintln!("Cancelled");
-                        std::process::exit(130);
-                    }
                     return Err(e);
                 }
             };
+        pending.commit()?;
+        let output_path = output.unwrap();
         eprintln!(
             "Compressed {} -> {} ({:.1}% of original)",
             input.display(),
@@ -315,18 +337,9 @@ fn compress_single_stream_mode(
         let mut pr = ProgressReader::new(reader)
             .with_total(file_size)
             .with_callback(Box::new(shared));
-        let bytes_read =
-            match compress_single_stream(&mut pr, output_file, compress_options, format) {
-                Ok(bytes) => bytes,
-                Err(e) => {
-                    if cancel_token.is_cancelled() {
-                        let _ = std::fs::remove_file(output_path);
-                        eprintln!("Cancelled");
-                        std::process::exit(130);
-                    }
-                    return Err(e);
-                }
-            };
+        let bytes_read = compress_single_stream(&mut pr, output_file, compress_options, format)?;
+        pending.commit()?;
+        let output_path = output.unwrap();
         if verbose {
             eprintln!("  Done: {bytes_read} bytes");
         }
@@ -362,7 +375,10 @@ fn compress_archive_mode(
 ) -> Result<()> {
     let output_path = output.unwrap();
     let files = common::collect_inputs(inputs, recursive)?;
-
+    for entry in &files {
+        common::ensure_distinct_output(&entry.real_path, output_path)?;
+    }
+    let pending = common::PendingOutput::new(output_path, true)?;
     let total_bytes_all: u64 = files
         .iter()
         .filter(|e| !e.is_dir)
@@ -386,14 +402,12 @@ fn compress_archive_mode(
         }
     };
 
-    let output_file = fs::File::create(output_path)
-        .with_context(|| format!("creating output '{}'", output_path.display()))?;
+    let output_file = pending.reopen()?;
     let mut writer = common::create_writer(output_file, format, compress_options)?;
 
     for entry in &files {
         if entry.is_dir {
             if let Err(err) = writer.add_directory(&entry.archive_path) {
-                let _ = std::fs::remove_file(output_path);
                 return Err(anyhow::anyhow!(
                     "failed to add directory {}: {}",
                     entry.archive_path.display(),
@@ -432,12 +446,6 @@ fn compress_archive_mode(
                 }));
             if let Err(e) = writer.add_entry_from_reader(&entry.archive_path, &mut pr) {
                 inner.lock().unwrap().finish("Compression failed");
-                if cancel_token.is_cancelled() {
-                    let _ = std::fs::remove_file(output_path);
-                    eprintln!("Cancelled after {}/{} files", processed_files, files.len());
-                    std::process::exit(130);
-                }
-                let _ = std::fs::remove_file(output_path);
                 return Err(anyhow::anyhow!(
                     "failed to add {}: {}",
                     entry.archive_path.display(),
@@ -457,12 +465,6 @@ fn compress_archive_mode(
                     .unwrap()
                     .finish("Compression failed");
             }
-            if cancel_token.is_cancelled() {
-                let _ = std::fs::remove_file(output_path);
-                eprintln!("Cancelled after {}/{} files", processed_files, files.len());
-                std::process::exit(130);
-            }
-            let _ = std::fs::remove_file(output_path);
             return Err(anyhow::anyhow!("failed to finalize archive: {}", e));
         }
     };
@@ -471,45 +473,40 @@ fn compress_archive_mode(
         cb.clone_inner().lock().unwrap().finish(&format!(
             "Created {} with {} entries",
             output_path.display(),
-            files.len()
+            processed_files
         ));
     }
 
     // SFX post-processing: wrap ZIP in self-extracting stub.
     #[cfg(feature = "sfx")]
-    if sfx {
-        use std::io::Read;
+    let pending = if sfx {
         let target = if let Some(t) = sfx_target {
             crate::commands::common::parse_sfx_target(t)?
         } else {
             geezipx_core::sfx::SfxTarget::host()
         };
 
-        // Read the ZIP file back into memory.
-        let mut zip_file = std::fs::File::open(output_path)
+        let zip_file = std::fs::File::open(pending.path())
             .with_context(|| format!("re-opening '{}' for SFX wrap", output_path.display()))?;
-        let mut zip_data = Vec::new();
-        zip_file
-            .read_to_end(&mut zip_data)
-            .with_context(|| format!("reading '{}' for SFX wrap", output_path.display()))?;
-        drop(zip_file);
-
-        let sfx_data =
-            geezipx_core::sfx::create_zip_sfx(&zip_data, target).context("creating SFX")?;
-
-        // Write back the SFX data.
-        std::fs::write(output_path, &sfx_data)
-            .with_context(|| format!("writing SFX to '{}'", output_path.display()))?;
+        let mut zip_data = ProgressReader::new(BufReader::new(zip_file)).with_callback(Box::new(
+            SharedCallback::new(
+                ProgressBarWrapper::hidden(),
+                cancel_token.clone().into_inner(),
+            ),
+        ));
+        let mut sfx_output = common::PendingOutput::new(output_path, true)?;
+        geezipx_core::sfx::write_zip_sfx(&mut zip_data, &mut sfx_output, target)
+            .context("creating SFX")?;
 
         // Set executable permission on Unix.
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            let mut perms = std::fs::metadata(output_path)
+            let mut perms = std::fs::metadata(sfx_output.path())
                 .with_context(|| format!("reading permissions of '{}'", output_path.display()))?
                 .permissions();
             perms.set_mode(0o755);
-            std::fs::set_permissions(output_path, perms).with_context(|| {
+            std::fs::set_permissions(sfx_output.path(), perms).with_context(|| {
                 format!(
                     "setting executable permission on '{}'",
                     output_path.display()
@@ -517,35 +514,30 @@ fn compress_archive_mode(
             })?;
         }
 
-        eprintln!(
-            "SFX written to {}{}",
-            output_path.display(),
-            target.extension()
-        );
+        sfx_output
+    } else {
+        pending
+    };
+
+    #[cfg(not(feature = "sfx"))]
+    let _ = sfx_target;
+
+    // Split from the staged archive before replacing any existing destination.
+    if let Some(size_str) = split_size {
+        if split_output_into_volumes(pending.path(), output_path, size_str)? {
+            return Ok(());
+        }
+    }
+    pending.commit()?;
+    if sfx {
+        eprintln!("SFX written to {}", output_path.display());
     } else {
         eprintln!(
             "Created {} with {} entries ({} bytes)",
             output_path.display(),
             files.len(),
-            total_bytes,
+            total_bytes
         );
-    }
-
-    #[cfg(not(feature = "sfx"))]
-    {
-        let _ = sfx;
-        let _ = sfx_target;
-        eprintln!(
-            "Created {} with {} entries ({} bytes)",
-            output_path.display(),
-            files.len(),
-            total_bytes,
-        );
-    }
-
-    // --- split into volumes (post-processing) ---
-    if let Some(size_str) = split_size {
-        split_output_into_volumes(output_path, size_str)?;
     }
 
     Ok(())
@@ -597,19 +589,11 @@ fn validate_compress_inputs(
         || format == ArchiveFormat::TarGz
         || format == ArchiveFormat::TarBz2
         || format == ArchiveFormat::TarXz
+        || format == ArchiveFormat::SevenZip
     {
         if let Some(l) = options.level {
             if l > 9 {
                 anyhow::bail!("{} compression level must be 0..=9, got {}", format, l);
-            }
-        }
-
-        // 7z levels are limited to 0..=9
-        if format == ArchiveFormat::SevenZip {
-            if let Some(l) = options.level {
-                if l > 9 {
-                    anyhow::bail!("7z compression level must be 0..=9, got {}", l);
-                }
             }
         }
     }
@@ -817,11 +801,11 @@ fn parse_split_size(s: &str) -> anyhow::Result<u64> {
 }
 
 /// Split an output file into multiple volumes using the .NNN naming convention.
-fn split_output_into_volumes(output: &Path, size_str: &str) -> Result<()> {
+fn split_output_into_volumes(source: &Path, output: &Path, size_str: &str) -> Result<bool> {
     let max_size = parse_split_size(size_str)?;
 
     let file_meta =
-        std::fs::metadata(output).with_context(|| format!("stat '{}'", output.display()))?;
+        std::fs::metadata(source).with_context(|| format!("stat '{}'", source.display()))?;
     let file_size = file_meta.len();
 
     if file_size <= max_size {
@@ -829,7 +813,7 @@ fn split_output_into_volumes(output: &Path, size_str: &str) -> Result<()> {
             "Output size ({} bytes) <= split size ({} bytes); splitting skipped",
             file_size, max_size
         );
-        return Ok(());
+        return Ok(false);
     }
 
     let num_volumes = file_size.div_ceil(max_size);
@@ -841,11 +825,38 @@ fn split_output_into_volumes(output: &Path, size_str: &str) -> Result<()> {
         max_size
     );
 
-    let mut reader = BufReader::new(
-        fs::File::open(output)
-            .with_context(|| format!("re-opening '{}' for splitting", output.display()))?,
+    let parent = output
+        .parent()
+        .filter(|path| !path.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
+    // Refuse old sets, including stale trailing volumes from a previous split.
+    let volume_prefix = format!(
+        "{}.",
+        output
+            .file_name()
+            .context("output needs a filename")?
+            .to_string_lossy()
     );
-    let mut writer = MultiVolumeWriter::new(output, VolumePattern::Nnn, max_size, 1)
+    for entry in fs::read_dir(parent)? {
+        let entry = entry?;
+        let name = entry.file_name();
+        if let Some(suffix) = name.to_string_lossy().strip_prefix(&volume_prefix) {
+            if suffix.len() >= 3 && suffix.bytes().all(|byte| byte.is_ascii_digit()) {
+                anyhow::bail!("split volume '{}' already exists", entry.path().display());
+            }
+        }
+    }
+    let staging = tempfile::TempDir::new_in(parent).context("creating volume staging directory")?;
+    let staged_output = staging.path().join(output.file_name().unwrap());
+    let mut reader = ProgressReader::new(BufReader::new(
+        fs::File::open(source)
+            .with_context(|| format!("re-opening '{}' for splitting", source.display()))?,
+    ))
+    .with_callback(Box::new(SharedCallback::new(
+        ProgressBarWrapper::hidden(),
+        crate::signal::CancellationToken::new().into_inner(),
+    )));
+    let mut writer = MultiVolumeWriter::new(&staged_output, VolumePattern::Nnn, max_size, 1)
         .with_context(|| format!("creating volume set from '{}'", output.display()))?;
 
     std::io::copy(&mut reader, &mut writer).with_context(|| "writing split volumes")?;
@@ -854,14 +865,36 @@ fn split_output_into_volumes(output: &Path, size_str: &str) -> Result<()> {
         .finish()
         .with_context(|| "finalizing split volumes")?;
 
-    // Remove original unsplit file
-    std::fs::remove_file(output)
-        .with_context(|| format!("removing original '{}' after split", output.display()))?;
-
-    eprintln!("Split into {} volume(s):", vol_paths.len());
-    for p in &vol_paths {
-        eprintln!("  {}", p.display());
+    // Publish exclusively on the same filesystem.
+    // Roll back only files created by this operation if publication fails.
+    let mut published = Vec::new();
+    for path in &vol_paths {
+        let target = parent.join(path.file_name().context("volume needs a filename")?);
+        if crate::signal::is_cancelled() {
+            for created in &published {
+                let _ = fs::remove_file(created);
+            }
+            anyhow::bail!("Cancelled");
+        }
+        let publication = tempfile::TempPath::try_from_path(path).and_then(|staged| {
+            staged
+                .persist_noclobber(&target)
+                .map_err(|error| error.error)
+        });
+        if let Err(error) = publication {
+            for created in &published {
+                let _ = fs::remove_file(created);
+            }
+            return Err(error)
+                .with_context(|| format!("publishing split volume '{}'", target.display()));
+        }
+        published.push(target);
     }
 
-    Ok(())
+    eprintln!("Split into {} volume(s):", published.len());
+    for path in &published {
+        eprintln!("  {}", path.display());
+    }
+
+    Ok(true)
 }

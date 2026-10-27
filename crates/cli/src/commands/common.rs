@@ -79,6 +79,11 @@ pub fn parse_format(s: &str) -> Result<ArchiveFormat> {
         "aes" | "enc" => Ok(ArchiveFormat::Aes),
         "bin" => Ok(ArchiveFormat::Bin),
         "isz" => Ok(ArchiveFormat::Isz),
+        "arj" => Ok(ArchiveFormat::Arj),
+        "ace" => Ok(ArchiveFormat::Ace),
+        "arc" => Ok(ArchiveFormat::Arc),
+        "alz" => Ok(ArchiveFormat::Alz),
+        "z" => Ok(ArchiveFormat::Z),
         "7z" => Ok(ArchiveFormat::SevenZip),
         "rar" => Ok(ArchiveFormat::Rar),
         "cab" => Ok(ArchiveFormat::Cab),
@@ -197,6 +202,102 @@ fn resolve_tar_wrapped(
 }
 
 // ---------------------------------------------------------------------------
+// Transactional CLI outputs
+// ---------------------------------------------------------------------------
+
+/// Reject aliases before writing, including hard links on Unix.
+pub fn ensure_distinct_output(input: &Path, output: &Path) -> Result<()> {
+    if let Ok(output_path) = fs::canonicalize(output) {
+        let input_path = fs::canonicalize(input)
+            .with_context(|| format!("resolving input '{}'", input.display()))?;
+        let same = input_path == output_path;
+        #[cfg(unix)]
+        let same = {
+            use std::os::unix::fs::MetadataExt;
+            let a = fs::metadata(&input_path)?;
+            let b = fs::metadata(&output_path)?;
+            same || (a.dev() == b.dev() && a.ino() == b.ino())
+        };
+        if same {
+            anyhow::bail!("output file '{}' cannot also be an input", output.display());
+        }
+    }
+    Ok(())
+}
+
+/// Keep the previous destination intact until all encoding/decoding succeeds.
+/// Dropping an unfinished output cleans up the temporary file.
+pub struct PendingOutput {
+    temp: tempfile::NamedTempFile,
+    target: PathBuf,
+    overwrite: bool,
+}
+
+impl PendingOutput {
+    pub fn new(target: &Path, overwrite: bool) -> Result<Self> {
+        if let Ok(metadata) = fs::symlink_metadata(target) {
+            if !metadata.file_type().is_file() {
+                anyhow::bail!("output '{}' is not a regular file", target.display());
+            }
+        }
+        let parent = target
+            .parent()
+            .filter(|p| !p.as_os_str().is_empty())
+            .unwrap_or(Path::new("."));
+        let temp = tempfile::NamedTempFile::new_in(parent)
+            .with_context(|| format!("creating temporary output for '{}'", target.display()))?;
+        Ok(Self {
+            temp,
+            target: target.to_path_buf(),
+            overwrite,
+        })
+    }
+
+    pub fn path(&self) -> &Path {
+        self.temp.path()
+    }
+
+    pub fn reopen(&self) -> Result<fs::File> {
+        Ok(self.temp.reopen()?)
+    }
+
+    pub fn commit(mut self) -> Result<()> {
+        use std::io::Write;
+        if crate::signal::is_cancelled() {
+            anyhow::bail!("Cancelled");
+        }
+        self.temp.flush().context("flushing temporary output")?;
+        let result = if self.overwrite {
+            self.temp.persist(&self.target)
+        } else {
+            self.temp.persist_noclobber(&self.target)
+        };
+        match result {
+            Ok(_) => Ok(()),
+            Err(error) if !self.overwrite && error.error.kind() == io::ErrorKind::AlreadyExists => {
+                eprintln!(
+                    "Warning: '{}' already exists, skipping (use --force to overwrite)",
+                    self.target.display()
+                );
+                Ok(())
+            }
+            Err(error) => Err(error.error)
+                .with_context(|| format!("publishing output '{}'", self.target.display())),
+        }
+    }
+}
+
+impl io::Write for PendingOutput {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        self.temp.write(bytes)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.temp.flush()
+    }
+}
+
+// ---------------------------------------------------------------------------
 // File collection
 // ---------------------------------------------------------------------------
 
@@ -290,6 +391,16 @@ fn collect_dir_contents(
     for entry in dir_entries {
         let path = entry.path();
         let relative = prefix.join(entry.file_name());
+        // Following directory symlinks can recurse forever or escape the input tree.
+        if entry.file_type()?.is_symlink() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!(
+                    "symbolic link '{}' is not supported in recursive inputs",
+                    path.display()
+                ),
+            ));
+        }
         if path.is_dir() {
             let child_has_children =
                 collect_dir_contents(&path, &relative, entries, deferred_empty_dirs)?;
@@ -327,9 +438,10 @@ pub fn validate_read_password_support(format: ArchiveFormat, password: Option<&s
         && format != ArchiveFormat::Zip
         && format != ArchiveFormat::SevenZip
         && format != ArchiveFormat::Rar
+        && format != ArchiveFormat::Aes
     {
         anyhow::bail!(
-            "--password is only supported for ZIP, 7z, and RAR formats; '{}' does not support encryption",
+            "--password is only supported for ZIP, 7z, RAR, and AES formats; '{}' does not support encryption",
             format
         );
     }
@@ -361,6 +473,10 @@ pub fn open_reader(
             }
             reader
         }
+        ArchiveFormat::Arj => Box::new(geezipx_core::archive::arj::ArjReader::new(path)),
+        ArchiveFormat::Ace => Box::new(geezipx_core::archive::ace::AceReader::new(path)),
+        ArchiveFormat::Arc => Box::new(geezipx_core::archive::arc::ArcReader::new(path)),
+        ArchiveFormat::Alz | ArchiveFormat::Z => anyhow::bail!("'{format}' support is not available in this core build"),
         ArchiveFormat::Asar => Box::new(AsarReader::new(path)),
         ArchiveFormat::Cab => Box::new(CabReader::new(path)),
         ArchiveFormat::Deb => Box::new(DebReader::new(file)),
@@ -719,6 +835,9 @@ pub fn resolve_password(
         return Ok(Some(pwd));
     }
 
+    if password.as_deref() == Some("") {
+        anyhow::bail!("--password cannot be empty");
+    }
     Ok(password)
 }
 

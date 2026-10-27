@@ -42,6 +42,12 @@ pub struct CancellationToken {
 
 static CANCELLED_FLAG: OnceLock<Arc<AtomicBool>> = OnceLock::new();
 
+pub fn is_cancelled() -> bool {
+    CANCELLED_FLAG
+        .get()
+        .is_some_and(|flag| flag.load(Ordering::SeqCst))
+}
+
 impl CancellationToken {
     /// Create a new token viewing the process-global cancellation flag.
     ///
@@ -74,10 +80,7 @@ impl CancellationToken {
     /// The SIGINT handler stays registered — subsequent Ctrl+C presses
     /// will still set the flag.
     pub fn reset() {
-        // Must initialise the OnceLock if it hasn't been set yet
-        // (e.g. in tests that call reset() before new()).
-        let flag = CANCELLED_FLAG.get_or_init(|| Arc::new(AtomicBool::new(false)));
-        flag.store(false, Ordering::SeqCst);
+        Self::new().cancelled.store(false, Ordering::SeqCst);
     }
 
     /// Returns `true` if the user has pressed Ctrl+C.
