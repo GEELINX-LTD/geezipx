@@ -21,9 +21,9 @@ pub struct AppState {
     /// Previous OS default handler per MIME type, captured when the user binds a
     /// format on Linux so we can restore it on unbind.
     pub assoc_backup: Mutex<HashMap<String, String>>,
-    /// Shell context menu action received at cold start (via /extract, /compress, etc.).
-    /// The frontend pulls this on startup via `get_shell_action`.
-    pub pending_shell_action: Mutex<Option<ShellActionPayload>>,
+    /// Shell actions waiting for their own webview to initialize. Quick-extract
+    /// windows must never consume the main window's pending action.
+    pub pending_shell_actions: Mutex<HashMap<String, ShellActionPayload>>,
 }
 
 impl Default for AppState {
@@ -60,7 +60,7 @@ impl AppState {
             cancel_tokens: Arc::new(Mutex::new(HashMap::new())),
             pending_archives: Mutex::new(Vec::new()),
             assoc_backup: Mutex::new(HashMap::new()),
-            pending_shell_action: Mutex::new(None),
+            pending_shell_actions: Mutex::new(HashMap::new()),
         }
     }
 }

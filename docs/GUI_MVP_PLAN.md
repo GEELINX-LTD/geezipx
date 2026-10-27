@@ -154,6 +154,7 @@ GUI 提取使用 `overwrite: bool` 参数，关闭时跳过已有文件并返回
 - **即时生效** — 保存后通过 `SHChangeNotify(SHCNE_ASSOCCHANGED)` 刷新 Explorer。
 - **Sentinel 保护** — 写入 `HKCU\Software\Classes\GeeZipX\ShellMenu\Configured=1`，安装器升级时检测到则跳过默认注册，保留用户选择。
 - **COM DelegateExecute 多选**（当前开发分支）— 压缩动词注册于 `AllFilesystemObjects` 父键（文件/目录/混合多选均支持），父子均声明 `MultiSelectModel=Player`。使用 COM `DelegateExecute` 而非静态 `"%*"` 命令——`%*` 在实机测试中确认传递空参数列表，不可作为支持方案。两个稳定 CLSID 通过 `LocalServer32` 指向同一 `geezipx-gui.exe`；Explorer 启动时传入 `-Embedding`，程序跳过 Tauri 以 COM 服务身份运行，实现 `IExecuteCommand` + `IObjectWithSelection` 接收 `IShellItemArray`。选中路径写入版本化二进制 action 文件（`.gzsa`，UTF-16LE，限 `%LOCALAPPDATA%\GeeZipX\ShellActions` 目录，上限 1 MiB / 10 000条 / 32 767 码元），正常 GUI 通过 `--shell-action-file` 参数读取。提取动词仍保持 `SystemFileAssociations` + `"%1"` 静态命令。
+- **快捷解压窗口** — 右键“解压缩到当前文件夹”在冷启动与已有实例中均打开独立小型进度窗口，不创建或激活主界面；每个窗口独立消费启动动作、显示密码提示并取消自己的任务，成功后关闭，失败保留错误供确认。普通启动与其他菜单动作仍进入主界面，窗口状态只保存主窗口。
 - **单实例交接** — 操作文件在单实例插件完成主进程判定后解析：冷启动由 setup 消费，热启动由已有进程回调消费，避免转发前删除文件。显式压缩/提取动作不再同时进入普通归档打开队列。
 - **验证状态** — Linux 协议级单元测试通过（action 编解码、resolve 优先级、CLSID 映射、Embedding 检测）；原生 Windows COM 编译/NSIS 安装/Explorer 右键实测尚未完成。禁止 cfg stub 冒充 Windows 通过 CI。
 - **Win11 限制** — 传统菜单项显示于"显示更多选项"(Shift+F10)，这是系统限制，需要 IExplorerCommand COM server / MSIX 包标识才能进入一级菜单。
