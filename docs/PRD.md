@@ -61,21 +61,21 @@ GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开�
 | ISO (.iso) | 读写 | ISO 9660 Level 1 |
 | CPIO (.cpio) | 读写 | newc/odc |
 | ZPAQ (.zpaq/.zpq) | 读写 | 级别 1-5 |
-| WIM (.wim/.swm) | 读写 | XPRESS/LZX/LZMS 解压，无压缩写入 |
+| WIM (.wim/.swm) | 读写（有限制） | 无压缩写入、XPRESS 读取；LZX 兼容性待修复，LZMS 未实现 |
 | DEB (.deb) | 读写 | ar 容器 + control.tar.gz + data.tar.* |
 | ASAR (.asar) | 读写 | Electron 归档 |
 | UDF (.udf) | 读写 | Universal Disk Format |
 | ISZ (.isz) | 读写 | 块压缩 ISO 包装 |
-| SFX (.exe) | 读写 | 自解压 ZIP (Linux/Windows/macOS) |
+| SFX (.exe) | 按构建目标提供 | 自解压 ZIP；缺少或为空的目标 stub 明确报错 |
 | UU (.uu/.uue) | 读写 | 自实现编解码器 |
 | XXE (.xxe) | 读写 | 自实现编解码器 |
-| AES (.enc) | 读写 | AES-256-GCM-SIV + Argon2id |
+| AES (.enc) | 读写 | AES-256-GCM-SIV + Argon2id；仅验证后的非流式容器 |
 | IMG (.img/.ima) | 透传 | 原始磁盘镜像 |
 | BIN (.bin) | 透传 | 原始二进制 |
 | RAR (.rar) | 只读 | UnRAR 许可限制 |
 | ARJ, ACE, ARC | 只读 | unarc-rs 适配器 |
-| ALZ | 只读 | unalz-rs 适配器 |
-| Z (.Z) | 只读 | Unix compress |
+| ALZ | 当前构建未接入 | 模块尚未启用，不视为已交付 |
+| Z (.Z) | 当前构建未接入 | 模块尚未导出，不视为已交付 |
 
 ### 5.2 永久排除格式
 
@@ -143,6 +143,10 @@ TTY 下默认显示进度条（文件名、处理大小、百分比、速度、E
 | 跨平台一致性 | 同版本三平台产生相同输出 | CI hash 对比 |
 | 错误信息质量 | 用户无需查手册即可理解 | 人工审查 |
 | 代码覆盖率 | 信息性观测指标，不设硬门禁 | cargo-tarpaulin / grcov |
+
+内存目标适用于已实现流式处理的路径，不代表全部格式的现状保证。WIM 写入使用临时磁盘保存文件内容，metadata 仍驻留内存；AES、ISZ 写入、UU/XXE 和部分第三方格式适配器仍存在整体缓冲，详见 [代码复查报告](CODE_REVIEW.md)。
+
+文件输出在编码或校验成功后才发布；失败与取消保留已有目标。多文件提取按条目发布，后续条目失败不会回滚此前成功的文件；多卷发布也不构成整组原子事务。
 
 ## 9. 路线图
 

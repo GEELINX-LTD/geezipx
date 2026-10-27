@@ -61,7 +61,7 @@ geezipx/
 - core 只保留格式逻辑、I/O 包装、错误模型与安全检查；
 - CLI 负责参数解析、TTY 进度、stdout/stderr 呈现；
 - Tauri GUI 负责图形交互、任务管理、事件桥接；
-- RAR 在当前版本中保持只读语义（UnRAR 许可限制）。WIM 已升级为完整读写（无压缩写入，XPRESS/LZX/LZMS 解压）。ISZ 已升级为完整读写（块压缩 ISO 包装，单流引擎）。
+- RAR 在当前版本中保持只读语义（UnRAR 许可限制）。WIM 支持无压缩写入与 XPRESS 读取；LZX 保留实验实现，但尚未通过 wimlib 样本互操作验证，LZMS 返回不支持错误。ISZ 为块压缩 ISO 包装，使用单流引擎读写。
 - ARJ/ACE/ARC/ALZ/Z 写入经评估永久排除（见 PRD §5.2）；UU/UUE/XXE 编码写入为 P1 待做项。
 - DEB、CAB、ASAR、CPIO（newc/odc）、LZH/LHA（lh0-lh7）、7z（含高级方法选择）、ISO、ZPAQ、UDF、AES、IMG、BIN 均已实现完整读写。
 
@@ -131,10 +131,10 @@ pub trait ArchiveWriter: Send {
 | `archive::zpaq` | ZPAQ 读写（`compress` / `list` / `extract` / `test`）；writer 基于 `zpaq_rs::archive_from_entries`，压缩级别 1-5；不含增量 journaling/dedup |
 | `archive::seven_zip` | 7z 读写（`list` / `extract` / `test` / `compress`）；当前 writer 为基础 MVP（默认 non-solid LZMA2，支持 AES-256 密码写入） |
 | `archive::rar` | RAR 只读（`list` / `extract` / `test`，feature-gated） |
-| `archive::wim` | WIM — 读/写（`list` / `extract` / `test` / `compress`），XPRESS/LZX/LZMS 解压，多映像支持（MVP 默认第一映像），writer 支持无压缩创建；feature-gated |
+| `archive::wim` | WIM 无压缩写入（文件数据暂存临时磁盘，64 KiB 读入并增量 SHA-1）；XPRESS 读取，LZX 兼容性待修复，LZMS 未实现；默认第一映像；feature-gated |
 | `archive::isz` | ISZ — 块压缩 ISO 包装，单流引擎实现（读/写）；不实现 `ArchiveReader`/`ArchiveWriter` trait |
-| `sfx` | SFX — 自解压 ZIP 创建（`core::sfx`），通过 stub 二进制拼接实现，支持 Linux/Windows/macOS target；feature-gated |
-| `volume` | 分卷 — `.001`/`.002` 分卷文件解压（`core::volume`），当前仅解压 |
+| `sfx` | 自解压 ZIP 创建，`write_zip_sfx` 流式拼接 stub 与 ZIP；只允许非空的已嵌入目标 stub；运行时校验 ZIP/ZIP64 定位并用目录句柄安全提取；feature-gated |
+| `volume` | 数字分卷发现、缺卷检测、跨卷读取/查找与分卷写入；CLI 在临时目录暂存完整卷组，发布时拒绝覆盖已有分卷 |
 
 > **注**：上表仅列出当前已实现的格式模块。全部格式评估结果见 `docs/PRD.md` §5.1-5.2，
 > 新增格式遵循相同的 `ArchiveReader` / `ArchiveWriter` trait 接口和 feature gate 策略。
@@ -280,6 +280,9 @@ CLI 当前子命令为：
 - `--verbose` 输出逐文件日志；
 - ZIP AES-256 创建仅在 `compress` + ZIP 路径可用；
 - ZIP 与 7z 当前都支持 AES-256 密码创建；7z / RAR 的读取路径（`list` / `decompress` / `test`）同样支持密码输入。
+- 普通文件压缩和单流解压通过 `common::PendingOutput` 写入同目录临时文件，校验/收尾成功后才发布；失败与 Ctrl+C 保留已有目标并清理临时文件。路径预检覆盖规范路径、递归输入和 Unix 硬链接。
+- `decompress` 汇总中存在条目错误即返回失败；有效空归档返回成功。递归压缩拒绝内部符号链接，避免循环跟随。
+- `--password-stdin` 与 `--stdin` 互斥；不支持密码的格式在读取输入或发布输出之前报错。
 
 ### 2.6 `cli/render` — 输出渲染
 
@@ -315,6 +318,9 @@ CLI 当前子命令为：
 | `sevenz-rust2` 0.21 | 7z 读写支持（当前 writer 走默认 non-solid LZMA2，可选 AES-256 密码写入） |
 | `lzxd` 0.2 | WIM LZX 解压（pull 依赖） |
 | `xpress-huffman` 0.1 | WIM XPRESS 解压（pull 依赖） |
+| `sha1` 0.10 | WIM 资源 SHA-1 增量摘要；仅用于格式完整性 |
+| `tempfile` 3 | WIM 文件数据磁盘暂存；失败或销毁时自动清理 |
+| `base64` 0.22 / `ciborium` 0.2 | AES 容器 armor/CBOR 预检；限制头部大小、嵌套与 KDF 成本 |
 | `unrar` 0.5.8 | RAR 只读支持（optional, default-enabled） |
 | `thiserror` 2 | 错误定义 |
 | `log` 0.4 | 日志门面 |
@@ -354,7 +360,8 @@ Reader/File → ProgressReader → Decoder/ArchiveReader → ProgressWriter → 
 
 - CLI：`signal.rs` 中的取消令牌与 core 的 `is_cancelled()` 联动；
 - core：`extract_all_with_cancel()` 在处理 entry 之前检查取消，并使用 `CancellableWriter` 在写入阶段再次检查；
-- GUI：`cancel_task` 把对应 `Arc<AtomicBool>` 标记为取消，前端收到终态事件后收束 UI。
+- GUI：`AppState::register_task` 拒绝空白或重复任务 ID，取消仅更新现有令牌，结束时按令牌身份移除，防止旧任务误删新任务；前端收到终态事件后收束 UI。
+- I/O 包装用可识别的 `GeeZipError::Cancelled` 作为 `io::Error` 载荷，避免 `Interrupted` 被 `io::copy` / `read_to_end` 自动重试；错误转换保留取消语义，压缩终结和 flush 同样检查取消。
 
 ## 5. 跨平台文件系统策略
 

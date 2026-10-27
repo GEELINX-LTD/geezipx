@@ -61,19 +61,19 @@
 | ASAR | `.asar` | ✓ | ✓ | Electron 归档；不支持加密 |
 | CAB | `.cab` | ✓ | ✓ | 仅单卷；不支持加密 |
 | DEB | `.deb` | ✓ | ✓ | data.tar\* payload；不支持加密 |
-| WIM / SWM | `.wim`, `.swm` | ✓ | ✓ | **仅未压缩写入**；XPRESS/LZX/LZMS 读取 |
+| WIM / SWM | `.wim`, `.swm` | ✓ | ✓ | 未压缩写入、XPRESS 读取；LZX 兼容性待修复，LZMS 未实现 |
 | ISZ | `.isz` | ✓ | ✓ | 压缩 ISO 封装；单流 |
 | RAR | `.rar` | ✓ | ✗ | 只读（许可限制）；支持解密 |
-| AES 加密容器 | `.enc` | ✓ | ✓ | AES-256-GCM-SIV + Argon2id；单流 |
+| AES 加密容器 | `.enc` | ✓ | ✓ | AES-256-GCM-SIV + Argon2id；验证完整容器，当前仍整体缓冲 |
 | IMG / IMA | `.img`, `.ima` | ✓ | ✓ | 透传身份复制 |
 | BIN | `.bin` | ✓ | ✓ | 透传身份复制 |
 | UU / UUE | `.uu`, `.uue` | ✓ | ✓ | 文本编码/解码 |
 | XXE | `.xxe` | ✓ | ✓ | 文本编码/解码 |
-| Z (Unix Compress) | `.Z` | ✓ | ✗ | 通过 unarc-rs 只读 |
+| Z (Unix Compress) | `.Z` | ✗ | ✗ | 当前构建未导出该模块 |
 | ARJ | `.arj` | ✓ | ✗ | 通过 unarc-rs 只读 |
 | ACE | `.ace` | ✓ | ✗ | 通过 unarc-rs 只读 |
 | ARC | `.arc` | ✓ | ✗ | 通过 unarc-rs 只读 |
-| ALZ | `.alz` | ✓ | ✗ | 通过 unalz-rs 只读 |
+| ALZ | `.alz` | ✗ | ✗ | 当前构建尚未启用该模块 |
 
 > **ZIPX 说明**：`.zipx` 作为 ZIP 兼容别名支持。不实现 WinZip 专有压缩方法。
 > **WIM 写入**：WIM 写入器存储未压缩数据。如需压缩写入请使用 wimlib。
@@ -466,20 +466,20 @@ geezipx compress myapp/ -r -o myapp.zip --sfx
 geezipx compress myapp/ -r -o myapp.exe --sfx --sfx-target windows
 ```
 
-SFX 功能需启用 `sfx` feature（CLI 默认包含）。
+SFX 功能需启用 `sfx` feature（CLI 默认包含），且所选目标必须具有非空的嵌入式 stub；缺少时明确报错。发布工作流在各平台构建对应 stub。本地更新可执行 `cargo build -p geezipx-sfx-stub --release`，将产物复制到 `crates/core/stubs/` 对应目录后再构建 CLI。ZIP 载荷和提取文件通过临时文件流式处理；条目校验失败会保留已有目标。
 
 ### 格式详细说明
 
 主要格式限制已在前文格式表中列出。以下为补充说明：
 
-- **WIM 写入**：写入器输出**未压缩** WIM（CompressionType::None）。如需压缩写入请使用 wimlib。
+- **WIM**：写入器输出**未压缩** WIM（CompressionType::None），文件内容暂存到临时磁盘并增量计算 SHA-1。支持 XPRESS 读取；LZX 与 wimlib 样本的互操作尚未通过，LZMS 未实现。压缩写入请使用 wimlib 等工具。
 - **ASAR / CAB / DEB 写入**：三者均支持写入。ASAR 和 CAB 创建单卷归档；DEB 写入 data.tar\* 载荷及必要元数据。
 - **LZH/LHA 写入**：通过 `oxiarc-lzhuf` 支持 lh0（存储）至 lh7 压缩。CLI 级别 0→lh0, 1→lh4, 2→lh5, 3→lh6, 4+→lh7。单文件 >4 GiB 及扩展 header 元数据暂不支持。
 - **ISO 写入**：写入 ISO 9660 Level 1 + Joliet。扩展 Rock Ridge/Joliet 创建者元数据在复制时保留。UDF 写入请使用独立的 `udf` 格式。
 - **CPIO 写入**：支持 newc/odc。提取时不创建符号链接、设备、FIFO 或套接字。
 - **ZPAQ 写入**：支持级别 1-5。逐条目提取通过字节缓冲辅助函数实现，不保证流式提取。
 - **ISZ**：围绕 ISO 数据的单流压缩封装。`list` 显示合成条目而非单个文件。
-- **AES `.enc`**：AES-256-GCM-SIV 加密 + Argon2id 密钥派生。
+- **AES `.enc`**：AES-256-GCM-SIV 加密 + Argon2id 密钥派生；打开时完成认证，`list` 和 `test` 同样验证完整容器。当前仍整体缓冲；尚未完整实现的流式容器明确拒绝。
 - **IMG / BIN**：透传身份复制——数据原样传递，无压缩或转换。
 - **UU / UUE / XXE**：遗留文本编码格式。支持解码（list/decompress/test）和编码（compress）。
 - **RAR**：许可限制为只读。支持密码解密。

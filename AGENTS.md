@@ -175,14 +175,14 @@ CLI 和后续 Tauri GUI 只负责：
 - UDF（读写，Universal Disk Format DVD/Blu-ray 文件系统）；
 - CPIO（读写，newc/odc）；
 - ZPAQ（读写）；
-- WIM（读写，无压缩写入，XPRESS/LZX/LZMS 解压）；
+- WIM（无压缩读写，XPRESS 解压；LZX 互操作待修复，LZMS 与分割 SWM 未实现）；
 - ISZ（读写，块压缩 ISO 包装，单流引擎）；
-- SFX（自解压 ZIP 读写）；
+- SFX（自解压 ZIP 读写；创建需要对应目标的非空嵌入式 stub）；
 - ARJ（只读，unarc-rs 适配器）；
 - ACE（只读，unarc-rs 适配器）；
 - ARC（只读，unarc-rs 适配器）；
-- ALZ（只读，unalz-rs 适配器）；
-- Z / Unix Compress（只读，unarc-rs 适配器）；
+- ALZ（只读适配模块待接入，当前构建未启用）；
+- Z / Unix Compress（只读适配模块待导出，当前构建不可用）；
 - UU / UUE（只读，自实现解码器，编码写入 P1）；
 - XXE（只读，自实现解码器，编码写入 P1）；
 - IMG（透传，identity pass-through，扩展名 .img/.ima）；

@@ -61,19 +61,19 @@
 | ASAR | `.asar` | ✓ | ✓ | Electron archive; no encrypt |
 | CAB | `.cab` | ✓ | ✓ | single-volume only; no encrypt |
 | DEB | `.deb` | ✓ | ✓ | data.tar\* payload; no encrypt |
-| WIM / SWM | `.wim`, `.swm` | ✓ | ✓ | **uncompressed write only**; XPRESS/LZX/LZMS decompress |
+| WIM / SWM | `.wim`, `.swm` | ✓ | ✓ | Uncompressed write; XPRESS read; LZX interoperability remains unresolved; LZMS unsupported |
 | ISZ | `.isz` | ✓ | ✓ | compressed ISO wrapper; single-stream |
 | RAR | `.rar` | ✓ | ✗ | read-only (licensing limitation); decryption supported |
-| AES encrypted | `.enc` | ✓ | ✓ | AES-256-GCM-SIV + Argon2id; single-stream |
+| AES encrypted | `.enc` | ✓ | ✓ | AES-256-GCM-SIV + Argon2id; authenticated container; buffered processing |
 | IMG / IMA | `.img`, `.ima` | ✓ | ✓ | pass-through identity copy |
 | BIN | `.bin` | ✓ | ✓ | pass-through identity copy |
 | UU / UUE | `.uu`, `.uue` | ✓ | ✓ | text encoding/decoding |
 | XXE | `.xxe` | ✓ | ✓ | text encoding/decoding |
-| Z (Unix Compress) | `.Z` | ✓ | ✗ | read-only via unarc-rs |
+| Z (Unix Compress) | `.Z` | ✗ | ✗ | Module is not registered in current builds |
 | ARJ | `.arj` | ✓ | ✗ | read-only via unarc-rs |
 | ACE | `.ace` | ✓ | ✗ | read-only via unarc-rs |
 | ARC | `.arc` | ✓ | ✗ | read-only via unarc-rs |
-| ALZ | `.alz` | ✓ | ✗ | read-only via unalz-rs |
+| ALZ | `.alz` | ✗ | ✗ | Module is not enabled in current builds |
 
 > **ZIPX note**: `.zipx` is supported as a ZIP-compatible container/extension alias. GeeZipX does not implement WinZip-specific advanced compression methods or the full ZIPX method matrix.
 > **WIM write**: The WIM writer stores data uncompressed. For compressed write, use wimlib or other tools.
@@ -483,7 +483,7 @@ cargo test --no-default-features
 
 GeeZipX can create self-extracting ZIP executables for Linux, Windows, and macOS. An SFX archive is a native executable that embeds a ZIP payload and a stub that extracts it at runtime.
 
-The SFX stub is built from the `crates/sfx-stub` workspace member. Pre-built stubs for `linux-x86_64`, `windows-x86_64`, and `macos-x86_64` are embedded when built with the `sfx` feature (CLI default).
+The SFX stub is built from the `crates/sfx-stub` workspace member. With the `sfx` feature (CLI default), creation requires a nonempty embedded stub for the selected target; missing targets return an error. The release workflow builds a matching native stub on each platform. ZIP payloads and extracted files are streamed through temporary files, and failed entry validation preserves existing destination files.
 
 ```sh
 # Build an SFX archive for the host platform
@@ -499,20 +499,20 @@ SFX notes:
 
 - Only ZIP archives can be wrapped in an SFX stub; `--sfx` implies `-f zip`.
 - `--sfx` and `--stdout` are mutually exclusive.
-- Build stubs from source: `cargo build -p sfx-stub --release`.
+- Build stubs from source: `cargo build -p geezipx-sfx-stub --release`, then copy the executable into the matching directory under `crates/core/stubs/` before building the CLI.
 
 ### Format-specific notes
 
 Most format limitations are documented in the Format Support table above. Key details:
 
-- **WIM write**: The WIM writer stores data **uncompressed** (CompressionType::None). For compressed WIM output, use wimlib or other tools.
+- **WIM**: The writer stores data **uncompressed** (CompressionType::None), spooling file bytes to temporary disk with incremental SHA-1. XPRESS reads are supported; LZX interoperability with wimlib samples remains unresolved and LZMS decoding is not implemented. For compressed output, use wimlib or other tools.
 - **ASAR / CAB / DEB write**: All three formats now support writing. ASAR and CAB create single-volume archives; DEB writes `data.tar*` payload with a `debian-binary` + stubbed `control.tar.gz`.
 - **LZH/LHA write**: The writer supports lh0 (store) through lh7 compression via `oxiarc-lzhuf`. CLI level 0 → lh0, 1 → lh4, 2 → lh5, 3 → lh6, 4+ → lh7. Single entries >4 GiB and extended-header metadata are not supported.
 - **ISO write**: Writer emits ISO 9660 Level 1 volumes with Joliet. Extended Rock Ridge/Joliet creator metadata is preserved during copy. UDF-only writing is handled by the separate `udf` format.
 - **CPIO write**: Supports `newc` and `odc` variants. Does not create symlinks, devices, FIFOs, or sockets on extraction.
 - **ZPAQ write**: Supports level 1-5. Per-entry extraction goes through byte-buffer helpers; streaming extraction not guaranteed.
 - **ISZ**: Single-stream compression wrapper around ISO data. `list` shows a synthetic entry rather than individual files.
-- **AES `.enc`**: Single-stream AES-256-GCM-SIV encryption with Argon2id key derivation.
+- **AES `.enc`**: AES-256-GCM-SIV encryption with Argon2id key derivation. Opening an archive authenticates it, including `list` and `test`. Buffered processing remains; streaming AES containers are rejected until fully supported.
 - **IMG / BIN**: Identity pass-through — data is copied verbatim with no compression or transformation.
 - **UU / UUE / XXE**: Legacy text-encoding formats. Both decode (list/decompress/test) and encode (compress) are supported.
 - **RAR**: Read-only by licensing limitation. Decryption is supported via password flags.
