@@ -4,53 +4,46 @@
   import { cancelTask } from '../bridge';
   import ProgressBar from './ProgressBar.svelte';
 
-  let { kind, oncancel }: { kind: 'compress' | 'extract'; oncancel?: () => void } = $props();
-
-  let visible = $derived(taskStore.isVisible && taskStore.activeTask?.kind === kind);
-  let title = $derived(taskStore.activeTask?.message || taskStore.activeTask?.stage || '');
-  let isRunning = $derived(taskStore.activeTask?.status === 'pending' || taskStore.activeTask?.status === 'running');
-  let isFinished = $derived(taskStore.activeTask?.status === 'finished');
-  let isFailed = $derived(taskStore.activeTask?.status === 'failed' || taskStore.activeTask?.status === 'cancelled');
-
-  async function handleCancel() {
-    const taskId = taskStore.activeTask?.taskId;
-    if (taskId) {
-      try {
-        await cancelTask(taskId);
-      } catch {
-        // ignore cancel errors
-      }
+  async function handleCancel(taskId: string) {
+    try {
+      await cancelTask(taskId);
+    } catch {
+      // The terminal event or invoke result determines whether cancellation won.
     }
-    oncancel?.();
   }
 
-  function handleDismiss() {
-    taskStore.dismissTask();
-    oncancel?.();
-  }
-
-  function handleBackdropClick() {
-    if (!isRunning) {
-      handleDismiss();
-    } else {
-      oncancel?.();
-    }
+  function handleBackdropClick(taskId: string) {
+    taskStore.dismissTask(taskId); // Running tasks cannot be dismissed.
   }
 </script>
 
-{#if visible}
-  <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div class="backdrop" onclick={handleBackdropClick} onkeydown={(e) => { if (e.key === 'Escape') handleBackdropClick(); }} role="presentation">
-    <div class="dialog-card" onclick={(e) => e.stopPropagation()} onkeydown={(e) => { if (e.key === 'Escape') handleBackdropClick(); }} role="dialog" aria-modal="true" tabindex="-1">
-      <h3 class="dialog-title">{title}</h3>
-      <ProgressBar kind={kind} />
+{#if taskStore.activeTask}
+  {@const task = taskStore.activeTask}
+  {@const isRunning = task.status === 'pending' || task.status === 'running'}
+  <div class="backdrop" onclick={() => handleBackdropClick(task.taskId)} onkeydown={(e) => { if (e.key === 'Escape') handleBackdropClick(task.taskId); }} role="presentation">
+    <div class="dialog-card" onclick={(e) => e.stopPropagation()} onkeydown={(e) => { if (e.key === 'Escape') handleBackdropClick(task.taskId); }} role="dialog" aria-modal="true" aria-labelledby="task-dialog-title" tabindex="-1">
+      <h3 id="task-dialog-title" class="dialog-title">{localeStore.t(`tasks.${task.kind}`)} · {localeStore.t(`tasks.status.${task.status}`)}</h3>
+      {#if taskStore.tasks.length > 1}
+        <div class="task-choices" role="group" aria-label={localeStore.t('tasks.choose')}>
+          {#each taskStore.tasks as choice (choice.taskId)}
+            <button
+              class="task-choice"
+              aria-pressed={choice.taskId === task.taskId}
+              onclick={() => taskStore.selectTask(choice.taskId)}
+            >
+              {localeStore.t('tasks.choice', { kind: localeStore.t(`tasks.${choice.kind}`), number: choice.ordinal, status: localeStore.t(`tasks.status.${choice.status}`) })}
+            </button>
+          {/each}
+        </div>
+      {/if}
+      <ProgressBar kind={task.kind} />
       <div class="dialog-actions">
         {#if isRunning}
-          <button class="btn-cancel" onclick={handleCancel}>
+          <button class="btn-cancel" onclick={() => handleCancel(task.taskId)}>
             {localeStore.t('common.cancel')}
           </button>
         {:else}
-          <button class="btn-dismiss" onclick={handleDismiss}>
+          <button class="btn-dismiss" onclick={() => taskStore.dismissTask(task.taskId)}>
             {localeStore.t('common.close')}
           </button>
         {/if}
@@ -90,6 +83,27 @@
     font-size: var(--text-base);
     font-weight: 600;
     color: var(--color-text);
+  }
+
+  .task-choices {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    max-height: 180px;
+    overflow-y: auto;
+  }
+
+  .task-choice {
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    color: var(--color-text);
+    text-align: left;
+  }
+
+  .task-choice[aria-pressed='true'] {
+    border-color: var(--color-accent);
+    background: var(--color-surface);
   }
 
   .dialog-actions {

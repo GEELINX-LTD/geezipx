@@ -16,7 +16,7 @@ function page(platform = path.win32, settings = {}, overrides = {}) {
     getFormats: async () => [],
     settingsStore: { get: async key => settings[key] ?? null },
     localeStore: { t: key => key },
-    taskStore: { isVisible: false, startTask() {}, finishTask() {} },
+    taskStore: { isVisible: false, hasRunning: () => false, startTask: () => 'compress-test-task', finishTask() {} },
     appStore: { addRecent() {}, pendingSourcePaths: [] },
     toastStore: { show() {} },
     compressArchive: async () => ({ files_added: 1, bytes_written: 8 }),

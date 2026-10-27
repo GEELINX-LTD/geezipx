@@ -20,6 +20,19 @@
     "addFiles": "Add Files",
     "addFolders": "Add Folders"
   },
+  "tasks": {
+    "choose": "Choose a task",
+    "compress": "Compression",
+    "extract": "Extraction",
+    "choice": "{{kind}} {{number}} · {{status}}",
+    "status": {
+      "pending": "Preparing",
+      "running": "Running",
+      "finished": "Completed",
+      "cancelled": "Cancelled",
+      "failed": "Failed"
+    }
+  },
   "home": {
     "createArchive": "Create Archive",
     "createArchiveDesc": "Compress files into ZIP, TAR, 7z, and more",
@@ -87,7 +100,7 @@
   },
   "tab": {
     "close": "Close",
-    "closeConfirmRunning": "An operation is in progress. Closing this tab will hide the progress but the operation will continue.",
+    "closeConfirmRunning": "An operation is in progress. It will continue after this tab closes, and its progress will remain available.",
     "closeConfirmTitle": "Close Tab"
   },
   "browser": {

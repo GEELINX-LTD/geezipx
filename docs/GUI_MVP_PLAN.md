@@ -18,7 +18,7 @@
 
 - 自动更新、云同步、插件系统
 - 文件管理器集成（双面板、标签页等）
-- 批量任务队列（仅单次任务）
+- 批量任务调度与队列管理
 - 高级命令行偏好配置
 - RAR 创建（受 UnRAR 许可限制，仅只读）
 
@@ -39,7 +39,7 @@
 2. **压缩任务** — 格式选择、自动推荐、压缩级别、密码（ZIP/7z AES-256）、输出目录；使用 Tauri 原生路径 API 生成默认输出和打开结果目录，保留手动另存为选择并避免异步旧结果覆盖
 3. **解压缩任务** — 归档内容预览、选择性提取、覆盖策略、密码输入
 4. **归档浏览器** — virtua VList 虚拟滚动（5 万行仅 ~25 行 DOM）、文件夹导航、最近路径 chips
-5. **进度与结果** — 实时进度 + 速度/剩余时间、安全取消、Toast 通知
+5. **进度与结果** — 实时进度 + 速度/剩余时间、安全取消、Toast 通知；应用级进度窗口可切换并行任务，结果保留至单独关闭
 6. **文件预览** — 文本/图片条目在浏览器中预览
 7. **设置页面** — 5 标签页 + 右键菜单管理，`tauri-plugin-store` 持久化
 8. **多语言与主题** — zh-CN / en 实时切换；跟随系统/浅色/深色
@@ -98,6 +98,8 @@
 ## 6. 进度与取消
 
 **进度推送**：core 的 `ProgressEvent` 由后端在 `commands/progress.rs` 包装为 `TaskProgressPayload`（含 `task_id`、`percent`、`bytes_per_second`、`current_entry`、`completed_entries`/`total_entries`），通过 `task:progress` 事件推送前端。
+
+**任务隔离**：前端以 UUID 注册每次操作，按 `task_id` 更新独立状态；未知 ID、类型不符和任务终态后的迟到事件会被忽略。完成、取消、关闭结果均指定任务 ID，不影响其他任务；压缩/解压按钮只在同类任务运行中禁用。`npm test` 使用真实 Svelte rune 运行时覆盖交错事件、取消竞争和终态保留。
 
 **取消机制**：每个任务注册 `Arc<AtomicBool>` 令牌至 `AppState`。`cancel_task` 置为取消态，`ProgressReader` / `ProgressWriter` 每次 I/O 前检查并抛出 `GeeZipError::Cancelled`。
 

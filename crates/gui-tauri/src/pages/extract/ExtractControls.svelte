@@ -2,12 +2,12 @@
   import { open } from '@tauri-apps/plugin-dialog';
   import { localeStore } from '../../stores/localeStore.svelte';
   import { settingsStore } from '../../stores/settingsStore.svelte';
-  import { extractArchive, extractEntries, openFolder, cancelTask } from '../../bridge';
+  import { extractArchive, extractEntries, openFolder } from '../../bridge';
   import { archiveStore } from '../../stores/archiveStore.svelte';
   import { taskStore } from '../../stores/taskStore.svelte';
   import { toastStore } from '../../stores/toastStore.svelte.ts';
 
-  let disabled = $derived(taskStore.isVisible && taskStore.activeTask?.kind === 'extract');
+  let disabled = $derived(taskStore.hasRunning('extract'));
   let outputDir = $state(archiveStore.suggestedOutputDir);
 
   // Settings-backed behavior.
@@ -64,24 +64,26 @@
   }
 
   async function runExtract(kind: 'all' | 'selected') {
-    if (!archiveStore.archivePath || !outputDir) return;
+    if (disabled || !archiveStore.archivePath || !outputDir) return;
     error = null; result = null;
-    const taskId = `extract-${Date.now()}`;
-    taskStore.startTask(taskId, 'extract');
+    const taskId = taskStore.startTask('extract');
+    const archiveOutputDir = outputDir;
     const password = extractPassword || archiveStore.archivePassword || undefined;
     try {
       const res = kind === 'all'
-        ? await extractArchive(archiveStore.archivePath, outputDir, overwrite, password, taskId)
-        : await extractEntries(archiveStore.archivePath, [...archiveStore.selectedPaths], outputDir, overwrite, password, taskId);
-      taskStore.finishTask('finished');
+        ? await extractArchive(archiveStore.archivePath, archiveOutputDir, overwrite, password, taskId)
+        : await extractEntries(archiveStore.archivePath, [...archiveStore.selectedPaths], archiveOutputDir, overwrite, password, taskId);
+      const status = taskStore.finishTask(taskId, 'finished');
+      if (status === 'cancelled' || status === 'failed') return;
       result = localeStore.t('extract.result', { files: res.files_extracted, bytes: res.bytes_extracted, skipped: res.files_skipped > 0 ? localeStore.t('extract.resultSkipped', { count: res.files_skipped }) : '' });
       toastStore.show(result, 'success', 5000);
       if (onComplete === 'open_output') {
-        await openFolder(outputDir);
+        await openFolder(archiveOutputDir);
       }
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
-      taskStore.finishTask('failed', msg);
+      const status = taskStore.finishTask(taskId, 'failed', msg);
+      if (status === 'cancelled') return;
       error = localeStore.t('extract.errorPrefix', { message: msg });
       toastStore.show(error, 'error');
     }

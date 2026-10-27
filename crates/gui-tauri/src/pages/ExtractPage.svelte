@@ -8,7 +8,6 @@
   import BrowserTable from './extract/BrowserTable.svelte';
   import PreviewPanel from './extract/PreviewPanel.svelte';
   import ExtractControls from './extract/ExtractControls.svelte';
-  import ProgressDialog from '../components/ProgressDialog.svelte';
 
   let activeChallenge = $derived.by(() => {
     const tab = archiveManager.activeTab;
@@ -39,7 +38,6 @@
       {#key controlsKey}
         <ExtractControls />
       {/key}
-      <ProgressDialog kind="extract" />
     {:else if !archiveStore.error}
       <div class="empty-state">
         <p>{localeStore.t('extract.emptyState')}</p>

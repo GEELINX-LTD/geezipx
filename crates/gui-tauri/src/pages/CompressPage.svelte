@@ -10,7 +10,6 @@
   import { taskStore } from '../stores/taskStore.svelte';
   import { appStore } from '../stores/appStore.svelte';
   import { toastStore } from '../stores/toastStore.svelte.ts';
-  import ProgressDialog from '../components/ProgressDialog.svelte';
 
   let sourcePaths = $state<string[]>([]);
   let outputPath = $state('');
@@ -31,7 +30,7 @@
   let destroyed = false;
   let settingsReady = false;
 
-  let isRunning = $derived(taskStore.isVisible && taskStore.activeTask?.kind === 'compress');
+  let isRunning = $derived(taskStore.hasRunning?.('compress') ?? false);
 
   let levelPlaceholder = $derived(
     formats.find(f => f.name === format)?.level_hint || localeStore.t('compress.levelPlaceholder')
@@ -146,13 +145,12 @@
   }
 
   async function runCompress() {
-    if (sourcePaths.length === 0 || !outputPath) return;
+    if (isRunning || sourcePaths.length === 0 || !outputPath) return;
     error = null;
     result = null;
 
     const archiveOutputPath = outputPath;
-    const taskId = `compress-${Date.now()}`;
-    taskStore.startTask(taskId, 'compress');
+    const taskId = taskStore.startTask('compress');
 
     try {
       // Only pass a password for formats that support encryption, otherwise the
@@ -168,7 +166,8 @@
         recursiveFlag,
         taskId,
       );
-      taskStore.finishTask('finished');
+      const status = taskStore.finishTask(taskId, 'finished');
+      if (status === 'cancelled' || status === 'failed') return;
       result = res;
       toastStore.show(localeStore.t('compress.result', { files: res.files_added, bytes: res.bytes_written }), 'success', 5000);
       appStore.addRecent(archiveOutputPath);
@@ -177,7 +176,8 @@
       }
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
-      taskStore.finishTask('failed', msg);
+      const status = taskStore.finishTask(taskId, 'failed', msg);
+      if (status === 'cancelled') return;
       error = msg;
       toastStore.show(localeStore.t('compress.errorPrefix', { message: msg }), 'error');
     }
@@ -269,7 +269,6 @@
       {localeStore.t('compress.run')}
     </button>
   </div>
-  <ProgressDialog kind="compress" />
 </div>
 
 <style>
