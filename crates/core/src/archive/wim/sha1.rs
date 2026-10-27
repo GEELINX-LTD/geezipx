@@ -1,94 +1,43 @@
-//! Minimal inline SHA-1 implementation (FIPS 180-4).
+//! SHA-1 resource digests required by the WIM format.
 //!
-//! We avoid pulling in a full crypto crate for a single 20-byte hash
-//! since the WIM format uses SHA-1 for stream integrity (not security).
+//! Uses the shared incremental implementation without copying complete resources.
 
-/// Compute the SHA-1 hash of `data` and return the 20-byte digest.
+use ::sha1::{Digest, Sha1};
+use std::io::{self, Write};
+
+pub(crate) struct DigestWriter<'a> {
+    inner: &'a mut dyn Write,
+    digest: Sha1,
+}
+
+impl<'a> DigestWriter<'a> {
+    pub(crate) fn new(inner: &'a mut dyn Write) -> Self {
+        Self {
+            inner,
+            digest: Sha1::new(),
+        }
+    }
+
+    pub(crate) fn finish(self) -> [u8; 20] {
+        self.digest.finalize().into()
+    }
+}
+
+impl Write for DigestWriter<'_> {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        let count = self.inner.write(bytes)?;
+        self.digest.update(&bytes[..count]);
+        Ok(count)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.inner.flush()
+    }
+}
+
+/// Compute a WIM resource digest (format integrity, not password security).
 pub(crate) fn compute_sha1(data: &[u8]) -> [u8; 20] {
-    // Initialize hash state
-    let mut h0: u32 = 0x6745_2301;
-    let mut h1: u32 = 0xEFCD_AB89;
-    let mut h2: u32 = 0x98BA_DCFE;
-    let mut h3: u32 = 0x1032_5476;
-    let mut h4: u32 = 0xC3D2_E1F0;
-
-    let msg_len_bits: u64 = (data.len() as u64) * 8;
-
-    // Process 512-bit (64-byte) blocks
-    let num_blocks = (data.len() + 9).div_ceil(64);
-
-    // We'll build a mutable copy with padding for the last block
-    let padded_len = num_blocks * 64;
-    let mut padded = Vec::with_capacity(padded_len);
-    padded.extend_from_slice(data);
-    padded.push(0x80);
-
-    // Pad with zeros to make (len(data) + 1 + 8) % 64 == 0
-    while padded.len() % 64 != 56 {
-        padded.push(0x00);
-    }
-
-    // Append message length in bits as a 64-bit big-endian integer
-    padded.extend_from_slice(&msg_len_bits.to_be_bytes());
-
-    // Process each 512-bit block
-    for block in padded.as_chunks::<64>().0 {
-        let mut w = [0u32; 80];
-
-        // Prepare message schedule (first 16 words from the block)
-        for (i, chunk) in block.as_chunks::<4>().0.iter().enumerate() {
-            w[i] = u32::from_be_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
-        }
-
-        // Extend to 80 words
-        for i in 16..80 {
-            w[i] = (w[i - 3] ^ w[i - 8] ^ w[i - 14] ^ w[i - 16]).rotate_left(1);
-        }
-
-        let mut a = h0;
-        let mut b = h1;
-        let mut c = h2;
-        let mut d = h3;
-        let mut e = h4;
-
-        // Main loop
-        #[allow(clippy::needless_range_loop)]
-        for i in 0..80 {
-            let (f, k): (u32, u32) = match i {
-                0..=19 => ((b & c) | ((!b) & d), 0x5A82_7999),
-                20..=39 => (b ^ c ^ d, 0x6ED9_EBA1),
-                40..=59 => ((b & c) | (b & d) | (c & d), 0x8F1B_BCDC),
-                _ => (b ^ c ^ d, 0xCA62_C1D6),
-            };
-
-            let temp = a
-                .rotate_left(5)
-                .wrapping_add(f)
-                .wrapping_add(e)
-                .wrapping_add(k)
-                .wrapping_add(w[i]);
-            e = d;
-            d = c;
-            c = b.rotate_left(30);
-            b = a;
-            a = temp;
-        }
-
-        h0 = h0.wrapping_add(a);
-        h1 = h1.wrapping_add(b);
-        h2 = h2.wrapping_add(c);
-        h3 = h3.wrapping_add(d);
-        h4 = h4.wrapping_add(e);
-    }
-
-    // Produce final digest
-    let mut digest = [0u8; 20];
-    digest[0..4].copy_from_slice(&h0.to_be_bytes());
-    digest[4..8].copy_from_slice(&h1.to_be_bytes());
-    digest[8..12].copy_from_slice(&h2.to_be_bytes());
-    digest[12..16].copy_from_slice(&h3.to_be_bytes());
-    digest[16..20].copy_from_slice(&h4.to_be_bytes());
-    digest
+    Sha1::digest(data).into()
 }
 
 #[cfg(test)]

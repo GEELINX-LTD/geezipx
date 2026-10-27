@@ -82,9 +82,7 @@ pub fn verify_single_stream(path: &Path, format: ArchiveFormat) -> GeeZipResult<
 
     let bytes_read: u64 = match format {
         ArchiveFormat::Gzip => {
-            let mut decoder = flate2::read::GzDecoder::new(file);
-            std::io::copy(&mut decoder, &mut std::io::sink())
-                .map_err(|e| GeeZipError::io(e, "gzip verification failed"))?
+            crate::archive::gzip::gzip_decompress(&mut file, &mut std::io::sink())?
         }
         ArchiveFormat::Bzip2 => {
             let mut decoder = ::bzip2::read::MultiBzDecoder::new(file);
@@ -178,6 +176,36 @@ mod tests {
         let cursor = std::io::Cursor::new(buf.to_vec());
         let result = crate::archive::zip::ZipReader::new(cursor);
         assert!(result.is_err(), "corrupted zip should fail to open reader");
+    }
+
+    #[test]
+    fn verify_gzip_checks_every_member() {
+        fn member(data: &[u8]) -> Vec<u8> {
+            let mut encoder =
+                flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+            encoder.write_all(data).unwrap();
+            encoder.finish().unwrap()
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("multi.gz");
+        let first = member(b"first member");
+        let second = member(b"second member");
+        let mut data = first.clone();
+        data.extend_from_slice(&second);
+        std::fs::write(&path, &data).unwrap();
+        assert_eq!(
+            verify_single_stream(&path, ArchiveFormat::Gzip)
+                .unwrap()
+                .bytes_read,
+            25
+        );
+        // Damage the second CRC: accepting only the first member hides this.
+        let crc_offset = data.len() - 8;
+        data[crc_offset] ^= 1;
+        std::fs::write(&path, &data).unwrap();
+        assert!(verify_single_stream(&path, ArchiveFormat::Gzip).is_err());
+        std::fs::write(&path, &data[..first.len() + 5]).unwrap();
+        assert!(verify_single_stream(&path, ArchiveFormat::Gzip).is_err());
     }
 
     #[test]

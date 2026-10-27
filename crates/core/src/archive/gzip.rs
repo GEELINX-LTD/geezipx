@@ -74,11 +74,12 @@ pub fn gzip_compress<R: Read, W: Write>(reader: &mut R, writer: W) -> GeeZipResu
     gzip_compress_with_level(reader, writer, None)
 }
 
-/// Decompress gzip-compressed data from `reader` into `writer`.
+/// Decompress all members of a gzip stream from `reader` into `writer`.
 ///
+/// Concatenated members are decoded in order, validating each member's trailer.
 /// Returns the number of bytes written to the output (decompressed size).
 pub fn gzip_decompress<R: Read, W: Write>(reader: &mut R, writer: &mut W) -> GeeZipResult<u64> {
-    let mut decoder = flate2::read::GzDecoder::new(reader);
+    let mut decoder = flate2::read::MultiGzDecoder::new(reader);
     let bytes = std::io::copy(&mut decoder, writer)
         .map_err(|e| GeeZipError::io(e, "gzip decompression failed"))?;
     Ok(bytes)
@@ -92,6 +93,43 @@ pub fn gzip_decompress<R: Read, W: Write>(reader: &mut R, writer: &mut W) -> Gee
 mod tests {
     use super::*;
     use std::io::Cursor;
+
+    fn gzip_member(data: &[u8]) -> Vec<u8> {
+        let mut compressed = Vec::new();
+        gzip_compress(&mut Cursor::new(data), &mut compressed).unwrap();
+        compressed
+    }
+
+    #[test]
+    fn gzip_concatenated_members_include_empty_members() {
+        let compressed = [
+            gzip_member(b"first"),
+            gzip_member(b""),
+            gzip_member(b"second"),
+        ]
+        .concat();
+        let mut output = Vec::new();
+        let written = gzip_decompress(&mut Cursor::new(compressed), &mut output).unwrap();
+        assert_eq!(written, 11);
+        assert_eq!(output, b"firstsecond");
+    }
+
+    #[test]
+    fn gzip_rejects_damaged_later_member() {
+        let later = gzip_member(b"second");
+        for truncate in [false, true] {
+            let mut damaged = later.clone();
+            if truncate {
+                damaged.pop();
+            } else {
+                // CRC32 is the first four bytes of the eight-byte trailer.
+                let crc_offset = damaged.len() - 8;
+                damaged[crc_offset] ^= 1;
+            }
+            let compressed = [gzip_member(b"first"), damaged].concat();
+            assert!(gzip_decompress(&mut Cursor::new(compressed), &mut Vec::new()).is_err());
+        }
+    }
 
     #[test]
     fn gzip_roundtrip() {

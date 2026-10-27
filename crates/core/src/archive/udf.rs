@@ -8,7 +8,7 @@
 //! in a single pass when `finish()` is called (non-streaming by UDF format
 //! constraints).
 
-// use std::collections::HashMap;
+use std::collections::HashSet;
 use std::fmt;
 use std::fs;
 use std::io::{Cursor, Read, Seek, SeekFrom, Write};
@@ -100,7 +100,7 @@ impl UdfReader {
             return Ok(());
         }
 
-        let cursor = Cursor::new(self.data.clone());
+        let cursor = Cursor::new(self.data.as_slice());
         let udf = UdfFs::open(cursor).map_err(|err| convert_udf_error(err, "opening UDF image"))?;
 
         let root = udf
@@ -108,17 +108,25 @@ impl UdfReader {
             .map_err(|err| convert_udf_error(err, "reading UDF root directory"))?;
 
         let mut entries = Vec::new();
-        collect_udf_entries(&root, "", &mut entries);
+        collect_udf_entries(
+            &udf,
+            &self.data,
+            &root,
+            "",
+            &mut entries,
+            &mut HashSet::new(),
+        )?;
         self.entries_cache = Some(entries);
         Ok(())
     }
 
     /// Extract a file from the UDF image by navigating to its ICB.
-    fn extract_file_internal(&self, entry_path: &str) -> GeeZipResult<Vec<u8>> {
-        let mut reader = Cursor::new(self.data.clone());
+    fn extract_file_internal(&self, entry_path: &str, writer: &mut dyn Write) -> GeeZipResult<u64> {
+        let mut reader = Cursor::new(self.data.as_slice());
 
-        // Parse the UDF filesystem to find the file entry
-        let udf = UdfFs::open(Cursor::new(self.data.clone()))
+        // The filesystem and extent reader borrow the image instead of making
+        // two full image copies for every extracted file.
+        let udf = UdfFs::open(Cursor::new(self.data.as_slice()))
             .map_err(|err| convert_udf_error(err, "re-opening UDF image for extraction"))?;
 
         let root = udf
@@ -126,17 +134,14 @@ impl UdfReader {
             .map_err(|err| convert_udf_error(err, "reading root dir for extraction"))?;
 
         // Find the directory entry for the requested path
-        let dir_entry =
-            find_udf_entry(&root, entry_path).ok_or_else(|| GeeZipError::EntryNotFound {
-                name: entry_path.to_string(),
-            })?;
+        let dir_entry = find_udf_entry(&udf, root, entry_path)?;
 
         if dir_entry.is_directory {
-            return Ok(Vec::new());
+            return Ok(0);
         }
 
-        // Read the file entry from the ICB
-        read_udf_file_data(&mut reader, &udf, dir_entry).map_err(|e| {
+        // Read the file entry from the ICB.
+        read_udf_file_data(&mut reader, &udf, &dir_entry, writer).map_err(|e| {
             GeeZipError::format(
                 format!("extracting UDF file '{}': {}", entry_path, e),
                 ArchiveFormat::Udf,
@@ -146,7 +151,20 @@ impl UdfReader {
 }
 
 /// Recursively collect entries from a UDF directory tree.
-fn collect_udf_entries(dir: &hadris_udf::dir::UdfDir, parent: &str, out: &mut Vec<Entry>) {
+fn collect_udf_entries(
+    udf: &UdfFs<Cursor<&[u8]>>,
+    data: &[u8],
+    dir: &hadris_udf::dir::UdfDir,
+    parent: &str,
+    out: &mut Vec<Entry>,
+    visited: &mut HashSet<(u16, u32)>,
+) -> GeeZipResult<()> {
+    if parent.split('/').count() > 128 {
+        return Err(convert_udf_error(
+            "directory nesting too deep",
+            "listing UDF",
+        ));
+    }
     for entry in dir.entries() {
         // Skip parent and self references
         if entry.is_parent() || entry.name().is_empty() {
@@ -159,32 +177,64 @@ fn collect_udf_entries(dir: &hadris_udf::dir::UdfDir, parent: &str, out: &mut Ve
             format!("{}/{}", parent, entry.name())
         };
 
+        let size = if entry.is_directory {
+            0
+        } else {
+            let mut reader = Cursor::new(data);
+            let buffer = read_udf_file_entry(&mut reader, udf, entry)?;
+            u64::from_le_bytes(buffer[56..64].try_into().unwrap())
+        };
         out.push(Entry {
             path: path.clone(),
-            size: entry.size,
-            compressed_size: entry.size,
+            size,
+            compressed_size: size,
             crc32: None,
             modified: None,
             is_dir: entry.is_directory,
         });
 
-        // Recurse into subdirectories by re-reading from the filesystem
-        // Note: This is limited because hadris-udf doesn't expose recursive
-        // directory traversal. For the initial listing, we only get root entries.
-        // Full recursive listing requires implementing directory reading.
+        if entry.is_directory {
+            let key = (entry.icb.partition_ref_num, entry.icb.logical_block_num);
+            if !visited.insert(key) {
+                return Err(convert_udf_error("cyclic directory ICB", "listing UDF"));
+            }
+            let child = udf
+                .read_directory(&entry.icb)
+                .map_err(|e| convert_udf_error(e, format!("reading UDF directory '{path}'")))?;
+            collect_udf_entries(udf, data, &child, &path, out, visited)?;
+        }
     }
+    Ok(())
 }
 
-/// Find a UDF directory entry by path (simple single-level only due to API limits).
-fn find_udf_entry<'a>(dir: &'a hadris_udf::dir::UdfDir, path: &str) -> Option<&'a UdfDirEntry> {
-    // Handle multi-segment paths by walking directories
-    let segments: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
-    if segments.is_empty() {
-        return None;
+/// Resolve every path component so a nested lookup cannot select a root file
+/// with the same basename.
+fn find_udf_entry(
+    udf: &UdfFs<Cursor<&[u8]>>,
+    mut dir: hadris_udf::dir::UdfDir,
+    path: &str,
+) -> GeeZipResult<UdfDirEntry> {
+    let missing = || GeeZipError::EntryNotFound {
+        name: path.to_owned(),
+    };
+    let mut segments = path.split('/').peekable();
+    while let Some(segment) = segments.next() {
+        let entry = dir
+            .entries()
+            .find(|e| e.name() == segment)
+            .cloned()
+            .ok_or_else(missing)?;
+        if segments.peek().is_none() {
+            return Ok(entry);
+        }
+        if !entry.is_directory {
+            return Err(missing());
+        }
+        dir = udf
+            .read_directory(&entry.icb)
+            .map_err(|e| convert_udf_error(e, format!("reading UDF directory '{segment}'")))?;
     }
-
-    let filename = segments.last().unwrap();
-    dir.entries().find(|e| e.name() == *filename)
+    Err(missing())
 }
 
 /// Read file data from a UDF image by navigating to the file's ICB.
@@ -192,14 +242,22 @@ fn find_udf_entry<'a>(dir: &'a hadris_udf::dir::UdfDir, path: &str) -> Option<&'
 /// This manually parses the File Entry structure to find the allocation
 /// descriptors and read the file data, because `hadris-udf` does not expose
 /// a public file-reading API.
-fn read_udf_file_data<R: Read + Seek>(
+fn read_udf_file_entry<R: Read + Seek>(
     reader: &mut R,
-    udf: &UdfFs<Cursor<Vec<u8>>>,
+    udf: &UdfFs<Cursor<&[u8]>>,
     entry: &UdfDirEntry,
 ) -> GeeZipResult<Vec<u8>> {
     let info = udf.info();
     let block_size = info.block_size as u64;
     let partition_start = info.partition_start as u64;
+    // The upstream directory parser uses fixed 2048-byte sectors. Reject
+    // layouts it cannot navigate consistently before indexing the ICB.
+    if block_size != 2048 || entry.icb.partition_ref_num != 0 {
+        return Err(convert_udf_error(
+            "unsupported block size or partition",
+            "reading UDF ICB",
+        ));
+    }
 
     // Navigate to the ICB location
     let icb_block = entry.icb.logical_block_num as u64;
@@ -218,7 +276,7 @@ fn read_udf_file_data<R: Read + Seek>(
 
     // Parse the Descriptor Tag (16 bytes)
     let tag_identifier = u16::from_le_bytes([buffer[0], buffer[1]]);
-    if tag_identifier != 261 {
+    if !matches!(tag_identifier, 261 | 266) {
         // 261 = File Entry tag
         return Err(GeeZipError::format(
             format!("expected UDF File Entry tag (261), got {}", tag_identifier),
@@ -226,36 +284,28 @@ fn read_udf_file_data<R: Read + Seek>(
         ));
     }
 
-    // Parse the ICB Tag at offset 16
-    let icb_tag_offset = 16;
-    let _file_type = buffer[icb_tag_offset + 11];
+    Ok(buffer)
+}
 
-    // Parse extended attributes length and allocation descriptors length
-    // File Entry layout (after ICB Tag at offset 16 + 20 bytes = 36):
-    // uid(4) gid(4) permissions(4) file_link_count(2) record_format(1)
-    // record_display_attributes(1) record_length(4) info_length(8)
-    // logical_blocks_recorded(8) access_time(12) modification_time(12)
-    // attribute_time(12) checkpoint(4) extended_attribute_icb(16)
-    // impl_use(32) unique_id(8) extended_attributes_length(4)
-    // allocation_descriptors_length(4)
-    let base_field_offset = icb_tag_offset + 20; // Start of UID
-    let ea_length_offset = base_field_offset
-        + 4  // uid
-        + 4  // gid
-        + 4  // permissions
-        + 2  // file_link_count
-        + 1  // record_format
-        + 1  // record_display_attributes
-        + 4  // record_length
-        + 8  // info_length
-        + 8  // logical_blocks_recorded
-        + 12 // access_time
-        + 12 // modification_time
-        + 12 // attribute_time
-        + 4  // checkpoint
-        + 16 // extended_attribute_icb
-        + 32 // impl_use
-        + 8; // unique_id
+/// Stream recorded extents, bound them against the image before reading, and
+/// reject unsupported allocation layouts instead of interpreting them as data.
+fn read_udf_file_data<R: Read + Seek>(
+    reader: &mut R,
+    udf: &UdfFs<Cursor<&[u8]>>,
+    entry: &UdfDirEntry,
+    writer: &mut dyn Write,
+) -> GeeZipResult<u64> {
+    let buffer = read_udf_file_entry(reader, udf, entry)?;
+    if buffer[27] != 5 {
+        return Err(convert_udf_error(
+            "unsupported file type",
+            "reading UDF file",
+        ));
+    }
+    let file_size = u64::from_le_bytes(buffer[56..64].try_into().unwrap());
+    let allocation_type = u16::from_le_bytes([buffer[34], buffer[35]]) & 7;
+    let tag_identifier = u16::from_le_bytes([buffer[0], buffer[1]]);
+    let ea_length_offset = if tag_identifier == 261 { 168 } else { 208 };
 
     if ea_length_offset + 8 > buffer.len() {
         return Err(GeeZipError::format(
@@ -278,8 +328,12 @@ fn read_udf_file_data<R: Read + Seek>(
         buffer[ea_length_offset + 7],
     ]) as usize;
 
-    let ad_start = ea_length_offset + 8 + ea_length;
-    let ad_end = ad_start + ad_length;
+    let ad_start = (ea_length_offset + 8)
+        .checked_add(ea_length)
+        .ok_or_else(|| convert_udf_error("allocation offset overflow", "reading UDF"))?;
+    let ad_end = ad_start
+        .checked_add(ad_length)
+        .ok_or_else(|| convert_udf_error("allocation length overflow", "reading UDF"))?;
 
     if ad_start > buffer.len() || ad_end > buffer.len() {
         return Err(GeeZipError::format(
@@ -290,35 +344,67 @@ fn read_udf_file_data<R: Read + Seek>(
 
     let ad_data = &buffer[ad_start..ad_end];
 
-    // Parse short allocation descriptors (8 bytes each)
-    let mut file_data = Vec::new();
-    for chunk in ad_data.chunks(8) {
-        if chunk.len() < 8 {
-            break;
-        }
-        let extent_length = u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
-        let extent_position = u32::from_le_bytes([chunk[4], chunk[5], chunk[6], chunk[7]]);
-
-        if extent_length == 0 {
-            break;
-        }
-
-        let extent_sector = partition_start + extent_position as u64;
-        let extent_offset = extent_sector * block_size;
-
-        reader
-            .seek(SeekFrom::Start(extent_offset))
-            .map_err(|e| GeeZipError::io(e, "seeking to file extent"))?;
-
-        let mut chunk_data = vec![0u8; extent_length as usize];
-        reader
-            .read_exact(&mut chunk_data)
-            .map_err(|e| GeeZipError::io(e, "reading file extent"))?;
-
-        file_data.extend_from_slice(&chunk_data);
+    if allocation_type == 3 {
+        let size = usize::try_from(file_size)
+            .ok()
+            .filter(|size| *size <= ad_data.len())
+            .ok_or_else(|| convert_udf_error("truncated embedded file", "reading UDF"))?;
+        writer.write_all(&ad_data[..size])?;
+        return Ok(file_size);
     }
-
-    Ok(file_data)
+    let descriptor_size = match allocation_type {
+        0 => 8,
+        1 => 16,
+        _ => {
+            return Err(convert_udf_error(
+                "unsupported allocation type",
+                "reading UDF",
+            ))
+        }
+    };
+    if ad_data.len() % descriptor_size != 0 {
+        return Err(convert_udf_error(
+            "partial allocation descriptor",
+            "reading UDF",
+        ));
+    }
+    let block_size = u64::from(udf.info().block_size);
+    let partition_start = u64::from(udf.info().partition_start);
+    let image_len = reader.seek(SeekFrom::End(0))?;
+    let mut remaining = file_size;
+    for chunk in ad_data.chunks_exact(descriptor_size) {
+        let raw_length = u32::from_le_bytes(chunk[..4].try_into().unwrap());
+        let extent_kind = raw_length >> 30;
+        let extent_length = u64::from(raw_length & 0x3fff_ffff);
+        let extent_position = u32::from_le_bytes(chunk[4..8].try_into().unwrap());
+        if extent_kind != 0 || (allocation_type == 1 && chunk[8..10] != [0, 0]) {
+            return Err(convert_udf_error(
+                "unsupported extent type or partition",
+                "reading UDF",
+            ));
+        }
+        let length = extent_length.min(remaining);
+        let extent_offset = (partition_start + u64::from(extent_position)) * block_size;
+        if extent_offset > image_len || extent_length > image_len - extent_offset {
+            return Err(convert_udf_error(
+                "file extent outside image",
+                "reading UDF",
+            ));
+        }
+        reader.seek(SeekFrom::Start(extent_offset))?;
+        let written = std::io::copy(&mut reader.take(length), writer)?;
+        if written != length {
+            return Err(convert_udf_error("truncated file extent", "reading UDF"));
+        }
+        remaining -= written;
+    }
+    if remaining != 0 {
+        return Err(convert_udf_error(
+            "file extents shorter than information length",
+            "reading UDF",
+        ));
+    }
+    Ok(file_size)
 }
 
 impl ArchiveReader for UdfReader {
@@ -342,12 +428,8 @@ impl ArchiveReader for UdfReader {
             return Ok(0);
         }
 
-        let file_data = self.extract_file_internal(&entry.path)?;
-        let byte_count = file_data.len() as u64;
+        let byte_count = self.extract_file_internal(&entry.path, writer)?;
 
-        writer
-            .write_all(&file_data)
-            .map_err(|e| GeeZipError::io(e, format!("writing UDF entry '{}'", entry.path)))?;
         writer
             .flush()
             .map_err(|e| GeeZipError::io(e, "flushing after UDF extraction"))?;
@@ -405,24 +487,10 @@ fn build_simple_dir_from_entries(entries: &[BufferedUdfEntry]) -> GeeZipResult<S
             continue;
         }
 
-        let file = SimpleFile::new(
-            Path::new(&entry.path)
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or(&entry.path)
-                .to_string(),
-            entry.data.clone(),
-        );
-
-        if let Some(parent) = Path::new(&entry.path).parent().and_then(|p| p.to_str()) {
-            if parent.is_empty() {
-                root.add_file(file);
-            } else {
-                add_file_to_subdir(&mut root, parent, file);
-            }
-        } else {
-            root.add_file(file);
-        }
+        let mut components = entry.path.rsplitn(2, '/');
+        let name = components.next().unwrap_or(&entry.path);
+        let parent = components.next().unwrap_or("");
+        ensure_simple_dir(&mut root, parent).add_file(SimpleFile::new(name, entry.data.clone()));
     }
 
     // Add empty directories
@@ -431,69 +499,24 @@ fn build_simple_dir_from_entries(entries: &[BufferedUdfEntry]) -> GeeZipResult<S
             continue;
         }
 
-        let dir = SimpleDir::new(
-            Path::new(&entry.path)
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or(&entry.path)
-                .to_string(),
-        );
-
-        if let Some(parent) = Path::new(&entry.path).parent().and_then(|p| p.to_str()) {
-            if parent.is_empty() {
-                root.add_dir(dir);
-            } else {
-                add_dir_to_subdir(&mut root, parent, dir);
-            }
-        } else {
-            root.add_dir(dir);
-        }
+        ensure_simple_dir(&mut root, &entry.path);
     }
 
     Ok(root)
 }
 
-fn add_file_to_subdir(dir: &mut SimpleDir, path: &str, file: SimpleFile) {
-    let segments: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
-    if segments.is_empty() {
-        dir.add_file(file);
-        return;
+fn ensure_simple_dir<'a>(mut dir: &'a mut SimpleDir, path: &str) -> &'a mut SimpleDir {
+    for segment in path.split('/').filter(|s| !s.is_empty() && *s != ".") {
+        let index = match dir.subdirs.iter().position(|child| child.name == segment) {
+            Some(index) => index,
+            None => {
+                dir.add_dir(SimpleDir::new(segment));
+                dir.subdirs.len() - 1
+            }
+        };
+        dir = &mut dir.subdirs[index];
     }
-    if segments.len() == 1 {
-        dir.add_file(file);
-        return;
-    }
-    // Find or create the subdirectory
-    let first_seg = segments[0];
-    let rest = segments[1..].join("/");
-    for subdir in &mut dir.subdirs {
-        if subdir.name == first_seg {
-            add_file_to_subdir(subdir, &rest, file);
-            return;
-        }
-    }
-    // Subdirectory doesn't exist - add file to root (best effort)
-    dir.add_file(file);
-}
-
-fn add_dir_to_subdir(dir: &mut SimpleDir, path: &str, sub: SimpleDir) {
-    let segments: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
-    if segments.is_empty() || segments.len() == 1 {
-        dir.add_dir(sub);
-        return;
-    }
-    let first_seg = segments[0];
-    let rest = segments[1..].join("/");
-    for existing in &mut dir.subdirs {
-        if existing.name == first_seg {
-            add_dir_to_subdir(existing, &rest, sub);
-            return;
-        }
-    }
-    // Create intermediate directory
-    let mut intermediate = SimpleDir::new(first_seg);
-    add_dir_to_subdir(&mut intermediate, &rest, sub);
-    dir.add_dir(intermediate);
+    dir
 }
 
 impl<W: Write + Send> ArchiveWriter for UdfWriter<W> {
@@ -566,21 +589,21 @@ impl<W: Write + Send> ArchiveWriter for UdfWriter<W> {
             ..Default::default()
         };
 
-        let total_data: usize = entries.iter().map(|e| e.data.len()).sum();
-        let entry_count = entries.len();
-        let estimate = total_data + 270 * 2048 + entry_count * 8 * 2048;
-        let mut buf = vec![0u8; estimate];
-        let mut cursor = Cursor::new(&mut buf[..]);
-
-        HadrisUdfWriter::format(&mut cursor, &root, options).map_err(|err| {
+        // The formatter seeks between metadata and file extents. Its final
+        // cursor position can precede the last directory, so use its reported
+        // sector count and a growable buffer rather than truncating at position().
+        let mut cursor = Cursor::new(Vec::new());
+        let sectors = HadrisUdfWriter::format(&mut cursor, &root, options).map_err(|err| {
             GeeZipError::format(format!("formatting UDF image: {err}"), ArchiveFormat::Udf)
         })?;
-
-        let written = cursor.position();
-        let udf_data = &buf[..written as usize];
+        let written = u64::from(sectors) * 2048;
+        let length = usize::try_from(written)
+            .map_err(|e| convert_udf_error(e, "UDF image exceeds address space"))?;
+        let mut udf_data = cursor.into_inner();
+        udf_data.resize(length, 0);
 
         writer
-            .write_all(udf_data)
+            .write_all(&udf_data)
             .map_err(|e| GeeZipError::io(e, "writing UDF image"))?;
         writer
             .flush()
@@ -676,6 +699,129 @@ mod tests {
             .expect("hello.txt should extract");
         assert_eq!(bytes, b"hello udf\n".len() as u64);
         assert_eq!(out, b"hello udf\n");
+    }
+
+    #[test]
+    fn udf_lists_and_extracts_nested_entries() {
+        let mut reader = UdfReader {
+            data: build_test_udf_nested(),
+            entries_cache: None,
+            format: ArchiveFormat::Udf,
+        };
+        let entries = reader.entries().unwrap();
+        let entry = entries
+            .iter()
+            .find(|e| e.path == "subdir/nested.txt")
+            .unwrap();
+        assert_eq!(entry.size, 7);
+        let mut output = Vec::new();
+        assert_eq!(reader.extract(entry, &mut output).unwrap(), 7);
+        assert_eq!(output, b"nested\n");
+        let mut missing = entries
+            .iter()
+            .find(|e| e.path == "hello.txt")
+            .unwrap()
+            .clone();
+        missing.path = "missing/hello.txt".into();
+        assert!(matches!(
+            reader.extract(&missing, &mut Vec::new()),
+            Err(GeeZipError::EntryNotFound { .. })
+        ));
+    }
+
+    #[test]
+    fn udf_writer_preserves_nested_paths_and_empty_directories() {
+        let mut data = Vec::new();
+        let mut writer = Box::new(UdfWriter::new(&mut data));
+        for (path, content) in [
+            ("same.txt", b"root".as_slice()),
+            ("a/b/same.txt", b"nested"),
+        ] {
+            writer
+                .add_entry_from_reader(Path::new(path), &mut Cursor::new(content))
+                .unwrap();
+        }
+        // Explicit directories may arrive after their children.
+        writer.add_directory(Path::new("a")).unwrap();
+        writer.add_directory(Path::new("a/b")).unwrap();
+        writer.add_directory(Path::new("a/empty/deep")).unwrap();
+        writer.finish().unwrap();
+        let mut reader = UdfReader {
+            data,
+            entries_cache: None,
+            format: ArchiveFormat::Udf,
+        };
+        let entries = reader.entries().unwrap();
+        assert_eq!(entries.iter().filter(|e| e.path == "a").count(), 1);
+        assert!(entries.iter().any(|e| e.path == "a/empty/deep" && e.is_dir));
+        for (path, content) in [
+            ("same.txt", b"root".as_slice()),
+            ("a/b/same.txt", b"nested"),
+        ] {
+            let entry = entries.iter().find(|e| e.path == path).unwrap();
+            let mut output = Vec::new();
+            reader.extract(entry, &mut output).unwrap();
+            assert_eq!(output, content);
+        }
+    }
+
+    fn first_file_icb_offset(data: &[u8]) -> usize {
+        let fs = UdfFs::open(Cursor::new(data)).unwrap();
+        let dir = fs.root_dir().unwrap();
+        let entry = dir.entries().find(|entry| !entry.is_directory).unwrap();
+        (fs.info().partition_start as usize + entry.icb.logical_block_num as usize) * 2048
+    }
+
+    #[test]
+    fn udf_rejects_invalid_extents_without_large_allocation() {
+        for length in [0xffff_ffff_u32, 0x3fff_ffff, 1] {
+            let mut data = build_test_udf();
+            let offset = first_file_icb_offset(&data);
+            data[offset + 176..offset + 180].copy_from_slice(&length.to_le_bytes());
+            let mut reader = UdfReader {
+                data,
+                entries_cache: None,
+                format: ArchiveFormat::Udf,
+            };
+            let entry = reader.entries().unwrap().remove(0);
+            assert!(reader.extract(&entry, &mut Vec::new()).is_err());
+        }
+    }
+
+    #[test]
+    fn udf_reads_embedded_and_long_allocations_and_trims_padding() {
+        for embedded in [true, false] {
+            let mut data = build_test_udf();
+            let offset = first_file_icb_offset(&data);
+            if embedded {
+                data[offset + 34..offset + 36].copy_from_slice(&3_u16.to_le_bytes());
+                data[offset + 56..offset + 64].copy_from_slice(&3_u64.to_le_bytes());
+                data[offset + 172..offset + 176].copy_from_slice(&3_u32.to_le_bytes());
+                data[offset + 176..offset + 179].copy_from_slice(b"abc");
+            } else {
+                data[offset + 34..offset + 36].copy_from_slice(&1_u16.to_le_bytes());
+                data[offset + 172..offset + 176].copy_from_slice(&16_u32.to_le_bytes());
+                data[offset + 176..offset + 180].copy_from_slice(&2048_u32.to_le_bytes());
+                data[offset + 184..offset + 192].fill(0);
+            }
+            let mut reader = UdfReader {
+                data,
+                entries_cache: None,
+                format: ArchiveFormat::Udf,
+            };
+            let entry = reader.entries().unwrap().remove(0);
+            let mut output = Vec::new();
+            reader.extract(&entry, &mut output).unwrap();
+            assert_eq!(
+                output,
+                if embedded {
+                    b"abc".as_slice()
+                } else {
+                    b"hello udf\n"
+                }
+            );
+            assert_eq!(output.len() as u64, entry.size);
+        }
     }
 
     #[test]

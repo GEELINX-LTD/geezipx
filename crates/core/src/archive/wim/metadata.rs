@@ -4,7 +4,7 @@
 //! depth-first directory entry tree.  We walk the tree recursively
 //! and produce a flat `Vec<Entry>` with full paths.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::archive::Entry;
 use crate::detect::ArchiveFormat;
@@ -16,6 +16,14 @@ use super::resource;
 
 /// FILE_ATTRIBUTE_DIRECTORY constant.
 const FILE_ATTRIBUTE_DIRECTORY: u32 = 0x0000_0010;
+/// Bound stack use and path growth for untrusted directory trees.
+const MAX_DIRECTORY_DEPTH: usize = 256;
+
+struct WalkState {
+    visited: HashSet<u64>,
+    entries_start: u64,
+    legacy_layout: bool,
+}
 
 // ---------------------------------------------------------------------------
 // Internal representation of a directory entry during tree walk
@@ -46,7 +54,6 @@ struct DirEntry {
 
 /// Walk the metadata resource for `image_index` and collect a flat entry list
 /// together with a path → resource-descriptor map for extraction.
-#[allow(unused_assignments)]
 pub(crate) fn walk_directory_tree(
     file: &mut std::fs::File,
     image_index: usize,
@@ -72,43 +79,80 @@ pub(crate) fn walk_directory_tree(
         header.chunk_size,
     )?;
 
+    let meta_stream = &lookup.metadata_streams[image_index];
+    if !is_zero_hash(&meta_stream.hash)
+        && super::sha1::compute_sha1(&meta_bytes) != meta_stream.hash.0
+    {
+        return Err(invalid_metadata("WIM metadata SHA-1 mismatch"));
+    }
+
     // Build a hash → resource map from the lookup table for fast extraction.
     let mut hash_to_resource: HashMap<Sha1Hash, ResourceDescriptor> = HashMap::new();
     for sd in &lookup.file_streams {
         hash_to_resource.insert(sd.hash.clone(), sd.resource);
     }
 
+    // Old GeeZipX writers used an invalid nonzero chunk size with no compression,
+    // and a different dentry layout. Retain read compatibility for those archives.
+    if header.chunk_size != 0 && header.compression_type() == super::header::CompressionType::None {
+        parse_directory_tree_with_layout(&meta_bytes, &hash_to_resource, true)
+    } else {
+        parse_directory_tree(&meta_bytes, &hash_to_resource)
+    }
+}
+
+fn parse_directory_tree(
+    meta_bytes: &[u8],
+    hash_to_resource: &HashMap<Sha1Hash, ResourceDescriptor>,
+) -> GeeZipResult<(Vec<Entry>, HashMap<String, ResourceDescriptor>)> {
+    parse_directory_tree_with_layout(meta_bytes, hash_to_resource, false)
+}
+
+fn parse_directory_tree_with_layout(
+    meta_bytes: &[u8],
+    hash_to_resource: &HashMap<Sha1Hash, ResourceDescriptor>,
+    legacy_layout: bool,
+) -> GeeZipResult<(Vec<Entry>, HashMap<String, ResourceDescriptor>)> {
     // ---- Parse security block ----
     if meta_bytes.len() < 8 {
-        return Err(GeeZipError::format(
-            "metadata too short for security block",
-            ArchiveFormat::Wim,
-        ));
+        return Err(invalid_metadata("metadata too short for security block"));
     }
-    let sec_total_len = read_u32_le(&meta_bytes, 0) as usize;
-    let sec_num_entries = read_u32_le(&meta_bytes, 4) as usize;
-    let mut cursor = 8usize;
-
-    // Skip security descriptor sizes array (sec_num_entries × 8 bytes)
-    cursor += sec_num_entries * 8;
-    // Skip the actual security descriptor data
-    cursor = sec_total_len;
-    // Align to 8-byte boundary
-    cursor = (cursor + 7) & !7;
+    let sec_total_len = read_u32_le(meta_bytes, 0) as usize;
+    let sec_num_entries = read_u32_le(meta_bytes, 4) as usize;
+    let sizes_end = sec_num_entries
+        .checked_mul(8)
+        .and_then(|len| len.checked_add(8))
+        .ok_or_else(|| invalid_metadata("security descriptor sizes overflow"))?;
+    if sec_total_len < sizes_end || sec_total_len > meta_bytes.len() {
+        return Err(invalid_metadata("invalid security block length"));
+    }
+    let mut descriptors_end = sizes_end;
+    for offset in (8..sizes_end).step_by(8) {
+        let size = usize::try_from(read_u64_le(meta_bytes, offset))
+            .map_err(|_| invalid_metadata("security descriptor size overflow"))?;
+        descriptors_end = bounded_end(descriptors_end, size, sec_total_len)?;
+    }
+    let cursor = align_eight(sec_total_len)?;
 
     // ---- Walk root directory entries ----
-    let root_entries = read_directory_entries(&meta_bytes, &mut cursor)?;
-
+    let root_entries = read_directory_entries_with_layout(meta_bytes, cursor, legacy_layout)?;
+    let mut walk = WalkState {
+        visited: HashSet::from([cursor as u64]),
+        entries_start: cursor as u64,
+        legacy_layout,
+    };
     let mut entries: Vec<Entry> = Vec::new();
     let mut path_to_resource: HashMap<String, ResourceDescriptor> = HashMap::new();
 
     for de in root_entries {
         collect_entries(
-            &meta_bytes,
+            meta_bytes,
             &de,
-            &hash_to_resource,
+            hash_to_resource,
             &mut entries,
             &mut path_to_resource,
+            &mut walk,
+            0,
         )?;
     }
 
@@ -125,6 +169,8 @@ fn collect_entries(
     hash_to_resource: &HashMap<Sha1Hash, ResourceDescriptor>,
     entries: &mut Vec<Entry>,
     path_to_resource: &mut HashMap<String, ResourceDescriptor>,
+    walk: &mut WalkState,
+    depth: usize,
 ) -> GeeZipResult<()> {
     // Determine size from the primary stream hash
     let size = if entry.is_dir {
@@ -137,8 +183,10 @@ fn collect_entries(
             path_to_resource.insert(entry.path.clone(), *rd);
             rd.original_size
         } else {
-            // Hash present but not found in lookup — might be a hard link
-            entry.size
+            return Err(invalid_metadata(format!(
+                "missing resource for entry '{}'",
+                entry.path
+            )));
         }
     };
 
@@ -150,11 +198,30 @@ fn collect_entries(
         modified: entry.modified,
         is_dir: entry.is_dir,
     };
-    entries.push(archive_entry);
+    if !entry.path.is_empty() {
+        entries.push(archive_entry);
+    }
 
     // Recurse into subdirectory if present
     if entry.subdir_offset != 0 {
-        let sub_entries = read_directory_entries_at(meta_bytes, entry.subdir_offset as usize)?;
+        if !entry.is_dir {
+            return Err(invalid_metadata("file entry has a subdirectory offset"));
+        }
+        if depth >= MAX_DIRECTORY_DEPTH {
+            return Err(invalid_metadata("directory tree exceeds depth limit"));
+        }
+        if entry.subdir_offset < walk.entries_start || !entry.subdir_offset.is_multiple_of(8) {
+            return Err(invalid_metadata("invalid subdirectory offset"));
+        }
+        if !walk.visited.insert(entry.subdir_offset) {
+            return Err(invalid_metadata(
+                "repeated subdirectory offset (cycle or alias)",
+            ));
+        }
+        let offset = usize::try_from(entry.subdir_offset)
+            .map_err(|_| invalid_metadata("subdirectory offset overflow"))?;
+        let sub_entries =
+            read_directory_entries_with_layout(meta_bytes, offset, walk.legacy_layout)?;
         for sub_de in sub_entries {
             // Build full path
             let full_path = if entry.path.is_empty() {
@@ -172,6 +239,8 @@ fn collect_entries(
                 hash_to_resource,
                 entries,
                 path_to_resource,
+                walk,
+                depth + 1,
             )?;
         }
     }
@@ -183,54 +252,39 @@ fn collect_entries(
 // Low-level entry parsing
 // ---------------------------------------------------------------------------
 
-/// Read directory entries starting at `cursor`, advancing it past the entries.
-fn read_directory_entries(data: &[u8], cursor: &mut usize) -> GeeZipResult<Vec<DirEntry>> {
-    let entries = read_directory_entries_at(data, *cursor)?;
-    // Advance cursor to the end of the last entry read.
-    // read_directory_entries_at processes entries sequentially; we need to
-    // track where it stopped.  For simplicity, we sum the lengths of all
-    // entries processed.
-    //
-    // However, the current implementation doesn't need cursor advancement
-    // beyond root entries (which are only called once).  If/when multiple
-    // sibling entry groups need to be read, this should be fixed.
-    //
-    // For now, advance past the end-of-entries marker (8 bytes of zero).
-    if !entries.is_empty() {
-        // Approximate: the last entry ended at some offset.  Since we don't
-        // track the exact offset, just skip the end marker if present.
-        if *cursor + 8 <= data.len() && read_u64_le(data, *cursor) == 0 {
-            *cursor += 8;
-        }
-    }
-    Ok(entries)
+/// Read directory entries at a specific absolute offset. Returns entries.
+#[cfg(test)]
+fn read_directory_entries_at(data: &[u8], offset: usize) -> GeeZipResult<Vec<DirEntry>> {
+    read_directory_entries_with_layout(data, offset, false)
 }
 
-/// Read directory entries at a specific absolute offset. Returns entries.
-#[allow(unused_assignments)]
-fn read_directory_entries_at(data: &[u8], mut offset: usize) -> GeeZipResult<Vec<DirEntry>> {
+fn read_directory_entries_with_layout(
+    data: &[u8],
+    mut offset: usize,
+    legacy: bool,
+) -> GeeZipResult<Vec<DirEntry>> {
     let mut entries = Vec::new();
 
     loop {
-        if offset + 8 > data.len() {
-            break;
-        }
-
-        let entry_len = read_u64_le(data, offset) as usize;
+        let entry_start = bounded_end(offset, 8, data.len())?;
+        let entry_len = usize::try_from(read_u64_le(data, offset))
+            .map_err(|_| invalid_metadata("directory entry length overflow"))?;
         if entry_len == 0 {
-            // End-of-entries marker
+            // A complete end-of-entries marker is mandatory.
             break;
         }
-        if offset + 8 + entry_len > data.len() {
-            break;
-        }
+        let entry_end = bounded_end(
+            if legacy { entry_start } else { offset },
+            align_eight(entry_len)?,
+            data.len(),
+        )?;
+        let entry_data = &data[entry_start..entry_end];
+        let fixed = if legacy { 98 } else { 94 };
 
-        let entry_start = offset + 8;
-        let entry_data = &data[entry_start..entry_start + entry_len];
-
-        if entry_data.len() < 98 {
-            // Entry too short to contain fixed fields
-            break;
+        if entry_data.len() < fixed {
+            return Err(invalid_metadata(
+                "directory entry too short for fixed fields",
+            ));
         }
 
         // Parse fixed fields (98 bytes)
@@ -243,46 +297,48 @@ fn read_directory_entries_at(data: &[u8], mut offset: usize) -> GeeZipResult<Vec
         let mut hash = [0u8; 20];
         hash.copy_from_slice(&entry_data[56..76]);
 
-        let stream_count = read_u16_le(entry_data, 92);
-        let short_name_len = read_u16_le(entry_data, 94) as usize;
-        let file_name_len = read_u16_le(entry_data, 96) as usize;
-
-        // Parse variable-length file name (UTF-16LE)
-        let mut var_offset = 98;
-        if var_offset + file_name_len > entry_data.len() {
-            break;
+        let stream_count = read_u16_le(entry_data, fixed - 6);
+        let short_name_len = read_u16_le(entry_data, fixed - 4) as usize;
+        let file_name_len = read_u16_le(entry_data, fixed - 2) as usize;
+        if !file_name_len.is_multiple_of(2) || !short_name_len.is_multiple_of(2) {
+            return Err(invalid_metadata("odd UTF-16 name length"));
         }
+        let file_name_end = bounded_end(fixed, file_name_len, entry_data.len())?;
+        let names_end = bounded_end(file_name_end, short_name_len, entry_data.len())?;
+        let terminators = if legacy {
+            0
+        } else {
+            usize::from(file_name_len != 0) * 2 + usize::from(short_name_len != 0) * 2
+        };
+        bounded_end(names_end, terminators, entry_data.len())?;
+        let file_name = decode_utf16le(&entry_data[fixed..file_name_end]);
+        let mut var_offset = if legacy {
+            align_eight(names_end)?
+        } else {
+            entry_end
+        };
 
-        let file_name = decode_utf16le(&entry_data[var_offset..var_offset + file_name_len]);
-        var_offset += file_name_len;
-
-        // Skip short name if present
-        if short_name_len > 0 {
-            var_offset += short_name_len;
-        }
-
-        // Align to 8-byte boundary after names
-        let names_end = 98 + file_name_len + short_name_len;
-        let padded_end = (names_end + 7) & !7;
-        var_offset = padded_end;
-
-        // Skip alternate data streams
+        // Modern extra streams follow the dentry, outside its length field.
         for _ in 0..stream_count {
-            if var_offset + 8 > entry_data.len() {
-                break;
+            if legacy {
+                let stream_start = bounded_end(var_offset, 8, entry_data.len())?;
+                let stream_len = usize::try_from(read_u64_le(entry_data, var_offset))
+                    .map_err(|_| invalid_metadata("alternate stream length overflow"))?;
+                var_offset = align_eight(bounded_end(stream_start, stream_len, entry_data.len())?)?;
+            } else {
+                bounded_end(var_offset, 38, data.len())?;
+                let stream_len = usize::try_from(read_u64_le(data, var_offset))
+                    .map_err(|_| invalid_metadata("alternate stream length overflow"))?;
+                let name_len = read_u16_le(data, var_offset + 36) as usize;
+                let minimum = 38 + name_len + usize::from(name_len != 0) * 2;
+                if stream_len < minimum || !name_len.is_multiple_of(2) {
+                    return Err(invalid_metadata("invalid alternate stream length"));
+                }
+                var_offset = bounded_end(var_offset, align_eight(stream_len)?, data.len())?;
             }
-            let stream_len = read_u64_le(entry_data, var_offset) as usize;
-            if stream_len == 0 {
-                var_offset += 8;
-                continue;
-            }
-            var_offset += 8 + stream_len;
-            var_offset = (var_offset + 7) & !7; // align
         }
 
         let is_dir = (attributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
-
-        // Convert FILETIME to Unix timestamp
         let modified = filetime_to_option(last_write_time)
             .or_else(|| filetime_to_option(last_access_time))
             .or_else(|| filetime_to_option(creation_time));
@@ -297,8 +353,7 @@ fn read_directory_entries_at(data: &[u8], mut offset: usize) -> GeeZipResult<Vec
             stream_count,
         });
 
-        // Advance to next entry (8-byte aligned)
-        offset = entry_start + ((entry_len + 7) & !7);
+        offset = if legacy { entry_end } else { var_offset };
     }
 
     Ok(entries)
@@ -307,6 +362,24 @@ fn read_directory_entries_at(data: &[u8], mut offset: usize) -> GeeZipResult<Vec
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+fn invalid_metadata(message: impl Into<String>) -> GeeZipError {
+    GeeZipError::format(message, ArchiveFormat::Wim)
+}
+
+fn bounded_end(start: usize, len: usize, limit: usize) -> GeeZipResult<usize> {
+    start
+        .checked_add(len)
+        .filter(|&end| end <= limit)
+        .ok_or_else(|| invalid_metadata("truncated or overflowing metadata extent"))
+}
+
+fn align_eight(offset: usize) -> GeeZipResult<usize> {
+    offset
+        .checked_add(7)
+        .map(|end| end & !7)
+        .ok_or_else(|| invalid_metadata("metadata alignment overflow"))
+}
 
 fn read_u32_le(data: &[u8], offset: usize) -> u32 {
     u32::from_le_bytes([
@@ -352,14 +425,195 @@ fn is_zero_hash(hash: &Sha1Hash) -> bool {
 }
 
 fn filetime_to_option(ft: u64) -> Option<u64> {
-    if ft == 0 {
-        return None;
+    const EPOCH_DIFF_100NS: u64 = 116444736000000000;
+    ft.checked_sub(EPOCH_DIFF_100NS)
+        .filter(|&unix_100ns| unix_100ns > 0)
+        .map(|unix_100ns| unix_100ns / 10_000_000)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn entry(name: &str, is_dir: bool, subdir_offset: u64) -> Vec<u8> {
+        let name: Vec<u8> = name.encode_utf16().flat_map(u16::to_le_bytes).collect();
+        let len = (102 + name.len() + usize::from(!name.is_empty()) * 2 + 7) & !7;
+        let mut bytes = vec![0; len];
+        bytes[..8].copy_from_slice(&(len as u64).to_le_bytes());
+        if is_dir {
+            bytes[8..12].copy_from_slice(&FILE_ATTRIBUTE_DIRECTORY.to_le_bytes());
+        }
+        bytes[16..24].copy_from_slice(&subdir_offset.to_le_bytes());
+        bytes[100..102].copy_from_slice(&(name.len() as u16).to_le_bytes());
+        bytes[102..102 + name.len()].copy_from_slice(&name);
+        bytes
     }
-    let nsec: i64 = ft as i64;
-    const EPOCH_DIFF_100NS: i64 = 116444736000000000;
-    let unix_100ns = nsec - EPOCH_DIFF_100NS;
-    if unix_100ns <= 0 {
-        return None;
+
+    fn metadata(root: &[u8]) -> Vec<u8> {
+        let mut bytes = Vec::from(8u32.to_le_bytes());
+        bytes.extend_from_slice(&0u32.to_le_bytes());
+        bytes.extend_from_slice(root);
+        bytes.extend_from_slice(&0u64.to_le_bytes());
+        bytes
     }
-    Some((unix_100ns / 10_000_000) as u64)
+
+    fn parse(bytes: &[u8]) -> GeeZipResult<Vec<Entry>> {
+        parse_directory_tree(bytes, &HashMap::new()).map(|(entries, _)| entries)
+    }
+
+    #[test]
+    fn test_valid_nested_metadata_and_empty_directory() {
+        let root = entry("目录", true, 0);
+        let child_offset = 8 + root.len() + 8;
+        let mut bytes = metadata(&root);
+        bytes[24..32].copy_from_slice(&(child_offset as u64).to_le_bytes());
+        bytes.extend_from_slice(&entry("文件.txt", false, 0));
+        bytes.extend_from_slice(&0u64.to_le_bytes());
+        let entries = parse(&bytes).unwrap();
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].path, "目录");
+        assert!(entries[0].is_dir);
+        assert_eq!(entries[1].path, "目录/文件.txt");
+        assert!(!entries[1].is_dir);
+        assert!(parse(&metadata(&[])).unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_rejects_direct_indirect_cycles_and_shared_offsets() {
+        let direct = metadata(&entry("loop", true, 8));
+        assert!(parse(&direct)
+            .unwrap_err()
+            .to_string()
+            .contains("repeated subdirectory"));
+
+        let first = entry("parent", true, 0);
+        let child_offset = (8 + first.len() + 8) as u64;
+        let mut indirect = metadata(&entry("parent", true, child_offset));
+        indirect.extend_from_slice(&entry("child", true, 8));
+        indirect.extend_from_slice(&0u64.to_le_bytes());
+        assert!(parse(&indirect)
+            .unwrap_err()
+            .to_string()
+            .contains("repeated subdirectory"));
+
+        let child_offset = (8 + entry("a", true, 0).len() * 2 + 8) as u64;
+        let mut siblings = entry("a", true, child_offset);
+        siblings.extend_from_slice(&entry("b", true, child_offset));
+        let mut aliased = metadata(&siblings);
+        aliased.extend_from_slice(&entry("file", false, 0));
+        aliased.extend_from_slice(&0u64.to_le_bytes());
+        assert!(parse(&aliased)
+            .unwrap_err()
+            .to_string()
+            .contains("repeated subdirectory"));
+    }
+
+    fn directory_chain(levels: usize) -> Vec<u8> {
+        let mut bytes = metadata(&[]);
+        bytes.truncate(8);
+        for level in 0..levels {
+            let next = if level + 1 == levels {
+                0
+            } else {
+                (bytes.len() + entry("d", true, 0).len() + 8) as u64
+            };
+            bytes.extend_from_slice(&entry("d", true, next));
+            bytes.extend_from_slice(&0u64.to_le_bytes());
+        }
+        bytes
+    }
+
+    #[test]
+    fn test_directory_depth_is_bounded() {
+        assert_eq!(
+            parse(&directory_chain(MAX_DIRECTORY_DEPTH + 1))
+                .unwrap()
+                .len(),
+            MAX_DIRECTORY_DEPTH + 1
+        );
+        let error = parse(&directory_chain(MAX_DIRECTORY_DEPTH + 2)).unwrap_err();
+        assert!(error.to_string().contains("depth limit"));
+    }
+
+    #[test]
+    fn test_rejects_invalid_subdirectory_offsets_and_file_children() {
+        for offset in [1, 7, 16, u64::MAX, u64::MAX - 7] {
+            assert!(
+                parse(&metadata(&entry("dir", true, offset))).is_err(),
+                "offset {offset}"
+            );
+        }
+        assert!(parse(&metadata(&entry("file", false, 8))).is_err());
+    }
+
+    #[test]
+    fn test_truncated_metadata_and_entry_lengths_are_errors() {
+        let bytes = metadata(&entry("valid", false, 0));
+        for len in 0..bytes.len() {
+            assert!(
+                parse(&bytes[..len]).is_err(),
+                "accepted truncation at {len}"
+            );
+        }
+        for len in [1, 97, u64::MAX, u64::MAX - 7] {
+            let mut bad = bytes.clone();
+            bad[8..16].copy_from_slice(&len.to_le_bytes());
+            assert!(parse(&bad).is_err(), "length {len}");
+        }
+        assert!(read_directory_entries_at(&bytes, usize::MAX).is_err());
+        assert!(read_directory_entries_at(&bytes, bytes.len()).is_err());
+    }
+
+    #[test]
+    fn test_security_block_extents_are_checked() {
+        let valid = metadata(&[]);
+        for (total, count) in [(0u32, 0u32), (7, 0), (8, 1), (u32::MAX, 0), (8, u32::MAX)] {
+            let mut bad = valid.clone();
+            bad[..4].copy_from_slice(&total.to_le_bytes());
+            bad[4..8].copy_from_slice(&count.to_le_bytes());
+            assert!(parse(&bad).is_err());
+        }
+        // One size field followed by 8 bytes of descriptor data.
+        let mut bytes = Vec::from(24u32.to_le_bytes());
+        bytes.extend_from_slice(&1u32.to_le_bytes());
+        bytes.extend_from_slice(&8u64.to_le_bytes());
+        bytes.extend_from_slice(&[0; 8]);
+        bytes.extend_from_slice(&0u64.to_le_bytes());
+        assert!(parse(&bytes).unwrap().is_empty());
+        bytes[8..16].copy_from_slice(&u64::MAX.to_le_bytes());
+        assert!(parse(&bytes).is_err());
+    }
+
+    #[test]
+    fn test_name_and_alternate_stream_extents_are_checked() {
+        for (field, len) in [
+            (98, 1u16),
+            (100, 1),
+            (98, u16::MAX - 1),
+            (100, u16::MAX - 1),
+        ] {
+            let mut bad = entry("x", false, 0);
+            bad[field..field + 2].copy_from_slice(&len.to_le_bytes());
+            assert!(parse(&metadata(&bad)).is_err());
+        }
+        let mut missing_stream = entry("x", false, 0);
+        missing_stream[96..98].copy_from_slice(&1u16.to_le_bytes());
+        assert!(parse(&metadata(&missing_stream)).is_err());
+
+        // Extra streams follow the dentry and have their own inclusive length.
+        let stream_start = missing_stream.len();
+        missing_stream.resize(stream_start + 40, 0);
+        missing_stream[stream_start..stream_start + 8].copy_from_slice(&u64::MAX.to_le_bytes());
+        assert!(parse(&metadata(&missing_stream)).is_err());
+        missing_stream[stream_start..stream_start + 8].copy_from_slice(&40u64.to_le_bytes());
+        assert_eq!(parse(&metadata(&missing_stream)).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn test_filetime_high_bit_does_not_overflow() {
+        assert_eq!(filetime_to_option(0), None);
+        assert_eq!(filetime_to_option(116444736000000000), None);
+        assert_eq!(filetime_to_option(116444736010000000), Some(1));
+        assert!(filetime_to_option(1u64 << 63).is_some());
+    }
 }

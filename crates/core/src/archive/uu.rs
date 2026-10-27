@@ -44,7 +44,7 @@ pub fn uu_encode_to_writer<R: Read, W: Write>(
         .read_to_end(&mut data)
         .map_err(|e| GeeZipError::io(e, "reading input for uu encoding"))?;
     let body = uu_encode(&data);
-    let output = format!("begin 644 {}\n{}end\n", name, body.trim_end());
+    let output = format!("begin 644 {name}\n{body}`\nend\n");
     writer
         .write_all(output.as_bytes())
         .map_err(|e| GeeZipError::io(e, "writing uu-encoded output"))?;
@@ -66,57 +66,53 @@ pub fn uu_decode(input: &str) -> Option<(String, Vec<u8>)> {
     let mut lines = input.lines();
     let header = lines.next()?;
     let header = header.strip_prefix("begin ")?;
-    let filename = header
-        .split_whitespace()
-        .nth(1)
-        .unwrap_or("unknown")
-        .to_string();
-
-    let mut output = Vec::new();
-    for line in lines {
-        let line = line.trim_end_matches('\r');
-        if line == "end" || line.is_empty() {
-            break;
-        }
-        let bytes = line.as_bytes();
-        if bytes.is_empty() {
-            continue;
-        }
-        let encoded_len = bytes[0];
-        if encoded_len < 33 {
-            break; // ` = 96 marks an empty line end
-        }
-        let mut remaining = (encoded_len - 32) as usize;
-        if remaining == 0 {
-            continue;
-        }
-        let encoded = &bytes[1..];
-        let mut i = 0;
-        while i + 3 < encoded.len() && remaining > 0 {
-            let a = (encoded[i].wrapping_sub(32)) & 0x3F;
-            let b = (encoded[i + 1].wrapping_sub(32)) & 0x3F;
-            let c = (encoded[i + 2].wrapping_sub(32)) & 0x3F;
-            let d = (encoded[i + 3].wrapping_sub(32)) & 0x3F;
-            let triple = ((a as u32) << 18) | ((b as u32) << 12) | ((c as u32) << 6) | (d as u32);
-            if remaining > 0 {
-                output.push(((triple >> 16) & 0xFF) as u8);
-                remaining -= 1;
-            }
-            if remaining > 0 {
-                output.push(((triple >> 8) & 0xFF) as u8);
-                remaining -= 1;
-            }
-            if remaining > 0 {
-                output.push((triple & 0xFF) as u8);
-                remaining -= 1;
-            }
-            i += 4;
-        }
-    }
-    if filename.is_empty() && output.is_empty() {
+    let (mode, filename) = header.split_once(char::is_whitespace)?;
+    let filename = filename.trim_start();
+    if mode.is_empty() || !mode.bytes().all(|b| matches!(b, b'0'..=b'7')) || filename.is_empty() {
         return None;
     }
-    Some((filename, output))
+
+    let mut output = Vec::new();
+    let mut terminated = false;
+    for line in lines {
+        let line = line.trim_end_matches('\r');
+        if line == "end" {
+            return Some((filename.to_owned(), output));
+        }
+        // Accept the conventional space/backtick zero-length line (and an
+        // empty separator), but require the following end marker.
+        if line.is_empty() || line == " " || line == "`" {
+            terminated = true;
+            continue;
+        }
+        if terminated {
+            return None;
+        }
+        let bytes = line.as_bytes();
+        if !(b'!'..=b'_').contains(&bytes[0]) {
+            return None;
+        }
+        let mut remaining = (bytes[0] - 32) as usize;
+        let required = remaining.div_ceil(3) * 4;
+        let encoded = bytes.get(1..1 + required)?;
+        if !encoded.iter().all(|b| (b' '..=b'`').contains(b))
+            || !bytes[1 + required..].iter().all(u8::is_ascii_whitespace)
+        {
+            return None;
+        }
+        for chunk in encoded.chunks_exact(4) {
+            let a = (chunk[0] - 32) & 0x3F;
+            let b = (chunk[1] - 32) & 0x3F;
+            let c = (chunk[2] - 32) & 0x3F;
+            let d = (chunk[3] - 32) & 0x3F;
+            let triple = ((a as u32) << 18) | ((b as u32) << 12) | ((c as u32) << 6) | (d as u32);
+            for shift in [16, 8, 0].into_iter().take(remaining.min(3)) {
+                output.push(((triple >> shift) & 0xFF) as u8);
+            }
+            remaining = remaining.saturating_sub(3);
+        }
+    }
+    None
 }
 
 pub fn uu_decode_to_writer(path: &Path, writer: &mut dyn Write) -> GeeZipResult<u64> {
@@ -151,6 +147,33 @@ mod tests {
             } else if !data.is_empty() {
                 panic!("decode failed for {:?}", data);
             }
+        }
+    }
+
+    #[test]
+    fn uu_writer_roundtrip_preserves_padding_and_line_boundaries() {
+        for data in [vec![], vec![0], vec![0; 45], vec![0; 46], b"hello".to_vec()] {
+            let mut encoded = Vec::new();
+            let count =
+                uu_encode_to_writer(&mut &data[..], "name with spaces.bin", &mut encoded).unwrap();
+            assert_eq!(count, encoded.len() as u64);
+            let (name, decoded) = uu_decode(std::str::from_utf8(&encoded).unwrap()).unwrap();
+            assert_eq!(name, "name with spaces.bin");
+            assert_eq!(decoded, data);
+            assert!(encoded.ends_with(b"\n`\nend\n"));
+        }
+    }
+
+    #[test]
+    fn uu_rejects_truncated_or_invalid_body() {
+        for input in [
+            "begin 644 f\n#8V\nend\n",
+            "begin 644 f\n#8V%T\n",
+            "begin 644 f\n#8V~T\nend\n",
+            "begin 644 f\n`\n#8V%T\nend\n",
+            "begin 644\nend\n",
+        ] {
+            assert!(uu_decode(input).is_none(), "accepted {input:?}");
         }
     }
 

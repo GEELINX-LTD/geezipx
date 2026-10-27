@@ -4,7 +4,8 @@
 //! archives are fully valid per the WIM spec and can be read by any
 //! compliant tool (wimlib, 7-Zip, etc.).
 
-use std::io::{Read, Write};
+use std::fs::File;
+use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -13,16 +14,25 @@ use crate::detect::ArchiveFormat;
 use crate::error::{GeeZipError, GeeZipResult};
 
 use super::header::{ResourceDescriptor, WimHeader};
-use super::sha1::compute_sha1;
+use ::sha1::{Digest, Sha1};
 
 /// Writer for creating uncompressed WIM (.wim) archives.
 pub struct WimWriter<W: Write + Send> {
     writer: Option<W>,
     format: ArchiveFormat,
-    entries: Vec<(String, Vec<u8>)>,
+    entries: Vec<PendingEntry>,
+    spool: Option<File>,
+    spool_len: u64,
     directories: Vec<String>,
     chunk_size: u32,
     guid: [u8; 16],
+}
+
+struct PendingEntry {
+    path: String,
+    size: u64,
+    offset: u64,
+    hash: [u8; 20],
 }
 
 impl<W: Write + Send> WimWriter<W> {
@@ -46,8 +56,11 @@ impl<W: Write + Send> WimWriter<W> {
             writer: Some(writer),
             format: ArchiveFormat::Wim,
             entries: Vec::new(),
+            spool: None,
+            spool_len: 0,
             directories: Vec::new(),
-            chunk_size: 32768,
+            // Uncompressed WIMs must declare no compression chunk size.
+            chunk_size: 0,
             guid,
         }
     }
@@ -66,11 +79,50 @@ impl<W: Write + Send> ArchiveWriter for WimWriter<W> {
                 target: "WIM archive".into(),
             });
         }
-        let mut data = Vec::new();
-        reader
-            .read_to_end(&mut data)
-            .map_err(|e| GeeZipError::io(e, format!("reading entry '{path_str}'")))?;
-        self.entries.push((path_str, data));
+        if self.spool.is_none() {
+            self.spool = Some(
+                tempfile::tempfile().map_err(|e| GeeZipError::io(e, "creating WIM data spool"))?,
+            );
+        }
+        let spool = self.spool.as_mut().expect("spool was initialized");
+        // A failed entry may leave uncommitted bytes; retries overwrite them.
+        spool
+            .seek(SeekFrom::Start(self.spool_len))
+            .map_err(|e| GeeZipError::io(e, "seeking WIM data spool"))?;
+        let mut hash = Sha1::new();
+        let mut size = 0u64;
+        let mut buffer = [0u8; 64 * 1024];
+        loop {
+            let read = match reader.read(&mut buffer) {
+                Ok(0) => break,
+                Ok(read) => read,
+                Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+                Err(error) => {
+                    return Err(GeeZipError::io(
+                        error,
+                        format!("reading entry '{path_str}'"),
+                    ))
+                }
+            };
+            spool
+                .write_all(&buffer[..read])
+                .map_err(|e| GeeZipError::io(e, "writing WIM data spool"))?;
+            hash.update(&buffer[..read]);
+            size = size.checked_add(read as u64).ok_or_else(|| {
+                GeeZipError::format("WIM entry size overflow", ArchiveFormat::Wim)
+            })?;
+        }
+        let next_offset = self
+            .spool_len
+            .checked_add(size)
+            .ok_or_else(|| GeeZipError::format("WIM spool size overflow", ArchiveFormat::Wim))?;
+        self.entries.push(PendingEntry {
+            path: path_str,
+            size,
+            offset: self.spool_len,
+            hash: hash.finalize().into(),
+        });
+        self.spool_len = next_offset;
         Ok(())
     }
 
@@ -95,16 +147,17 @@ impl<W: Write + Send> ArchiveWriter for WimWriter<W> {
         // Build a sorted entry list: directories first, then files, all by path.
         let mut dir_entries: Vec<&str> = self.directories.iter().map(|s| s.as_str()).collect();
         dir_entries.sort();
-        let mut file_entries: Vec<&(String, Vec<u8>)> = self.entries.iter().collect();
-        file_entries.sort_by(|a, b| a.0.cmp(&b.0));
+        let mut file_entries: Vec<&PendingEntry> = self.entries.iter().collect();
+        file_entries.sort_by(|a, b| a.path.cmp(&b.path));
+        let mut spool = self.spool;
 
         // Ensure intermediate directories exist for each file.
         let mut all_dirs = std::collections::HashSet::new();
         for d in dir_entries.iter() {
             all_dirs.insert(d.to_string());
         }
-        for (path, _) in &file_entries {
-            let mut parent = std::path::Path::new(path);
+        for file in &file_entries {
+            let mut parent = std::path::Path::new(&file.path);
             while let Some(p) = parent.parent() {
                 let p_str = p.to_string_lossy();
                 if p_str.is_empty() || p_str == "." || p_str == "/" {
@@ -120,23 +173,22 @@ impl<W: Write + Send> ArchiveWriter for WimWriter<W> {
         all_dirs_sorted.sort();
 
         // Compute SHA-1 hashes for all file entries.
-        let file_hashes: Vec<[u8; 20]> = file_entries
-            .iter()
-            .map(|(_, data)| compute_sha1(data))
-            .collect();
+        let file_hashes: Vec<[u8; 20]> = file_entries.iter().map(|entry| entry.hash).collect();
 
         // Calculate offsets for file data (laid out sequentially after header).
         let mut current_offset: u64 = 208; // after header
         let mut file_resource_descriptors: Vec<ResourceDescriptor> = Vec::new();
 
-        for (_, data) in &file_entries {
+        for entry in &file_entries {
             let rd = ResourceDescriptor {
                 flags: 0, // not compressed, not metadata
-                compressed_size: data.len() as u64,
+                compressed_size: entry.size,
                 offset: current_offset,
-                original_size: data.len() as u64,
+                original_size: entry.size,
             };
-            current_offset += data.len() as u64;
+            current_offset = current_offset
+                .checked_add(entry.size)
+                .ok_or_else(|| GeeZipError::format("WIM data size overflow", ArchiveFormat::Wim))?;
             file_resource_descriptors.push(rd);
         }
 
@@ -168,8 +220,12 @@ impl<W: Write + Send> ArchiveWriter for WimWriter<W> {
         current_offset += xml_bytes.len() as u64;
 
         // ---- Build lookup table ----
-        let lookup_bytes =
-            build_lookup_table(&metadata_rd, &file_resource_descriptors, &file_hashes);
+        let lookup_bytes = build_lookup_table(
+            &metadata_rd,
+            &file_resource_descriptors,
+            &file_hashes,
+            super::sha1::compute_sha1(&metadata_bytes),
+        );
 
         let offset_table_rd = ResourceDescriptor {
             flags: 0,
@@ -216,11 +272,22 @@ impl<W: Write + Send> ArchiveWriter for WimWriter<W> {
         let mut total_written = header_bytes.len() as u64;
 
         // Write file data blocks
-        for (_, data) in &file_entries {
-            writer
-                .write_all(data)
+        for entry in &file_entries {
+            let spool = spool.as_mut().ok_or_else(|| {
+                GeeZipError::format("WIM data spool is missing", ArchiveFormat::Wim)
+            })?;
+            spool
+                .seek(SeekFrom::Start(entry.offset))
+                .map_err(|e| GeeZipError::io(e, "seeking WIM file data"))?;
+            let copied = io::copy(&mut spool.take(entry.size), &mut writer)
                 .map_err(|e| GeeZipError::io(e, "writing WIM file data"))?;
-            total_written += data.len() as u64;
+            if copied != entry.size {
+                return Err(GeeZipError::io(
+                    io::Error::new(io::ErrorKind::UnexpectedEof, "truncated WIM data spool"),
+                    "writing WIM file data",
+                ));
+            }
+            total_written += copied;
         }
 
         // Write metadata
@@ -255,7 +322,7 @@ impl<W: Write + Send> ArchiveWriter for WimWriter<W> {
 
 fn build_metadata(
     dirs: &[String],
-    files: &[&(String, Vec<u8>)],
+    files: &[&PendingEntry],
     hashes: &[[u8; 20]],
     _file_rds: &[ResourceDescriptor],
 ) -> GeeZipResult<Vec<u8>> {
@@ -281,13 +348,13 @@ fn build_metadata(
     for d in dirs {
         insert_into_tree(&mut root, d, true, zero_hash, 0, zero_rd);
     }
-    for (i, (path, _data)) in files.iter().enumerate() {
+    for (i, entry) in files.iter().enumerate() {
         insert_into_tree(
             &mut root,
-            path,
+            &entry.path,
             false,
             hashes[i],
-            files[i].1.len() as u64,
+            entry.size,
             _file_rds[i],
         );
     }
@@ -296,10 +363,15 @@ fn build_metadata(
     let mut children: Vec<&TreeEntry> = root.children.iter().collect();
     children.sort_by(|a, b| a.is_dir.cmp(&b.is_dir).reverse().then(a.name.cmp(&b.name)));
 
-    // Phase 2: write root entries at position 8 (after security block)
+    // A metadata resource starts with a nameless root dentry and its terminator.
+    // The actual root children follow at the root's subdirectory offset.
     const SECURITY_BLOCK_LEN: u64 = 8;
-    let mut buf = Vec::new();
-    let mut offset: u64 = SECURITY_BLOCK_LEN;
+    let mut buf = serialize_entry(&root)?;
+    buf.extend_from_slice(&0u64.to_le_bytes());
+    let mut offset = SECURITY_BLOCK_LEN + buf.len() as u64;
+    if !children.is_empty() {
+        buf[16..24].copy_from_slice(&offset.to_le_bytes());
+    }
     let mut dir_pending: Vec<(u64, &TreeEntry)> = Vec::new();
 
     // Write entries for a level, collecting directories that need child processing.
@@ -309,9 +381,9 @@ fn build_metadata(
         buf: &mut Vec<u8>,
         offset: &mut u64,
         pending: &mut Vec<(u64, &'a TreeEntry)>,
-    ) {
+    ) -> GeeZipResult<()> {
         for entry in entries {
-            let entry_data = serialize_entry(entry).unwrap();
+            let entry_data = serialize_entry(entry)?;
             let padded = (entry_data.len() + 7) & !7;
             buf.extend_from_slice(&entry_data);
             buf.resize(buf.len() + (padded - entry_data.len()), 0);
@@ -322,9 +394,10 @@ fn build_metadata(
             }
             *offset += padded as u64;
         }
+        Ok(())
     }
 
-    write_level(&children, &mut buf, &mut offset, &mut dir_pending);
+    write_level(&children, &mut buf, &mut offset, &mut dir_pending)?;
 
     // End marker for root entries
     buf.extend_from_slice(&0u64.to_le_bytes());
@@ -340,7 +413,7 @@ fn build_metadata(
         let mut sub_children: Vec<&TreeEntry> = dir_entry.children.iter().collect();
         sub_children.sort_by(|a, b| a.is_dir.cmp(&b.is_dir).reverse().then(a.name.cmp(&b.name)));
 
-        write_level(&sub_children, &mut buf, &mut offset, &mut dir_pending);
+        write_level(&sub_children, &mut buf, &mut offset, &mut dir_pending)?;
 
         // End marker for this directory's children
         buf.extend_from_slice(&0u64.to_le_bytes());
@@ -373,14 +446,14 @@ fn insert_into_tree(
     rd: ResourceDescriptor,
 ) {
     let path = std::path::Path::new(full_path);
-    let components: Vec<&str> = path
+    let components: Vec<String> = path
         .components()
         .filter_map(|c| {
             let s = c.as_os_str().to_string_lossy();
             if s.is_empty() || s == "." || s == "/" {
                 None
             } else {
-                Some(Box::leak(s.into_owned().into_boxed_str()) as &str)
+                Some(s.into_owned())
             }
         })
         .collect();
@@ -463,16 +536,22 @@ struct TreeEntry {
 fn serialize_entry(entry: &TreeEntry) -> GeeZipResult<Vec<u8>> {
     let name_utf16: Vec<u8> = encode_utf16le(&entry.name);
     let file_name_len = name_utf16.len();
+    u16::try_from(file_name_len).map_err(|_| {
+        GeeZipError::format(
+            "WIM filename exceeds UTF-16 length limit",
+            ArchiveFormat::Wim,
+        )
+    })?;
 
-    // Content length = 98 (fixed) + file_name_len (before padding)
-    let content_len = 98 + file_name_len;
-    // Padded content length (aligned to 8 bytes)
-    let padded_content = (content_len + 7) & !7;
-
-    let mut buf = Vec::with_capacity(8 + padded_content);
-
-    // 8-byte length prefix = unpadded content length (the reader does its own alignment)
-    buf.extend_from_slice(&(content_len as u64).to_le_bytes());
+    // Length includes the 102-byte fixed dentry, optional terminated name and padding.
+    let name_size = if file_name_len == 0 {
+        0
+    } else {
+        file_name_len + 2
+    };
+    let padded_length = (102 + name_size + 7) & !7;
+    let mut buf = Vec::with_capacity(padded_length);
+    buf.extend_from_slice(&(padded_length as u64).to_le_bytes());
 
     // 98 bytes fixed fields
     let attributes: u32 = if entry.is_dir {
@@ -482,8 +561,8 @@ fn serialize_entry(entry: &TreeEntry) -> GeeZipResult<Vec<u8>> {
     };
     buf.extend_from_slice(&attributes.to_le_bytes()); // offset 0: attributes
 
-    // security_id (4 bytes) — always 0
-    buf.extend_from_slice(&0u32.to_le_bytes()); // offset 4: security_id
+    // No security descriptors are stored in this image.
+    buf.extend_from_slice(&u32::MAX.to_le_bytes());
 
     // subdir_offset placeholder (8 bytes) — patched later by caller
     buf.extend_from_slice(&0u64.to_le_bytes()); // offset 8
@@ -503,8 +582,8 @@ fn serialize_entry(entry: &TreeEntry) -> GeeZipResult<Vec<u8>> {
     // hash (20 bytes)
     buf.extend_from_slice(&entry.hash); // offset 56
 
-    // reserved (16 bytes, zero-filled — bytes 76-91)
-    buf.extend_from_slice(&[0u8; 16]); // offset 76
+    // Unknown field plus hard-link/reparse union: 12 bytes in the on-disk format.
+    buf.extend_from_slice(&[0u8; 12]);
 
     // stream_count (2 bytes)
     buf.extend_from_slice(&0u16.to_le_bytes()); // offset 92
@@ -515,13 +594,11 @@ fn serialize_entry(entry: &TreeEntry) -> GeeZipResult<Vec<u8>> {
     // file_name_len (2 bytes)
     buf.extend_from_slice(&(file_name_len as u16).to_le_bytes()); // offset 96
 
-    // file name (variable, UTF-16LE)
-    buf.extend_from_slice(&name_utf16);
-
-    // Pad to 8-byte boundary (after the 8-byte prefix)
-    let current_content_len = buf.len() - 8; // length of content written so far
-    let pad_needed = padded_content - current_content_len;
-    buf.extend(std::iter::repeat_n(0u8, pad_needed));
+    if file_name_len != 0 {
+        buf.extend_from_slice(&name_utf16);
+        buf.extend_from_slice(&0u16.to_le_bytes());
+    }
+    buf.resize(padded_length, 0);
 
     Ok(buf)
 }
@@ -532,12 +609,12 @@ fn serialize_entry(entry: &TreeEntry) -> GeeZipResult<Vec<u8>> {
 
 fn build_xml(
     dirs: &[String],
-    files: &[&(String, Vec<u8>)],
+    files: &[&PendingEntry],
     _file_rds: &[ResourceDescriptor],
 ) -> Vec<u8> {
     let dir_count = dirs.len() as u64;
     let file_count = files.len() as u64;
-    let total_bytes: u64 = files.iter().map(|(_, d)| d.len() as u64).sum();
+    let total_bytes: u64 = files.iter().map(|entry| entry.size).sum();
 
     let xml = format!(
         r#"<?xml version="1.0" encoding="utf-8"?>
@@ -581,20 +658,21 @@ fn build_lookup_table(
     metadata_rd: &ResourceDescriptor,
     file_rds: &[ResourceDescriptor],
     file_hashes: &[[u8; 20]],
+    metadata_hash: [u8; 20],
 ) -> Vec<u8> {
     let num_entries = 1 + file_rds.len(); // metadata + files
     let mut buf = Vec::with_capacity(num_entries * 50);
 
     // Metadata resource entry
     buf.extend_from_slice(&metadata_rd.to_bytes());
-    buf.extend_from_slice(&0u16.to_le_bytes()); // part_number
+    buf.extend_from_slice(&1u16.to_le_bytes()); // part_number (1-based)
     buf.extend_from_slice(&1u32.to_le_bytes()); // ref_count
-    buf.extend_from_slice(&[0u8; 20]); // SHA-1 hash (all zeros for metadata)
+    buf.extend_from_slice(&metadata_hash);
 
     // File resource entries
     for (i, rd) in file_rds.iter().enumerate() {
         buf.extend_from_slice(&rd.to_bytes());
-        buf.extend_from_slice(&0u16.to_le_bytes()); // part_number
+        buf.extend_from_slice(&1u16.to_le_bytes()); // part_number (1-based)
         buf.extend_from_slice(&1u32.to_le_bytes()); // ref_count
         buf.extend_from_slice(&file_hashes[i]);
     }
@@ -627,6 +705,73 @@ fn windows_filetime_now() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn spools_entry_bytes_and_recovers_after_failed_input() {
+        struct FailsAfterPrefix(bool);
+        impl Read for FailsAfterPrefix {
+            fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+                if self.0 {
+                    return Err(io::Error::other("input failed"));
+                }
+                self.0 = true;
+                buffer[..4].copy_from_slice(b"junk");
+                Ok(4)
+            }
+        }
+        let mut writer = WimWriter::new(Vec::new());
+        assert!(writer
+            .add_entry_from_reader(Path::new("failed"), &mut FailsAfterPrefix(false))
+            .is_err());
+        assert!(writer.entries.is_empty());
+        assert_eq!(writer.spool_len, 0);
+        let length = 8 * 1024 * 1024;
+        writer
+            .add_entry_from_reader(Path::new("large.bin"), &mut io::repeat(0x5a).take(length))
+            .unwrap();
+        assert_eq!(writer.entries[0].size, length);
+        assert_eq!(
+            writer.spool.as_ref().unwrap().metadata().unwrap().len(),
+            length
+        );
+        let expected_hash: [u8; 20] = Sha1::digest(vec![0x5a; length as usize]).into();
+        assert_eq!(writer.entries[0].hash, expected_hash);
+        assert!(Box::new(writer).finish().unwrap() > length);
+    }
+
+    #[test]
+    fn sorted_files_keep_correct_spooled_contents() {
+        use crate::archive::ArchiveReader;
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("sorted.wim");
+        let mut writer = WimWriter::new(File::create(&path).unwrap());
+        writer
+            .add_entry_from_reader(Path::new("z.txt"), &mut &b"last"[..])
+            .unwrap();
+        writer
+            .add_entry_from_reader(Path::new("a.txt"), &mut &b"first"[..])
+            .unwrap();
+        Box::new(writer).finish().unwrap();
+        let mut reader = super::super::WimReader::open(&path).unwrap();
+        let entries = reader.entries().unwrap();
+        for (entry, expected) in [("a.txt", &b"first"[..]), ("z.txt", &b"last"[..])] {
+            let mut output = Vec::new();
+            reader
+                .extract(
+                    entries.iter().find(|item| item.path == entry).unwrap(),
+                    &mut output,
+                )
+                .unwrap();
+            assert_eq!(output, expected);
+        }
+    }
+
+    #[test]
+    fn rejects_names_that_cannot_fit_in_wim_metadata() {
+        let mut writer = WimWriter::new(Vec::new());
+        writer.add_directory(Path::new(&"x".repeat(32768))).unwrap();
+        assert!(Box::new(writer).finish().is_err());
+    }
 
     #[test]
     fn wim_writer_empty() {

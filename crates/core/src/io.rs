@@ -145,10 +145,7 @@ impl<R: Read> Read for ProgressReader<R> {
         // Check cancellation before I/O
         if let Some(ref cb) = self.callback {
             if cb.is_cancelled() {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::Interrupted,
-                    "operation cancelled by user",
-                ));
+                return Err(std::io::Error::other(crate::GeeZipError::Cancelled));
             }
         }
 
@@ -235,10 +232,7 @@ impl<W: Write> Write for ProgressWriter<W> {
         // Check cancellation before I/O
         if let Some(ref cb) = self.callback {
             if cb.is_cancelled() {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::Interrupted,
-                    "operation cancelled by user",
-                ));
+                return Err(std::io::Error::other(crate::GeeZipError::Cancelled));
             }
         }
 
@@ -259,6 +253,9 @@ impl<W: Write> Write for ProgressWriter<W> {
     }
 
     fn flush(&mut self) -> std::io::Result<()> {
+        if self.callback.as_ref().is_some_and(|cb| cb.is_cancelled()) {
+            return Err(std::io::Error::other(crate::GeeZipError::Cancelled));
+        }
         self.inner.flush()
     }
 }
@@ -732,7 +729,7 @@ mod tests {
             ProgressReader::new(Cursor::new(data)).with_callback(Box::new(AlwaysCancel));
         let mut buf = [0u8; 64];
         let err = reader.read(&mut buf).unwrap_err();
-        assert_eq!(err.kind(), std::io::ErrorKind::Interrupted);
+        assert_eq!(err.kind(), std::io::ErrorKind::Other);
         assert!(err.to_string().contains("cancelled"));
     }
 
@@ -753,7 +750,7 @@ mod tests {
         let _n = reader.read(&mut buf).unwrap();
         // Third read: cancelled (2 calls already, cancel_after=2)
         let err = reader.read(&mut buf).unwrap_err();
-        assert_eq!(err.kind(), std::io::ErrorKind::Interrupted);
+        assert_eq!(err.kind(), std::io::ErrorKind::Other);
     }
 
     #[test]
@@ -769,7 +766,57 @@ mod tests {
         let mut output = Vec::new();
         let mut writer = ProgressWriter::new(&mut output).with_callback(Box::new(AlwaysCancel));
         let err = writer.write(b"data").unwrap_err();
-        assert_eq!(err.kind(), std::io::ErrorKind::Interrupted);
+        assert_eq!(err.kind(), std::io::ErrorKind::Other);
+    }
+
+    // Cancellation is finite in this probe so a regression to Interrupted
+    // fails deterministically instead of hanging the test in std::io retries.
+    struct CancellationProbe(std::sync::Arc<std::sync::atomic::AtomicUsize>);
+
+    impl ProgressCallback for CancellationProbe {
+        fn is_cancelled(&self) -> bool {
+            self.0.fetch_add(1, std::sync::atomic::Ordering::Relaxed) < 3
+        }
+    }
+
+    #[test]
+    fn standard_io_helpers_do_not_retry_cancellation() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::Arc;
+
+        let checks = Arc::new(AtomicUsize::new(0));
+        let mut reader = ProgressReader::new(Cursor::new(b"input"))
+            .with_callback(Box::new(CancellationProbe(checks.clone())));
+        let error = reader.read_to_end(&mut Vec::new()).unwrap_err();
+        assert!(matches!(
+            crate::GeeZipError::from(error),
+            crate::GeeZipError::Cancelled
+        ));
+        assert_eq!(checks.load(Ordering::Relaxed), 1);
+
+        checks.store(0, Ordering::Relaxed);
+        let mut writer = ProgressWriter::new(Vec::new())
+            .with_callback(Box::new(CancellationProbe(checks.clone())));
+        let error = writer.write_all(b"output").unwrap_err();
+        assert!(matches!(
+            crate::GeeZipError::from(error),
+            crate::GeeZipError::Cancelled
+        ));
+        assert_eq!(checks.load(Ordering::Relaxed), 1);
+        assert!(writer.into_inner().is_empty());
+    }
+
+    #[test]
+    fn progress_writer_checks_cancellation_before_flush() {
+        let mut writer =
+            ProgressWriter::new(Vec::new()).with_callback(Box::new(CancellingCallback {
+                cancel_after: 0,
+                calls: 0,
+            }));
+        assert!(matches!(
+            crate::GeeZipError::from(writer.flush().unwrap_err()),
+            crate::GeeZipError::Cancelled
+        ));
     }
 
     #[test]

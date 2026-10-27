@@ -103,7 +103,7 @@ impl ExtractionDir {
             return Err(GeeZipError::clobber_denied(name));
         }
 
-        let (temp_name, mut file) = loop {
+        let (temp_name, file) = loop {
             let serial = NEXT_TEMP.fetch_add(1, Ordering::Relaxed);
             let temp_name = format!(".geezipx-{}-{serial}.tmp", std::process::id());
             match parent.open_with(&temp_name, OpenOptions::new().write(true).create_new(true)) {
@@ -116,6 +116,8 @@ impl ExtractionDir {
             parent: &parent,
             name: &temp_name,
         };
+        // Declared after the guard so Windows closes the handle before cleanup.
+        let mut file = file;
         let bytes = write(&mut file)?;
         file.flush()
             .map_err(|e| GeeZipError::io(e, "flushing extracted data"))?;

@@ -169,7 +169,7 @@ pub trait ArchiveReader: Send {
     ///
     /// The default implementation mirrors [`extract_all`](ArchiveReader::extract_all)
     /// but also wraps the output file in a `CancellableWriter` that returns
-    /// `ErrorKind::Interrupted` when the user presses Ctrl+C.
+    /// a non-retryable I/O error when the user presses Ctrl+C.
     ///
     /// When cancellation is detected the operation is aborted immediately and
     /// returns [`GeeZipError::Cancelled`]. Already-extracted files are
@@ -485,8 +485,8 @@ impl<W: std::io::Write> std::io::Write for CountWriter<W> {
 /// Used by [`extract_all_with_cancel`](ArchiveReader::extract_all_with_cancel)
 /// to support Ctrl+C cancellation during per-entry extraction.
 ///
-/// On cancellation the wrapper returns `ErrorKind::Interrupted` with
-/// message "operation cancelled by user".
+/// On cancellation the wrapper returns a typed `GeeZipError::Cancelled`
+/// inside an `ErrorKind::Other` I/O error so `write_all` cannot retry it.
 pub(crate) struct CancellableWriter<'a, W> {
     inner: W,
     is_cancelled: &'a dyn Fn() -> bool,
@@ -512,10 +512,7 @@ impl<W: std::io::Write> std::io::Write for CancellableWriter<'_, W> {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
         if (self.is_cancelled)() {
             self.cancelled = true;
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::Interrupted,
-                "operation cancelled by user",
-            ));
+            return Err(std::io::Error::other(GeeZipError::Cancelled));
         }
         self.inner.write(buf)
     }
@@ -523,10 +520,7 @@ impl<W: std::io::Write> std::io::Write for CancellableWriter<'_, W> {
     fn flush(&mut self) -> std::io::Result<()> {
         if (self.is_cancelled)() {
             self.cancelled = true;
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::Interrupted,
-                "operation cancelled by user",
-            ));
+            return Err(std::io::Error::other(GeeZipError::Cancelled));
         }
         self.inner.flush()
     }
@@ -627,13 +621,29 @@ mod tests {
         let is_cancelled = || cancelled;
         let mut writer = CancellableWriter::new(&mut buf, &is_cancelled);
 
-        // write should fail with Interrupted
+        // Cancellation must stop I/O rather than asking std::io to retry.
         let result = writer.write(b"hello");
         assert!(result.is_err());
-        assert_eq!(result.unwrap_err().kind(), std::io::ErrorKind::Interrupted);
+        assert_eq!(result.unwrap_err().kind(), std::io::ErrorKind::Other);
         assert!(writer.was_cancelled());
         // buffer should be empty since the write didn't go through
         assert!(buf.is_empty());
+    }
+
+    #[test]
+    fn cancellable_writer_write_all_does_not_retry() {
+        use std::cell::Cell;
+        let checks = Cell::new(0);
+        let is_cancelled = || {
+            checks.set(checks.get() + 1);
+            checks.get() <= 3
+        };
+        let mut buffer = Vec::new();
+        let mut writer = CancellableWriter::new(&mut buffer, &is_cancelled);
+        let error = writer.write_all(b"entry data").unwrap_err();
+        assert!(matches!(GeeZipError::from(error), GeeZipError::Cancelled));
+        assert_eq!(checks.get(), 1);
+        assert!(buffer.is_empty());
     }
 
     #[test]
@@ -672,7 +682,7 @@ mod tests {
         cancelled.set(true);
         let result = writer.flush();
         assert!(result.is_err());
-        assert_eq!(result.unwrap_err().kind(), std::io::ErrorKind::Interrupted);
+        assert_eq!(result.unwrap_err().kind(), std::io::ErrorKind::Other);
         assert!(writer.was_cancelled());
         // Data written before cancellation should still be present.
         assert_eq!(&buf, b"data");

@@ -54,8 +54,7 @@ pub enum GeeZipError {
 
     /// Path traversal attack detected (Zip Slip protection).
     #[error(
-        "path traversal detected: entry '{entry}' resolves outside target directory '{target}', \
-         use --unsafe to bypass"
+        "path traversal detected: entry '{entry}' resolves outside target directory '{target}'"
     )]
     PathTraversal {
         /// Entry path inside the archive.
@@ -89,16 +88,22 @@ impl fmt::Debug for GeeZipError {
 
 impl From<std::io::Error> for GeeZipError {
     fn from(source: std::io::Error) -> Self {
-        GeeZipError::Io {
-            source,
-            context: "I/O operation failed".into(),
-        }
+        Self::io(source, "I/O operation failed")
     }
 }
 
 impl GeeZipError {
     /// Create an `Io` error with a custom context string.
     pub fn io(source: std::io::Error, context: impl Into<String>) -> Self {
+        // Interrupted is retried by std::io helpers. Cancellation wrappers use
+        // a typed, non-retryable I/O error and recover it at the core boundary.
+        if source
+            .get_ref()
+            .and_then(|error| error.downcast_ref::<Self>())
+            .is_some_and(|error| matches!(error, Self::Cancelled))
+        {
+            return Self::Cancelled;
+        }
         GeeZipError::Io {
             source,
             context: context.into(),
@@ -201,7 +206,7 @@ mod tests {
         let msg = err.to_string();
         assert!(msg.contains("path traversal"), "msg: {msg}");
         assert!(msg.contains("../etc/passwd"), "msg: {msg}");
-        assert!(msg.contains("--unsafe"), "msg: {msg}");
+        assert!(!msg.contains("--unsafe"), "msg: {msg}");
     }
 
     #[test]
@@ -230,6 +235,22 @@ mod tests {
         let msg = err.to_string();
         assert!(msg.contains("I/O operation failed"), "msg: {msg}");
         assert!(msg.contains("access denied"), "msg: {msg}");
+    }
+
+    #[test]
+    fn typed_io_cancellation_survives_conversion() {
+        assert!(matches!(
+            GeeZipError::from(std::io::Error::other(GeeZipError::Cancelled)),
+            GeeZipError::Cancelled
+        ));
+        assert!(matches!(
+            GeeZipError::io(std::io::Error::other(GeeZipError::Cancelled), "reading"),
+            GeeZipError::Cancelled
+        ));
+        assert!(matches!(
+            GeeZipError::io(std::io::Error::other("operation cancelled"), "reading"),
+            GeeZipError::Io { .. }
+        ));
     }
 
     #[test]

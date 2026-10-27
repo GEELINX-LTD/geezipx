@@ -56,6 +56,7 @@ pub struct WimReader {
     entries_cache: Option<Vec<Entry>>,
     /// Map from entry path to its resource descriptor (for extraction).
     path_to_resource: HashMap<String, ResourceDescriptor>,
+    resource_hashes: HashMap<(u64, u64), [u8; 20]>,
 }
 
 impl std::fmt::Debug for WimReader {
@@ -88,7 +89,19 @@ impl WimReader {
         let lookup = LookupTable::parse(&mut file, &header)?;
         let xml = XmlData::parse(&mut file, &header)?;
 
+        let resource_hashes = lookup
+            .file_streams
+            .iter()
+            .map(|stream| {
+                (
+                    (stream.resource.offset, stream.resource.original_size),
+                    stream.hash.0,
+                )
+            })
+            .collect();
+
         Ok(WimReader {
+            resource_hashes,
             file,
             path: path.to_path_buf(),
             header,
@@ -138,22 +151,42 @@ impl ArchiveReader for WimReader {
             self.entries()?;
         }
 
-        let rd = self.path_to_resource.get(&entry.path).ok_or_else(|| {
-            GeeZipError::format(
+        let Some(rd) = self.path_to_resource.get(&entry.path) else {
+            if self.entries_cache.as_ref().is_some_and(|entries| {
+                entries
+                    .iter()
+                    .any(|item| item.path == entry.path && item.size == 0 && !item.is_dir)
+            }) {
+                return Ok(0);
+            }
+            return Err(GeeZipError::format(
                 format!("no resource found for entry '{}'", entry.path),
                 ArchiveFormat::Wim,
-            )
-        })?;
-
-        resource::extract_resource_range(
+            ));
+        };
+        let expected = self
+            .resource_hashes
+            .get(&(rd.offset, rd.original_size))
+            .ok_or_else(|| {
+                GeeZipError::format("missing WIM resource digest", ArchiveFormat::Wim)
+            })?;
+        let mut checked = sha1::DigestWriter::new(writer);
+        let count = resource::extract_resource_range(
             &mut self.file,
             rd,
             self.header.compression_type(),
             self.header.chunk_size,
             0,
             rd.original_size,
-            writer,
-        )
+            &mut checked,
+        )?;
+        if &checked.finish() != expected {
+            return Err(GeeZipError::format(
+                "WIM resource SHA-1 mismatch",
+                ArchiveFormat::Wim,
+            ));
+        }
+        Ok(count)
     }
 }
 
@@ -182,6 +215,77 @@ mod tests {
         // and note that real WIM files should be used for integration tests.
         // A proper minimal WIM builder would be ~300 lines.
         Vec::new()
+    }
+
+    #[test]
+    fn reads_independent_wimlib_xpress_fixture() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("external.wim");
+        std::fs::write(
+            &path,
+            include_bytes!("../../../tests/fixtures/wimlib-xpress.wim"),
+        )
+        .unwrap();
+        let mut reader = WimReader::open(&path).unwrap();
+        let entries = reader.entries().unwrap();
+        assert_eq!(entries.len(), 4);
+        assert!(!entries.iter().any(|entry| entry.path.is_empty()));
+        for (name, expected) in [
+            ("empty", Vec::new()),
+            ("目录/示例.txt", b"WIM external fixture\n".repeat(4000)),
+        ] {
+            let mut bytes = Vec::new();
+            let entry = entries.iter().find(|entry| entry.path == name).unwrap();
+            reader.extract(entry, &mut bytes).unwrap();
+            assert_eq!(bytes, expected);
+        }
+        assert!(
+            entries
+                .iter()
+                .find(|entry| entry.path == "empty-dir")
+                .unwrap()
+                .is_dir
+        );
+    }
+
+    #[test]
+    fn corrupt_wim_file_or_metadata_fails_integrity_verification() {
+        use crate::archive::ArchiveWriter;
+        use std::io::{Seek, SeekFrom};
+        for corrupt_metadata in [false, true] {
+            let temp = tempfile::tempdir().unwrap();
+            let path = temp.path().join("corrupt.wim");
+            let file = std::fs::File::create(&path).unwrap();
+            let mut writer = WimWriter::new(file);
+            writer
+                .add_entry_from_reader(Path::new("data"), &mut &b"original bytes"[..])
+                .unwrap();
+            Box::new(writer).finish().unwrap();
+            let mut reader = WimReader::open(&path).unwrap();
+            let offset = if corrupt_metadata {
+                reader.lookup.metadata_streams[0].resource.offset + 8 + 40
+            } else {
+                reader.lookup.file_streams[0].resource.offset
+            };
+            let mut file = std::fs::OpenOptions::new().write(true).open(&path).unwrap();
+            file.seek(SeekFrom::Start(offset)).unwrap();
+            file.write_all(&[0x55]).unwrap();
+            drop(file);
+            if corrupt_metadata {
+                assert!(reader
+                    .entries()
+                    .unwrap_err()
+                    .to_string()
+                    .contains("SHA-1 mismatch"));
+            } else {
+                let entries = reader.entries().unwrap();
+                assert!(reader
+                    .extract(&entries[0], &mut Vec::new())
+                    .unwrap_err()
+                    .to_string()
+                    .contains("SHA-1 mismatch"));
+            }
+        }
     }
 
     #[test]

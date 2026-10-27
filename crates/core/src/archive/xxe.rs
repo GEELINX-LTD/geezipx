@@ -12,7 +12,7 @@ use crate::error::{GeeZipError, GeeZipResult};
 const XXE_ALPHABET: &[u8; 64] = b"+-0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
 
 fn build_reverse_table() -> [u8; 256] {
-    let mut table = [0u8; 256];
+    let mut table = [u8::MAX; 256];
     for (i, &ch) in XXE_ALPHABET.iter().enumerate() {
         table[ch as usize] = i as u8;
     }
@@ -56,7 +56,7 @@ pub fn xxe_encode_to_writer<R: Read, W: Write>(
         .read_to_end(&mut data)
         .map_err(|e| GeeZipError::io(e, "reading input for xxe encoding"))?;
     let body = xxe_encode(&data);
-    let output = format!("begin 644 {}\n{}end\n", name, body.trim_end());
+    let output = format!("begin 644 {name}\n{body}+\nend\n");
     writer
         .write_all(output.as_bytes())
         .map_err(|e| GeeZipError::io(e, "writing xxe-encoded output"))?;
@@ -81,55 +81,55 @@ pub fn xxe_decode(input: &str) -> Result<(String, Vec<u8>), String> {
     let header = lines.next().ok_or("missing header line")?;
     let header = header.trim();
     let header = header.strip_prefix("begin ").ok_or("expected 'begin'")?;
-    let filename = header
-        .split_whitespace()
-        .nth(1)
-        .unwrap_or("unknown")
-        .to_string();
+    let (mode, filename) = header
+        .split_once(char::is_whitespace)
+        .ok_or("missing filename")?;
+    let filename = filename.trim_start();
+    if mode.is_empty() || !mode.bytes().all(|b| matches!(b, b'0'..=b'7')) || filename.is_empty() {
+        return Err("invalid mode or filename".into());
+    }
 
     let mut output = Vec::new();
+    let mut terminated = false;
     for line in lines {
-        let line = line.trim_end_matches('\r').trim_end();
-        if line == "end" || line.is_empty() || line == "+" {
-            break;
+        let line = line.trim_end_matches('\r');
+        if line == "end" {
+            return Ok((filename.to_owned(), output));
+        }
+        if line.is_empty() || line == "+" {
+            terminated = true;
+            continue;
+        }
+        if terminated {
+            return Err("data after zero-length line".into());
         }
         let bytes = line.as_bytes();
-        if bytes.is_empty() {
-            continue;
-        }
         let encoded_len = reverse[bytes[0] as usize];
-        if encoded_len == 0 && bytes[0] != XXE_ALPHABET[0] {
-            break;
+        if encoded_len == u8::MAX || encoded_len == 0 {
+            return Err("invalid line length character".into());
         }
         let mut remaining = encoded_len as usize;
-        if remaining == 0 {
-            continue;
+        let required = remaining.div_ceil(3) * 4;
+        let encoded = bytes.get(1..1 + required).ok_or("truncated data line")?;
+        if !encoded.iter().all(|b| reverse[*b as usize] != u8::MAX)
+            || !bytes[1 + required..].iter().all(u8::is_ascii_whitespace)
+        {
+            return Err("invalid encoded character".into());
         }
-        let encoded = &bytes[1..];
-        let mut i = 0;
-        while i + 3 < encoded.len() && remaining > 0 {
-            let a = reverse.get(encoded[i] as usize).copied().unwrap_or(0) as u32;
-            let b = reverse.get(encoded[i + 1] as usize).copied().unwrap_or(0) as u32;
-            let c = reverse.get(encoded[i + 2] as usize).copied().unwrap_or(0) as u32;
-            let d = reverse.get(encoded[i + 3] as usize).copied().unwrap_or(0) as u32;
+        for chunk in encoded.chunks_exact(4) {
+            let a = reverse[chunk[0] as usize] as u32;
+            let b = reverse[chunk[1] as usize] as u32;
+            let c = reverse[chunk[2] as usize] as u32;
+            let d = reverse[chunk[3] as usize] as u32;
             let triple = (a << 18) | (b << 12) | (c << 6) | d;
-            if remaining > 0 {
-                output.push(((triple >> 16) & 0xFF) as u8);
-                remaining -= 1;
+            for shift in [16, 8, 0].into_iter().take(remaining.min(3)) {
+                output.push(((triple >> shift) & 0xFF) as u8);
             }
-            if remaining > 0 {
-                output.push(((triple >> 8) & 0xFF) as u8);
-                remaining -= 1;
-            }
-            if remaining > 0 {
-                output.push((triple & 0xFF) as u8);
-                remaining -= 1;
-            }
-            i += 4;
+            remaining = remaining.saturating_sub(3);
         }
     }
 
-    Ok((filename, output))
+    Err("missing end marker".into())
 }
 
 pub fn xxe_decode_to_writer(path: &Path, writer: &mut dyn Write) -> GeeZipResult<u64> {
@@ -160,6 +160,35 @@ mod tests {
             let (filename, decoded) = xxe_decode(&input).unwrap();
             assert_eq!(filename, "test.bin");
             assert_eq!(decoded, data.to_vec());
+        }
+    }
+
+    #[test]
+    fn xxe_writer_roundtrip_preserves_line_boundaries() {
+        for data in [vec![], vec![0], vec![0; 45], vec![0; 46], b"hello".to_vec()] {
+            let mut encoded = Vec::new();
+            let count =
+                xxe_encode_to_writer(&mut &data[..], "name with spaces.bin", &mut encoded).unwrap();
+            assert_eq!(count, encoded.len() as u64);
+            let (name, decoded) = xxe_decode(std::str::from_utf8(&encoded).unwrap()).unwrap();
+            assert_eq!(name, "name with spaces.bin");
+            assert_eq!(decoded, data);
+            assert!(encoded.ends_with(b"\n+\nend\n"));
+        }
+    }
+
+    #[test]
+    fn xxe_rejects_truncated_or_invalid_body() {
+        let body = xxe_encode(b"cat");
+        assert!(xxe_decode(&format!("begin 644 f\n{body}")).is_err());
+        assert!(xxe_decode(&format!("begin 644 f\n+\n{body}end\n")).is_err());
+        for input in [
+            "begin 644 f\n1Mk\nend\n",
+            "begin 644 f\n1!!!!\nend\n",
+            "begin 644 f\n!\nend\n",
+            "begin 644\nend\n",
+        ] {
+            assert!(xxe_decode(input).is_err(), "accepted {input:?}");
         }
     }
 

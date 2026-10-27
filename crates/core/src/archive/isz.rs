@@ -99,6 +99,24 @@ fn parse_header<R: Read + Seek>(reader: &mut R) -> GeeZipResult<IszHeader> {
     })
 }
 
+/// Copy exactly one block without allowing a compressed block to exceed its
+/// declared output size. Reading once more also validates the codec trailer.
+fn copy_block<R: Read, W: Write>(mut reader: R, writer: &mut W, expected: u64) -> GeeZipResult<()> {
+    let written = std::io::copy(&mut reader.by_ref().take(expected), writer)
+        .map_err(|e| GeeZipError::io(e, "decompressing ISZ block"))?;
+    let mut extra = [0u8; 1];
+    let extra_len = reader
+        .read(&mut extra)
+        .map_err(|e| GeeZipError::io(e, "validating ISZ block"))?;
+    if written != expected || extra_len != 0 {
+        return Err(GeeZipError::format(
+            "ISZ block decompressed size mismatch",
+            ArchiveFormat::Isz,
+        ));
+    }
+    Ok(())
+}
+
 /// Decompress ISZ → raw ISO bytes.
 pub fn isz_decompress<R: Read + Seek, W: Write>(
     reader: &mut R,
@@ -126,138 +144,115 @@ pub fn isz_decompress<R: Read + Seek, W: Write>(
     }
 
     let block_size_bytes = header.block_size_sectors as u64 * header.sector_size as u64;
-    let num_blocks = header.num_blocks as usize;
-    let total_uncompressed = (header.total_sectors as u64) * (header.sector_size as u64);
-
-    // Read chunk pointer table
-    let cdt_size = num_blocks * 3;
-    let mut cdt = vec![0u8; cdt_size];
-
-    let cdt_offset = if header.chunk_pointers_offset != 0 {
-        header.chunk_pointers_offset as u64
-    } else {
-        HEADER_SIZE as u64
-    };
-
-    reader
-        .seek(std::io::SeekFrom::Start(cdt_offset))
-        .map_err(|e| GeeZipError::io(e, "seeking to ISZ chunk table"))?;
-    reader
-        .read_exact(&mut cdt)
-        .map_err(|e| GeeZipError::io(e, "reading ISZ chunk table"))?;
-
-    // Deobfuscate the chunk table
-    xor_deobfuscate(&mut cdt);
-
-    // Parse chunk pointers
-    let mut chunks: Vec<(u8, u32)> = Vec::with_capacity(num_blocks);
-    for i in 0..num_blocks {
-        let offset = i * 3;
-        let ptr = [cdt[offset], cdt[offset + 1], cdt[offset + 2]];
-        chunks.push(decode_chunk_pointer(&ptr));
-    }
-
-    // Determine data start offset
-    let data_start = if header.data_offset != 0 {
-        header.data_offset as u64
-    } else {
-        cdt_offset + cdt_size as u64
-    };
-
-    // Read all compressed data into a buffer
-    reader
-        .seek(std::io::SeekFrom::Start(data_start))
-        .map_err(|e| GeeZipError::io(e, "seeking to ISZ data start"))?;
-
-    let mut compressed_data = Vec::new();
-    reader
-        .read_to_end(&mut compressed_data)
-        .map_err(|e| GeeZipError::io(e, "reading ISZ compressed data"))?;
-
-    // Decompress each chunk
-    let mut total_written: u64 = 0;
-    let mut data_offset: usize = 0;
-
-    for (chunk_type, chunk_size) in &chunks {
-        match chunk_type {
-            0 => {
-                // Zeros — write block_size_bytes zeros via streaming
-                std::io::copy(&mut std::io::repeat(0).take(block_size_bytes), &mut writer)
-                    .map_err(|e| GeeZipError::io(e, "writing zero block"))?;
-                total_written += block_size_bytes;
-            }
-            1 => {
-                // Raw data
-                let size = *chunk_size as usize;
-                if data_offset + size > compressed_data.len() {
-                    return Err(GeeZipError::format(
-                        "truncated ISZ data block",
-                        ArchiveFormat::Isz,
-                    ));
-                }
-                writer
-                    .write_all(&compressed_data[data_offset..data_offset + size])
-                    .map_err(|e| GeeZipError::io(e, "writing raw block"))?;
-                total_written += size as u64;
-                data_offset += size;
-            }
-            2 => {
-                // Zlib (deflate)
-                let size = *chunk_size as usize;
-                if data_offset + size > compressed_data.len() {
-                    return Err(GeeZipError::format(
-                        "truncated ISZ zlib block",
-                        ArchiveFormat::Isz,
-                    ));
-                }
-                use flate2::read::ZlibDecoder;
-                let compressed = &compressed_data[data_offset..data_offset + size];
-                let mut decoder = ZlibDecoder::new(compressed);
-                let n = std::io::copy(&mut decoder, &mut writer)
-                    .map_err(|e| GeeZipError::io(e, "decompressing ISZ zlib block"))?;
-                total_written += n;
-                data_offset += size;
-            }
-            3 => {
-                // Bzip2 — prepend "BZh9" magic header.
-                // ISZ strips the 4-byte BZip2 magic; "9" requests the max
-                // block size (900kB) so the decoder allocates enough workspace.
-                let size = *chunk_size as usize;
-                if data_offset + size > compressed_data.len() {
-                    return Err(GeeZipError::format(
-                        "truncated ISZ bzip2 block",
-                        ArchiveFormat::Isz,
-                    ));
-                }
-                let mut bz_data = vec![b'B', b'Z', b'h', b'9'];
-                bz_data.extend_from_slice(&compressed_data[data_offset..data_offset + size]);
-                use bzip2::read::BzDecoder;
-                let mut decoder = BzDecoder::new(&bz_data[..]);
-                let n = std::io::copy(&mut decoder, &mut writer)
-                    .map_err(|e| GeeZipError::io(e, "decompressing ISZ bzip2 block"))?;
-                total_written += n;
-                data_offset += size;
-            }
-            _ => {
-                return Err(GeeZipError::format(
-                    format!("unknown ISZ chunk type {}", chunk_type),
-                    ArchiveFormat::Isz,
-                ));
-            }
-        }
-    }
-
-    // Verify total size
-    if total_written != total_uncompressed {
+    let total_uncompressed = header.total_sectors as u64 * header.sector_size as u64;
+    if block_size_bytes == 0
+        || total_uncompressed.div_ceil(block_size_bytes) != u64::from(header.num_blocks)
+    {
         return Err(GeeZipError::format(
-            format!(
-                "ISZ size mismatch: expected {} bytes, got {}",
-                total_uncompressed, total_written
-            ),
+            "invalid ISZ block geometry",
             ArchiveFormat::Isz,
         ));
     }
 
+    let file_len = reader
+        .seek(std::io::SeekFrom::End(0))
+        .map_err(|e| GeeZipError::io(e, "reading ISZ file length"))?;
+    let cdt_offset = if header.chunk_pointers_offset != 0 {
+        u64::from(header.chunk_pointers_offset)
+    } else {
+        HEADER_SIZE as u64
+    };
+    let table_end = cdt_offset + u64::from(header.num_blocks) * 3;
+    let mut data_offset = if header.data_offset != 0 {
+        u64::from(header.data_offset)
+    } else {
+        table_end
+    };
+    if cdt_offset < HEADER_SIZE as u64
+        || table_end > file_len
+        || data_offset < table_end
+        || data_offset > file_len
+    {
+        return Err(GeeZipError::format(
+            "invalid or truncated ISZ chunk table/data bounds",
+            ArchiveFormat::Isz,
+        ));
+    }
+
+    // Read one table entry and one encoded block at a time. A three-byte
+    // pointer can describe at most 4 MiB of encoded data, independent of the
+    // claimed image size. Do not allocate based on num_blocks or read to EOF.
+    let mut total_written = 0;
+    for index in 0..u64::from(header.num_blocks) {
+        reader
+            .seek(std::io::SeekFrom::Start(cdt_offset + index * 3))
+            .map_err(|e| GeeZipError::io(e, "seeking to ISZ chunk pointer"))?;
+        let mut pointer = [0u8; 3];
+        reader
+            .read_exact(&mut pointer)
+            .map_err(|e| GeeZipError::io(e, "reading ISZ chunk pointer"))?;
+        for (byte_index, byte) in pointer.iter_mut().enumerate() {
+            *byte ^= XOR_KEY[((index * 3 + byte_index as u64) % 4) as usize];
+        }
+        let (chunk_type, chunk_size) = decode_chunk_pointer(&pointer);
+        let expected = block_size_bytes.min(total_uncompressed - total_written);
+        let data_end = data_offset + u64::from(chunk_size);
+        if data_end > file_len {
+            return Err(GeeZipError::format(
+                "truncated ISZ data block",
+                ArchiveFormat::Isz,
+            ));
+        }
+        if (chunk_type == 0 && chunk_size != 0)
+            || (chunk_type == 1 && u64::from(chunk_size) != expected)
+        {
+            return Err(GeeZipError::format(
+                "ISZ block stored size mismatch",
+                ArchiveFormat::Isz,
+            ));
+        }
+        if chunk_type == 0 {
+            // The final zero block can be shorter than a full block.
+            copy_block(std::io::repeat(0).take(expected), &mut writer, expected)?;
+        } else {
+            reader
+                .seek(std::io::SeekFrom::Start(data_offset))
+                .map_err(|e| GeeZipError::io(e, "seeking to ISZ block"))?;
+            let mut encoded = vec![0u8; chunk_size as usize];
+            reader
+                .read_exact(&mut encoded)
+                .map_err(|e| GeeZipError::io(e, "reading ISZ block"))?;
+            match chunk_type {
+                1 => copy_block(encoded.as_slice(), &mut writer, expected)?,
+                2 => {
+                    let mut decoder = flate2::read::ZlibDecoder::new(encoded.as_slice());
+                    copy_block(&mut decoder, &mut writer, expected)?;
+                    if decoder.total_in() != u64::from(chunk_size) {
+                        return Err(GeeZipError::format(
+                            "trailing data in ISZ zlib block",
+                            ArchiveFormat::Isz,
+                        ));
+                    }
+                }
+                3 => {
+                    // ISZ strips the four-byte BZip2 magic. Chain it back
+                    // without copying the entire encoded block again.
+                    let input = (&b"BZh9"[..]).chain(encoded.as_slice());
+                    let mut decoder = bzip2::read::BzDecoder::new(input);
+                    copy_block(&mut decoder, &mut writer, expected)?;
+                    if decoder.total_in() != u64::from(chunk_size) + 4 {
+                        return Err(GeeZipError::format(
+                            "trailing data in ISZ bzip2 block",
+                            ArchiveFormat::Isz,
+                        ));
+                    }
+                }
+                _ => unreachable!("chunk type is encoded in two bits"),
+            }
+        }
+        total_written += expected;
+        data_offset = data_end;
+    }
     Ok(total_written)
 }
 
@@ -269,7 +264,7 @@ pub fn isz_verify<R: Read + Seek>(reader: &mut R) -> GeeZipResult<u64> {
 /// Compress raw data into ISZ format.
 ///
 /// Reads all input, pads to 2048-byte sector boundaries, compresses
-/// each 4 MB block with Zlib (Deflate, level from options), and writes
+/// each 2 MiB block with Zlib (Deflate, level from options), and writes
 /// a complete ISZ file with header, XOR-obfuscated chunk table, and blocks.
 pub fn isz_compress<R: Read, W: Write>(
     reader: &mut R,
@@ -284,7 +279,9 @@ pub fn isz_compress<R: Read, W: Write>(
         .map_err(|e| GeeZipError::io(e, "reading ISZ input"))?;
 
     const SECTOR_SIZE: u16 = 2048;
-    const BLOCK_SIZE_SECTORS: u32 = 2048;
+    // The three-byte pointer has only 22 size bits. A stored/incompressible
+    // 4 MiB block (plus codec overhead) cannot be represented without truncation.
+    const BLOCK_SIZE_SECTORS: u32 = 1024;
     let block_size_bytes = BLOCK_SIZE_SECTORS as u64 * SECTOR_SIZE as u64;
     let level = options.level.unwrap_or(6).clamp(0, 9);
 
@@ -441,6 +438,106 @@ mod tests {
         isz.extend_from_slice(&chunk_table);
         isz.extend_from_slice(&block_data);
         isz
+    }
+
+    fn single_chunk_isz(kind: u8, encoded: &[u8], block_sectors: u32) -> Vec<u8> {
+        let mut data = build_test_isz(b"fixture");
+        data.truncate(64);
+        data[29..33].copy_from_slice(&block_sectors.to_le_bytes());
+        let mut table = encode_chunk_pointer(kind, encoded.len() as u32);
+        xor_deobfuscate(&mut table);
+        data.extend_from_slice(&table);
+        data.extend_from_slice(encoded);
+        data
+    }
+
+    #[test]
+    fn isz_final_zero_block_uses_remaining_sectors() {
+        let data = single_chunk_isz(0, b"", 2);
+        let mut output = Vec::new();
+        assert_eq!(
+            isz_decompress(&mut Cursor::new(data), &mut output).unwrap(),
+            2048
+        );
+        assert_eq!(output, vec![0u8; 2048]);
+    }
+
+    #[test]
+    fn isz_limits_each_decoded_block_and_validates_trailer() {
+        for size in [1024, 4096] {
+            let mut encoded = Vec::new();
+            let mut encoder = ZlibEncoder::new(&mut encoded, Compression::default());
+            encoder.write_all(&vec![b'A'; size]).unwrap();
+            encoder.finish().unwrap();
+            let data = single_chunk_isz(2, &encoded, 1);
+            let mut output = Vec::new();
+            assert!(isz_decompress(&mut Cursor::new(data), &mut output).is_err());
+            assert!(output.len() <= 2048);
+        }
+        let mut data = build_test_isz(b"CRC test");
+        *data.last_mut().unwrap() ^= 1;
+        assert!(isz_verify(&mut Cursor::new(data)).is_err());
+        let data = single_chunk_isz(1, &[0u8; 2047], 1);
+        let mut output = Vec::new();
+        assert!(isz_decompress(&mut Cursor::new(data), &mut output).is_err());
+        assert!(output.is_empty());
+    }
+
+    #[test]
+    fn isz_rejects_huge_or_truncated_tables_without_allocating_them() {
+        let mut data = build_test_isz(b"small");
+        data[12..16].copy_from_slice(&u32::MAX.to_le_bytes());
+        data[25..29].copy_from_slice(&u32::MAX.to_le_bytes());
+        assert!(isz_verify(&mut Cursor::new(data)).is_err());
+        let mut data = build_test_isz(b"small");
+        data[29..33].copy_from_slice(&0u32.to_le_bytes());
+        assert!(isz_verify(&mut Cursor::new(data)).is_err());
+    }
+
+    #[test]
+    fn isz_does_not_read_unreferenced_trailing_data() {
+        struct CountedReader {
+            inner: Cursor<Vec<u8>>,
+            bytes_read: usize,
+        }
+        impl Read for CountedReader {
+            fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+                let read = self.inner.read(buf)?;
+                self.bytes_read += read;
+                Ok(read)
+            }
+        }
+        impl Seek for CountedReader {
+            fn seek(&mut self, pos: std::io::SeekFrom) -> std::io::Result<u64> {
+                self.inner.seek(pos)
+            }
+        }
+        let mut data = build_test_isz(b"small");
+        let referenced_size = data.len();
+        data.resize(referenced_size + 1024 * 1024, 0);
+        let mut reader = CountedReader {
+            inner: Cursor::new(data),
+            bytes_read: 0,
+        };
+        assert_eq!(isz_verify(&mut reader).unwrap(), 2048);
+        assert!(reader.bytes_read <= referenced_size);
+    }
+
+    #[test]
+    fn isz_level_zero_full_blocks_fit_chunk_pointer() {
+        let original = vec![b'A'; 4 * 1024 * 1024];
+        let options = CompressOptions {
+            level: Some(0),
+            ..Default::default()
+        };
+        let mut encoded = Vec::new();
+        isz_compress(&mut Cursor::new(&original), &mut encoded, &options).unwrap();
+        let mut output = Vec::new();
+        assert_eq!(
+            isz_decompress(&mut Cursor::new(encoded), &mut output).unwrap(),
+            original.len() as u64
+        );
+        assert_eq!(output, original);
     }
 
     #[test]
