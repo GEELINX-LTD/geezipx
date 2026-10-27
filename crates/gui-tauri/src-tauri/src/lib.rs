@@ -292,30 +292,9 @@ fn emit_resolved_action(window: &tauri::WebviewWindow, resolved: &ResolvedAction
 
 /// Run the Tauri application.
 pub fn run() {
-    // --- Collect and parse cold-start command-line args ---
-    let raw_args: Vec<String> = std::env::args().skip(1).collect();
-    let resolved = resolve_shell_action(&raw_args);
-
-    // Legacy cold-start file paths (for `get_opened_archives` backward compat).
-    let cold_args: Vec<String> = if let Some(ResolvedAction::OpenArchives(ref paths)) = resolved {
-        paths.clone()
-    } else {
-        raw_args
-            .iter()
-            .filter(|a| {
-                let p = std::path::Path::new(a);
-                p.exists() && !p.is_dir()
-            })
-            .cloned()
-            .collect()
-    };
-
-    // Cold-start shell action (only when an explicit action was found).
-    let cold_shell: Option<ShellActionPayload> = match &resolved {
-        Some(ResolvedAction::Action(payload)) => Some(payload.clone()),
-        _ => None,
-    };
-
+    // Single-instance initialization must forward the original argv before
+    // any action file is read and deleted. Only the surviving primary process
+    // consumes cold-start arguments in its setup callback below.
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
@@ -355,21 +334,23 @@ pub fn run() {
             commands::shell_menu::get_shell_menu_state,
             commands::shell_menu::set_shell_menu,
         ])
-        .setup(move |app| {
-            // Store cold-start file paths (if any) into state.
-            if !cold_args.is_empty() {
-                if let Some(state) = app.try_state::<state::AppState>() {
-                    if let Ok(mut pending) = state.pending_archives.lock() {
-                        pending.extend(cold_args.clone());
+        .setup(|app| {
+            // Plugin initialization has now established this as the primary
+            // process. Do not queue explicit shell paths as ordinary archives.
+            let args: Vec<String> = std::env::args().skip(1).collect();
+            if let Some(state) = app.try_state::<state::AppState>() {
+                match resolve_shell_action(&args) {
+                    Some(ResolvedAction::OpenArchives(paths)) => {
+                        if let Ok(mut pending) = state.pending_archives.lock() {
+                            pending.extend(paths);
+                        }
                     }
-                }
-            }
-            // Store cold-start shell action (if any) into state.
-            if let Some(ref action) = cold_shell {
-                if let Some(state) = app.try_state::<state::AppState>() {
-                    if let Ok(mut pending) = state.pending_shell_action.lock() {
-                        *pending = Some(action.clone());
+                    Some(ResolvedAction::Action(action)) => {
+                        if let Ok(mut pending) = state.pending_shell_action.lock() {
+                            *pending = Some(action);
+                        }
                     }
+                    None => {}
                 }
             }
             // Clean up stale drag-out temp directories on startup

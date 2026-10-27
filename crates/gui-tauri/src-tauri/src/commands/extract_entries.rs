@@ -153,7 +153,7 @@ fn select_requested_entries(
     entry_paths: &[String],
     cancel_token: &Arc<AtomicBool>,
 ) -> Result<Vec<Entry>, ExtractTaskError> {
-    let requested_set: HashSet<String> = entry_paths.iter().cloned().collect();
+    let requested_set = requested_entry_prefixes(entry_paths);
     let mut matched = Vec::new();
 
     for entry in all_entries {
@@ -161,21 +161,79 @@ fn select_requested_entries(
             return Err(ExtractTaskError::Cancelled);
         }
 
-        if requested_set.contains(&entry.path) {
+        if entry_matches_selection(&entry.path, &requested_set) {
             matched.push(entry.clone());
-            continue;
-        }
-
-        for requested in entry_paths {
-            if entry.path.starts_with(requested) {
-                let suffix = &entry.path[requested.len()..];
-                if suffix.is_empty() || suffix.starts_with('/') {
-                    matched.push(entry.clone());
-                    break;
-                }
-            }
         }
     }
 
     Ok(matched)
+}
+
+pub(crate) fn requested_entry_prefixes(paths: &[String]) -> HashSet<&str> {
+    paths
+        .iter()
+        .map(|path| path.trim_end_matches('/'))
+        .filter(|path| !path.is_empty())
+        .collect()
+}
+
+pub(crate) fn entry_matches_selection(path: &str, requested: &HashSet<&str>) -> bool {
+    let path = path.trim_end_matches('/');
+    requested.contains(path)
+        || requested.iter().any(|prefix| {
+            path.strip_prefix(prefix)
+                .is_some_and(|suffix| suffix.starts_with('/'))
+        })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn entry(path: &str, is_dir: bool) -> Entry {
+        Entry {
+            path: path.into(),
+            is_dir,
+            size: 1,
+            compressed_size: 0,
+            modified: None,
+            crc32: None,
+        }
+    }
+
+    #[test]
+    fn folder_selection_matches_explicit_and_implicit_descendants() {
+        let all = vec![
+            entry("photos/", true),
+            entry("photos/a.txt", false),
+            entry("photos/nested/b.txt", false),
+            entry("photos-extra/c.txt", false),
+        ];
+        let token = Arc::new(AtomicBool::new(false));
+        for prefix in ["photos", "photos/"] {
+            let requested = vec![prefix.to_string(), "photos/nested/".into()];
+            let selected = select_requested_entries(&all, &requested, &token).unwrap();
+            assert_eq!(selected.len(), 3);
+            let implicit = select_requested_entries(&all[1..], &requested, &token).unwrap();
+            assert_eq!(implicit.len(), 2);
+        }
+    }
+
+    #[test]
+    fn exact_file_empty_selection_and_cancellation() {
+        let all = vec![entry("文件.txt", false), entry("文件.txt.bak", false)];
+        let token = Arc::new(AtomicBool::new(false));
+        let selected = select_requested_entries(&all, &["文件.txt".into()], &token).unwrap();
+        assert_eq!(selected.len(), 1);
+        assert!(
+            select_requested_entries(&all, &["/".into(), "".into()], &token)
+                .unwrap()
+                .is_empty()
+        );
+        token.store(true, std::sync::atomic::Ordering::SeqCst);
+        assert!(matches!(
+            select_requested_entries(&all, &["文件.txt".into()], &token),
+            Err(ExtractTaskError::Cancelled)
+        ));
+    }
 }
