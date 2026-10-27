@@ -871,6 +871,25 @@ mod platform {
     }
 }
 
+#[cfg(test)]
+mod installer_tests {
+    use super::DEFS;
+
+    #[test]
+    fn nsis_uninstall_covers_all_runtime_association_aliases() {
+        let hooks = include_str!("../../windows/hooks.nsi");
+        for def in DEFS {
+            for ext in def.exts {
+                let invocation = format!("!insertmacro RemoveRuntimeAssociation \"{ext}\"");
+                assert!(
+                    hooks.lines().any(|line| line.trim() == invocation),
+                    "uninstall would leave the runtime association for {ext}"
+                );
+            }
+        }
+    }
+}
+
 #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
 mod platform {
     use super::*;

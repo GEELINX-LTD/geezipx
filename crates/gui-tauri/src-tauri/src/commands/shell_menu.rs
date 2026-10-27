@@ -1342,6 +1342,40 @@ mod tests {
         assert_eq!(state.archive_extensions.len(), ARCHIVE_EXTS.len());
     }
 
+    #[test]
+    fn test_nsis_hooks_match_tauri_lifecycle_names() {
+        let hooks = include_str!("../../windows/hooks.nsi");
+        for name in [
+            "NSIS_HOOK_PREINSTALL",
+            "NSIS_HOOK_POSTINSTALL",
+            "NSIS_HOOK_PREUNINSTALL",
+            "NSIS_HOOK_POSTUNINSTALL",
+        ] {
+            assert!(
+                hooks.lines().any(|line| line == format!("!macro {name}")),
+                "Tauri will not invoke the missing installer hook {name}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_nsis_extract_extensions_match_runtime() {
+        let hooks = include_str!("../../windows/hooks.nsi");
+        for ext in ARCHIVE_EXTS {
+            for operation in [
+                "AddExtractMenus",
+                "FixExtractParentKey",
+                "RemoveExtractMenus",
+            ] {
+                let invocation = format!("!insertmacro {operation} \"{ext}\"");
+                assert!(
+                    hooks.lines().any(|line| line.trim() == invocation),
+                    "installer missing {invocation} for a runtime shell extension"
+                );
+            }
+        }
+    }
+
     // -- HRESULT not-found helper (Windows only) ---------------------------
 
     #[test]
