@@ -1,10 +1,26 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
+  import { getVersion } from '../bridge';
   import { localeStore } from '../stores/localeStore.svelte';
+
+  let version = $state('');
+  let versionFailed = $state(false);
+
+  onMount(() => {
+    let disposed = false;
+    getVersion().then((value) => {
+      if (!disposed) version = value;
+    }).catch((error) => {
+      console.error('Version lookup failed', error);
+      if (!disposed) versionFailed = true;
+    });
+    return () => { disposed = true; };
+  });
 </script>
 
 <div class="page">
   <h1>{localeStore.t('about.title')}</h1>
-  <p class="version">v0.5.0</p>
+  <p class="version">{version ? `v${version}` : localeStore.t(versionFailed ? 'common.unavailable' : 'common.loading')}</p>
   <p>{localeStore.t('about.description')}</p>
   <p class="stack">{localeStore.t('about.stack')}</p>
 </div>

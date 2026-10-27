@@ -10,6 +10,7 @@
   import { archiveManager } from './stores/archiveStore.svelte';
   import { toastStore } from './stores/toastStore.svelte.ts';
   import { settingsStore } from './stores/settingsStore.svelte';
+  import { localeStore } from './stores/localeStore.svelte';
   import TabBar from './components/TabBar.svelte';
   import DropOverlay from './components/DropOverlay.svelte';
   import ToastContainer from './components/ToastContainer.svelte';
@@ -197,53 +198,74 @@
     const isViewingArchive = tab && appStore.activeTab === tab.id;
     if (isViewingArchive) {
       const name = tab.archivePath.split(/[/\\]/).pop() || 'Archive';
-      getCurrentWindow().setTitle(`${name} — GeeZipX`);
+      getCurrentWindow().setTitle(`${name} — GeeZipX`).catch((error) => console.error('Window title update failed', error));
     } else {
-      getCurrentWindow().setTitle('GeeZipX');
+      getCurrentWindow().setTitle('GeeZipX').catch((error) => console.error('Window title update failed', error));
     }
   });
 
   onMount(() => {
+    let disposed = false;
+    const reportFailure = (error: unknown) => {
+      console.error('Application initialization or native event failed', error);
+      if (!disposed) toastStore.show(localeStore.t('common.errorDetail', { message: String(error) }), 'error');
+    };
+    const openArchive = async (path: string) => {
+      const { tabId, label } = await archiveManager.openArchive(path);
+      if (disposed) return;
+      appStore.addArchiveTab(tabId, label, path);
+      appStore.switchTab(tabId);
+    };
     const unlisteners: (() => void)[] = [];
+    const keepUnlistener = (unlisten: () => void) => {
+      if (disposed) unlisten();
+      else unlisteners.push(unlisten);
+    };
+
+    Promise.all([settingsStore.get('theme'), settingsStore.get('locale')]).then(([theme, locale]) => {
+      if (disposed) return;
+      if (theme === 'light' || theme === 'dark') document.documentElement.setAttribute('data-theme', theme);
+      else document.documentElement.removeAttribute('data-theme');
+      if (locale) localeStore.switchLocale(locale);
+    }).catch(reportFailure);
 
     listen<TaskProgressPayload>('task:progress', (event) => {
       taskStore.updateTask(event.payload);
-    }).then((un) => unlisteners.push(un));
-
+    }).then(keepUnlistener).catch(reportFailure);
     // Hot-start: another instance forwarded opened archives
     listen<string[]>('opened-archives', (event) => {
+      if (disposed) return;
       for (const p of event.payload) {
-        archiveManager.openArchive(p).then(({ tabId, label }) => {
-          appStore.addArchiveTab(tabId, label, p);
-          appStore.switchTab(tabId);
-        });
+        void openArchive(p).catch(reportFailure);
       }
-    }).then((un) => unlisteners.push(un));
+    }).then(keepUnlistener).catch(reportFailure);
 
     listen<ShellActionPayload>('shell-action', (event) => {
-      handleShellAction(event.payload);
-    }).then((un) => unlisteners.push(un));
+      if (!disposed) void handleShellAction(event.payload).catch(reportFailure);
+    }).then(keepUnlistener).catch(reportFailure);
 
     // Check for cold-start shell action (e.g., opened from context menu while GUI was not running).
     getShellAction().then((action) => {
-      if (action && action.paths.length > 0) {
-        handleShellAction(action);
+      if (!disposed && action && action.paths.length > 0) {
+        return handleShellAction(action);
       }
-    });
+    }).catch(reportFailure);
 
     // ── COLD-START BUG FIX: pull pending archive paths from direct file-open (Windows double-click, etc.) ──
     getOpenedArchives().then((paths) => {
+      if (disposed) return;
       for (const p of paths) {
-        archiveManager.openArchive(p).then(({ tabId, label }) => {
-          appStore.addArchiveTab(tabId, label, p);
-          appStore.switchTab(tabId);
-        });
+        void openArchive(p).catch(reportFailure);
       }
-    });
+    }).catch(reportFailure);
 
     appStore.loadRecent();
 
-    return () => unlisteners.forEach((fn) => fn());
+    return () => {
+      disposed = true;
+      if (compressDebounceTimer) clearTimeout(compressDebounceTimer);
+      unlisteners.forEach((fn) => fn());
+    };
   });
 </script>
 

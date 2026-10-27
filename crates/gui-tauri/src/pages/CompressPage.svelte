@@ -28,7 +28,8 @@
   let formatChosen = false;
   let outputRequest = 0;
   let destroyed = false;
-  let settingsReady = false;
+  let settingsReady = $state(false);
+  let formatsFailed = $state(false);
 
   let isRunning = $derived(taskStore.hasRunning?.('compress') ?? false);
 
@@ -40,7 +41,13 @@
     formats.find(f => f.name === format)?.supports_encryption ?? false
   );
 
-  getFormats().then((f) => (formats = f));
+  getFormats().then((f) => {
+    if (!destroyed) formats = f;
+  }).catch((failure) => {
+    if (destroyed) return;
+    formatsFailed = true;
+    error = localeStore.t('common.errorDetail', { message: String(failure) });
+  });
 
   // Apply saved defaults
   Promise.all([
@@ -58,6 +65,8 @@
     onComplete = onComp ?? 'nothing';
     settingsReady = true;
     void inferOutput();
+  }).catch((failure) => {
+    if (!destroyed) error = localeStore.t('common.errorDetail', { message: String(failure) });
   });
 
   // Consume drops and shell selections even when the Compress tab is already open.
@@ -145,7 +154,7 @@
   }
 
   async function runCompress() {
-    if (isRunning || sourcePaths.length === 0 || !outputPath) return;
+    if (!settingsReady || formatsFailed || isRunning || sourcePaths.length === 0 || !outputPath) return;
     error = null;
     result = null;
 
@@ -265,7 +274,7 @@
 
   <!-- Action Bar -->
   <div class="action-bar">
-    <button class="btn-primary" onclick={runCompress} disabled={isRunning || sourcePaths.length === 0 || !outputPath}>
+    <button class="btn-primary" onclick={runCompress} disabled={!settingsReady || formatsFailed || isRunning || sourcePaths.length === 0 || !outputPath}>
       {localeStore.t('compress.run')}
     </button>
   </div>

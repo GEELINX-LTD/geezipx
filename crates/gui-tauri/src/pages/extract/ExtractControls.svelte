@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onDestroy } from 'svelte';
   import { open } from '@tauri-apps/plugin-dialog';
   import { localeStore } from '../../stores/localeStore.svelte';
   import { settingsStore } from '../../stores/settingsStore.svelte';
@@ -7,8 +8,12 @@
   import { taskStore } from '../../stores/taskStore.svelte';
   import { toastStore } from '../../stores/toastStore.svelte.ts';
 
-  let disabled = $derived(taskStore.hasRunning('extract'));
+  let settingsReady = $state(false);
+  let disabled = $derived(!settingsReady || taskStore.hasRunning('extract'));
   let outputDir = $state(archiveStore.suggestedOutputDir);
+  let outputChosen = false;
+  let destroyed = false;
+  onDestroy(() => { destroyed = true; });
 
   // Settings-backed behavior.
   let strategy = $state<'prompt' | 'skip' | 'overwrite'>('prompt');
@@ -24,19 +29,24 @@
     settingsStore.get('default_output_dir'),
     settingsStore.get('on_complete'),
   ]).then(([strat, outDir, onComp]) => {
+    if (destroyed) return;
     strategy = strat ?? 'prompt';
     // A configured default takes precedence over the archive-based suggestion.
-    if (outDir) outputDir = outDir;
+    if (outDir && !outputChosen) outputDir = outDir;
     onComplete = onComp ?? 'nothing';
     // Initialize the per-run overwrite checkbox from the strategy.
     overwrite = strategy !== 'skip';
+    settingsReady = true;
+  }).catch((failure) => {
+    if (!destroyed) error = localeStore.t('common.errorDetail', { message: String(failure) });
   });
   let result: string | null = $state(null);
   let error: string | null = $state(null);
 
   async function browseOutput() {
     const selected = await open({ directory: true, multiple: false });
-    if (selected && typeof selected === 'string') {
+    if (!destroyed && selected && typeof selected === 'string') {
+      outputChosen = true;
       outputDir = selected;
     }
   }
@@ -44,7 +54,7 @@
   // Entry point for the action buttons. When the strategy is "prompt", ask the
   // user how to handle existing files before running.
   function startExtract(kind: 'all' | 'selected') {
-    if (kind === 'selected' && archiveStore.selectedCount === 0) return;
+    if (disabled || (kind === 'selected' && archiveStore.selectedCount === 0)) return;
     if (strategy === 'prompt') {
       pendingKind = kind;
       showPrompt = true;
@@ -102,7 +112,7 @@
       </div>
       <div class="controls-options">
         <label class="checkbox-label">
-          <input type="checkbox" bind:checked={overwrite} />
+          <input type="checkbox" bind:checked={overwrite} disabled={disabled} />
           <span>{localeStore.t('extract.overwrite')}</span>
         </label>
         <div class="controls-field-inline">

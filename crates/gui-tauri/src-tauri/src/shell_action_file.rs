@@ -405,14 +405,14 @@ pub fn write_action_file(
     let filename = format!("{pid}_{ts}_{ctr}.{FILE_EXTENSION}");
     let filepath = dir.join(&filename);
 
-    // Write atomically: create_new fails if file exists; write all bytes;
-    // then the file is complete (no partial-read window).
-    let mut f = std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&filepath)?;
+    // Publish only the complete file. A failed write drops the temporary
+    // file, rather than leaving a truncated .gzsa in the handoff directory.
+    let mut f = tempfile::Builder::new()
+        .prefix(".geezipx-action-")
+        .tempfile_in(&dir)?;
     f.write_all(&data)?;
     f.flush()?;
+    f.persist_noclobber(&filepath).map_err(|e| e.error)?;
 
     Ok(filepath)
 }
@@ -451,16 +451,26 @@ pub(crate) fn read_action_file_in_dir(
     // --- path validation ---------------------------------------------------
     validate_action_file_path_in_dir(path, expected_dir)?;
 
-    // --- size check before reading -----------------------------------------
-    let meta = std::fs::metadata(path)?;
+    // Inspect and read the same open handle, with a hard read bound even if
+    // a file grows after metadata is checked. Never read directories/devices.
+    let file = std::fs::File::open(path)?;
+    let meta = file.metadata()?;
+    if !meta.is_file() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "action file is not a regular file",
+        )
+        .into());
+    }
     let file_size = meta.len();
     if file_size > MAX_FILE_SIZE {
         return Err(Error::FileTooLarge(file_size));
     }
 
-    // --- read --------------------------------------------------------------
-    let data = std::fs::read(path)?;
+    let data = read_bounded_action_data(&file)?;
     let (action, wide_paths) = decode(&data)?;
+    // Windows cannot remove an open file with a handle that denies deletion.
+    drop(file);
 
     // --- convert to PathBufs -----------------------------------------------
     #[cfg(target_os = "windows")]
@@ -482,6 +492,18 @@ pub(crate) fn read_action_file_in_dir(
     let _ = std::fs::remove_file(path);
 
     Ok((action, paths))
+}
+
+#[cfg(any(target_os = "windows", test))]
+fn read_bounded_action_data(reader: impl io::Read) -> Result<Vec<u8>, Error> {
+    use io::Read;
+
+    let mut data = Vec::new();
+    reader.take(MAX_FILE_SIZE + 1).read_to_end(&mut data)?;
+    if data.len() > MAX_FILE_SIZE as usize {
+        return Err(Error::FileTooLarge(data.len() as u64));
+    }
+    Ok(data)
 }
 
 /// Read and decode an action file, returning the action + decoded paths as
@@ -592,6 +614,23 @@ fn validate_action_file_path_in_dir(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bounded_reader_stops_at_limit_even_without_metadata() {
+        // An unbounded stream models a file growing after metadata inspection.
+        let err = read_bounded_action_data(io::repeat(0)).unwrap_err();
+        assert!(matches!(err, Error::FileTooLarge(n) if n == MAX_FILE_SIZE + 1));
+    }
+
+    #[test]
+    fn action_directory_is_rejected_and_preserved() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("directory.gzsa");
+        std::fs::create_dir(&path).unwrap();
+        let err = read_action_file_in_dir(&path, dir.path()).unwrap_err();
+        assert!(matches!(err, Error::Io(_)));
+        assert!(path.is_dir());
+    }
 
     // Helper: build a test path from a string literal as Vec<u16>
     fn path_u16(s: &str) -> Vec<u16> {

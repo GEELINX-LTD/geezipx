@@ -454,24 +454,83 @@ mod platform {
             if !status.success() {
                 return Err(format!("xdg-mime default failed for {mime}"));
             }
-        } else if let Some(prev) = state
+        } else {
+            restore_previous_default(state, mime, |prev| {
+                // Do not replace a default the user selected in another app
+                // after binding GeeZipX.
+                if xdg_mime(&["query", "default", mime])
+                    .is_some_and(|current| !current.eq_ignore_ascii_case(&desktop))
+                {
+                    return Ok(());
+                }
+                let status = Command::new("xdg-mime")
+                    .args(["default", prev, mime])
+                    .status()
+                    .map_err(|e| e.to_string())?;
+                if !status.success() {
+                    return Err(format!("xdg-mime restore failed for {mime}"));
+                }
+                Ok(())
+            })?;
+        }
+        Ok(())
+    }
+
+    /// Keep the previous handler until restoring it has succeeded, so a
+    /// failed xdg-mime call remains retryable rather than silently losing it.
+    fn restore_previous_default(
+        state: &AppState,
+        mime: &str,
+        restore: impl FnOnce(&str) -> Result<(), String>,
+    ) -> Result<(), String> {
+        let previous = state
             .assoc_backup
             .lock()
-            .ok()
-            .and_then(|mut b| b.remove(mime))
-        {
-            // Restore the previous default if we recorded one.
-            let _ = Command::new("xdg-mime")
-                .args(["default", &prev, mime])
-                .status();
+            .map_err(|e| format!("Internal error: {e}"))?
+            .get(mime)
+            .cloned();
+        if let Some(previous) = previous {
+            restore(&previous)?;
+            let mut backup = state
+                .assoc_backup
+                .lock()
+                .map_err(|e| format!("Internal error: {e}"))?;
+            if backup.get(mime) == Some(&previous) {
+                backup.remove(mime);
+            }
         }
         Ok(())
     }
 
     pub fn open_settings(_ext: Option<&str>) -> Result<(), String> {
-        // On Linux the toggle already sets the default; there is no single
-        // universal "Default Apps" GUI to open, so this is a no-op.
+        // Linux has no universal Default Apps settings panel.
         Ok(())
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn failed_restore_preserves_previous_handler_for_retry() {
+            let state = AppState::new();
+            let mime = "application/zip";
+            state
+                .assoc_backup
+                .lock()
+                .unwrap()
+                .insert(mime.into(), "previous.desktop".into());
+            assert!(
+                restore_previous_default(&state, mime, |_| Err("xdg-mime failed".into())).is_err()
+            );
+            assert_eq!(state.assoc_backup.lock().unwrap()[mime], "previous.desktop");
+            restore_previous_default(&state, mime, |previous| {
+                assert_eq!(previous, "previous.desktop");
+                Ok(())
+            })
+            .unwrap();
+            assert!(!state.assoc_backup.lock().unwrap().contains_key(mime));
+        }
     }
 }
 
@@ -564,17 +623,7 @@ mod platform {
                 ));
             }
         } else {
-            // There is no supported way to "unset" a default on modern macOS.
-            // Best-effort: assigning an empty bundle id is ignored by Launch
-            // Services, so the user manages this in System Settings. We treat
-            // unbind as a no-op that does not error.
-            let _ = unsafe {
-                LSSetDefaultRoleHandlerForContentType(
-                    uti_cf.as_concrete_TypeRef(),
-                    ROLE_VIEWER,
-                    CFString::new("").as_concrete_TypeRef(),
-                )
-            };
+            return Err("macOS cannot clear a default handler without a replacement. Choose another application in Finder's Get Info > Open with settings.".into());
         }
         Ok(())
     }
@@ -641,6 +690,25 @@ mod platform {
             is_default: None,
             is_registered: registered,
         })
+    }
+
+    /// Open existing keys with write access before deleting a value. `open()`
+    /// alone requests read access and makes RegDeleteValueW fail with access
+    /// denied even for registry entries owned by this user.
+    fn remove_registry_value(path: &str, name: &str) -> Result<(), String> {
+        match CURRENT_USER.options().read().write().open(path) {
+            Ok(key) => match key.remove_value(name) {
+                Ok(()) => Ok(()),
+                Err(e) if e.code().0 == HR_FILE_NOT_FOUND => Ok(()),
+                Err(e) => Err(format!(
+                    "failed to remove registry value {path}\\{name}: {e}"
+                )),
+            },
+            Err(e) if e.code().0 == HR_FILE_NOT_FOUND => Ok(()),
+            Err(e) => Err(format!(
+                "failed to open registry key {path} for writing: {e}"
+            )),
+        }
     }
 
     pub fn apply(
@@ -712,19 +780,13 @@ mod platform {
             // Remove the OpenWithProgids value for this extension.  A missing
             // value is a no-op; other errors are propagated.
             let ow_path = format!(r"Software\Classes\{ext}\OpenWithProgids");
-            match CURRENT_USER.open(&ow_path) {
-                Ok(key) => match key.remove_value(&pid) {
-                    Ok(()) => {}
-                    Err(e) if e.code().0 == HR_FILE_NOT_FOUND => {}
-                    Err(e) => {
-                        return Err(format!(
-                            "failed to remove OpenWithProgids value for {pid}: {e}"
-                        ))
-                    }
-                },
-                Err(e) if e.code().0 == HR_FILE_NOT_FOUND => {}
-                Err(e) => return Err(format!("failed to open {ow_path}: {e}")),
-            }
+            remove_registry_value(&ow_path, &pid)?;
+            // Keep the shared app registration, but stop advertising the
+            // extension whose ProgID is about to be removed.
+            remove_registry_value(
+                r"Software\Classes\Applications\geezipx.exe\Capabilities\FileAssociations",
+                ext,
+            )?;
 
             // Delete the ProgID key for this extension.  A missing key is a
             // no-op.
@@ -740,6 +802,38 @@ mod platform {
             // bound formats.
         }
         Ok(())
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn unregister_value_uses_write_access_and_preserves_other_values() {
+            let path = format!(
+                r"Software\GeeZipX\Tests\AssociationUnregister-{}-{}",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            );
+            let key = CURRENT_USER.create(&path).unwrap();
+            key.set_string("remove", "GeeZipX.zip").unwrap();
+            key.set_string("keep", "Other.zip").unwrap();
+            let result = remove_registry_value(&path, "remove");
+            let removed = key.get_string("remove").is_err();
+            let kept = key.get_string("keep").unwrap();
+            let missing_value = remove_registry_value(&path, "absent");
+            drop(key);
+            CURRENT_USER.remove_tree(&path).unwrap();
+            assert!(result.is_ok(), "{result:?}");
+            assert!(removed);
+            assert_eq!(kept, "Other.zip");
+            assert!(missing_value.is_ok());
+            assert!(remove_registry_value(&path, "remove").is_ok());
+            assert!(CURRENT_USER.open(&path).is_err());
+        }
     }
 
     pub fn open_settings(_ext: Option<&str>) -> Result<(), String> {

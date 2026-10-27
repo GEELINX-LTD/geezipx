@@ -18,6 +18,7 @@ function t(key: string, params?: Record<string, string | number>): string {
 
 export const localeStore = {
   get locale() {
+    void localeVersion;
     return getLocale();
   },
   switchLocale,

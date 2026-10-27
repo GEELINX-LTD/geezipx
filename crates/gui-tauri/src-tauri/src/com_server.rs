@@ -415,6 +415,14 @@ mod platform {
 
             debug_output(&format!("GeeZipX COM: resolved {} path(s)", paths.len()));
 
+            // Resolve the executable before creating the handoff file so a
+            // lookup failure cannot strand a selection containing user paths.
+            let exe_path = std::env::current_exe().map_err(|e| {
+                let msg = format!("current_exe() failed: {e}");
+                debug_output(&format!("GeeZipX COM: {msg}"));
+                windows::core::Error::new(E_FAIL, msg)
+            })?;
+
             // 2. Write action file
             let action_file_path = shell_action_file::write_action_file(self.action, &paths)
                 .map_err(|e| {
@@ -428,19 +436,10 @@ mod platform {
                 action_file_path.display()
             ));
 
-            // 3. Get the current executable path
-            let exe_path = std::env::current_exe().map_err(|e| {
-                let msg = format!("current_exe() failed: {e}");
-                debug_output(&format!("GeeZipX COM: {msg}"));
-                windows::core::Error::new(E_FAIL, msg)
-            })?;
-
-            // 4. Launch the normal GUI with --shell-action-file
-            let shell_value = action_file_path.to_string_lossy().to_string();
-
+            // Launch using OsStr arguments without lossy path conversion.
             let status = std::process::Command::new(&exe_path)
                 .arg("--shell-action-file")
-                .arg(&shell_value)
+                .arg(&action_file_path)
                 .spawn();
 
             match status {

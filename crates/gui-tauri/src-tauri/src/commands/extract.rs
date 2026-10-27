@@ -114,15 +114,8 @@ pub async fn extract_archive(
     let out_dir = PathBuf::from(&output_dir);
     let pwd = password;
 
-    let cancel_token = {
-        let mut tokens = state
-            .cancel_tokens
-            .lock()
-            .map_err(|e| format!("Internal error: {e}"))?;
-        let token = Arc::new(AtomicBool::new(false));
-        tokens.insert(tid.clone(), token.clone());
-        token
-    };
+    let registration = state.register_task(&tid)?;
+    let cancel_token = registration.token.clone();
 
     let emitter = TaskProgressEmitter::new(app, tid.clone(), TaskKind::Extract);
     emitter.emit_started("Reading archive entries...");
@@ -131,6 +124,7 @@ pub async fn extract_archive(
         let emitter = emitter.clone();
         let cancel_token = cancel_token.clone();
         spawn_blocking(move || {
+            let _registration = registration;
             let task_result = (|| -> Result<ExtractArchiveResult, ExtractTaskError> {
                 let format = detect_archive_format(&path_buf)?;
                 match format {
@@ -187,13 +181,6 @@ pub async fn extract_archive(
         .await
     };
 
-    let mut tokens = state
-        .cancel_tokens
-        .lock()
-        .map_err(|e| format!("Internal error: {e}"))?;
-    tokens.remove(&tid);
-    drop(tokens);
-
     result.map_err(|e| format!("Internal error: {e}"))?
 }
 
@@ -216,11 +203,10 @@ pub(crate) fn extract_entries_with_progress(
     let total_bytes = entries
         .iter()
         .filter(|entry| !entry.is_dir)
-        .map(|entry| entry.size)
-        .sum::<u64>();
+        .try_fold(0u64, |total, entry| total.checked_add(entry.size));
     let total_entries = entries.len() as u64;
 
-    emitter.set_totals(Some(total_bytes), Some(total_entries));
+    emitter.set_totals(total_bytes, Some(total_entries));
     emitter.emit_progress(TaskStage::Extracting, None, 0, None, 0, true);
 
     let mut report = ExtractReport::default();

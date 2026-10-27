@@ -7,7 +7,7 @@
 //! ## Temp directory layout
 //!
 //! ```text
-//! <platform temp>/geezipx-dragout/<archive-name>/<entry files/dirs...>
+//! <platform temp>/geezipx-dragout-<archive-name>-<random>/<entry files/dirs...>
 //! ```
 //!
 //! ## Cleanup strategy
@@ -26,7 +26,7 @@ use crate::commands::list::{detect_archive_format, open_reader};
 use geezipx_core::archive::{check_entry_path_safety, extraction::ExtractionDir};
 
 /// Top‑level directory name for drag‑out temp files.
-const DRAG_TEMP_ROOT: &str = "geezipx-dragout";
+const DRAG_TEMP_ROOT: &str = "geezipx-dragout-";
 
 /// Maximum age for a drag‑out temp directory before it is considered stale
 /// and eligible for cleanup.
@@ -54,15 +54,10 @@ pub async fn prepare_drag_entries(
     let path_buf = PathBuf::from(&archive_path);
     let pwd = password;
 
-    let dir_name = derive_drag_directory_name(&path_buf);
-    let temp_root = temp_dir_root();
-    let dest = temp_root.join(&dir_name);
-
-    // Clone dest before the move closure so we can clean up on errors.
-    let dest_for_cleanup = dest.clone();
-
-    // --- Run extraction on the blocking pool ---
-    let result = tokio::task::spawn_blocking(move || -> Result<String, String> {
+    // TempDir owns partial output until extraction succeeds, including when
+    // the blocking task panics. Each operation gets an atomically created,
+    // private directory rather than replacing another drag's staged files.
+    tokio::task::spawn_blocking(move || -> Result<String, String> {
         let format = detect_archive_format(&path_buf)?;
         let mut reader = open_reader(&path_buf, format, pwd.as_deref())?;
         let all_entries = reader
@@ -77,16 +72,30 @@ pub async fn prepare_drag_entries(
             .filter(|entry| entry_matches_selection(&entry.path, &requested))
             .collect();
 
+        if selected_entries.is_empty() {
+            return Err("No matching entries found in archive for the requested path(s)".into());
+        }
+
+        // Leave byte-length headroom for the namespace and random suffix on
+        // filesystems whose component limit is 255 bytes (Unicode uses more
+        // than one byte per character).
+        let mut dir_name = derive_drag_directory_name(&path_buf);
+        let mut end = dir_name.len().min(180);
+        while !dir_name.is_char_boundary(end) {
+            end -= 1;
+        }
+        dir_name.truncate(end);
+        let temp = tempfile::Builder::new()
+            .prefix(&format!("{DRAG_TEMP_ROOT}{dir_name}-"))
+            .tempdir_in(temp_dir_root())
+            .map_err(|e| format!("Cannot create drag temp directory: {e}"))?;
+        let dest = temp.path();
+
         for entry in &selected_entries {
-            validate_drag_entry_path(&dest, &entry.path)?;
+            validate_drag_entry_path(dest, &entry.path)?;
         }
 
-        if dest.exists() {
-            fs::remove_dir_all(&dest)
-                .map_err(|e| format!("Cannot replace temp directory '{}': {e}", dest.display()))?;
-        }
-
-        let output = ExtractionDir::new(&dest).map_err(|e| e.to_string())?;
+        let output = ExtractionDir::new(dest).map_err(|e| e.to_string())?;
         for entry in selected_entries {
             if entry.is_dir {
                 output.create_dir(&entry.path).map_err(|e| e.to_string())?;
@@ -97,32 +106,23 @@ pub async fn prepare_drag_entries(
             }
         }
 
-        Ok(dest.to_string_lossy().to_string())
+        // Close extraction handles before relinquishing automatic cleanup.
+        drop(output);
+        Ok(temp.keep().to_string_lossy().to_string())
     })
-    .await;
-
-    match result {
-        Ok(Ok(path)) => Ok(path),
-        Ok(Err(e)) => {
-            // Clean up partial extraction on error.
-            let _ = fs::remove_dir_all(&dest_for_cleanup);
-            Err(e)
-        }
-        Err(e) => {
-            let _ = fs::remove_dir_all(&dest_for_cleanup);
-            Err(format!("Internal error: {e}"))
-        }
-    }
+    .await
+    .map_err(|e| format!("Internal error: {e}"))?
 }
 
-/// Remove a drag‑out temp directory identified by its directory name.
+/// Remove a drag-out temp directory by its returned absolute path or basename.
 #[tauri::command]
 pub async fn cleanup_drag_temp_dir(temp_id: String) -> Result<(), String> {
-    let dest = temp_dir_root().join(&temp_id);
-    if dest.exists() {
-        fs::remove_dir_all(&dest).map_err(|e| format!("Cleanup failed: {e}"))?;
+    let dest = validated_drag_temp_path(&temp_dir_root(), &temp_id)?;
+    match fs::remove_dir_all(&dest) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(format!("Cleanup failed: {e}")),
     }
-    Ok(())
 }
 
 /// Scan the drag‑out temp root and remove directories older than the staleness
@@ -142,18 +142,24 @@ pub async fn cleanup_stale_drag_temp_dirs() -> Result<u32, String> {
     for entry in entries {
         let entry = entry.map_err(|e| format!("Read dir error: {e}"))?;
         let path = entry.path();
-        if !path.is_dir() {
+        let Ok(path) = validated_drag_temp_path(&root, &path.to_string_lossy()) else {
+            continue;
+        };
+        let Ok(metadata) = fs::symlink_metadata(&path) else {
+            continue;
+        };
+        if !metadata.is_dir() || metadata.file_type().is_symlink() {
             continue;
         }
 
-        // Check staleness by modification time.
-        let modified = path
-            .metadata()
-            .and_then(|m| m.modified())
-            .unwrap_or(std::time::UNIX_EPOCH);
+        // Unknown timestamps are not evidence of staleness.
+        let Ok(modified) = metadata.modified() else {
+            continue;
+        };
 
-        if now.duration_since(modified).unwrap_or(Duration::ZERO) > STALE_AGE {
-            let _ = fs::remove_dir_all(&path);
+        if now.duration_since(modified).unwrap_or(Duration::ZERO) > STALE_AGE
+            && fs::remove_dir_all(&path).is_ok()
+        {
             cleaned += 1;
         }
     }
@@ -167,7 +173,54 @@ pub async fn cleanup_stale_drag_temp_dirs() -> Result<u32, String> {
 
 /// Return the platform‑appropriate temp directory root for drag‑out staging.
 fn temp_dir_root() -> PathBuf {
-    std::env::temp_dir().join(DRAG_TEMP_ROOT)
+    std::env::temp_dir()
+}
+
+/// Accept only a direct child in our staging namespace. The frontend passes
+/// the full returned path; basename callers are also supported. Never join an
+/// unchecked IPC argument to the temp root, since absolute paths replace it.
+fn validated_drag_temp_path(root: &Path, temp_id: &str) -> Result<PathBuf, String> {
+    use std::path::Component;
+
+    let supplied = Path::new(temp_id);
+    if supplied
+        .components()
+        .any(|part| matches!(part, Component::ParentDir | Component::CurDir))
+    {
+        return Err("Invalid drag temp directory".into());
+    }
+    let name = supplied
+        .file_name()
+        .and_then(|name| name.to_str())
+        .filter(|name| name.starts_with(DRAG_TEMP_ROOT) && name.len() > DRAG_TEMP_ROOT.len())
+        .ok_or_else(|| "Invalid drag temp directory".to_string())?;
+    let dest = if supplied.is_absolute() {
+        supplied.to_path_buf()
+    } else if supplied.components().count() == 1 {
+        root.join(name)
+    } else {
+        return Err("Invalid drag temp directory".into());
+    };
+    let canonical_root = fs::canonicalize(root).map_err(|e| e.to_string())?;
+    let parent = dest.parent().ok_or("Invalid drag temp directory")?;
+    if fs::canonicalize(parent).map_err(|e| e.to_string())? != canonical_root {
+        return Err("Drag temp directory is outside staging root".into());
+    }
+    match fs::symlink_metadata(&dest) {
+        Ok(meta) if meta.file_type().is_symlink() || !meta.is_dir() => {
+            return Err("Drag temp path is not a staging directory".into());
+        }
+        Ok(_) => {
+            if fs::canonicalize(&dest).map_err(|e| e.to_string())?.parent()
+                != Some(canonical_root.as_path())
+            {
+                return Err("Drag temp directory resolves outside staging root".into());
+            }
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => return Err(e.to_string()),
+    }
+    Ok(dest)
 }
 
 /// Derive a drag‑out directory name from the archive path.
@@ -436,7 +489,90 @@ mod tests {
     fn temp_dir_root_is_absolute() {
         let root = temp_dir_root();
         assert!(root.is_absolute());
-        assert!(root.ends_with(DRAG_TEMP_ROOT));
+        assert_eq!(root, std::env::temp_dir());
+    }
+
+    #[test]
+    fn cleanup_path_rejects_traversal_and_unrelated_absolute_directories() {
+        let root = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let named_outside = outside.path().join("geezipx-dragout-outside");
+        fs::create_dir(&named_outside).unwrap();
+        for id in [
+            "",
+            ".",
+            "..",
+            "../geezipx-dragout-outside",
+            "geezipx-dragout-okay/../../outside",
+            "nested/geezipx-dragout-okay",
+            "unrelated",
+            &named_outside.to_string_lossy(),
+        ] {
+            assert!(validated_drag_temp_path(root.path(), id).is_err(), "{id}");
+        }
+        assert!(named_outside.is_dir());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn cleanup_path_rejects_symlinked_staging_directory() {
+        let root = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let link = root.path().join("geezipx-dragout-link");
+        std::os::unix::fs::symlink(outside.path(), &link).unwrap();
+        assert!(validated_drag_temp_path(root.path(), &link.to_string_lossy()).is_err());
+        assert!(outside.path().is_dir());
+    }
+
+    #[tokio::test]
+    async fn independent_drags_preserve_staged_files_and_cleanup_accepts_returned_paths() {
+        let root = tempfile::tempdir().unwrap();
+        let archive = root.path().join(format!("{}.tar", "测".repeat(75)));
+        write_tar_archive(&archive, "file.txt", b"first");
+        let first = prepare_drag_entries(
+            archive.to_string_lossy().into_owned(),
+            vec!["file.txt".into()],
+            None,
+        )
+        .await
+        .unwrap();
+        write_tar_archive(&archive, "file.txt", b"second");
+        let second = prepare_drag_entries(
+            archive.to_string_lossy().into_owned(),
+            vec!["file.txt".into()],
+            None,
+        )
+        .await
+        .unwrap();
+        assert_ne!(first, second);
+        assert_eq!(
+            fs::read(Path::new(&first).join("file.txt")).unwrap(),
+            b"first"
+        );
+        assert_eq!(
+            fs::read(Path::new(&second).join("file.txt")).unwrap(),
+            b"second"
+        );
+        cleanup_drag_temp_dir(first.clone()).await.unwrap();
+        cleanup_drag_temp_dir(first.clone()).await.unwrap();
+        assert!(!Path::new(&first).exists());
+        assert!(Path::new(&second).is_dir());
+        let basename = Path::new(&second).file_name().unwrap().to_str().unwrap();
+        cleanup_drag_temp_dir(basename.to_string()).await.unwrap();
+        assert!(!Path::new(&second).exists());
+    }
+
+    #[tokio::test]
+    async fn cleanup_rejects_unrelated_directory_without_deleting_contents() {
+        let root = tempfile::tempdir().unwrap();
+        let file = root.path().join("keep.txt");
+        fs::write(&file, b"keep").unwrap();
+        assert!(
+            cleanup_drag_temp_dir(root.path().to_string_lossy().into_owned())
+                .await
+                .is_err()
+        );
+        assert_eq!(fs::read(file).unwrap(), b"keep");
     }
 
     fn unique_test_dir(prefix: &str) -> PathBuf {
@@ -497,10 +633,7 @@ mod tests {
         let archive_path = root.join("unsafe.tar");
         write_tar_archive(&archive_path, "../escape.txt", b"owned");
 
-        let drag_dir = temp_dir_root().join(derive_drag_directory_name(&archive_path));
-        let escaped_path = temp_dir_root().join("escape.txt");
-        let _ = fs::remove_dir_all(&drag_dir);
-        let _ = fs::remove_file(&escaped_path);
+        let escaped_path = root.join("escape.txt");
 
         let err = prepare_drag_entries(
             archive_path.to_string_lossy().to_string(),
@@ -512,7 +645,6 @@ mod tests {
 
         assert!(err.contains("unsafe entry path"));
         assert!(err.contains("../escape.txt"));
-        assert!(!drag_dir.exists());
         assert!(!escaped_path.exists());
 
         let _ = fs::remove_dir_all(&root);

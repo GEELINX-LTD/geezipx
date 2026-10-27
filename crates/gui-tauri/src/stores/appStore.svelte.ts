@@ -1,6 +1,7 @@
 // Global application state store using Svelte 5 module-level $state runes.
 
 import { archiveManager } from './archiveStore.svelte';
+import { SvelteSet } from 'svelte/reactivity';
 
 const STORAGE_KEY = 'geezipx-recent';
 const MAX_RECENT = 20;
@@ -94,14 +95,16 @@ function loadRecent(): void {
     if (stored) {
       const parsed = JSON.parse(stored);
       if (Array.isArray(parsed)) {
+        const seen = new SvelteSet<string>();
         recentFiles = parsed.filter(
-          (f: unknown): f is { path: string; name: string; timestamp: number } =>
-            typeof f === 'object' &&
-            f !== null &&
-            'path' in f &&
-            'name' in f &&
-            'timestamp' in f
-        );
+          (f: unknown): f is { path: string; name: string; timestamp: number } => {
+            if (typeof f !== 'object' || f === null || !('path' in f) || !('name' in f) || !('timestamp' in f)) return false;
+            if (typeof f.path !== 'string' || !f.path.trim() || typeof f.name !== 'string' ||
+                typeof f.timestamp !== 'number' || !Number.isFinite(f.timestamp) || seen.has(f.path)) return false;
+            seen.add(f.path);
+            return true;
+          }
+        ).slice(0, MAX_RECENT);
       }
     }
   } catch {

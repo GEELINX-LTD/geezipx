@@ -4,16 +4,8 @@
   import { archiveManager } from '../../stores/archiveStore.svelte';
   import { localeStore } from '../../stores/localeStore.svelte';
 
-  const ARCHIVE_EXTS = ['.zip','.zipx','.jar','.war','.apk','.ipa','.xpi','.tar','.gz','.gzip',
-    '.tgz','.bz2','.tbz','.tbz2','.br','.lz4','.xz','.txz','.zst','.tzst','.lzma','.7z',
-    '.rar','.cab','.asar','.deb','.lzh','.lha','.iso','.cpio','.zpaq','.wim','.isz',
-    '.tar.gz','.tar.bz2','.tar.br','.tar.lz4','.tar.xz','.tar.zst',
-    '.uu','.uue','.xxe','.z','.arj','.ace','.arc','.alz','.udf','.img','.bin','.aes'];
-
-  function isArchivePath(p: string): boolean {
-    const lower = p.toLowerCase();
-    return ARCHIVE_EXTS.some(ext => lower.endsWith(ext));
-  }
+  import { isArchivePath } from '../../archiveFormats';
+  import { toastStore } from '../../stores/toastStore.svelte';
 
   let dialogOpen = false;
 
@@ -22,12 +14,12 @@
     dialogOpen = true;
     try {
       const result = await open({ multiple: true });
-    if (!result) return;
-    const paths = Array.isArray(result) ? result : [result];
-    if (paths.length === 0) return;
+      if (!result) return;
+      const paths = Array.isArray(result) ? result : [result];
+      if (paths.length === 0) return;
 
-    const archives = paths.filter(isArchivePath);
-    const files = paths.filter(p => !isArchivePath(p));
+      const archives = paths.filter(isArchivePath);
+      const files = paths.filter(p => !isArchivePath(p));
 
       if (archives.length === 1 && files.length === 0) {
         appStore.addRecent(archives[0]);
@@ -38,6 +30,8 @@
         appStore.setPendingSourcePaths(paths);
         appStore.switchTab('compress');
       }
+    } catch (error) {
+      toastStore.show(localeStore.t('common.errorDetail', { message: String(error) }), 'error');
     } finally {
       dialogOpen = false;
     }

@@ -42,9 +42,15 @@
   let saving = $state(false);
   let levelInput = $state('');
   let version = $state('');
+  let versionFailed = $state(false);
+  let formatsFailed = $state(false);
+  let loadError = $state<string | null>(null);
 
   /** True when the current form differs from the last loaded/saved snapshot. */
-  let dirty = $derived(JSON.stringify(formData) !== JSON.stringify(original));
+  let dirty = $derived(
+    JSON.stringify(formData) !== JSON.stringify(original) ||
+    levelInput !== (original.default_level != null ? String(original.default_level) : '')
+  );
 
   // Keep the shared guard in sync so TabBar can prompt before navigating away.
   $effect(() => {
@@ -52,12 +58,28 @@
   });
 
   onMount(() => {
+    let disposed = false;
+    const reportFailure = (context: string, error: unknown) => {
+      console.error(context, error);
+      if (!disposed) toastStore.show(localeStore.t('common.errorDetail', { message: String(error) }), 'error');
+    };
     Promise.all([
       settingsStore.loadAll(),
-      getFormats(),
-      getFileAssociations().catch(() => null),
-      getShellMenuState().catch(() => null),
+      getFormats().catch((error) => {
+        if (!disposed) formatsFailed = true;
+        reportFailure('Format capabilities lookup failed', error);
+        return [];
+      }),
+      getFileAssociations().catch((error) => {
+        reportFailure('File associations lookup failed', error);
+        return null;
+      }),
+      getShellMenuState().catch((error) => {
+        reportFailure('Shell menu state lookup failed', error);
+        return null;
+      }),
     ]).then(([d, f, a, shellState]) => {
+      if (disposed) return;
       formData = { ...d, shell_menu_verbs: [...d.shell_menu_verbs] };
       levelInput = d.default_level != null ? String(d.default_level) : '';
       original = { ...d, shell_menu_verbs: [...d.shell_menu_verbs] };
@@ -72,9 +94,18 @@
           console.error('Startup shell menu sync failed', e);
         });
       }
+    }).catch((error) => {
+      reportFailure('Settings initialization failed', error);
+      if (!disposed) loadError = String(error);
     });
 
-    getVersion().then(v => version = v);
+    getVersion().then((value) => {
+      if (!disposed) version = value;
+    }).catch((error) => {
+      console.error('Version lookup failed', error);
+      if (!disposed) versionFailed = true;
+    });
+    return () => { disposed = true; };
   });
 
   async function browseOutput() {
@@ -151,6 +182,7 @@
     if (saving) return;
 
     // --- Validation / normalization ---
+    onLevelBlur();
     const next = cloneSettings(formData);
 
     // Clamp compression level to the engine's accepted range.
@@ -162,7 +194,7 @@
     }
 
     // Fall back to a valid format if the stored one was removed.
-    if (!formats.some((f) => f.can_compress && f.name === next.default_format)) {
+    if (formats.length > 0 && !formats.some((f) => f.can_compress && f.name === next.default_format)) {
       next.default_format = 'zip';
     }
 
@@ -234,6 +266,7 @@
 
   function handleCancel() {
     formData = { ...original, shell_menu_verbs: [...original.shell_menu_verbs] };
+    levelInput = original.default_level != null ? String(original.default_level) : '';
     settingsGuard.dirty = false;
   }
 
@@ -242,6 +275,7 @@
       ...settingsStore.DEFAULTS,
       shell_menu_verbs: [...settingsStore.DEFAULTS.shell_menu_verbs],
     };
+    levelInput = formData.default_level != null ? String(formData.default_level) : '';
   }
 
   async function toggleAssociation(item: AssocItem, enabled: boolean) {
@@ -268,7 +302,9 @@
 <div class="page">
   <h1>{localeStore.t('settings.title')}</h1>
 
-  {#if !loaded}
+  {#if loadError}
+    <p role="alert">{localeStore.t('common.errorDetail', { message: loadError })}</p>
+  {:else if !loaded}
     <p class="loading">{localeStore.t('common.loading')}</p>
   {:else}
     <!-- Tabs -->
@@ -394,9 +430,13 @@
           <label class="field-label" for="setting-format">{localeStore.t('settings.defaultFormat.label')}</label>
           <select
             id="setting-format"
+            disabled={formatsFailed}
             value={formData.default_format}
             onchange={(e) => (formData = { ...formData, default_format: e.currentTarget.value })}
           >
+            {#if formatsFailed}
+              <option value={formData.default_format}>{formData.default_format.toUpperCase()}</option>
+            {/if}
             {#each formats.filter(f => f.can_compress) as fmt (fmt.name)}
               <option value={fmt.name}>{fmt.name.toUpperCase()}</option>
             {/each}
@@ -512,7 +552,7 @@
 
         <section class="file-associations-section">
         {#if !associations}
-          <p class="loading">{localeStore.t('common.loading')}</p>
+          <p>{localeStore.t('common.unavailable')}</p>
         {:else}
           <p class="field-help">{localeStore.t('settings.fileAssociations.help')}</p>
 
@@ -572,7 +612,7 @@
         <div class="about-card">
           <h2 class="about-title">GeeZipX</h2>
           <p class="about-version">
-            {localeStore.t('settings.about.version')}: {version || localeStore.t('common.loading')}
+            {localeStore.t('settings.about.version')}: {version || localeStore.t(versionFailed ? 'common.unavailable' : 'common.loading')}
           </p>
           <p class="about-desc">{localeStore.t('settings.about.description')}</p>
           <p class="about-stack">{localeStore.t('settings.about.stack')}</p>
@@ -596,7 +636,7 @@
       {#if saved}
         <span class="saved-msg">{localeStore.t('settings.saved')}</span>
       {/if}
-      <button class="btn-tertiary" onclick={handleReset} disabled={!dirty || saving}>{localeStore.t('settings.reset')}</button>
+      <button class="btn-tertiary" onclick={handleReset} disabled={saving}>{localeStore.t('settings.reset')}</button>
       <button class="btn-secondary" onclick={handleCancel} disabled={!dirty || saving}>{localeStore.t('settings.cancel')}</button>
       <button class="btn-primary" onclick={handleSave} disabled={!dirty || saving}>{localeStore.t('settings.save')}</button>
     </div>

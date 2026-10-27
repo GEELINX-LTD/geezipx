@@ -14,7 +14,7 @@ pub struct AppState {
     /// Each task stores an `Arc<AtomicBool>`; when `cancel_task` sets it to
     /// `true`, the running `spawn_blocking` closure checks this flag and
     /// returns early.
-    pub cancel_tokens: Mutex<HashMap<TaskId, Arc<AtomicBool>>>,
+    pub cancel_tokens: Arc<Mutex<HashMap<TaskId, Arc<AtomicBool>>>>,
     /// Archive file paths received via file association / open-with.
     /// The frontend pulls these on startup via `get_opened_archives`.
     pub pending_archives: Mutex<Vec<String>>,
@@ -33,13 +33,100 @@ impl Default for AppState {
 }
 
 impl AppState {
+    /// Reserve an ID until the blocking worker actually terminates.
+    pub fn register_task(&self, id: &str) -> Result<TaskRegistration, String> {
+        if id.trim().is_empty() {
+            return Err("Task ID cannot be empty".into());
+        }
+        let mut tokens = self
+            .cancel_tokens
+            .lock()
+            .map_err(|e| format!("Internal error: {e}"))?;
+        if tokens.contains_key(id) {
+            return Err(format!("Task '{id}' is already running"));
+        }
+        let token = Arc::new(AtomicBool::new(false));
+        tokens.insert(id.to_owned(), token.clone());
+        Ok(TaskRegistration {
+            registry: self.cancel_tokens.clone(),
+            id: id.to_owned(),
+            token,
+        })
+    }
+
     /// Create a new empty application state.
     pub fn new() -> Self {
         Self {
-            cancel_tokens: Mutex::new(HashMap::new()),
+            cancel_tokens: Arc::new(Mutex::new(HashMap::new())),
             pending_archives: Mutex::new(Vec::new()),
             assoc_backup: Mutex::new(HashMap::new()),
             pending_shell_action: Mutex::new(None),
         }
+    }
+}
+
+/// Owned by the blocking worker so panic or an abandoned IPC future cannot leak
+/// registrations or free an ID while its old worker is still writing output.
+pub struct TaskRegistration {
+    registry: Arc<Mutex<HashMap<TaskId, Arc<AtomicBool>>>>,
+    id: TaskId,
+    pub token: Arc<AtomicBool>,
+}
+
+impl Drop for TaskRegistration {
+    fn drop(&mut self) {
+        let mut tokens = self
+            .registry
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        if tokens
+            .get(&self.id)
+            .is_some_and(|token| Arc::ptr_eq(token, &self.token))
+        {
+            tokens.remove(&self.id);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::Ordering;
+
+    #[test]
+    fn duplicate_ids_do_not_replace_cancel_targets() {
+        let state = AppState::new();
+        let first = state.register_task("task-a").unwrap();
+        let second = state.register_task("task-b").unwrap();
+        assert!(state.register_task("task-a").is_err());
+        assert!(state.register_task(" ").is_err());
+        state
+            .cancel_tokens
+            .lock()
+            .unwrap()
+            .get("task-a")
+            .unwrap()
+            .store(true, Ordering::SeqCst);
+        assert!(first.token.load(Ordering::SeqCst));
+        assert!(!second.token.load(Ordering::SeqCst));
+        // Cancellation cannot release the ID before the worker finishes.
+        assert!(state.register_task("task-a").is_err());
+        drop(first);
+        assert!(state.register_task("task-a").is_ok());
+        drop(second);
+        assert!(state.cancel_tokens.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn worker_unwind_cleans_up_its_own_registration() {
+        let state = AppState::new();
+        let registration = state.register_task("panic").unwrap();
+        assert!(std::thread::spawn(move || {
+            let _registration = registration;
+            panic!("worker failed");
+        })
+        .join()
+        .is_err());
+        assert!(state.cancel_tokens.lock().unwrap().is_empty());
     }
 }

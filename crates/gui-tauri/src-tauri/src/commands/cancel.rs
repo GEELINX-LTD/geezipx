@@ -15,12 +15,12 @@ use crate::state::AppState;
 /// have already completed or never existed).
 #[tauri::command]
 pub fn cancel_task(task_id: String, state: State<'_, AppState>) -> Result<(), String> {
-    let mut tokens = state
+    let tokens = state
         .cancel_tokens
         .lock()
         .map_err(|e| format!("Internal error: {}", e))?;
 
-    match tokens.remove(&task_id) {
+    match tokens.get(&task_id) {
         Some(token) => {
             token.store(true, Ordering::SeqCst);
             Ok(())

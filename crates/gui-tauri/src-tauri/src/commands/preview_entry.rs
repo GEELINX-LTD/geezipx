@@ -3,7 +3,11 @@
 //! Returns the entry metadata and up to 512 KB of content (for files) or
 //! directory metadata (for directories).
 
+use std::io::{self, Write};
 use std::path::PathBuf;
+
+use geezipx_core::archive::{ArchiveReader, Entry};
+use geezipx_core::GeeZipResult;
 
 use serde::Serialize;
 use tokio::task::spawn_blocking;
@@ -93,14 +97,20 @@ pub async fn preview_entry(
             });
         }
 
-        // Read entry content.
-        let mut buf: Vec<u8> = Vec::with_capacity(PREVIEW_LIMIT.min(total_size as usize));
-        let truncated = total_size > PREVIEW_LIMIT as u64;
-
-        match reader.extract(entry, &mut buf) {
-            Ok(bytes_read) => {
-                let preview_len = bytes_read.min(PREVIEW_LIMIT as u64) as usize;
-                let preview_bytes = &buf[..preview_len];
+        match read_preview(&mut *reader, entry) {
+            Ok((preview_bytes, truncated)) => {
+                // A preview can end inside a UTF-8 code point. Only omit an
+                // incomplete tail; invalid bytes elsewhere still mean binary.
+                let preview_bytes = if truncated {
+                    match std::str::from_utf8(&preview_bytes) {
+                        Err(error) if error.error_len().is_none() => {
+                            &preview_bytes[..error.valid_up_to()]
+                        }
+                        _ => &preview_bytes[..],
+                    }
+                } else {
+                    &preview_bytes[..]
+                };
 
                 // Try to detect if the content is text or binary.
                 let (kind, content) = if is_text_content(preview_bytes) {
@@ -134,6 +144,46 @@ pub async fn preview_entry(
     })
     .await
     .map_err(|e| format!("Internal error: {e}"))?
+}
+
+/// Stop decompression once the preview buffer is full. Returning an I/O error
+/// is necessary because ArchiveReader streams to Write rather than Read.
+struct PreviewWriter {
+    bytes: Vec<u8>,
+    truncated: bool,
+}
+
+impl Write for PreviewWriter {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        if bytes.is_empty() {
+            return Ok(0);
+        }
+        let remaining = PREVIEW_LIMIT - self.bytes.len();
+        if remaining == 0 {
+            self.truncated = true;
+            return Err(io::Error::other("preview limit reached"));
+        }
+        let count = remaining.min(bytes.len());
+        self.bytes.extend_from_slice(&bytes[..count]);
+        Ok(count)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+fn read_preview(reader: &mut dyn ArchiveReader, entry: &Entry) -> GeeZipResult<(Vec<u8>, bool)> {
+    let mut writer = PreviewWriter {
+        bytes: Vec::with_capacity(entry.size.min(PREVIEW_LIMIT as u64) as usize),
+        truncated: false,
+    };
+    if let Err(error) = reader.extract(entry, &mut writer) {
+        if !writer.truncated {
+            return Err(error);
+        }
+    }
+    Ok((writer.bytes, writer.truncated))
 }
 
 /// Heuristic: check if bytes are likely UTF-8 text.
@@ -199,4 +249,84 @@ fn hex_dump(bytes: &[u8]) -> String {
         out.push_str("|\n");
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use geezipx_core::detect::ArchiveFormat;
+    use geezipx_core::GeeZipError;
+    use std::io::Read;
+
+    struct TestReader {
+        size: u64,
+        fail: bool,
+        consumed: u64,
+    }
+
+    impl ArchiveReader for TestReader {
+        fn format(&self) -> ArchiveFormat {
+            ArchiveFormat::Zip
+        }
+        fn entries(&mut self) -> GeeZipResult<Vec<Entry>> {
+            Ok(Vec::new())
+        }
+        fn extract(&mut self, _entry: &Entry, writer: &mut dyn Write) -> GeeZipResult<u64> {
+            let mut input = io::repeat(b'x').take(self.size);
+            let result = io::copy(&mut input, writer);
+            self.consumed = self.size - input.limit();
+            let bytes = result.map_err(|error| GeeZipError::io(error, "previewing"))?;
+            if self.fail {
+                return Err(GeeZipError::format("corrupt payload", ArchiveFormat::Zip));
+            }
+            Ok(bytes)
+        }
+    }
+
+    fn entry(size: u64) -> Entry {
+        Entry {
+            path: "large.txt".into(),
+            size,
+            compressed_size: 0,
+            crc32: None,
+            modified: None,
+            is_dir: false,
+        }
+    }
+
+    #[test]
+    fn preview_stops_after_limit_even_when_metadata_understates_size() {
+        let mut reader = TestReader {
+            size: 64 * 1024 * 1024,
+            fail: false,
+            consumed: 0,
+        };
+        let (bytes, truncated) = read_preview(&mut reader, &entry(1)).unwrap();
+        assert_eq!(bytes.len(), PREVIEW_LIMIT);
+        assert!(truncated);
+        assert!(
+            reader.consumed < 1024 * 1024,
+            "must stop decoding rather than discard the rest"
+        );
+    }
+
+    #[test]
+    fn preview_accepts_exact_limit_and_propagates_real_errors() {
+        for size in [0, 10, PREVIEW_LIMIT as u64] {
+            let mut reader = TestReader {
+                size,
+                fail: false,
+                consumed: 0,
+            };
+            let (bytes, truncated) = read_preview(&mut reader, &entry(size)).unwrap();
+            assert_eq!(bytes.len() as u64, size);
+            assert!(!truncated);
+        }
+        let mut reader = TestReader {
+            size: 10,
+            fail: true,
+            consumed: 0,
+        };
+        assert!(read_preview(&mut reader, &entry(10)).is_err());
+    }
 }

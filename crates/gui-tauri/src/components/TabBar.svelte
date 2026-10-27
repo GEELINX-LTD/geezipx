@@ -26,9 +26,7 @@
   }
 
   function isTaskRunning(): boolean {
-    const task = taskStore.activeTask;
-    if (!task) return false;
-    return task.status === 'pending' || task.status === 'running';
+    return taskStore.hasRunning();
   }
 
   async function maybeCloseTab(tabId: string): Promise<void> {
@@ -47,18 +45,14 @@
     const nextId = archiveManager.closeTab(tabId);
     appStore.removeArchiveTab(tabId);
 
-    if (nextId) {
-      appStore.switchTab(nextId);
-    } else {
-      // No more archive tabs; if we were on this tab, go to extract empty page
-      if (appStore.activeTab === tabId) {
-        appStore.switchTab('extract');
-      }
+    // Closing a background archive must not navigate away from the visible page.
+    if (appStore.activeTab === tabId) {
+      appStore.switchTab(nextId ?? 'extract');
     }
   }
 
   function activateArchiveTab(tabId: string): void {
-    appStore.switchTab(tabId);
+    void navTo(tabId);
   }
 
   /** Handle middle-click close on an archive tab. */
@@ -100,7 +94,7 @@
         class:active={appStore.activeTab === tab.id}
         onclick={() => activateArchiveTab(tab.id)}
         onauxclick={(e) => handleAuxClick(e, tab.id)}
-        onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); activateArchiveTab(tab.id); } }}
+        onkeydown={(e) => { if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); activateArchiveTab(tab.id); } }}
         title={tab.tooltip}
       >
         <span class="archive-label">{tab.label}</span>

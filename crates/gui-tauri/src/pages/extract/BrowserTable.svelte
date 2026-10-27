@@ -74,12 +74,15 @@
     if (!archiveStore.archivePath) return;
     const paths = [...archiveStore.selectedPaths];
     if (paths.length === 0) return;
+    let tempDir: string | undefined;
     try {
-      const tempDir = await prepareDragEntries(archiveStore.archivePath, paths, archiveStore.archivePassword || undefined);
+      tempDir = await prepareDragEntries(archiveStore.archivePath, paths, archiveStore.archivePassword || undefined);
       const filePaths = paths.map(p => `${tempDir}/${p}`);
       await startDrag({ item: filePaths, icon: '' });
-      cleanupDragTempDir(tempDir).catch(() => {});
     } catch { /* silent */ }
+    finally {
+      if (tempDir) await cleanupDragTempDir(tempDir).catch(() => {});
+    }
   }
 
   function childPath(c: { name: string; isDir: boolean; entry: { path: string } }): string {

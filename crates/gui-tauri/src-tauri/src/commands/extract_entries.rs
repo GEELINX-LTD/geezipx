@@ -58,15 +58,8 @@ pub async fn extract_entries(
     let out_dir = PathBuf::from(&output_dir);
     let pwd = password;
 
-    let cancel_token = {
-        let mut tokens = state
-            .cancel_tokens
-            .lock()
-            .map_err(|e| format!("Internal error: {e}"))?;
-        let token = Arc::new(AtomicBool::new(false));
-        tokens.insert(tid.clone(), token.clone());
-        token
-    };
+    let registration = state.register_task(&tid)?;
+    let cancel_token = registration.token.clone();
 
     let emitter = TaskProgressEmitter::new(app, tid.clone(), TaskKind::Extract);
     emitter.emit_started("Reading archive entries...");
@@ -75,6 +68,7 @@ pub async fn extract_entries(
         let emitter = emitter.clone();
         let cancel_token = cancel_token.clone();
         spawn_blocking(move || {
+            let _registration = registration;
             let task_result = (|| -> Result<ExtractArchiveResult, ExtractTaskError> {
                 let format = detect_archive_format(&path_buf)?;
                 match format {
@@ -138,13 +132,6 @@ pub async fn extract_entries(
         .await
     };
 
-    let mut tokens = state
-        .cancel_tokens
-        .lock()
-        .map_err(|e| format!("Internal error: {e}"))?;
-    tokens.remove(&tid);
-    drop(tokens);
-
     result.map_err(|e| format!("Internal error: {e}"))?
 }
 
@@ -180,10 +167,9 @@ pub(crate) fn requested_entry_prefixes(paths: &[String]) -> HashSet<&str> {
 pub(crate) fn entry_matches_selection(path: &str, requested: &HashSet<&str>) -> bool {
     let path = path.trim_end_matches('/');
     requested.contains(path)
-        || requested.iter().any(|prefix| {
-            path.strip_prefix(prefix)
-                .is_some_and(|suffix| suffix.starts_with('/'))
-        })
+        || path
+            .match_indices('/')
+            .any(|(index, _)| requested.contains(&path[..index]))
 }
 
 #[cfg(test)]
@@ -198,6 +184,33 @@ mod tests {
             compressed_size: 0,
             modified: None,
             crc32: None,
+        }
+    }
+
+    #[test]
+    fn selection_matches_ancestors_at_path_boundaries() {
+        let paths = vec![
+            "photos".to_string(),
+            "中文/目录".to_string(),
+            "root/file.txt".to_string(),
+        ];
+        let requested = requested_entry_prefixes(&paths);
+        for path in [
+            "photos",
+            "photos/",
+            "photos/nested/file",
+            "中文/目录/文件",
+            "root/file.txt",
+        ] {
+            assert!(entry_matches_selection(path, &requested), "{path}");
+        }
+        for path in [
+            "photos-old/file",
+            "中文/目录2/文件",
+            "root/file.txt.bak",
+            "root",
+        ] {
+            assert!(!entry_matches_selection(path, &requested), "{path}");
         }
     }
 

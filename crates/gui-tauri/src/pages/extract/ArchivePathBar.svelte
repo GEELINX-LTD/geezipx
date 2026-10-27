@@ -1,13 +1,23 @@
 <script lang="ts">
   import { open } from '@tauri-apps/plugin-dialog';
+  import { ARCHIVE_EXTENSIONS } from '../../archiveFormats';
+  import { toastStore } from '../../stores/toastStore.svelte';
   import { appStore } from '../../stores/appStore.svelte';
   import { localeStore } from '../../stores/localeStore.svelte';
   import { archiveStore, archiveManager } from '../../stores/archiveStore.svelte';
 
   async function changeArchive() {
+    try {
+      await selectArchive();
+    } catch (error) {
+      toastStore.show(localeStore.t('common.errorDetail', { message: String(error) }), 'error');
+    }
+  }
+
+  async function selectArchive() {
     const selected = await open({
       multiple: false,
-      filters: [{ name: 'Archives', extensions: ['zip','tar','gz','7z','rar','xz','zst','bz2','tgz','tbz','tbz2','txz','tzst'] }]
+      filters: [{ name: 'Archives', extensions: [...ARCHIVE_EXTENSIONS] }]
     });
     if (selected && typeof selected === 'string') {
       const targetTabId = archiveManager.activeTabId ?? undefined;

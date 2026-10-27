@@ -36,6 +36,29 @@ function cloneDefaults(): GeeZipXSettings {
   return { ...DEFAULTS, shell_menu_verbs: [...DEFAULTS.shell_menu_verbs] };
 }
 
+function normalizeSettings(value: Partial<Record<keyof GeeZipXSettings, unknown>>): GeeZipXSettings {
+  const result = cloneDefaults();
+  if (value.locale === 'en' || value.locale === 'zh-CN') result.locale = value.locale;
+  if (typeof value.default_output_dir === 'string' && value.default_output_dir.trim()) {
+    result.default_output_dir = value.default_output_dir;
+  }
+  if (value.overwrite_strategy === 'prompt' || value.overwrite_strategy === 'skip' || value.overwrite_strategy === 'overwrite') {
+    result.overwrite_strategy = value.overwrite_strategy;
+  }
+  if (typeof value.default_format === 'string' && /^[a-z0-9]+(?:\.[a-z0-9]+)*$/.test(value.default_format)) {
+    result.default_format = value.default_format;
+  }
+  if (typeof value.default_level === 'number' && Number.isInteger(value.default_level) && value.default_level >= 0 && value.default_level <= 22) {
+    result.default_level = value.default_level;
+  }
+  if (typeof value.recursive === 'boolean') result.recursive = value.recursive;
+  if (value.theme === 'system' || value.theme === 'light' || value.theme === 'dark') result.theme = value.theme;
+  if (value.on_complete === 'nothing' || value.on_complete === 'open_output') result.on_complete = value.on_complete;
+  if (typeof value.shell_menu_enabled === 'boolean') result.shell_menu_enabled = value.shell_menu_enabled;
+  result.shell_menu_verbs = normalizeShellMenuVerbs(value.shell_menu_verbs);
+  return result;
+}
+
 async function loadStore(): Promise<Store | null> {
   try {
     const loadedStore = await Store.load(STORE_PATH);
@@ -73,40 +96,40 @@ async function getStore(): Promise<Store> {
 async function loadAll(): Promise<GeeZipXSettings> {
   try {
     const s = await getStore();
-    const result = cloneDefaults();
+    const values: Partial<Record<keyof GeeZipXSettings, unknown>> = {};
     for (const key of Object.keys(DEFAULTS) as (keyof GeeZipXSettings)[]) {
-      const val = await s.get<unknown>(key);
-      if (val !== null && val !== undefined) {
-        Object.assign(result, { [key]: val });
-      }
+      values[key] = await s.get<unknown>(key);
     }
-    result.shell_menu_enabled = typeof result.shell_menu_enabled === 'boolean'
-      ? result.shell_menu_enabled
-      : DEFAULTS.shell_menu_enabled;
-    result.shell_menu_verbs = normalizeShellMenuVerbs(result.shell_menu_verbs);
-    return result;
+    return normalizeSettings(values);
   } catch {
     return cloneDefaults();
   }
 }
 
-/** Persist all settings. */
-async function saveAll(settings: GeeZipXSettings): Promise<void> {
-  const s = await getStore();
-  for (const key of Object.keys(DEFAULTS) as (keyof GeeZipXSettings)[]) {
-    await s.set(key, settings[key]);
-  }
-  await s.save();
+let saveQueue: Promise<void> = Promise.resolve();
+
+/** Persist a validated snapshot, keeping concurrent saves in call order. */
+function saveAll(settings: GeeZipXSettings): Promise<void> {
+  const snapshot = normalizeSettings(settings);
+  const saving = saveQueue.then(async () => {
+    const s = await getStore();
+    for (const key of Object.keys(DEFAULTS) as (keyof GeeZipXSettings)[]) {
+      await s.set(key, snapshot[key]);
+    }
+    await s.save();
+  });
+  saveQueue = saving.catch(() => {});
+  return saving;
 }
 
 /** Get a single setting. */
 async function get<K extends keyof GeeZipXSettings>(key: K): Promise<GeeZipXSettings[K]> {
   try {
     const s = await getStore();
-    const val = await s.get<GeeZipXSettings[K]>(key);
-    return val !== null && val !== undefined ? val : DEFAULTS[key];
+    const val = await s.get<unknown>(key);
+    return normalizeSettings({ [key]: val })[key];
   } catch {
-    return DEFAULTS[key];
+    return cloneDefaults()[key];
   }
 }
 

@@ -4,8 +4,9 @@
 // archiveStore remains a proxy for the active tab so that all consuming components
 // (ExtractPage, Breadcrumb, BrowserTable, etc.) need zero changes.
 
-import { SvelteSet } from 'svelte/reactivity';
+import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 import { listArchiveStream, previewEntry } from '../bridge';
+import { stripArchiveExtension } from '../archiveFormats';
 import type { EntryInfo, PreviewResult } from '../bridge';
 
 // --- Types ---
@@ -38,19 +39,10 @@ interface OpenSnapshot {
 
 // --- Helper functions (pure, top-level) ---
 
-function stripArchiveExtension(fileName: string): string {
-  const compound = ['.tar.gz', '.tar.bz2', '.tar.br', '.tar.lz4', '.tar.xz', '.tar.zst', '.tgz', '.tbz', '.tbz2', '.txz', '.tzst'];
-  const simple = ['.zip', '.zipx', '.jar', '.war', '.apk', '.ipa', '.xpi', '.tar', '.gz', '.gzip', '.bz2', '.br', '.lz4', '.xz', '.zst', '.zstd', '.lzma', '.7z', '.rar', '.cab', '.asar', '.deb', '.lzh', '.lha', '.cpio'];
-  const lower = fileName.toLowerCase();
-  for (const ext of compound) { if (lower.endsWith(ext)) return fileName.slice(0, -ext.length); }
-  for (const ext of simple) { if (lower.endsWith(ext)) return fileName.slice(0, -ext.length); }
-  return fileName;
-}
-
 function parentDir(filePath: string): string {
   const sep = filePath.includes('\\') ? '\\' : '/';
   const idx = filePath.lastIndexOf(sep);
-  return idx > 0 ? filePath.slice(0, idx + 1) : '';
+  return idx >= 0 ? filePath.slice(0, idx + 1) : '';
 }
 
 function computeSuggestedDir(archivePath: string, allEntries: EntryInfo[]): string {
@@ -87,7 +79,8 @@ function getCurrentDirChildren(
   for (const entry of allEntries) {
     if (!entry.path.startsWith(prefix)) continue;
 
-    const relative = entry.path.slice(prefix.length);
+    const entryPath = entry.is_dir && !entry.path.endsWith('/') ? `${entry.path}/` : entry.path;
+    const relative = entryPath.slice(prefix.length);
     if (relative === '') continue; // skip exact prefix match (the dir itself)
 
     const slashIdx = relative.indexOf('/');
@@ -180,8 +173,11 @@ class TabArchive {
 
   // --- Derived (getters; reactive because they read $state fields) ---
 
+  private children = $derived(getCurrentDirChildren(this.entries, this.currentDir));
+  private outputDir = $derived(computeSuggestedDir(this.archivePath, this.entries));
+
   get currentChildren(): DirChild[] {
-    return getCurrentDirChildren(this.entries, this.currentDir);
+    return this.children;
   }
 
   get selectedCount(): number {
@@ -197,7 +193,7 @@ class TabArchive {
   }
 
   get suggestedOutputDir(): string {
-    return computeSuggestedDir(this.archivePath, this.entries);
+    return this.outputDir;
   }
 
   // --- Methods ---
@@ -255,7 +251,7 @@ class TabArchive {
       this.entries = nextEntries;
       this.currentDir = '';
       this.selectedPaths = new SvelteSet();
-      this.previewState = null;
+      this.closePreview();
       this.pendingArchivePath = '';
       this.passwordChallenge = null;
       this.openSnapshot = null;
@@ -294,6 +290,7 @@ class TabArchive {
 
   async openArchive(path: string, password?: string): Promise<OpenArchiveStatus> {
     this.abortPendingOpen();
+    this.closePreview();
     this.openSnapshot = {
       error: this.error,
       loadedCount: this.loadedCount,
@@ -417,11 +414,9 @@ class TabArchive {
 // --- archiveManager: multi-tab management ---
 
 class ArchiveManager {
-  tabs = $state.raw(new Map<string, TabArchive>());
+  tabs = new SvelteMap<string, TabArchive>();
   tabOrder = $state<string[]>([]);
   activeTabId = $state<string | null>(null);
-  /** Tracks initial opens so concurrent callers receive the same tab. */
-  private openingPaths = new Map<string, Promise<{ tabId: string; label: string }>>();
 
   get activeTab(): TabArchive | undefined {
     return this.activeTabId ? this.tabs.get(this.activeTabId) : undefined;
@@ -433,36 +428,25 @@ class ArchiveManager {
     password?: string,
     targetTabId?: string,
   ): Promise<{ tabId: string; label: string }> {
-    const inFlight = this.openingPaths.get(path);
-    if (inFlight) {
-      return await inFlight;
-    }
-
-    // Deduplicate both committed archives and paths waiting for a password.
+    // Pending paths are registered synchronously before returning the tab, so
+    // concurrent callers share it without retaining a promise for a closed tab.
     for (const [id, tab] of this.tabs) {
-      if (tab.archivePath === path || tab.pendingArchivePath === path) {
+      if (tab.pendingArchivePath === path || (!tab.pendingArchivePath && tab.archivePath === path)) {
         return { tabId: id, label: tabName(path) };
       }
     }
 
-    const opening = (async () => {
-      const existingTarget = targetTabId ? this.tabs.get(targetTabId) : undefined;
-      const tabId = existingTarget?.id ?? crypto.randomUUID();
-      const tab = existingTarget ?? new TabArchive(tabId);
-      if (!existingTarget) {
-        this.tabs.set(tabId, tab);
-        this.tabOrder = [...this.tabOrder, tabId];
-      }
-      await tab.openArchive(path, password);
-      return { tabId, label: tabName(path) };
-    })();
-    this.openingPaths.set(path, opening);
-
-    try {
-      return await opening;
-    } finally {
-      if (this.openingPaths.get(path) === opening) this.openingPaths.delete(path);
+    const existingTarget = targetTabId ? this.tabs.get(targetTabId) : undefined;
+    const tabId = existingTarget?.id ?? crypto.randomUUID();
+    const tab = existingTarget ?? new TabArchive(tabId);
+    if (!existingTarget) {
+      this.tabs.set(tabId, tab);
+      this.tabOrder = [...this.tabOrder, tabId];
     }
+    // Let callers display loading state immediately. Actions that need entries
+    // must waitForOpenResult, which also covers password retries and tab closure.
+    void tab.openArchive(path, password);
+    return { tabId, label: tabName(path) };
   }
 
   async submitPassword(tabId: string, password: string): Promise<boolean> {

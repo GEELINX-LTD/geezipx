@@ -9,6 +9,9 @@ use tauri::Manager;
 
 pub(crate) mod com_server;
 pub mod commands;
+// The shell action protocol is used by the Windows COM integration; other
+// platforms compile its codec for the shared protocol regression tests.
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
 pub(crate) mod shell_action_file;
 pub mod state;
 
@@ -125,7 +128,7 @@ fn extract_flag_value<'a>(args: &'a [String], flag: &str) -> Option<&'a str> {
 /// Parse action file bytes into a ShellActionPayload.
 /// Platform-independent core; used by both the Windows and non-Windows paths
 /// in `read_action_file_action`, and directly testable.
-#[cfg(any(test, not(target_os = "windows")))]
+#[cfg(test)]
 fn parse_action_file_bytes(data: &[u8]) -> Result<ShellActionPayload, String> {
     let (action, wide_paths) =
         shell_action_file::decode(data).map_err(|e| format!("action file decode: {e}"))?;
@@ -143,10 +146,9 @@ fn parse_action_file_bytes(data: &[u8]) -> Result<ShellActionPayload, String> {
 /// Read a `--shell-action-file` and convert to a `ShellActionPayload`.
 /// On error, logs diagnostics and returns the error.
 fn read_action_file_action(file_path: &str) -> Result<ShellActionPayload, String> {
-    let path = std::path::Path::new(file_path);
-
     #[cfg(target_os = "windows")]
     {
+        let path = std::path::Path::new(file_path);
         let (action, paths) =
             shell_action_file::read_action_file(path).map_err(|e| format!("{e}"))?;
         let path_strings: Vec<String> = paths
@@ -162,12 +164,10 @@ fn read_action_file_action(file_path: &str) -> Result<ShellActionPayload, String
 
     #[cfg(not(target_os = "windows"))]
     {
-        // On non-Windows, action files can still be read for testing.
-        let data = std::fs::read(path).map_err(|e| format!("cannot read {file_path}: {e}"))?;
-        let payload = parse_action_file_bytes(&data)?;
-        // Best-effort delete even on non-Windows (for test cleanup).
-        let _ = std::fs::remove_file(path);
-        Ok(payload)
+        // This protocol is emitted only by the Windows COM handler. Keep
+        // test-only parsing out of the production argument-consumption path.
+        let _ = file_path;
+        Err("Shell action files are supported only on Windows".into())
     }
 }
 
@@ -452,6 +452,21 @@ mod tests {
                 .map(|p| p.to_string_lossy().to_string())
                 .collect(),
         })
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    #[test]
+    fn production_action_file_reader_rejects_non_windows_without_deleting() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = write_action_file(
+            dir.path(),
+            "keep.gzsa",
+            ShellActionFileAction::Compress,
+            &["/tmp/selected.txt"],
+        );
+        let original = std::fs::read(&file).unwrap();
+        assert!(read_action_file_action(&file.to_string_lossy()).is_err());
+        assert_eq!(std::fs::read(&file).unwrap(), original);
     }
 
     // -----------------------------------------------------------------------

@@ -5,33 +5,23 @@
   import { appStore } from '../stores/appStore.svelte';
   import { archiveManager } from '../stores/archiveStore.svelte';
 
+  import { toastStore } from '../stores/toastStore.svelte';
+  import { isArchivePath } from '../archiveFormats';
+
   let dropActive = $state(false);
 
-  const ARCHIVE_EXTS = new Set([
-    'zip', '7z', 'rar', 'tar', 'gz', 'tgz', 'bz2', 'tbz', 'tbz2',
-    'br', 'lz4', 'xz', 'txz', 'zst', 'tzst', 'cab', 'asar', 'deb',
-    'iso', 'cpio', 'zpaq', 'lzh', 'lha', 'jar', 'war', 'apk', 'ipa',
-    'xpi', 'zstd', 'lzma',
-  ]);
-
-  function isArchivePath(path: string): boolean {
-    const lower = path.toLowerCase();
-    if (
-      lower.endsWith('.tar.gz') ||
-      lower.endsWith('.tar.bz2') ||
-      lower.endsWith('.tar.br') ||
-      lower.endsWith('.tar.lz4') ||
-      lower.endsWith('.tar.xz') ||
-      lower.endsWith('.tar.zst')
-    ) {
-      return true;
-    }
-    const ext = lower.split('.').pop() || '';
-    return ARCHIVE_EXTS.has(ext);
-  }
-
   onMount(() => {
-    const unlistenPromise = getCurrentWindow().onDragDropEvent((event) => {
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    const reportError = (error: unknown) => {
+      console.error('Native drop handling failed', error);
+      if (!disposed) {
+        dropActive = false;
+        toastStore.show(localeStore.t('common.errorDetail', { message: String(error) }), 'error');
+      }
+    };
+    getCurrentWindow().onDragDropEvent((event) => {
+      if (disposed) return;
       if (event.payload.type === 'enter') {
         dropActive = true;
       } else if (event.payload.type === 'over') {
@@ -45,18 +35,23 @@
 
         if (paths.length === 1 && isArchivePath(paths[0])) {
           archiveManager.openArchive(paths[0]).then(({ tabId, label }) => {
+            if (disposed) return;
             appStore.addArchiveTab(tabId, label, paths[0]);
             appStore.switchTab(tabId);
-          });
+          }).catch(reportError);
         } else {
           appStore.setPendingSourcePaths(paths);
           appStore.switchTab('compress');
         }
       }
-    });
+    }).then((fn) => {
+      if (disposed) fn();
+      else unlisten = fn;
+    }).catch(reportError);
 
     return () => {
-      unlistenPromise.then((fn) => fn());
+      disposed = true;
+      unlisten?.();
     };
   });
 </script>

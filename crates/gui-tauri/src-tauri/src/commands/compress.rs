@@ -102,15 +102,8 @@ pub async fn compress_archive(
     let output = PathBuf::from(&output_path);
     let sources: Vec<PathBuf> = source_paths.iter().map(PathBuf::from).collect();
     let pwd = password;
-    let cancel_token = {
-        let mut tokens = state
-            .cancel_tokens
-            .lock()
-            .map_err(|e| format!("Internal error: {e}"))?;
-        let token = Arc::new(AtomicBool::new(false));
-        tokens.insert(tid.clone(), token.clone());
-        token
-    };
+    let registration = state.register_task(&tid)?;
+    let cancel_token = registration.token.clone();
     let emitter = TaskProgressEmitter::new(app, tid.clone(), TaskKind::Compress);
     emitter.emit_started("Scanning input files...");
     let result = {
@@ -118,35 +111,23 @@ pub async fn compress_archive(
         let cancel_token = cancel_token.clone();
         let out = output.clone();
         spawn_blocking(move || {
+            let _registration = registration;
             let task_result = (|| -> Result<CompressArchiveResult, String> {
-                let out_dir = match out.parent() {
-                    Some(path) if !path.as_os_str().is_empty() => path,
-                    _ => Path::new("."),
-                };
-                if let Ok(canonical_out) = fs::canonicalize(out_dir) {
-                    for src in &sources {
-                        if let Ok(real_src) = fs::canonicalize(src) {
-                            if real_src.is_dir() && canonical_out.starts_with(&real_src) {
-                                return Err(
-                                    "Output file cannot be located inside a source directory"
-                                        .to_string(),
-                                );
-                            }
-                        }
-                    }
-                }
+                validate_gui_output(&sources, &out)?;
                 let mut skipped = 0u64;
                 let entries = collect_gui_inputs(&sources, &cancel_token, &mut skipped, recursive)?;
                 let total_input_bytes = entries
                     .iter()
                     .filter(|entry| !entry.is_dir)
-                    .map(|entry| entry.size)
-                    .sum::<u64>();
+                    .try_fold(0u64, |total, entry| total.checked_add(entry.size));
                 let total_entries = entries.len() as u64;
-                emitter.set_totals(Some(total_input_bytes), Some(total_entries));
+                emitter.set_totals(total_input_bytes, Some(total_entries));
                 emitter.emit_progress(TaskStage::Compressing, None, 0, None, 0, true);
-                let output_file = fs::File::create(&out)
-                    .map_err(|e| format!("Cannot create output '{}': {}", out.display(), e))?;
+                let pending = PendingArchive::new(&out)?;
+                let output_file = pending
+                    .temp
+                    .reopen()
+                    .map_err(|e| format!("Cannot open temporary output: {e}"))?;
                 let options = CompressOptions {
                     level,
                     jobs,
@@ -239,6 +220,10 @@ pub async fn compress_archive(
                 let bytes_written = writer
                     .finish()
                     .map_err(|e| format!("Failed to finalize archive: {e}"))?;
+                if cancel_token.load(Ordering::SeqCst) {
+                    return Err(CANCELLED_MESSAGE.to_string());
+                }
+                pending.commit(&out)?;
                 emitter.emit_finished(progress_bytes, completed_entries);
                 Ok(CompressArchiveResult {
                     files_added: added_files,
@@ -252,7 +237,6 @@ pub async fn compress_archive(
             match task_result {
                 Ok(result) => Ok(result),
                 Err(message) => {
-                    let _ = fs::remove_file(&out);
                     let (current, completed_entries) = emitter.latest_snapshot();
                     if cancel_token.load(Ordering::SeqCst)
                         || message.to_ascii_lowercase().contains("cancelled")
@@ -267,18 +251,80 @@ pub async fn compress_archive(
         })
         .await
     };
-    let mut tokens = state
-        .cancel_tokens
-        .lock()
-        .map_err(|e| format!("Internal error: {e}"))?;
-    tokens.remove(&tid);
-    drop(tokens);
     result.map_err(|e| format!("Internal error: {e}"))?
 }
 // ---------------------------------------------------------------------------
 // Helpers
 
 // ---------------------------------------------------------------------------
+/// Keep the destination intact until encoding and finalization both succeed.
+struct PendingArchive {
+    temp: tempfile::NamedTempFile,
+}
+
+impl PendingArchive {
+    fn new(output: &Path) -> Result<Self, String> {
+        if let Ok(metadata) = fs::symlink_metadata(output) {
+            if !metadata.is_file() {
+                return Err(format!(
+                    "Output '{}' is not a regular file",
+                    output.display()
+                ));
+            }
+        }
+        let parent = output
+            .parent()
+            .filter(|path| !path.as_os_str().is_empty())
+            .unwrap_or(Path::new("."));
+        let temp = tempfile::NamedTempFile::new_in(parent)
+            .map_err(|e| format!("Cannot create temporary output '{}': {e}", output.display()))?;
+        Ok(Self { temp })
+    }
+
+    fn commit(self, output: &Path) -> Result<(), String> {
+        self.temp
+            .persist(output)
+            .map_err(|e| format!("Cannot publish output '{}': {e}", output.display()))?;
+        Ok(())
+    }
+}
+
+/// Reject input/output aliases before any output is opened, including hard links.
+fn validate_gui_output(sources: &[PathBuf], output: &Path) -> Result<(), String> {
+    let parent = output
+        .parent()
+        .filter(|path| !path.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
+    let canonical_parent = fs::canonicalize(parent).map_err(|e| {
+        format!(
+            "Cannot resolve output directory '{}': {e}",
+            parent.display()
+        )
+    })?;
+    let canonical_output = fs::canonicalize(output).ok();
+    for source in sources {
+        let source = fs::canonicalize(source)
+            .map_err(|e| format!("Cannot resolve source '{}': {e}", source.display()))?;
+        if source.is_dir() && canonical_parent.starts_with(&source) {
+            return Err("Output file cannot be located inside a source directory".to_string());
+        }
+        if let Some(output) = &canonical_output {
+            let mut same_file = source == *output;
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::MetadataExt;
+                if let (Ok(input), Ok(output)) = (fs::metadata(&source), fs::metadata(output)) {
+                    same_file |= input.dev() == output.dev() && input.ino() == output.ino();
+                }
+            }
+            if same_file {
+                return Err("Output file cannot also be a source file".to_string());
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Parse a format string accepted by the GUI compress command.
 pub(crate) fn parse_gui_compress_format(s: &str) -> Result<ArchiveFormat, String> {
     match s.to_ascii_lowercase().as_str() {
@@ -567,6 +613,74 @@ pub(crate) fn create_gui_writer(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn failed_compression_preserves_old_output_and_cleans_temp() {
+        use std::io::Write;
+        let dir = tempfile::tempdir().unwrap();
+        let output = dir.path().join("existing.zip");
+        fs::write(&output, b"original archive").unwrap();
+        let pending = PendingArchive::new(&output).unwrap();
+        pending
+            .temp
+            .reopen()
+            .unwrap()
+            .write_all(b"partial archive")
+            .unwrap();
+        assert_eq!(fs::read(&output).unwrap(), b"original archive");
+        drop(pending);
+        assert_eq!(fs::read(&output).unwrap(), b"original archive");
+        assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn successful_compression_publishes_complete_output() {
+        use std::io::Write;
+        let dir = tempfile::tempdir().unwrap();
+        let output = dir.path().join("existing.zip");
+        fs::write(&output, b"old archive").unwrap();
+        let pending = PendingArchive::new(&output).unwrap();
+        let mut file = pending.temp.reopen().unwrap();
+        file.write_all(b"complete archive").unwrap();
+        file.flush().unwrap();
+        drop(file);
+        pending.commit(&output).unwrap();
+        assert_eq!(fs::read(&output).unwrap(), b"complete archive");
+        assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn output_validation_rejects_aliases_and_preserves_existing_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("source.txt");
+        fs::write(&source, b"source contents").unwrap();
+        assert!(validate_gui_output(std::slice::from_ref(&source), &source).is_err());
+        #[cfg(unix)]
+        {
+            let alias = dir.path().join("hardlink.zip");
+            fs::hard_link(&source, &alias).unwrap();
+            assert!(validate_gui_output(std::slice::from_ref(&source), &alias).is_err());
+        }
+        assert!(
+            validate_gui_output(&[dir.path().to_path_buf()], &dir.path().join("out.zip")).is_err()
+        );
+        assert_eq!(fs::read(&source).unwrap(), b"source contents");
+        let missing = dir.path().join("missing.txt");
+        assert!(validate_gui_output(&[missing], &source).is_err());
+        assert_eq!(fs::read(&source).unwrap(), b"source contents");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn pending_archive_rejects_symlink_outputs() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("original");
+        let output = dir.path().join("output.zip");
+        fs::write(&source, b"keep").unwrap();
+        std::os::unix::fs::symlink(&source, &output).unwrap();
+        assert!(PendingArchive::new(&output).is_err());
+        assert_eq!(fs::read(&source).unwrap(), b"keep");
+    }
     use geezipx_core::archive::lzh::LzhReader;
     use geezipx_core::archive::seven_zip::SevenZipReader;
     use geezipx_core::archive::ArchiveReader;
