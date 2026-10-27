@@ -52,6 +52,10 @@ jobs:
       - working-directory: crates/gui-tauri
         run: npm ci
       - working-directory: crates/gui-tauri
+        run: npm test
+      - working-directory: crates/gui-tauri
+        run: npx tsc --noEmit
+      - working-directory: crates/gui-tauri
         run: npm run build
 
   clippy:
@@ -71,6 +75,9 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: echo "RUSTFLAGS=-C target-feature=+crt-static" >> $env:GITHUB_ENV
+      - name: Minimal CLI feature build
+        if: runner.os == 'Linux'
+        run: cargo check -p geezipx --no-default-features
       - name: Clippy (macOS, exclude zpaq for LLVM compat)
         if: runner.os == 'macOS'
         run: cargo clippy --workspace --exclude geezipx-gui --all-targets --no-default-features -F rar,wim,sfx -- -D warnings
