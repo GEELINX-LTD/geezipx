@@ -100,7 +100,7 @@ pub fn uu_decode(input: &str) -> Option<(String, Vec<u8>)> {
         {
             return None;
         }
-        for chunk in encoded.chunks_exact(4) {
+        for chunk in encoded.as_chunks::<4>().0 {
             let a = (chunk[0] - 32) & 0x3F;
             let b = (chunk[1] - 32) & 0x3F;
             let c = (chunk[2] - 32) & 0x3F;

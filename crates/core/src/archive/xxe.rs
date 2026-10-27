@@ -116,7 +116,7 @@ pub fn xxe_decode(input: &str) -> Result<(String, Vec<u8>), String> {
         {
             return Err("invalid encoded character".into());
         }
-        for chunk in encoded.chunks_exact(4) {
+        for chunk in encoded.as_chunks::<4>().0 {
             let a = reverse[chunk[0] as usize] as u32;
             let b = reverse[chunk[1] as usize] as u32;
             let c = reverse[chunk[2] as usize] as u32;
