@@ -21,8 +21,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
+use crate::commands::extract_entries::{entry_matches_selection, requested_entry_prefixes};
 use crate::commands::list::{detect_archive_format, open_reader};
-use geezipx_core::archive::check_entry_path_safety;
+use geezipx_core::archive::{check_entry_path_safety, extraction::ExtractionDir};
 
 /// Top‑level directory name for drag‑out temp files.
 const DRAG_TEMP_ROOT: &str = "geezipx-dragout";
@@ -70,18 +71,10 @@ pub async fn prepare_drag_entries(
 
         // Collect the requested entries and validate their paths before
         // creating any staged files.
-        let requested: std::collections::HashSet<&str> =
-            entry_paths.iter().map(|s| s.as_str()).collect();
+        let requested = requested_entry_prefixes(&entry_paths);
         let selected_entries: Vec<_> = all_entries
             .iter()
-            .filter(|entry| {
-                requested.contains(entry.path.as_str())
-                    || entry_paths.iter().any(|req| {
-                        entry.path.starts_with(req)
-                            && (entry.path.len() == req.len()
-                                || entry.path[req.len()..].starts_with('/'))
-                    })
-            })
+            .filter(|entry| entry_matches_selection(&entry.path, &requested))
             .collect();
 
         for entry in &selected_entries {
@@ -93,36 +86,13 @@ pub async fn prepare_drag_entries(
                 .map_err(|e| format!("Cannot replace temp directory '{}': {e}", dest.display()))?;
         }
 
-        fs::create_dir_all(&dest).map_err(|e| format!("Cannot create temp directory: {e}"))?;
-
-        // Track which directory entries we've already created so we don't
-        // attempt to create the same directory twice.
-        let mut created_dirs: std::collections::HashSet<String> = std::collections::HashSet::new();
-
+        let output = ExtractionDir::new(&dest).map_err(|e| e.to_string())?;
         for entry in selected_entries {
-            let target = validate_drag_entry_path(&dest, &entry.path)?;
-
             if entry.is_dir {
-                if created_dirs.insert(entry.path.clone()) {
-                    fs::create_dir_all(&target)
-                        .map_err(|e| format!("Cannot create dir '{}': {e}", target.display()))?;
-                }
+                output.create_dir(&entry.path).map_err(|e| e.to_string())?;
             } else {
-                // Ensure parent directory exists.
-                if let Some(parent) = target.parent() {
-                    let parent_str = parent.to_string_lossy().to_string();
-                    if created_dirs.insert(parent_str) {
-                        fs::create_dir_all(parent).map_err(|e| {
-                            format!("Cannot create parent dir '{}': {e}", parent.display())
-                        })?;
-                    }
-                }
-
-                let mut output = fs::File::create(&target)
-                    .map_err(|e| format!("Cannot create temp file '{}': {e}", target.display()))?;
-
-                reader
-                    .extract(entry, &mut output)
+                output
+                    .write_file(&entry.path, false, |writer| reader.extract(entry, writer))
                     .map_err(|e| format!("Extraction error: {e}"))?;
             }
         }

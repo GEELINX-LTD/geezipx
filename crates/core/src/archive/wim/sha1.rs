@@ -32,11 +32,11 @@ pub(crate) fn compute_sha1(data: &[u8]) -> [u8; 20] {
     padded.extend_from_slice(&msg_len_bits.to_be_bytes());
 
     // Process each 512-bit block
-    for block in padded.chunks_exact(64) {
+    for block in padded.as_chunks::<64>().0 {
         let mut w = [0u32; 80];
 
         // Prepare message schedule (first 16 words from the block)
-        for (i, chunk) in block.chunks_exact(4).enumerate() {
+        for (i, chunk) in block.as_chunks::<4>().0.iter().enumerate() {
             w[i] = u32::from_be_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
         }
 

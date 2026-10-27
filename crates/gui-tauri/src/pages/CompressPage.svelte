@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onDestroy, untrack } from 'svelte';
+  import { basename, dirname, join } from '@tauri-apps/api/path';
   import { open } from '@tauri-apps/plugin-dialog';
   import { save } from '@tauri-apps/plugin-dialog';
   import { compressArchive, getFormats, openFolder, type FormatInfo } from '../bridge';
@@ -9,7 +10,6 @@
   import { taskStore } from '../stores/taskStore.svelte';
   import { appStore } from '../stores/appStore.svelte';
   import { toastStore } from '../stores/toastStore.svelte.ts';
-  import ProgressDialog from '../components/ProgressDialog.svelte';
 
   let sourcePaths = $state<string[]>([]);
   let outputPath = $state('');
@@ -24,8 +24,13 @@
   let defaultOutputDir: string | null = null;
   let recursiveFlag = true;
   let onComplete: 'nothing' | 'open_output' = 'nothing';
+  let outputChosen = false;
+  let formatChosen = false;
+  let outputRequest = 0;
+  let destroyed = false;
+  let settingsReady = false;
 
-  let isRunning = $derived(taskStore.isVisible && taskStore.activeTask?.kind === 'compress');
+  let isRunning = $derived(taskStore.hasRunning?.('compress') ?? false);
 
   let levelPlaceholder = $derived(
     formats.find(f => f.name === format)?.level_hint || localeStore.t('compress.levelPlaceholder')
@@ -45,72 +50,107 @@
     settingsStore.get('recursive'),
     settingsStore.get('on_complete'),
   ]).then(([fmt, lvl, outDir, rec, onComp]) => {
-    if (fmt) format = fmt;
+    if (destroyed) return;
+    if (fmt && !formatChosen) format = fmt;
     if (lvl !== undefined && lvl !== null) level = lvl;
     defaultOutputDir = outDir ?? null;
     recursiveFlag = rec ?? true;
     onComplete = onComp ?? 'nothing';
+    settingsReady = true;
+    void inferOutput();
   });
 
-  onMount(() => {
-    const pending = appStore.consumePendingSourcePaths();
-    if (pending.length > 0) {
-      sourcePaths = pending;
-      inferOutput();
+  // Consume drops and shell selections even when the Compress tab is already open.
+  $effect(() => {
+    if (appStore.pendingSourcePaths.length > 0) {
+      untrack(() => addSources(appStore.consumePendingSourcePaths()));
     }
   });
 
-  function inferOutput() {
-    if (sourcePaths.length === 0) return;
-    const first = sourcePaths[0].replace(/\/$/, '');
-    const base = first.split('/').pop() || 'archive';
-    const ext = format === 'tar.gz' ? '.tar.gz' : `.${format}`;
-    // Prefer the configured default output directory; fall back to the source's parent.
-    const baseDir = defaultOutputDir
-      ? defaultOutputDir.endsWith('/') ? defaultOutputDir : `${defaultOutputDir}/`
-      : first.substring(0, first.lastIndexOf('/') + 1) || './';
-    outputPath = baseDir + base + ext;
-  }
+  onDestroy(() => {
+    destroyed = true;
+    outputRequest++;
+  });
 
-  async function browseFiles() {
-    const selected = await open({ multiple: true, directory: true });
-    if (selected) {
-      const paths = Array.isArray(selected) ? selected : [selected];
-      for (const p of paths) {
-        if (!sourcePaths.includes(p)) sourcePaths = [...sourcePaths, p];
+  async function inferOutput() {
+    const request = ++outputRequest;
+    if (destroyed || outputChosen) return;
+    outputPath = '';
+    if (!settingsReady || sourcePaths.length === 0) return;
+    const first = sourcePaths[0];
+    const extension = `.${format}`;
+    const outputDir = defaultOutputDir;
+    try {
+      const [base, parent] = await Promise.all([
+        // Filesystem roots have no basename or parent; use archive in that root.
+        basename(first).catch(() => 'archive'),
+        outputDir ? Promise.resolve(outputDir) : dirname(first).catch(() => first),
+      ]);
+      const suggested = await join(parent || '.', `${base}${extension}`);
+      if (!destroyed && !outputChosen && request === outputRequest) {
+        outputPath = suggested;
       }
-      inferOutput();
+    } catch (e: unknown) {
+      if (!destroyed && !outputChosen && request === outputRequest) {
+        error = e instanceof Error ? e.message : String(e);
+      }
     }
   }
 
-  function handleSourceKeydown(e: KeyboardEvent) {
-    if (e.key === 'Enter' || e.key === ' ') {
-      e.preventDefault();
-      browseFiles();
+  function addSources(paths: string[]) {
+    sourcePaths = [...new Set([...sourcePaths, ...paths])];
+    void inferOutput();
+  }
+
+  async function browseSources(directory: boolean) {
+    const selected = await open({
+      multiple: true,
+      directory,
+      title: localeStore.t(directory ? 'common.addFolders' : 'common.addFiles'),
+    });
+    if (selected && !destroyed) {
+      addSources(Array.isArray(selected) ? selected : [selected]);
     }
+  }
+
+  function browseFiles() {
+    return browseSources(false);
+  }
+
+  function browseFolders() {
+    return browseSources(true);
+  }
+
+  function changeFormat() {
+    formatChosen = true;
+    void inferOutput();
   }
 
   function removeFile(idx: number) {
     sourcePaths = sourcePaths.filter((_, i) => i !== idx);
-    inferOutput();
+    void inferOutput();
   }
 
   async function browseOutput() {
     const ext = format === 'tar.gz' ? 'tar.gz' : format;
     const selected = await save({
       filters: [{ name: 'Archive', extensions: [ext] }],
-      defaultPath: defaultOutputDir ?? undefined,
+      defaultPath: outputPath || defaultOutputDir || undefined,
     });
-    if (selected) outputPath = selected;
+    if (selected && !destroyed) {
+      outputChosen = true;
+      outputRequest++;
+      outputPath = selected;
+    }
   }
 
   async function runCompress() {
-    if (sourcePaths.length === 0 || !outputPath) return;
+    if (isRunning || sourcePaths.length === 0 || !outputPath) return;
     error = null;
     result = null;
 
-    const taskId = `compress-${Date.now()}`;
-    taskStore.startTask(taskId, 'compress');
+    const archiveOutputPath = outputPath;
+    const taskId = taskStore.startTask('compress');
 
     try {
       // Only pass a password for formats that support encryption, otherwise the
@@ -118,7 +158,7 @@
       const effectivePassword = showPassword ? (password || undefined) : undefined;
       const res = await compressArchive(
         sourcePaths,
-        outputPath,
+        archiveOutputPath,
         format,
         level,
         undefined,
@@ -126,19 +166,18 @@
         recursiveFlag,
         taskId,
       );
-      taskStore.finishTask('finished');
+      const status = taskStore.finishTask(taskId, 'finished');
+      if (status === 'cancelled' || status === 'failed') return;
       result = res;
       toastStore.show(localeStore.t('compress.result', { files: res.files_added, bytes: res.bytes_written }), 'success', 5000);
-      appStore.addRecent(outputPath);
+      appStore.addRecent(archiveOutputPath);
       if (onComplete === 'open_output') {
-        const dir = outputPath.includes('/')
-          ? outputPath.substring(0, outputPath.lastIndexOf('/'))
-          : '.';
-        await openFolder(dir);
+        await openFolder((await dirname(archiveOutputPath)) || '.');
       }
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
-      taskStore.finishTask('failed', msg);
+      const status = taskStore.finishTask(taskId, 'failed', msg);
+      if (status === 'cancelled') return;
       error = msg;
       toastStore.show(localeStore.t('compress.errorPrefix', { message: msg }), 'error');
     }
@@ -152,15 +191,15 @@
     <span class="section-label">{localeStore.t('compress.sourceFiles')}</span>
     <div class="source-area">
       {#if sourcePaths.length === 0}
-        <div class="source-empty" role="button" tabindex="0" onclick={browseFiles} onkeydown={handleSourceKeydown}>
-          <p>{localeStore.t('compress.sourcePlaceholder')}</p>
-        </div>
+        <button class="source-empty" onclick={browseFiles}>
+          {localeStore.t('compress.sourcePlaceholder')}
+        </button>
       {:else}
         <div class="source-chips">
           {#each sourcePaths as path, i (path)}
             <div class="source-chip">
-              <span class="chip-icon">{path.endsWith('/') ? '📁' : '📄'}</span>
-              <span class="chip-path" title={path}>{path.split('/').pop()}</span>
+              <span class="chip-icon">{path.endsWith('/') || path.endsWith('\\') ? '📁' : '📄'}</span>
+              <span class="chip-path" title={path}>{path.replace(/[/\\]+$/, '').split(/[/\\]/).pop() || path}</span>
               <button class="chip-remove" onclick={() => removeFile(i)} aria-label="Remove">
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
@@ -169,8 +208,11 @@
             </div>
           {/each}
         </div>
-        <button class="add-btn" onclick={browseFiles}>{localeStore.t('common.addFiles')}</button>
       {/if}
+      <div class="source-actions">
+        <button class="add-btn" onclick={browseFiles}>{localeStore.t('common.addFiles')}</button>
+        <button class="add-btn" onclick={browseFolders}>{localeStore.t('common.addFolders')}</button>
+      </div>
     </div>
   </section>
 
@@ -179,7 +221,7 @@
     <div class="row">
       <div class="field">
         <label class="section-label" for="compress-format">{localeStore.t('compress.format')}</label>
-        <select id="compress-format" bind:value={format} onchange={inferOutput}>
+        <select id="compress-format" bind:value={format} onchange={changeFormat}>
           {#each formats.filter(f => f.can_compress) as fmt (fmt.name)}
             <option value={fmt.name}>{fmt.name.toUpperCase()}</option>
           {/each}
@@ -227,7 +269,6 @@
       {localeStore.t('compress.run')}
     </button>
   </div>
-  <ProgressDialog kind="compress" />
 </div>
 
 <style>
@@ -260,6 +301,7 @@
     min-height: 80px;
   }
   .source-empty {
+    width: 100%;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -294,6 +336,7 @@
 
   select, input { padding: var(--space-2) var(--space-3); }
 
+  .source-actions { display: flex; gap: var(--space-2); margin-top: var(--space-2); }
   .add-btn {
     font-size: var(--text-xs);
     color: var(--color-accent);

@@ -1,10 +1,11 @@
-// Task progress state store using Svelte 5 module-level $state runes.
+// Task progress state shared across pages and shell actions.
 
-import type { TaskProgressPayload } from '../bridge';
+import type { TaskKind, TaskProgressPayload } from '../bridge';
 
-interface TaskState {
-  taskId: string;
-  kind: 'compress' | 'extract';
+export interface TaskState {
+  readonly taskId: string;
+  readonly kind: TaskKind;
+  readonly ordinal: number;
   status: 'pending' | 'running' | 'finished' | 'cancelled' | 'failed';
   stage: string;
   message: string;
@@ -17,19 +18,29 @@ interface TaskState {
   totalEntries: number | null;
 }
 
-// --- Reactive State ---
-let activeTask: TaskState | null = $state(null);
+type TerminalStatus = 'finished' | 'cancelled' | 'failed';
 
-let isVisible = $derived(
-  (activeTask as TaskState | null) !== null
-);
+// Replace the map and its task values together so every consumer sees one snapshot.
+let tasks = $state.raw<ReadonlyMap<string, Readonly<TaskState>>>(new Map());
+let activeTaskId = $state<string | null>(null);
+let activeTask = $derived(activeTaskId ? tasks.get(activeTaskId) ?? null : null);
+let taskList = $derived([...tasks.values()]);
+let nextOrdinal = 0;
 
-// --- Functions ---
+function isRunning(task: Readonly<TaskState>): boolean {
+  return task.status === 'pending' || task.status === 'running';
+}
 
-function startTask(taskId: string, kind: 'compress' | 'extract'): void {
-  activeTask = {
+function replaceTask(task: Readonly<TaskState>): void {
+  tasks = new Map([...tasks, [task.taskId, task]]);
+}
+
+function startTask(kind: TaskKind): string {
+  const taskId = crypto.randomUUID();
+  replaceTask({
     taskId,
     kind,
+    ordinal: ++nextOrdinal,
     status: 'pending',
     stage: 'scanning',
     message: '',
@@ -40,85 +51,77 @@ function startTask(taskId: string, kind: 'compress' | 'extract'): void {
     currentEntry: null,
     completedEntries: 0,
     totalEntries: null,
-  };
+  });
+  activeTaskId = taskId;
+  return taskId;
 }
 
 function updateTask(payload: TaskProgressPayload): void {
-  if (!activeTask) return;
+  const task = tasks.get(payload.task_id);
+  // Foreign events cannot register tasks, change their kind, or revive a result.
+  if (!task || task.kind !== payload.kind || !isRunning(task)) return;
 
-  if (payload.task_id) {
-    activeTask.taskId = payload.task_id;
+  const statusMap: Record<TaskProgressPayload['status'], TaskState['status']> = {
+    started: task.status, // A delayed start cannot regress running to pending.
+    progress: 'running',
+    finished: 'finished',
+    cancelled: 'cancelled',
+    failed: 'failed',
+  };
+  const status = statusMap[payload.status];
+  if (!status) return;
+  replaceTask({
+    ...task,
+    status,
+    stage: payload.stage ?? task.stage,
+    message: payload.message ?? task.message,
+    percent: payload.percent !== undefined ? payload.percent : task.percent,
+    current: payload.current ?? task.current,
+    total: payload.total !== undefined ? payload.total : task.total,
+    bytesPerSecond: payload.bytes_per_second !== undefined ? payload.bytes_per_second : task.bytesPerSecond,
+    currentEntry: payload.current_entry !== undefined ? payload.current_entry : task.currentEntry,
+    completedEntries: payload.completed_entries ?? task.completedEntries,
+    totalEntries: payload.total_entries !== undefined ? payload.total_entries : task.totalEntries,
+  });
+}
+
+function finishTask(taskId: string, status: TerminalStatus, message?: string): TaskState['status'] | undefined {
+  const task = tasks.get(taskId);
+  if (!task) return undefined;
+  // A terminal event is authoritative over the invoke promise's completion.
+  if (!isRunning(task)) return task.status;
+  if (status === 'failed' && message?.includes('Operation cancelled by user')) {
+    status = 'cancelled';
   }
-  if (payload.kind) {
-    activeTask.kind = payload.kind;
-  }
-  if (payload.status) {
-    const statusMap: Record<string, TaskState['status']> = {
-      started: 'pending',
-      progress: 'running',
-      finished: 'finished',
-      cancelled: 'cancelled',
-      failed: 'failed',
-    };
-    activeTask.status = statusMap[payload.status] ?? 'running';
-  }
-  if (payload.stage) {
-    activeTask.stage = payload.stage;
-  }
-  if (payload.message !== undefined) {
-    activeTask.message = payload.message;
-  }
-  if (payload.percent !== undefined) {
-    activeTask.percent = payload.percent;
-  }
-  if (payload.current !== undefined) {
-    activeTask.current = payload.current;
-  }
-  if (payload.total !== undefined) {
-    activeTask.total = payload.total;
-  }
-  if (payload.bytes_per_second !== undefined) {
-    activeTask.bytesPerSecond = payload.bytes_per_second;
-  }
-  if (payload.current_entry !== undefined) {
-    activeTask.currentEntry = payload.current_entry;
-  }
-  if (payload.completed_entries !== undefined) {
-    activeTask.completedEntries = payload.completed_entries;
-  }
-  if (payload.total_entries !== undefined) {
-    activeTask.totalEntries = payload.total_entries;
+  replaceTask({ ...task, status, stage: status === 'finished' ? 'completed' : status, message: message ?? task.message });
+  return status;
+}
+
+function selectTask(taskId: string): void {
+  if (tasks.has(taskId)) activeTaskId = taskId;
+}
+
+function dismissTask(taskId: string): void {
+  const task = tasks.get(taskId);
+  if (!task || isRunning(task)) return;
+  const remaining = new Map([...tasks].filter(([id]) => id !== taskId));
+  tasks = remaining;
+  if (activeTaskId === taskId) {
+    activeTaskId = [...remaining.values()].find(isRunning)?.taskId ?? remaining.keys().next().value ?? null;
   }
 }
 
-
-function finishTask(
-  status: 'finished' | 'cancelled' | 'failed',
-  message?: string
-): void {
-  if (activeTask) {
-    activeTask.status = status;
-    if (message !== undefined) {
-      activeTask.message = message;
-    }
-    // Keep the dialog visible so the user can see the result before dismissing
-  }
-}
-
-function dismissTask(): void {
-  activeTask = null;
-}
-
-// --- Export ---
 export const taskStore = {
-  get activeTask() {
-    return activeTask;
-  },
-  get isVisible() {
-    return isVisible;
+  get activeTask() { return activeTask; },
+  get tasks() { return taskList; },
+  get isVisible() { return tasks.size > 0; },
+  getTask(taskId: string) { return tasks.get(taskId); },
+  hasRunning(kind?: TaskKind) {
+    return taskList.some(task => (!kind || task.kind === kind) && isRunning(task));
   },
   startTask,
   updateTask,
   finishTask,
+  selectTask,
   dismissTask,
 };

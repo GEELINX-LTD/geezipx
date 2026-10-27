@@ -170,6 +170,10 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: echo "RUSTFLAGS=-C target-feature=+crt-static" >> $env:GITHUB_ENV
+      - name: Rust tests (GUI lib — shell menu, COM, action file)
+        shell: pwsh
+        run: cargo test -p geezipx-gui --lib
+        working-directory: .
       - uses: actions/setup-node@v6
         with:
           node-version: 20

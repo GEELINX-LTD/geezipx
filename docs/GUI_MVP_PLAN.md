@@ -18,7 +18,7 @@
 
 - 自动更新、云同步、插件系统
 - 文件管理器集成（双面板、标签页等）
-- 批量任务队列（仅单次任务）
+- 批量任务调度与队列管理
 - 高级命令行偏好配置
 - RAR 创建（受 UnRAR 许可限制，仅只读）
 
@@ -26,24 +26,26 @@
 
 ### 3.1 支持的格式
 
-所有操作依赖 core 引擎，完整清单见 `docs/PRD.md` §5.1-5.2。
+所有操作复用 core 引擎，但 GUI 桥接的格式范围小于 core/CLI；core/CLI 完整清单见 `docs/PRD.md` §5.1-5.2。`get_formats` 依据 GUI 创建解析器和共享读取工厂报告当前构建的能力，界面据此筛选可选格式。
 
-- **完整读写**：ZIP（含 AES-256）、TAR 及其压缩变体（GZ/TGZ、BZ2/TBZ、BR、LZ4、XZ/TXZ、ZST/TZST）、GZ、BZ2、BR、LZ4、XZ、LZMA、LZ/Lzip、ZST、7z（AES-256）、CAB（MSZIP）、ASAR、DEB、CPIO（newc/odc）、LZH/LHA（lh0-lh7）、ISO、UDF、ZPAQ、WIM、ISZ、SFX（ZIP 自解压）、UU/UUE/XXE 编码写入
-- **只读**：RAR、ARJ、ACE、ARC、ALZ、Z/Unix Compress
-- **透传**：IMG、BIN
-- **AES 加密容器**：`.enc`（AES-256-GCM-SIV + Argon2id）
+- **GUI 读写**：ZIP/ZIPX（AES-256）、TAR 及其压缩变体（GZ、BZ2、BR、LZ4、XZ、ZST）、7z（AES-256）、LZH/LHA、ISO；启用 `zpaq` feature 后支持 ZPAQ。
+- **GUI 只读**：CAB、ASAR、DEB、CPIO；启用 `rar` feature 后支持 RAR（含密码读取）。
+- **GUI 尚未接入**：独立压缩流 GZ/BZ2/BR/LZ4/XZ/LZMA/LZ/ZST、UDF、ISZ、WIM、ARJ、ACE、ARC、ALZ、Z、UU/XXE、IMG/BIN、AES 容器。core/CLI 中已有的能力不能直接视作 GUI 已支持。
+- **回归验证**：默认构建与 `--no-default-features` 构建都验证能力标志；每个标记可创建的格式实际写入文件，再通过 GUI 读取工厂解出内容并比对。
 
 ### 3.2 核心功能
 
-1. **文件选择** — 原生对话框 + 拖拽
-2. **压缩任务** — 格式选择、自动推荐、压缩级别、密码（ZIP/7z AES-256）、输出目录
+1. **文件选择** — 原生对话框 + 拖拽；压缩页分别提供“添加文件”和“添加文件夹”，均支持多选与去重
+2. **压缩任务** — 格式选择、自动推荐、压缩级别、密码（ZIP/7z AES-256）、输出目录；使用 Tauri 原生路径 API 生成默认输出和打开结果目录，保留手动另存为选择并避免异步旧结果覆盖
 3. **解压缩任务** — 归档内容预览、选择性提取、覆盖策略、密码输入
 4. **归档浏览器** — virtua VList 虚拟滚动（5 万行仅 ~25 行 DOM）、文件夹导航、最近路径 chips
-5. **进度与结果** — 实时进度 + 速度/剩余时间、安全取消、Toast 通知
+5. **进度与结果** — 实时进度 + 速度/剩余时间、安全取消、Toast 通知；应用级进度窗口可切换并行任务，结果保留至单独关闭
 6. **文件预览** — 文本/图片条目在浏览器中预览
-7. **设置页面** — 5 标签页，`tauri-plugin-store` 持久化
+7. **设置页面** — 5 标签页 + 右键菜单管理，`tauri-plugin-store` 持久化
 8. **多语言与主题** — zh-CN / en 实时切换；跟随系统/浅色/深色
 9. **窗口状态持久化** — `tauri-plugin-window-state`
+
+前端命令逻辑回归可在 `crates/gui-tauri` 执行 `npm test`（Node 内置测试运行器，无新增依赖）；`npm run build` 验证 Svelte 生产构建。路径和对话框测试注入原生 API，原生窗口交互仍需桌面实测。
 
 ## 4. 架构边界
 
@@ -97,6 +99,8 @@
 
 **进度推送**：core 的 `ProgressEvent` 由后端在 `commands/progress.rs` 包装为 `TaskProgressPayload`（含 `task_id`、`percent`、`bytes_per_second`、`current_entry`、`completed_entries`/`total_entries`），通过 `task:progress` 事件推送前端。
 
+**任务隔离**：前端以 UUID 注册每次操作，按 `task_id` 更新独立状态；未知 ID、类型不符和任务终态后的迟到事件会被忽略。完成、取消、关闭结果均指定任务 ID，不影响其他任务；压缩/解压按钮只在同类任务运行中禁用。`npm test` 使用真实 Svelte rune 运行时覆盖交错事件、取消竞争和终态保留。
+
 **取消机制**：每个任务注册 `Arc<AtomicBool>` 令牌至 `AppState`。`cancel_task` 置为取消态，`ProgressReader` / `ProgressWriter` 每次 I/O 前检查并抛出 `GeeZipError::Cancelled`。
 
 ## 7. 密码处理
@@ -105,7 +109,9 @@ ZIP 与 7z 支持创建 AES-256 加密归档。RAR 密码仅读取。密码仅�
 
 ## 8. 覆盖策略
 
-GUI 提取使用 `overwrite: bool` 参数，关闭时 core 通过 `ClobberDenied`/skip 保护已有文件。选择性提取与整包提取共享同一套逻辑。
+GUI 提取使用 `overwrite: bool` 参数，关闭时跳过已有文件并返回 skip 计数。选择性提取与整包提取共享 core 的目录句柄安全输出层：拒绝符号链接/Windows 重解析点，先写临时文件，成功后才发布；失败或取消不会截断原文件。任意条目提取失败会将任务标记为失败，错误消息包含成功、跳过、失败数量，避免把部分失败显示为成功。
+
+选择目录时（包括末尾带 `/` 的显式目录和无目录条目的隐式目录），选择性解压和拖出都会包含全部后代，并按路径分隔符判断边界，避免误选同名前缀目录。
 
 ## 9. 平台原生打包
 
@@ -125,10 +131,27 @@ GUI 提取使用 `overwrite: bool` 参数，关闭时 core 通过 `ClobberDenied
 - **设置页面** — 5 标签页，`tauri-plugin-store` 持久化
 - **多语言与主题** — zh-CN / en 实时切换，三模式主题
 - **窗口状态持久化** — 位置、大小恢复
-- **Windows 右键菜单** — NSIS hooks shell 集成
+- **Windows 右键菜单** — 运行时通过设置页动态管理，`HKCU\Software\Classes`（无需管理员），`SHChangeNotify` 即时刷新，sentinel 防安装器覆盖。Win11 显示于“显示更多选项”。
 - **三平台打包** — `.AppImage` / `.dmg` / `.exe (NSIS 安装器)` 构建就绪
 
-### 10.1 `list_archive` 流式推送（v0.7.0）
+### 10.1 Windows 右键菜单运行时管理（当前开发分支，待发布/多选支持）
+
+右键菜单从安装器一次性写入升级为运行时动态管理：
+
+- **总开关** — 设置页 `shell_menu_enabled` 控制整体显示/隐藏。
+- **四项动词** — `Extract here`（解压到当前文件夹）、`Extract to...`（解压到…）、`Compress as ZIP`（压缩为 ZIP）、`Compress as...`（压缩为…），可独立开关。
+- **注册表位置** — `HKCU\Software\Classes`（每用户，无需管理员权限），与安装器 hooks.nsi 一致。
+- **即时生效** — 保存后通过 `SHChangeNotify(SHCNE_ASSOCCHANGED)` 刷新 Explorer。
+- **Sentinel 保护** — 写入 `HKCU\Software\Classes\GeeZipX\ShellMenu\Configured=1`，安装器升级时检测到则跳过默认注册，保留用户选择。
+- **COM DelegateExecute 多选**（当前开发分支）— 压缩动词注册于 `AllFilesystemObjects` 父键（文件/目录/混合多选均支持），父子均声明 `MultiSelectModel=Player`。使用 COM `DelegateExecute` 而非静态 `"%*"` 命令——`%*` 在实机测试中确认传递空参数列表，不可作为支持方案。两个稳定 CLSID 通过 `LocalServer32` 指向同一 `geezipx-gui.exe`；Explorer 启动时传入 `-Embedding`，程序跳过 Tauri 以 COM 服务身份运行，实现 `IExecuteCommand` + `IObjectWithSelection` 接收 `IShellItemArray`。选中路径写入版本化二进制 action 文件（`.gzsa`，UTF-16LE，限 `%LOCALAPPDATA%\GeeZipX\ShellActions` 目录，上限 1 MiB / 10 000条 / 32 767 码元），正常 GUI 通过 `--shell-action-file` 参数读取。提取动词仍保持 `SystemFileAssociations` + `"%1"` 静态命令。
+- **单实例交接** — 操作文件在单实例插件完成主进程判定后解析：冷启动由 setup 消费，热启动由已有进程回调消费，避免转发前删除文件。显式压缩/提取动作不再同时进入普通归档打开队列。
+- **验证状态** — Linux 协议级单元测试通过（action 编解码、resolve 优先级、CLSID 映射、Embedding 检测）；原生 Windows COM 编译/NSIS 安装/Explorer 右键实测尚未完成。禁止 cfg stub 冒充 Windows 通过 CI。
+- **Win11 限制** — 传统菜单项显示于"显示更多选项"(Shift+F10)，这是系统限制，需要 IExplorerCommand COM server / MSIX 包标识才能进入一级菜单。
+- **跨平台** — 非 Windows 平台返回 `supported: false`，前端调用无报错。
+
+Rust 命令：`get_shell_menu_state` → `ShellMenuState`、`set_shell_menu(enabled, verbs)`
+
+### 10.2 `list_archive` 流式推送（v0.7.0）
 
 大型归档列表通过 Tauri IPC `Channel` 分批推送，避免一次性阻塞：
 
@@ -205,6 +228,8 @@ export interface GeeZipXSettings {
   recursive: boolean;
   theme: 'system' | 'light' | 'dark';
   on_complete: 'nothing' | 'open_output';
+  shell_menu_enabled: boolean;
+  shell_menu_verbs: ShellMenuVerb[];  // 'extract' | 'extract_here' | 'compress_zip' | 'compress'
 }
 ```
 

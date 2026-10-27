@@ -1,7 +1,13 @@
 import { Store } from '@tauri-apps/plugin-store';
-import type { GeeZipXSettings } from '../bridge';
+import type { GeeZipXSettings, ShellMenuVerb } from '../bridge';
 
 const STORE_PATH = 'settings.json';
+const SHELL_MENU_VERBS: ShellMenuVerb[] = [
+  'extract',
+  'extract_here',
+  'compress_zip',
+  'compress',
+];
 
 const DEFAULTS: GeeZipXSettings = {
   locale: 'zh-CN',
@@ -12,7 +18,23 @@ const DEFAULTS: GeeZipXSettings = {
   recursive: true,
   theme: 'system',
   on_complete: 'nothing',
+  shell_menu_enabled: true,
+  shell_menu_verbs: [...SHELL_MENU_VERBS],
 };
+
+function isShellMenuVerb(value: unknown): value is ShellMenuVerb {
+  return typeof value === 'string' && SHELL_MENU_VERBS.includes(value as ShellMenuVerb);
+}
+
+function normalizeShellMenuVerbs(value: unknown): ShellMenuVerb[] {
+  if (!Array.isArray(value)) return [...SHELL_MENU_VERBS];
+  const selected = new Set(value.filter(isShellMenuVerb));
+  return SHELL_MENU_VERBS.filter((verb) => selected.has(verb));
+}
+
+function cloneDefaults(): GeeZipXSettings {
+  return { ...DEFAULTS, shell_menu_verbs: [...DEFAULTS.shell_menu_verbs] };
+}
 
 async function loadStore(): Promise<Store | null> {
   try {
@@ -51,16 +73,20 @@ async function getStore(): Promise<Store> {
 async function loadAll(): Promise<GeeZipXSettings> {
   try {
     const s = await getStore();
-    const result = { ...DEFAULTS };
+    const result = cloneDefaults();
     for (const key of Object.keys(DEFAULTS) as (keyof GeeZipXSettings)[]) {
       const val = await s.get<unknown>(key);
       if (val !== null && val !== undefined) {
-        (result as Record<string, unknown>)[key] = val;
+        Object.assign(result, { [key]: val });
       }
     }
+    result.shell_menu_enabled = typeof result.shell_menu_enabled === 'boolean'
+      ? result.shell_menu_enabled
+      : DEFAULTS.shell_menu_enabled;
+    result.shell_menu_verbs = normalizeShellMenuVerbs(result.shell_menu_verbs);
     return result;
   } catch {
-    return { ...DEFAULTS };
+    return cloneDefaults();
   }
 }
 

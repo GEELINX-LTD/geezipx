@@ -19,7 +19,6 @@ use geezipx_core::archive::targz::TarGzWriter;
 use geezipx_core::archive::tarlz4::TarLz4Writer;
 use geezipx_core::archive::tarxz::TarXzWriter;
 use geezipx_core::archive::tarzst::TarZstWriter;
-use geezipx_core::archive::wim::WimWriter;
 use geezipx_core::archive::zip::ZipWriter;
 use geezipx_core::archive::ArchiveWriter;
 use geezipx_core::config::{CompressOptions, SevenZipOptions};
@@ -118,7 +117,6 @@ pub async fn compress_archive(
         let emitter = emitter.clone();
         let cancel_token = cancel_token.clone();
         let out = output.clone();
-        let recursive = recursive;
         spawn_blocking(move || {
             let task_result = (|| -> Result<CompressArchiveResult, String> {
                 let out_dir = match out.parent() {
@@ -282,7 +280,7 @@ pub async fn compress_archive(
 
 // ---------------------------------------------------------------------------
 /// Parse a format string accepted by the GUI compress command.
-fn parse_gui_compress_format(s: &str) -> Result<ArchiveFormat, String> {
+pub(crate) fn parse_gui_compress_format(s: &str) -> Result<ArchiveFormat, String> {
     match s.to_ascii_lowercase().as_str() {
         "zip" | "zipx" => Ok(ArchiveFormat::Zip),
         "tar" => Ok(ArchiveFormat::Tar),
@@ -334,6 +332,7 @@ fn parse_gui_compress_format(s: &str) -> Result<ArchiveFormat, String> {
         "7z" => Ok(ArchiveFormat::SevenZip),
         "lzh" | "lha" => Ok(ArchiveFormat::Lzh),
         "iso" => Ok(ArchiveFormat::Iso),
+        #[cfg(feature = "zpaq")]
         "zpaq" => Ok(ArchiveFormat::Zpaq),
         "wim" | "swm" => Err(
             "wim writing is not supported; use list, test, or decompress for read-only wim support"
@@ -473,7 +472,7 @@ fn collect_dir_contents(
     Ok(())
 }
 /// Create an `ArchiveWriter` for the given format and output file.
-fn create_gui_writer(
+pub(crate) fn create_gui_writer(
     file: fs::File,
     format: ArchiveFormat,
     options: CompressOptions,
@@ -554,7 +553,6 @@ fn create_gui_writer(
                 Err("'zpaq' support is disabled in this build; rebuild with --features zpaq".to_string())
             }
         }
-        ArchiveFormat::Wim => Ok(Box::new(WimWriter::new(file))),
         ArchiveFormat::Cab => Err(
             "cab writing is not supported; use list, test, or decompress for read-only cab support"
                 .to_string(),

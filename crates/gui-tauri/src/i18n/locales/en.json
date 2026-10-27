@@ -17,7 +17,21 @@
     "error": "Error",
     "cancel": "Cancel",
     "close": "Close",
-    "addFiles": "Add Files"
+    "addFiles": "Add Files",
+    "addFolders": "Add Folders"
+  },
+  "tasks": {
+    "choose": "Choose a task",
+    "compress": "Compression",
+    "extract": "Extraction",
+    "choice": "{{kind}} {{number}} · {{status}}",
+    "status": {
+      "pending": "Preparing",
+      "running": "Running",
+      "finished": "Completed",
+      "cancelled": "Cancelled",
+      "failed": "Failed"
+    }
   },
   "home": {
     "createArchive": "Create Archive",
@@ -37,7 +51,7 @@
   },
   "compress": {
     "sourceFiles": "Source Files",
-    "sourcePlaceholder": "Drag files here or click to browse",
+    "sourcePlaceholder": "Drop files or folders here, or click to browse files",
     "format": "Format",
     "level": "Level",
     "levelPlaceholder": "Auto",
@@ -75,9 +89,18 @@
     "promptSkip": "Skip",
     "promptOverwrite": "Overwrite"
   },
+  "archivePassword": {
+    "title": "Password required",
+    "description": "Enter the password to open {{archive}}.",
+    "label": "Password",
+    "placeholder": "Archive password",
+    "incorrect": "The password is incorrect. Try again.",
+    "submit": "Unlock",
+    "unlocking": "Unlocking..."
+  },
   "tab": {
     "close": "Close",
-    "closeConfirmRunning": "An operation is in progress. Closing this tab will hide the progress but the operation will continue.",
+    "closeConfirmRunning": "An operation is in progress. It will continue after this tab closes, and its progress will remain available.",
     "closeConfirmTitle": "Close Tab"
   },
   "browser": {
@@ -165,6 +188,20 @@
       "bind": "Bind",
       "setDefault": "Set as default",
       "openSettings": "Open system settings"
+    },
+    "shellMenu": {
+      "parentLabel": "GeeZipX",
+      "label": "Right-click Menu",
+      "help": "Show GeeZipX actions in the Windows Explorer right-click menu. Changes take effect immediately after saving.",
+      "win11Hint": "On Windows 11 these entries appear under \"Show more options\" (Shift+F10 or Shift+right-click).",
+      "enabled": "Enable right-click menu",
+      "verbs": {
+        "extract": "Extract to…",
+        "extract_here": "Extract here",
+        "compress_zip": "Compress as ZIP",
+        "compress": "Compress as…"
+      },
+      "saveError": "Failed to apply right-click menu settings. Please try again."
     },
     "reset": "Reset to defaults",
     "dirty": "Unsaved changes",

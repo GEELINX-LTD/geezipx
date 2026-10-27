@@ -4,14 +4,16 @@
   import { listen, getShellAction, getOpenedArchives, extractArchive, compressArchive } from './bridge';
   import type { TaskProgressPayload, ShellActionPayload } from './bridge';
   import { getCurrentWindow } from '@tauri-apps/api/window';
+  import { basename, dirname, join } from '@tauri-apps/api/path';
   import { appStore } from './stores/appStore.svelte';
   import { taskStore } from './stores/taskStore.svelte';
-  import { archiveStore, archiveManager } from './stores/archiveStore.svelte';
+  import { archiveManager } from './stores/archiveStore.svelte';
   import { toastStore } from './stores/toastStore.svelte.ts';
   import { settingsStore } from './stores/settingsStore.svelte';
   import TabBar from './components/TabBar.svelte';
   import DropOverlay from './components/DropOverlay.svelte';
   import ToastContainer from './components/ToastContainer.svelte';
+  import ProgressDialog from './components/ProgressDialog.svelte';
   import HomePage from './pages/HomePage.svelte';
   import CompressPage from './pages/CompressPage.svelte';
   import ExtractPage from './pages/ExtractPage.svelte';
@@ -68,17 +70,31 @@
 
       // ── "解压缩到当前文件夹" — smart extract ──
       case 'extract-here': {
-        const { tabId, label } = await archiveManager.openArchive(payload.paths[0]);
-        appStore.addArchiveTab(tabId, label, payload.paths[0]);
+        const archivePath = payload.paths[0];
+        const { tabId, label } = await archiveManager.openArchive(archivePath);
+        appStore.addArchiveTab(tabId, label, archivePath);
         appStore.switchTab(tabId);
+
+        // A password challenge is resolved by the fixed tab that started this action.
+        // Cancelling or closing that tab resolves false and skips extraction.
+        const opened = await archiveManager.waitForOpenResult(tabId, archivePath);
+        const tab = archiveManager.tabs.get(tabId);
+        if (!opened || !tab || tab.archivePath !== archivePath) break;
+
         // suggestedOutputDir handles the smart logic: single top-level folder →
         // extract to parent; scattered → create folder named after archive.
-        const outputDir = archiveStore.suggestedOutputDir;
-        const taskId = `extract-${Date.now()}`;
-        taskStore.startTask(taskId, 'extract');
+        const outputDir = tab.suggestedOutputDir;
+        const taskId = taskStore.startTask('extract');
         try {
-          const res = await extractArchive(payload.paths[0], outputDir, true, undefined, taskId);
-          taskStore.finishTask('finished');
+          const res = await extractArchive(
+            tab.archivePath,
+            outputDir,
+            true,
+            tab.archivePassword || undefined,
+            taskId,
+          );
+          const status = taskStore.finishTask(taskId, 'finished');
+          if (status === 'cancelled' || status === 'failed') return;
           toastStore.show(
             `Extracted ${res.files_extracted} file(s) to ${outputDir}`,
             'success',
@@ -86,7 +102,8 @@
           );
         } catch (e: unknown) {
           const msg = e instanceof Error ? e.message : String(e);
-          taskStore.finishTask('failed', msg);
+          const status = taskStore.finishTask(taskId, 'failed', msg);
+          if (status === 'cancelled') return;
           toastStore.show(`Extraction failed: ${msg}`, 'error');
         }
         break;
@@ -95,22 +112,18 @@
       // ── "压缩为 ZIP" — headless one-click ZIP ──
       case 'compress-zip': {
         const first = payload.paths[0];
-        const isSingle = payload.paths.length === 1;
-        const sep = first.includes('\\') ? '\\' : '/';
-        const parentDir = first.substring(0, first.lastIndexOf(sep) + 1) || './';
-        const baseName = isSingle
-          ? (first.replace(/\/$/, '').split(/[/\\]/).pop() || 'archive')
-          : 'archive';
-        const outputPath = parentDir + baseName + '.zip';
-
-        // Honour the user's saved compression defaults.
-        const [level, rec] = await Promise.all([
-          settingsStore.get('default_level'),
-          settingsStore.get('recursive'),
-        ]);
-        const taskId = `compress-${Date.now()}`;
-        taskStore.startTask(taskId, 'compress');
+        const taskId = taskStore.startTask('compress');
         try {
+          // Resolve native paths and saved defaults inside the task's error boundary.
+          const [level, rec, defaultOutputDir] = await Promise.all([
+            settingsStore.get('default_level'),
+            settingsStore.get('recursive'),
+            settingsStore.get('default_output_dir'),
+          ]);
+          const baseName = payload.paths.length === 1 ? (await basename(first) || 'archive') : 'archive';
+          const parentDir = defaultOutputDir || await dirname(first);
+          const outputName = `${baseName}.zip`;
+          const outputPath = await join(parentDir, outputName);
           const res = await compressArchive(
             payload.paths,
             outputPath,
@@ -121,15 +134,17 @@
             rec ?? true,
             taskId,
           );
-          taskStore.finishTask('finished');
+          const status = taskStore.finishTask(taskId, 'finished');
+          if (status === 'cancelled' || status === 'failed') return;
           toastStore.show(
-            `Compressed ${res.files_added} file(s) → ${outputPath.split(/[/\\]/).pop()}`,
+            `Compressed ${res.files_added} file(s) → ${outputName}`,
             'success',
             5000,
           );
         } catch (e: unknown) {
           const msg = e instanceof Error ? e.message : String(e);
-          taskStore.finishTask('failed', msg);
+          const status = taskStore.finishTask(taskId, 'failed', msg);
+          if (status === 'cancelled') return;
           toastStore.show(`Compression failed: ${msg}`, 'error');
         }
         break;
@@ -167,7 +182,6 @@
         if (archiveManager.tabOrder.length > 0) {
           const lastId = archiveManager.tabOrder[archiveManager.tabOrder.length - 1];
           appStore.switchTab(lastId);
-          archiveManager.setActive(lastId);
         } else {
           appStore.switchTab('extract');
         }
@@ -245,6 +259,7 @@
       </div>
     {/key}
   </main>
+  <ProgressDialog />
   <ToastContainer />
 </div>
 

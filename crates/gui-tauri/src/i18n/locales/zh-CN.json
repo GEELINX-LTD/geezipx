@@ -17,7 +17,21 @@
     "error": "错误",
     "cancel": "取消",
     "close": "关闭",
-    "addFiles": "添加文件"
+    "addFiles": "添加文件",
+    "addFolders": "添加文件夹"
+  },
+  "tasks": {
+    "choose": "选择任务",
+    "compress": "压缩任务",
+    "extract": "解压任务",
+    "choice": "{{kind}} {{number}} · {{status}}",
+    "status": {
+      "pending": "准备中",
+      "running": "进行中",
+      "finished": "已完成",
+      "cancelled": "已取消",
+      "failed": "失败"
+    }
   },
   "home": {
     "createArchive": "创建归档",
@@ -37,7 +51,7 @@
   },
   "compress": {
     "sourceFiles": "源文件",
-    "sourcePlaceholder": "将文件拖到这里或点击浏览",
+    "sourcePlaceholder": "将文件或文件夹拖到这里，或点击浏览文件",
     "format": "格式",
     "level": "压缩级别",
     "levelPlaceholder": "自动",
@@ -75,9 +89,18 @@
     "promptSkip": "跳过",
     "promptOverwrite": "覆盖"
   },
+  "archivePassword": {
+    "title": "需要密码",
+    "description": "请输入密码以打开 {{archive}}。",
+    "label": "密码",
+    "placeholder": "归档密码",
+    "incorrect": "密码不正确，请重试。",
+    "submit": "解锁",
+    "unlocking": "正在解锁..."
+  },
   "tab": {
     "close": "关闭",
-    "closeConfirmRunning": "当前有任务正在进行中。关闭标签页将隐藏进度，但任务将继续在后台运行。",
+    "closeConfirmRunning": "当前有任务正在进行中。关闭标签页后任务将继续运行，仍可查看任务进度。",
     "closeConfirmTitle": "关闭标签页"
   },
   "browser": {
@@ -158,13 +181,27 @@
     "fileAssociations": {
       "label": "文件关联",
       "help": "绑定归档格式，使操作系统默认用 GeeZipX 打开它们。开启某个格式后，双击文件即可在此打开。",
-      "windowsNote": "Windows 不允许程序自行设为默认打开程序。请先开启某个格式，再点击“设为默认”在系统设置中完成绑定。",
+      "windowsNote": "Windows 不允许程序自行设为默认打开程序。请先开启某个格式，再点击\u201c设为默认\u201d在系统设置中完成绑定。",
       "default": "默认程序",
       "registered": "已注册",
       "notBound": "未绑定",
       "bind": "绑定",
       "setDefault": "设为默认",
       "openSettings": "打开系统设置"
+    },
+    "shellMenu": {
+      "parentLabel": "GeeZipX",
+      "label": "右键菜单",
+      "help": "在 Windows 资源管理器右键菜单中显示 GeeZipX 操作。保存后立即生效。",
+      "win11Hint": "在 Windows 11 中，这些菜单项位于\u201c显示更多选项\u201d中（Shift+F10 或 Shift+右键）。",
+      "enabled": "启用右键菜单",
+      "verbs": {
+        "extract": "解压缩到…",
+        "extract_here": "解压缩到当前文件夹",
+        "compress_zip": "压缩为 ZIP",
+        "compress": "压缩为…"
+      },
+      "saveError": "应用右键菜单设置失败，请重试。"
     },
     "reset": "恢复默认",
     "dirty": "有未保存的更改",

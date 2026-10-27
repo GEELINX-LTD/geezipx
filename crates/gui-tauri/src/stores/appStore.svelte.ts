@@ -1,5 +1,7 @@
 // Global application state store using Svelte 5 module-level $state runes.
 
+import { archiveManager } from './archiveStore.svelte';
+
 const STORAGE_KEY = 'geezipx-recent';
 const MAX_RECENT = 20;
 
@@ -20,6 +22,9 @@ let archiveTabs = $state.raw<{ id: string; label: string; tooltip: string }[]>([
 // --- Functions ---
 
 function switchTab(tab: string): void {
+  if (archiveManager.tabs.has(tab)) {
+    archiveManager.setActive(tab);
+  }
   activeTab = tab;
 }
 
@@ -28,6 +33,12 @@ function addArchiveTab(id: string, label: string, tooltip: string): void {
   if (!exists) {
     archiveTabs = [...archiveTabs, { id, label, tooltip }];
   }
+}
+
+function updateArchiveTab(id: string, label: string, tooltip: string): void {
+  archiveTabs = archiveTabs.map((tab) =>
+    tab.id === id ? { ...tab, label, tooltip } : tab
+  );
 }
 
 function removeArchiveTab(id: string): void {
@@ -132,6 +143,7 @@ export const appStore = {
   },
   switchTab,
   addArchiveTab,
+  updateArchiveTab,
   removeArchiveTab,
   setDropActive,
   setPendingSourcePaths,

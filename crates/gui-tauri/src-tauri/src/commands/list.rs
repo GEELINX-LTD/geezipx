@@ -152,93 +152,64 @@ pub(crate) fn open_reader(
         _ => {}
     }
 
-    match format {
-        ArchiveFormat::Zip => {
-            let file = fs::File::open(path)
-                .map_err(|e| format!("Cannot open '{}': {}", path.display(), e))?;
+    let factory = reader_factory(format)
+        .ok_or_else(|| format!("Unsupported format for reading in GUI: {format}"))?;
+    factory(path, password)
+}
+
+type ReaderFactory = fn(&Path, Option<&str>) -> Result<Box<dyn ArchiveReader>, String>;
+
+/// The capability table and reader command share this constructor registry.
+pub(crate) fn supports_gui_read(format: ArchiveFormat) -> bool {
+    reader_factory(format).is_some()
+}
+
+fn archive_file(path: &Path) -> Result<fs::File, String> {
+    fs::File::open(path).map_err(|e| format!("Cannot open '{}': {e}", path.display()))
+}
+
+fn reader_factory(format: ArchiveFormat) -> Option<ReaderFactory> {
+    Some(match format {
+        ArchiveFormat::Zip => |path, password| {
             let mut reader =
-                Box::new(ZipReader::new(file).map_err(|e| format!("Cannot open ZIP: {}", e))?);
+                ZipReader::new(archive_file(path)?).map_err(|e| format!("Cannot open ZIP: {e}"))?;
             if let Some(pwd) = password {
                 reader.set_password(pwd);
             }
-            Ok(reader)
-        }
-        ArchiveFormat::SevenZip => {
-            let mut reader = Box::new(SevenZipReader::new(path));
+            Ok(Box::new(reader))
+        },
+        ArchiveFormat::SevenZip => |path, password| {
+            let mut reader = SevenZipReader::new(path);
             if let Some(pwd) = password {
                 reader.set_password(pwd);
             }
-            Ok(reader)
-        }
-        ArchiveFormat::Asar => Ok(Box::new(AsarReader::new(path))),
-        ArchiveFormat::Cab => Ok(Box::new(CabReader::new(path))),
-        ArchiveFormat::Cpio => Ok(Box::new(CpioReader::new(path))),
-        ArchiveFormat::Deb => {
-            let file = fs::File::open(path)
-                .map_err(|e| format!("Cannot open '{}': {}", path.display(), e))?;
-            Ok(Box::new(DebReader::new(file)))
-        }
-        ArchiveFormat::Lzh => {
-            let file = fs::File::open(path)
-                .map_err(|e| format!("Cannot open '{}': {}", path.display(), e))?;
-            Ok(Box::new(LzhReader::new(file)))
-        }
-        ArchiveFormat::Iso => {
-            let file = fs::File::open(path)
-                .map_err(|e| format!("Cannot open '{}': {}", path.display(), e))?;
-            Ok(Box::new(IsoReader::new(file)))
-        }
+            Ok(Box::new(reader))
+        },
+        ArchiveFormat::Asar => |path, _| Ok(Box::new(AsarReader::new(path))),
+        ArchiveFormat::Cab => |path, _| Ok(Box::new(CabReader::new(path))),
+        ArchiveFormat::Cpio => |path, _| Ok(Box::new(CpioReader::new(path))),
+        ArchiveFormat::Deb => |path, _| Ok(Box::new(DebReader::new(archive_file(path)?))),
+        ArchiveFormat::Lzh => |path, _| Ok(Box::new(LzhReader::new(archive_file(path)?))),
+        ArchiveFormat::Iso => |path, _| Ok(Box::new(IsoReader::new(archive_file(path)?))),
         #[cfg(feature = "zpaq")]
-        ArchiveFormat::Zpaq => Ok(Box::new(ZpaqReader::new(path))),
-        #[cfg(not(feature = "zpaq"))]
-        ArchiveFormat::Zpaq => Err("'zpaq' support is disabled in this build".to_owned()),
-        ArchiveFormat::Tar => {
-            let file = fs::File::open(path)
-                .map_err(|e| format!("Cannot open '{}': {}", path.display(), e))?;
-            Ok(Box::new(TarReader::new(file)))
-        }
-        ArchiveFormat::TarGz => {
-            let file = fs::File::open(path)
-                .map_err(|e| format!("Cannot open '{}': {}", path.display(), e))?;
-            Ok(Box::new(TarGzReader::new(file)))
-        }
-        ArchiveFormat::TarBz2 => {
-            let file = fs::File::open(path)
-                .map_err(|e| format!("Cannot open '{}': {}", path.display(), e))?;
-            Ok(Box::new(TarBz2Reader::new(file)))
-        }
-        ArchiveFormat::TarBr => {
-            let file = fs::File::open(path)
-                .map_err(|e| format!("Cannot open '{}': {}", path.display(), e))?;
-            Ok(Box::new(TarBrReader::new(file)))
-        }
-        ArchiveFormat::TarLz4 => {
-            let file = fs::File::open(path)
-                .map_err(|e| format!("Cannot open '{}': {}", path.display(), e))?;
-            Ok(Box::new(TarLz4Reader::new(file)))
-        }
-        ArchiveFormat::TarZst => {
-            let file = fs::File::open(path)
-                .map_err(|e| format!("Cannot open '{}': {}", path.display(), e))?;
-            Ok(Box::new(TarZstReader::new(file)))
-        }
-        ArchiveFormat::TarXz => {
-            let file = fs::File::open(path)
-                .map_err(|e| format!("Cannot open '{}': {}", path.display(), e))?;
-            Ok(Box::new(TarXzReader::new(file)))
-        }
+        ArchiveFormat::Zpaq => |path, _| Ok(Box::new(ZpaqReader::new(path))),
+        ArchiveFormat::Tar => |path, _| Ok(Box::new(TarReader::new(archive_file(path)?))),
+        ArchiveFormat::TarGz => |path, _| Ok(Box::new(TarGzReader::new(archive_file(path)?))),
+        ArchiveFormat::TarBz2 => |path, _| Ok(Box::new(TarBz2Reader::new(archive_file(path)?))),
+        ArchiveFormat::TarBr => |path, _| Ok(Box::new(TarBrReader::new(archive_file(path)?))),
+        ArchiveFormat::TarLz4 => |path, _| Ok(Box::new(TarLz4Reader::new(archive_file(path)?))),
+        ArchiveFormat::TarZst => |path, _| Ok(Box::new(TarZstReader::new(archive_file(path)?))),
+        ArchiveFormat::TarXz => |path, _| Ok(Box::new(TarXzReader::new(archive_file(path)?))),
         #[cfg(feature = "rar")]
-        ArchiveFormat::Rar => {
-            let mut reader = Box::new(RarReader::new(path));
+        ArchiveFormat::Rar => |path, password| {
+            let mut reader = RarReader::new(path);
             if let Some(pwd) = password {
-                // set_password returns GeeZipResult — discard on purpose
-                // (password support is best-effort for RAR).
                 let _ = reader.set_password(pwd);
             }
-            Ok(reader)
-        }
-        _ => Err(format!("Unsupported format for reading: {format}")),
-    }
+            Ok(Box::new(reader))
+        },
+        _ => return None,
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -423,11 +394,11 @@ mod tests {
             push_newc_hex(out, 0, 8);
             out.extend_from_slice(path.as_bytes());
             out.push(0);
-            while out.len() % 4 != 0 {
+            while !out.len().is_multiple_of(4) {
                 out.push(0);
             }
             out.extend_from_slice(data);
-            while out.len() % 4 != 0 {
+            while !out.len().is_multiple_of(4) {
                 out.push(0);
             }
         }
