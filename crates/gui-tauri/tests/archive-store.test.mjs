@@ -118,6 +118,36 @@ for (const [path, expected] of [['/a.zip', '/a'], ['/tmp/disc.iso', '/tmp/disc']
   });
 }
 
+for (const [name, entries] of [
+  ['explicit 7z directory before its children', [entry('folder', true), entry('folder/file.txt')]],
+  ['explicit 7z directory after its children', [entry('folder/file.txt'), entry('folder', true)]],
+  ['ZIP-style trailing directory slash', [entry('folder/', true), entry('folder/file.txt')]],
+  ['Windows archive entry separators', [entry('folder', true), entry('folder\\nested\\file.txt')]],
+  ['an empty explicit directory', [entry('folder', true)]],
+]) {
+  test(`single-root extraction avoids another folder for ${name}`, async () => {
+    const { archiveManager: manager } = await browser({
+      listArchiveStream: async (_path, chunk) => chunk({ entries, total_entries: entries.length }),
+    });
+    const tab = await opened(manager, 'C:\\data\\folder.7z');
+    assert.equal(tab.suggestedOutputDir, 'C:\\data\\');
+  });
+}
+
+for (const [name, entries] of [
+  ['multiple roots sharing a partial prefix', [entry('folder', true), entry('folder/file.txt'), entry('folder-other/file.txt')]],
+  ['a loose file beside the root directory', [entry('folder', true), entry('folder/file.txt'), entry('readme.txt')]],
+  ['a bare file cannot stand in for a root directory', [entry('folder'), entry('folder/file.txt')]],
+]) {
+  test(`extraction creates a containing folder for ${name}`, async () => {
+    const { archiveManager: manager } = await browser({
+      listArchiveStream: async (_path, chunk) => chunk({ entries, total_entries: entries.length }),
+    });
+    const tab = await opened(manager, 'C:\\data\\archive.7z');
+    assert.equal(tab.suggestedOutputDir, 'C:\\data\\archive');
+  });
+}
+
 test('password retries preserve the committed archive and cancellation resolves waiters', async () => {
   const { archiveManager: manager } = await browser({
     listArchiveStream: async (path, chunk, password) => {
