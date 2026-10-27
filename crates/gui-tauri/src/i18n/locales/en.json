@@ -17,7 +17,8 @@
     "error": "Error",
     "cancel": "Cancel",
     "close": "Close",
-    "addFiles": "Add Files"
+    "addFiles": "Add Files",
+    "addFolders": "Add Folders"
   },
   "home": {
     "createArchive": "Create Archive",
@@ -37,7 +38,7 @@
   },
   "compress": {
     "sourceFiles": "Source Files",
-    "sourcePlaceholder": "Drag files here or click to browse",
+    "sourcePlaceholder": "Drop files or folders here, or click to browse files",
     "format": "Format",
     "level": "Level",
     "levelPlaceholder": "Auto",
