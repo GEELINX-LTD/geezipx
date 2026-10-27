@@ -20,6 +20,11 @@ rust-version = "1.96"
 [workspace.dependencies]
 geezipx-core = { version = "0.7.4", path = "crates/core", default-features = false }
 
+[profile.release.package.geezipx-sfx-stub]
+opt-level = "z"
+strip = true
+codegen-units = 1
+
 [patch.crates-io]
 unrar_sys = { path = "crates/vendor/unrar-sys" }
 hadris-common = { path = "crates/vendor/hadris-common" }

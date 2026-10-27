@@ -2290,6 +2290,8 @@ dependencies = [
 name = "geezipx-sfx-stub"
 version = "0.7.4"
 dependencies = [
+ "cap-std",
+ "tempfile",
  "zip 2.4.2",
 ]
 
