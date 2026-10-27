@@ -113,7 +113,9 @@ impl XmlData {
 
         // Convert UTF-16LE bytes to a Rust String.
         let u16_data: Vec<u16> = raw[2..]
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .map(|c| u16::from_le_bytes([c[0], c[1]]))
             .collect();
         let xml_str = String::from_utf16(&u16_data).map_err(|e| {
