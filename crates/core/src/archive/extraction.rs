@@ -192,6 +192,23 @@ mod tests {
     use super::*;
 
     #[test]
+    fn rejects_drive_relative_paths_before_creating_output() {
+        let dir = tempfile::tempdir().unwrap();
+        let output = ExtractionDir::new(dir.path()).unwrap();
+        for name in ["C:evil.txt", "c:folder/evil.txt", "Z:", "C:/evil.txt"] {
+            assert!(matches!(
+                output.write_file(name, true, |_| panic!("unsafe entry must not be read")),
+                Err(GeeZipError::PathTraversal { .. })
+            ));
+            assert!(matches!(
+                output.create_dir(name),
+                Err(GeeZipError::PathTraversal { .. })
+            ));
+        }
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);
+    }
+
+    #[test]
     fn failed_and_cancelled_writes_preserve_existing_file() {
         let dir = tempfile::tempdir().unwrap();
         let target = dir.path().join("file.txt");

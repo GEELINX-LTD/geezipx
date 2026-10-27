@@ -331,15 +331,12 @@ pub(crate) fn normalize_path(path: &Path) -> std::path::PathBuf {
     result
 }
 
-fn looks_like_windows_absolute_or_unc(path: &str) -> bool {
+fn has_windows_path_prefix(path: &str) -> bool {
     let path = path.replace('/', "\\");
     let bytes = path.as_bytes();
 
     path.starts_with("\\\\")
-        || (bytes.len() >= 3
-            && bytes[0].is_ascii_alphabetic()
-            && bytes[1] == b':'
-            && bytes[2] == b'\\')
+        || (bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':')
 }
 
 /// Check whether extracting `entry_path` under `dest` would escape the
@@ -365,7 +362,7 @@ pub fn check_entry_path_safety(
 
     // Also reject Windows drive-prefixed / UNC / device-prefixed paths even
     // when running on a non-Windows host.
-    if looks_like_windows_absolute_or_unc(entry_name) {
+    if has_windows_path_prefix(entry_name) {
         return Err((
             entry_name.to_owned(),
             GeeZipError::PathTraversal {
@@ -432,7 +429,7 @@ pub fn check_entry_path_safety(
 ///
 /// Returns `true` if the path:
 /// - Is absolute (e.g. `/etc/passwd`, `C:\\foo`).
-/// - Starts with a Windows UNC / device prefix (`\\`).
+/// - Starts with a Windows drive, UNC or device prefix (including `C:foo`).
 /// - Normalises to a path that escapes the current directory
 ///   (e.g. `../evil.txt`, `foo/../../evil.txt`).
 ///
@@ -446,7 +443,7 @@ pub fn is_entry_path_dangerous(path: &Path) -> bool {
 
     // Also reject Windows drive-prefixed / UNC / device-prefixed paths even
     // when running on a non-Windows host.
-    if looks_like_windows_absolute_or_unc(&path.to_string_lossy()) {
+    if has_windows_path_prefix(&path.to_string_lossy()) {
         return true;
     }
 
