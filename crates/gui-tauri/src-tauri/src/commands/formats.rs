@@ -1,373 +1,148 @@
-//! `get_formats` command — return the list of supported archive formats.
+//! `get_formats` reports the capabilities of this GUI build.
+//!
+//! Core/CLI support is broader. Creation follows the GUI command parser and
+//! extraction follows the same reader factory used by list/extract/preview.
 
+use geezipx_core::detect::ArchiveFormat;
 use serde::Serialize;
 
-/// Information about a single archive/compression format.
+use super::compress::parse_gui_compress_format;
+use super::list::supports_gui_read;
+
+/// Information about a format available to the desktop bridge.
 #[derive(Debug, Serialize)]
 pub struct FormatInfo {
-    /// Machine-readable format name (e.g. `"zip"`, `"tar.gz"`, `"7z"`).
     pub name: String,
     pub can_compress: bool,
     pub can_decompress: bool,
-    /// Whether this format supports password/encryption.
     pub supports_encryption: bool,
-    /// Human-readable level hint (e.g. "6 (0-9)"), or None if not applicable.
     pub level_hint: Option<String>,
 }
 
-/// Return the list of all formats supported by the GeeZipX engine.
-///
-/// This is a no-argument introspection command that the frontend can call
-/// at startup to populate format selectors.
+/// Report actual GUI capabilities, including features enabled in this build.
 #[tauri::command]
 pub fn get_formats() -> Vec<FormatInfo> {
-    let formats = vec![
-        FormatInfo {
-            name: "zip".into(),
-            can_compress: true,
-            can_decompress: true,
-            supports_encryption: true,
-            level_hint: Some("6 (0-9)".into()),
-        },
-        FormatInfo {
-            name: "zipx".into(),
-            can_compress: true,
-            can_decompress: true,
-            supports_encryption: true,
-            level_hint: Some("6 (0-9)".into()),
-        },
-        FormatInfo {
-            name: "tar".into(),
-            can_compress: true,
-            can_decompress: true,
-            supports_encryption: false,
-            level_hint: None,
-        },
-        FormatInfo {
-            name: "tar.gz".into(),
-            can_compress: true,
-            can_decompress: true,
-            supports_encryption: false,
-            level_hint: Some("6 (0-9)".into()),
-        },
-        FormatInfo {
-            name: "gzip".into(),
-            can_compress: false,
-            can_decompress: true,
-            supports_encryption: false,
-            level_hint: Some("6 (0-9)".into()),
-        },
-        FormatInfo {
-            name: "bzip2".into(),
-            can_compress: false,
-            can_decompress: true,
-            supports_encryption: false,
-            level_hint: Some("9 (1-9)".into()),
-        },
-        FormatInfo {
-            name: "tar.bz2".into(),
-            can_compress: true,
-            can_decompress: true,
-            supports_encryption: false,
-            level_hint: Some("9 (1-9)".into()),
-        },
-        FormatInfo {
-            name: "brotli".into(),
-            can_compress: false,
-            can_decompress: true,
-            supports_encryption: false,
-            level_hint: Some("11 (0-11)".into()),
-        },
-        FormatInfo {
-            name: "tar.br".into(),
-            can_compress: true,
-            can_decompress: true,
-            supports_encryption: false,
-            level_hint: Some("11 (0-11)".into()),
-        },
-        FormatInfo {
-            name: "lz4".into(),
-            can_compress: false,
-            can_decompress: true,
-            supports_encryption: false,
-            level_hint: None,
-        },
-        FormatInfo {
-            name: "tar.lz4".into(),
-            can_compress: true,
-            can_decompress: true,
-            supports_encryption: false,
-            level_hint: None,
-        },
-        FormatInfo {
-            name: "zstd".into(),
-            can_compress: false,
-            can_decompress: true,
-            supports_encryption: false,
-            level_hint: Some("3 (1-22)".into()),
-        },
-        FormatInfo {
-            name: "tar.zst".into(),
-            can_compress: true,
-            can_decompress: true,
-            supports_encryption: false,
-            level_hint: Some("3 (1-22)".into()),
-        },
-        FormatInfo {
-            name: "xz".into(),
-            can_compress: false,
-            can_decompress: true,
-            supports_encryption: false,
-            level_hint: Some("6 (0-9)".into()),
-        },
-        FormatInfo {
-            name: "tar.xz".into(),
-            can_compress: true,
-            can_decompress: true,
-            supports_encryption: false,
-            level_hint: Some("6 (0-9)".into()),
-        },
-        FormatInfo {
-            name: "lzma".into(),
-            can_compress: false,
-            can_decompress: true,
-            supports_encryption: false,
-            level_hint: Some("6 (0-9)".into()),
-        },
-        FormatInfo {
-            name: "lz".into(),
-            can_compress: true,
-            can_decompress: true,
-            supports_encryption: false,
-            level_hint: Some("6 (0-9)".into()),
-        },
-        FormatInfo {
-            name: "7z".into(),
-            can_compress: true,
-            can_decompress: true,
-            supports_encryption: true,
-            level_hint: None,
-        },
-        FormatInfo {
-            name: "rar".into(),
-            can_compress: false,
-            can_decompress: true,
-            supports_encryption: true,
-            level_hint: None,
-        },
-        FormatInfo {
-            name: "cab".into(),
-            can_compress: true,
-            can_decompress: true,
-            supports_encryption: false,
-            level_hint: None,
-        },
-        FormatInfo {
-            name: "asar".into(),
-            can_compress: true,
-            can_decompress: true,
-            supports_encryption: false,
-            level_hint: None,
-        },
-        FormatInfo {
-            name: "deb".into(),
-            can_compress: false,
-            can_decompress: true,
-            supports_encryption: false,
-            level_hint: None,
-        },
-        FormatInfo {
-            name: "lzh".into(),
-            can_compress: true,
-            can_decompress: true,
-            supports_encryption: false,
-            level_hint: Some("2 (0-4)".into()),
-        },
-        FormatInfo {
-            name: "iso".into(),
-            can_compress: true,
-            can_decompress: true,
-            supports_encryption: false,
-            level_hint: None,
-        },
-        FormatInfo {
-            name: "udf".into(),
-            can_compress: true,
-            can_decompress: true,
-            supports_encryption: false,
-            level_hint: None,
-        },
-        FormatInfo {
-            name: "isz".into(),
-            can_compress: true,
-            can_decompress: true,
-            supports_encryption: false,
-            level_hint: Some("6 (0-9)".into()),
-        },
-        FormatInfo {
-            name: "cpio".into(),
-            can_compress: true,
-            can_decompress: true,
-            supports_encryption: false,
-            level_hint: None,
-        },
+    use ArchiveFormat as Af;
+    let mut catalog = vec![
+        ("zip", Af::Zip, true, Some("6 (0-9)")),
+        ("zipx", Af::Zip, true, Some("6 (0-9)")),
+        ("tar", Af::Tar, false, None),
+        ("tar.gz", Af::TarGz, false, Some("6 (0-9)")),
+        ("gzip", Af::Gzip, false, Some("6 (0-9)")),
+        ("bzip2", Af::Bzip2, false, Some("9 (1-9)")),
+        ("tar.bz2", Af::TarBz2, false, Some("9 (1-9)")),
+        ("brotli", Af::Brotli, false, Some("11 (0-11)")),
+        ("tar.br", Af::TarBr, false, Some("11 (0-11)")),
+        ("lz4", Af::Lz4, false, None),
+        ("tar.lz4", Af::TarLz4, false, None),
+        ("zstd", Af::Zstd, false, Some("3 (1-22)")),
+        ("tar.zst", Af::TarZst, false, Some("3 (1-22)")),
+        ("xz", Af::Xz, false, Some("6 (0-9)")),
+        ("tar.xz", Af::TarXz, false, Some("6 (0-9)")),
+        ("lzma", Af::Lzma, false, Some("6 (0-9)")),
+        ("lz", Af::Lz, false, Some("6 (0-9)")),
+        ("7z", Af::SevenZip, true, None),
+        ("rar", Af::Rar, true, None),
+        ("cab", Af::Cab, false, None),
+        ("asar", Af::Asar, false, None),
+        ("deb", Af::Deb, false, None),
+        ("lzh", Af::Lzh, false, Some("2 (0-4)")),
+        ("iso", Af::Iso, false, None),
+        ("udf", Af::Udf, false, None),
+        ("isz", Af::Isz, false, Some("6 (0-9)")),
+        ("cpio", Af::Cpio, false, None),
+        ("arj", Af::Arj, false, None),
+        ("ace", Af::Ace, false, None),
+        ("arc", Af::Arc, false, None),
+        ("z", Af::Z, false, None),
+        ("alz", Af::Alz, false, None),
+        ("uu", Af::Uu, false, None),
+        ("xxe", Af::Xxe, false, None),
     ];
-
-    #[cfg(feature = "zpaq")]
-    let formats = {
-        let mut formats = formats;
-        formats.push(FormatInfo {
-            name: "zpaq".into(),
-            can_compress: true,
-            can_decompress: true,
-            supports_encryption: false,
-            level_hint: None,
-        });
-        formats
-    };
-
-    #[cfg(feature = "wim")]
-    let formats = {
-        let mut formats = formats;
-        formats.push(FormatInfo {
-            name: "wim".into(),
-            can_compress: true,
-            can_decompress: true,
-            supports_encryption: false,
-            level_hint: None,
-        });
-        formats
-    };
-
-    // Retro/historical formats (read-only)
-    let mut formats = formats;
-    formats.push(FormatInfo {
-        name: "arj".into(),
-        can_compress: false,
-        can_decompress: true,
-        supports_encryption: false,
-        level_hint: None,
-    });
-    formats.push(FormatInfo {
-        name: "ace".into(),
-        can_compress: false,
-        can_decompress: true,
-        supports_encryption: false,
-        level_hint: None,
-    });
-    formats.push(FormatInfo {
-        name: "arc".into(),
-        can_compress: false,
-        can_decompress: true,
-        supports_encryption: false,
-        level_hint: None,
-    });
-    formats.push(FormatInfo {
-        name: "z".into(),
-        can_compress: false,
-        can_decompress: true,
-        supports_encryption: false,
-        level_hint: None,
-    });
-    formats.push(FormatInfo {
-        name: "alz".into(),
-        can_compress: false,
-        can_decompress: true,
-        supports_encryption: false,
-        level_hint: None,
-    });
-    formats.push(FormatInfo {
-        name: "uu".into(),
-        can_compress: true,
-        can_decompress: true,
-        supports_encryption: false,
-        level_hint: None,
-    });
-    formats.push(FormatInfo {
-        name: "xxe".into(),
-        can_compress: true,
-        can_decompress: true,
-        supports_encryption: false,
-        level_hint: None,
-    });
-    #[cfg(feature = "zpaq")]
-    formats
+    if cfg!(feature = "zpaq") {
+        catalog.push(("zpaq", Af::Zpaq, false, None));
+    }
+    if cfg!(feature = "wim") {
+        catalog.push(("wim", Af::Wim, false, None));
+    }
+    catalog
+        .into_iter()
+        .map(|(name, format, encryption, level)| {
+            let can_compress = parse_gui_compress_format(name).is_ok();
+            let can_decompress = supports_gui_read(format);
+            FormatInfo {
+                name: name.into(),
+                can_compress,
+                can_decompress,
+                supports_encryption: encryption && (can_compress || can_decompress),
+                level_hint: level.map(str::to_string),
+            }
+        })
+        .collect()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::commands::{compress::create_gui_writer, list::open_reader};
+    use geezipx_core::config::CompressOptions;
+    use std::{fs, io::Cursor};
 
     #[test]
-    fn get_formats_returns_expected_count() {
+    fn capabilities_reflect_this_gui_build() {
         let formats = get_formats();
-        let expected = if cfg!(feature = "zpaq") { 36 } else { 35 };
-        assert_eq!(formats.len(), expected, "unexpected supported format count");
-    }
-
-    #[test]
-    fn get_formats_zip_compress_decompress() {
-        let formats = get_formats();
-        let zip = formats.iter().find(|f| f.name == "zip").unwrap();
-        assert!(zip.can_compress);
-        assert!(zip.can_decompress);
-        assert!(zip.supports_encryption);
-        assert_eq!(zip.level_hint.as_deref(), Some("6 (0-9)"));
-    }
-
-    #[test]
-    fn get_formats_zipx_compress_decompress() {
-        let formats = get_formats();
-        let zipx = formats.iter().find(|f| f.name == "zipx").unwrap();
-        assert!(zipx.can_compress);
-        assert!(zipx.can_decompress);
-        assert!(zipx.supports_encryption);
-    }
-
-    #[test]
-    fn get_formats_seven_zip_compress_decompress() {
-        let formats = get_formats();
-        let sz = formats.iter().find(|f| f.name == "7z").unwrap();
-        assert!(sz.can_compress);
-        assert!(sz.can_decompress);
-        assert!(sz.supports_encryption);
-        assert!(sz.level_hint.is_none());
-    }
-
-    #[test]
-    fn get_formats_bzip2_decompress_only() {
-        let formats = get_formats();
-        let bz2 = formats.iter().find(|f| f.name == "bzip2").unwrap();
-        assert!(!bz2.can_compress);
-        assert!(bz2.can_decompress);
-        assert_eq!(bz2.level_hint.as_deref(), Some("9 (1-9)"));
-    }
-
-    #[test]
-    fn get_formats_tarbz2_compress_decompress() {
-        let formats = get_formats();
-        let tarbz2 = formats.iter().find(|f| f.name == "tar.bz2").unwrap();
-        assert!(tarbz2.can_compress);
-        assert!(tarbz2.can_decompress);
-        assert!(!tarbz2.supports_encryption);
-    }
-
-    #[test]
-    fn get_formats_tar_no_level() {
-        let formats = get_formats();
-        let tar = formats.iter().find(|f| f.name == "tar").unwrap();
-        assert!(tar.can_compress);
-        assert!(tar.can_decompress);
-        assert!(!tar.supports_encryption);
-        assert!(tar.level_hint.is_none());
-    }
-
-    #[test]
-    fn get_formats_rar_decompress_only() {
-        let formats = get_formats();
+        assert_eq!(
+            formats.len(),
+            34 + usize::from(cfg!(feature = "zpaq")) + usize::from(cfg!(feature = "wim"))
+        );
+        for name in [
+            "zip", "zipx", "tar", "tar.gz", "tar.bz2", "tar.br", "tar.lz4", "tar.zst", "tar.xz",
+            "7z", "lzh", "iso",
+        ] {
+            let format = formats.iter().find(|f| f.name == name).unwrap();
+            assert!(format.can_compress && format.can_decompress, "{name}");
+        }
+        for name in [
+            "gzip", "bzip2", "brotli", "lz4", "zstd", "xz", "lzma", "lz", "udf", "isz", "arj",
+            "ace", "arc", "z", "alz", "uu", "xxe",
+        ] {
+            let format = formats.iter().find(|f| f.name == name).unwrap();
+            assert!(!format.can_compress && !format.can_decompress, "{name}");
+        }
+        for name in ["cab", "asar", "deb", "cpio"] {
+            let format = formats.iter().find(|f| f.name == name).unwrap();
+            assert!(!format.can_compress && format.can_decompress, "{name}");
+        }
         let rar = formats.iter().find(|f| f.name == "rar").unwrap();
         assert!(!rar.can_compress);
-        assert!(rar.can_decompress);
-        assert!(rar.supports_encryption);
+        assert_eq!(rar.can_decompress, cfg!(feature = "rar"));
+        assert_eq!(rar.supports_encryption, cfg!(feature = "rar"));
+        if let Some(wim) = formats.iter().find(|f| f.name == "wim") {
+            assert!(!wim.can_compress && !wim.can_decompress);
+        }
+    }
+
+    #[test]
+    fn every_advertised_writer_round_trips_through_the_gui_reader() {
+        let temp = tempfile::tempdir().unwrap();
+        let content = b"GUI capability round trip\n";
+        for format in get_formats().into_iter().filter(|f| f.can_compress) {
+            let af = parse_gui_compress_format(&format.name).unwrap();
+            let path = temp.path().join(format!("sample.{}", format.name));
+            let file = fs::File::create(&path).unwrap();
+            let mut writer = create_gui_writer(file, af, CompressOptions::default())
+                .unwrap_or_else(|err| panic!("{}: {err}", format.name));
+            writer
+                .add_entry_from_reader(std::path::Path::new("hello.txt"), &mut Cursor::new(content))
+                .unwrap();
+            writer.finish().unwrap();
+            let mut reader =
+                open_reader(&path, af, None).unwrap_or_else(|err| panic!("{}: {err}", format.name));
+            let entries = reader.entries().unwrap();
+            let entry = entries.iter().find(|entry| !entry.is_dir).unwrap();
+            let mut output = Vec::new();
+            reader.extract(entry, &mut output).unwrap();
+            assert_eq!(output, content, "{}", format.name);
+        }
     }
 }

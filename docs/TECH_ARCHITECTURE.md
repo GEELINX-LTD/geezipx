@@ -441,6 +441,7 @@ crates/gui-tauri/
 当前接入要点：
 
 - GUI Rust 后端是 thin bridge：暴露 Tauri commands，调用 `geezipx-core`；
+- `get_formats` 只报告当前 GUI 桥接能力：创建标志使用 `parse_gui_compress_format`，读取标志和 `open_reader` 共用 `reader_factory`。可选 feature 关闭时不会误报支持，回归测试逐一验证所有标记可创建的格式能通过 GUI 读取工厂解出原内容。core/CLI 的完整格式清单独立维护。
 - 进度通过 `task:progress` 事件推送，文件关联/单实例通过 `opened-archives` 事件通知前端；
 - `list_archive_stream` — 流式归档条目列表（通过 Tauri IPC Channel 分批推送，500 条/块）；
 - 前端当前以 `src/main.ts` 为主，包含最近路径 chips、归档浏览器、任务状态管理；

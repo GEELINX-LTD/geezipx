@@ -26,12 +26,12 @@
 
 ### 3.1 支持的格式
 
-所有操作依赖 core 引擎，完整清单见 `docs/PRD.md` §5.1-5.2。
+所有操作复用 core 引擎，但 GUI 桥接的格式范围小于 core/CLI；core/CLI 完整清单见 `docs/PRD.md` §5.1-5.2。`get_formats` 依据 GUI 创建解析器和共享读取工厂报告当前构建的能力，界面据此筛选可选格式。
 
-- **完整读写**：ZIP（含 AES-256）、TAR 及其压缩变体（GZ/TGZ、BZ2/TBZ、BR、LZ4、XZ/TXZ、ZST/TZST）、GZ、BZ2、BR、LZ4、XZ、LZMA、LZ/Lzip、ZST、7z（AES-256）、CAB（MSZIP）、ASAR、DEB、CPIO（newc/odc）、LZH/LHA（lh0-lh7）、ISO、UDF、ZPAQ、WIM、ISZ、SFX（ZIP 自解压）、UU/UUE/XXE 编码写入
-- **只读**：RAR、ARJ、ACE、ARC、ALZ、Z/Unix Compress
-- **透传**：IMG、BIN
-- **AES 加密容器**：`.enc`（AES-256-GCM-SIV + Argon2id）
+- **GUI 读写**：ZIP/ZIPX（AES-256）、TAR 及其压缩变体（GZ、BZ2、BR、LZ4、XZ、ZST）、7z（AES-256）、LZH/LHA、ISO；启用 `zpaq` feature 后支持 ZPAQ。
+- **GUI 只读**：CAB、ASAR、DEB、CPIO；启用 `rar` feature 后支持 RAR（含密码读取）。
+- **GUI 尚未接入**：独立压缩流 GZ/BZ2/BR/LZ4/XZ/LZMA/LZ/ZST、UDF、ISZ、WIM、ARJ、ACE、ARC、ALZ、Z、UU/XXE、IMG/BIN、AES 容器。core/CLI 中已有的能力不能直接视作 GUI 已支持。
+- **回归验证**：默认构建与 `--no-default-features` 构建都验证能力标志；每个标记可创建的格式实际写入文件，再通过 GUI 读取工厂解出内容并比对。
 
 ### 3.2 核心功能
 

@@ -35,6 +35,8 @@ GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开�
 
 ### 5.1 已支持格式
 
+以下为 core/CLI 格式能力。桌面 GUI 仅开放已接入桥接的格式，范围见 `docs/GUI_MVP_PLAN.md` §3.1；GUI 的 `get_formats` 根据当前构建的创建解析器与读取工厂报告能力。
+
 | 格式 | 能力 | 备注 |
 |------|------|------|
 | ZIP (.zip/.zipx/.jar/.war/.apk/.ipa/.xpi) | 读写 | AES-256 加密 |
