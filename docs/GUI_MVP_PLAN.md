@@ -43,7 +43,8 @@
 6. **文件预览** — 文本/图片条目在浏览器中预览
 7. **设置页面** — 5 标签页 + 右键菜单管理，`tauri-plugin-store` 持久化
 8. **多语言与主题** — zh-CN / en 实时切换；跟随系统/浅色/深色
-9. **窗口状态持久化** — `tauri-plugin-window-state`
+9. **页面切换** — 同步替换当前页面，保持单一页面容器与稳定高度；避免退出动画使两个页面同时参与布局。
+10. **窗口状态持久化** — `tauri-plugin-window-state`
 
 前端命令逻辑回归可在 `crates/gui-tauri` 执行 `npm test`（Node 内置测试运行器，无新增依赖）；`npx tsc --noEmit` 检查 TypeScript，`npm run build` 验证 Svelte 生产构建。CI 同时运行三项检查。路径和对话框测试注入原生 API，原生窗口交互仍需桌面实测。
 

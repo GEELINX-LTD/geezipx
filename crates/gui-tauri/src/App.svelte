@@ -1,6 +1,5 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { fly } from 'svelte/transition';
   import { listen, getShellAction, getOpenedArchives, compressArchive } from './bridge';
   import type { TaskProgressPayload, ShellActionPayload } from './bridge';
   import { getCurrentWindow } from '@tauri-apps/api/window';
@@ -235,7 +234,7 @@
   <main class="app-content">
     <DropOverlay />
     {#key pageKey}
-      <div class="page-wrapper" in:fly={{ x: 20, duration: 120 }} out:fly={{ x: -20, duration: 120 }}>
+      <div class="page-wrapper">
         <PageComponent />
       </div>
     {/key}
