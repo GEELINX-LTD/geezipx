@@ -299,7 +299,7 @@ CLI 当前子命令为：
 
 | Crate | 用途 |
 |------|------|
-| `zip` 2.x | ZIP 读写（启用 `deflate`、`aes-crypto`） |
+| `zip` 9.1.3+ | ZIP 读写（启用 `deflate`、`aes-crypto`）；core 与 SFX stub 共用 workspace 版本 |
 | `tar` 0.4 | TAR 容器读写 |
 | `flate2` 1.x | gzip/deflate（纯 Rust backend） |
 | `bzip2` 0.6 | bzip2 / tar.bz2 |
@@ -307,7 +307,7 @@ CLI 当前子命令为：
 | `lz4_flex` 0.13 | lz4 frame / tar.lz4 |
 | `gzp` 0.11 | tar.gz 并行 gzip 压缩 |
 | `xz2` 0.1 | xz / lzma / tar.xz |
-| `zstd` 0.13 | zstd / tar.zst，多线程支持 `zstdmt` |
+| `zstd` 0.14.3+ | zstd / tar.zst，多线程支持 `zstdmt` |
 | `cab` 0.6 | CAB 读写支持（单卷 cabinet 浏览、提取、验证、MSZIP 压缩创建） |
 | `asar` 0.3 | ASAR 读写支持（Electron 归档，JSON header + 内容写入） |
 | `ar` 0.9 | ar 归档只读支持（DEB 包解析） |
@@ -321,6 +321,7 @@ CLI 当前子命令为：
 | `sha1` 0.10 | WIM 资源 SHA-1 增量摘要；仅用于格式完整性 |
 | `tempfile` 3 | WIM 文件数据磁盘暂存；失败或销毁时自动清理 |
 | `base64` 0.22 / `ciborium` 0.2 | AES 容器 armor/CBOR 预检；限制头部大小、嵌套与 KDF 成本 |
+| `unarc-rs` 0.8 | ARJ / ACE / ARC 只读适配；使用已修复安全公告的 ZIP 依赖 |
 | `unrar` 0.5.8 | RAR 只读支持（optional, default-enabled） |
 | `thiserror` 2 | 错误定义 |
 | `log` 0.4 | 日志门面 |
@@ -405,6 +406,8 @@ Reader/File → ProgressReader → Decoder/ArchiveReader → ProgressWriter → 
 - `bench.yml`：基准基线 / 手动 benchmark；
 - `gui-windows.yml`：独立 Windows GUI 手动构建工作流；
 - `release.yml`：CLI + GUI bundles 发布构建工作流。
+
+安全依赖基线：ZIP 在 workspace 中统一为 9.1.3+，`unarc-rs` 升至 0.8，消除旧 ZIP 的传递依赖；Zstandard 升至 0.14.3+，同时更新 `zstd-safe` / `zstd-sys`。GUI 的 Tokio 最低版本为 1.53.3，`Cargo.lock` 同步更新 `ctutils` 等传递依赖。Audit 继续执行 `deny.toml` 的安全公告、许可证、来源和依赖规则，`advisories.ignore` 保持为空。
 
 ### 7.3 Release / GUI bundle workflow
 
@@ -492,6 +495,7 @@ rust-version = "1.96"
 
 [workspace.dependencies]
 geezipx-core = { version = "0.5.0", path = "crates/core", default-features = false }
+zip = { version = "9.1.3", default-features = false }
 ```
 
 ```toml
@@ -511,11 +515,11 @@ categories = ["compression"]
 [dependencies]
 thiserror = "2"
 log = "0.4"
-zip = { version = "2", default-features = false, features = ["deflate", "aes-crypto"] }
+zip = { workspace = true, features = ["deflate", "aes-crypto"] }
 tar = "0.4"
 flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
 xz2 = { version = "0.1", features = ["static"] }
-zstd = { version = "0.13", features = ["zstdmt"] }
+zstd = { version = "0.14.3", features = ["zstdmt"] }
 sevenz-rust2 = { version = "0.21", default-features = false, features = ["aes256", "bzip2", "ppmd", "deflate"] }
 lzxd = "0.2"
 xpress-huffman = "0.1"

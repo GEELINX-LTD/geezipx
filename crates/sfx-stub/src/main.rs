@@ -171,7 +171,10 @@ fn extract_archive<R: Read + Seek>(
         let mut entry = archive
             .by_index(i)
             .map_err(|e| format!("entry {} error: {}", i, e))?;
-        let name = entry.name().to_owned();
+        let name = entry
+            .name()
+            .map_err(|e| format!("entry {i} name error: {e}"))?
+            .into_owned();
         let out_path = safe_entry_path(&name)?;
 
         if entry.is_dir() {

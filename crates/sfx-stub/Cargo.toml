@@ -12,7 +12,7 @@ path = "src/main.rs"
 
 [dependencies]
 cap-std = "4"
-zip = { version = "2", default-features = false, features = ["deflate"] }
+zip = { workspace = true, features = ["deflate"] }
 
 [dev-dependencies]
 tempfile = "3"

@@ -1,6 +1,6 @@
 //! ZIP archive reader and writer implementations.
 //!
-//! Built on top of the [`zip`] crate (v2.x).  The reader is generic over
+//! Built on top of the [`zip`] crate (v9.x).  The reader is generic over
 //! any `Read + Seek + Send` backend so callers can pass a file or a
 //! memory buffer; individual entry extraction is streaming via
 //! `std::io::copy`.  The writer is generic over any `Write + Seek` backend.
@@ -103,7 +103,7 @@ impl<R: Read + Seek + Send> ArchiveReader for ZipReader<R> {
                 )
             });
             entries.push(Entry {
-                path: file.name().to_owned(),
+                path: file.name().map_err(convert_zip_error)?.into_owned(),
                 size: file.size(),
                 compressed_size: file.compressed_size(),
                 crc32: Some(file.crc32()),
@@ -297,8 +297,8 @@ fn convert_zip_error(e: zip::result::ZipError) -> GeeZipError {
         zip::result::ZipError::InvalidPassword => GeeZipError::Crypto {
             message: "invalid ZIP password".into(),
         },
-        _ => GeeZipError::Format {
-            message: "unknown ZIP error".into(),
+        other => GeeZipError::Format {
+            message: format!("ZIP operation failed: {other}"),
             format: ArchiveFormat::Zip,
         },
     }
@@ -620,11 +620,11 @@ mod tests {
         let (_, archive) = writer.finalize().unwrap();
         let mut raw = zip::ZipArchive::new(Cursor::new(archive.into_inner())).unwrap();
         let directory = raw.by_index(0).unwrap();
-        assert_eq!(directory.name(), "资料/空目录/");
+        assert_eq!(directory.name().unwrap(), "资料/空目录/");
         assert!(directory.is_dir());
         drop(directory);
         let mut file = raw.by_index(1).unwrap();
-        assert_eq!(file.name(), "资料/子目录/说明.txt");
+        assert_eq!(file.name().unwrap(), "资料/子目录/说明.txt");
         let mut extracted = Vec::new();
         file.read_to_end(&mut extracted).unwrap();
         assert_eq!(extracted, content);
