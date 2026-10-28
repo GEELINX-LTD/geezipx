@@ -86,9 +86,11 @@ function getCurrentDirChildren(
   const result: DirChild[] = [];
 
   for (const entry of allEntries) {
-    if (!entry.path.startsWith(prefix)) continue;
+    // Normalize only the virtual hierarchy; keep entry.path for archive lookups.
+    const path = entry.path.replace(/\\/g, '/');
+    if (!path.startsWith(prefix)) continue;
 
-    const entryPath = entry.is_dir && !entry.path.endsWith('/') ? `${entry.path}/` : entry.path;
+    const entryPath = entry.is_dir && !path.endsWith('/') ? `${path}/` : path;
     const relative = entryPath.slice(prefix.length);
     if (relative === '') continue; // skip exact prefix match (the dir itself)
 
@@ -358,7 +360,7 @@ class TabArchive {
 
   selectAll(): void {
     const paths = this.currentChildren.map((c) =>
-      this.currentDir ? this.currentDir + c.name : c.name
+      c.isDir ? this.currentDir + c.name : c.entry.path
     );
     this.selectedPaths = new SvelteSet(paths);
   }

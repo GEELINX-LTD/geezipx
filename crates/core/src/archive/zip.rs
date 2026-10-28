@@ -207,10 +207,13 @@ impl<W: Write + Seek + Send> ArchiveWriter for ZipWriter<W> {
     }
 
     fn add_entry_from_reader(&mut self, path: &Path, reader: &mut dyn Read) -> GeeZipResult<()> {
-        let name = path.to_str().ok_or_else(|| GeeZipError::Format {
-            message: format!("non-UTF-8 path: {}", path.display()),
-            format: ArchiveFormat::Zip,
-        })?;
+        let name = path
+            .to_str()
+            .ok_or_else(|| GeeZipError::Format {
+                message: format!("non-UTF-8 path: {}", path.display()),
+                format: ArchiveFormat::Zip,
+            })?
+            .replace('\\', "/");
 
         let mut options =
             SimpleFileOptions::default().compression_method(zip::CompressionMethod::DEFLATE);
@@ -219,7 +222,7 @@ impl<W: Write + Seek + Send> ArchiveWriter for ZipWriter<W> {
         }
 
         self.inner
-            .start_file(name, options)
+            .start_file(&name, options)
             .map_err(convert_zip_error)?;
 
         std::io::copy(reader, &mut self.inner)
@@ -231,11 +234,14 @@ impl<W: Write + Seek + Send> ArchiveWriter for ZipWriter<W> {
     fn add_directory(&mut self, path: &Path) -> GeeZipResult<()> {
         // ZIP stores directories implicitly via a trailing slash in the entry
         // path. Write an empty entry with trailing slash.
-        let dir_path = format!("{}/", path.display());
-        let _name = path.to_str().ok_or_else(|| GeeZipError::Format {
-            message: format!("non-UTF-8 path: {}", path.display()),
-            format: ArchiveFormat::Zip,
-        })?;
+        let name = path
+            .to_str()
+            .ok_or_else(|| GeeZipError::Format {
+                message: format!("non-UTF-8 path: {}", path.display()),
+                format: ArchiveFormat::Zip,
+            })?
+            .replace('\\', "/");
+        let dir_path = format!("{}/", name.trim_end_matches('/'));
 
         let mut options = zip::write::FileOptions::<()>::default()
             .compression_method(zip::CompressionMethod::Stored);
@@ -598,6 +604,30 @@ mod tests {
         // finalize through trait to exercise that path too
         let boxed: Box<dyn ArchiveWriter> = Box::new(zip_writer);
         let _bytes_written = boxed.finish().unwrap();
+    }
+
+    #[test]
+    fn zip_writer_uses_forward_slashes_for_windows_paths() {
+        let mut writer = ZipWriter::new(Cursor::new(Vec::new()));
+        let content = b"nested Windows content";
+        writer.add_directory(Path::new("资料\\空目录\\")).unwrap();
+        writer
+            .add_entry_from_reader(
+                Path::new("资料\\子目录\\说明.txt"),
+                &mut Cursor::new(content),
+            )
+            .unwrap();
+        let (_, archive) = writer.finalize().unwrap();
+        let mut raw = zip::ZipArchive::new(Cursor::new(archive.into_inner())).unwrap();
+        let directory = raw.by_index(0).unwrap();
+        assert_eq!(directory.name(), "资料/空目录/");
+        assert!(directory.is_dir());
+        drop(directory);
+        let mut file = raw.by_index(1).unwrap();
+        assert_eq!(file.name(), "资料/子目录/说明.txt");
+        let mut extracted = Vec::new();
+        file.read_to_end(&mut extracted).unwrap();
+        assert_eq!(extracted, content);
     }
 
     #[test]

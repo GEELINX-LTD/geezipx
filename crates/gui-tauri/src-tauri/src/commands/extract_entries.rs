@@ -156,15 +156,18 @@ fn select_requested_entries(
     Ok(matched)
 }
 
-pub(crate) fn requested_entry_prefixes(paths: &[String]) -> HashSet<&str> {
+pub(crate) fn requested_entry_prefixes(paths: &[String]) -> HashSet<String> {
     paths
         .iter()
-        .map(|path| path.trim_end_matches('/'))
+        .map(|path| path.trim_end_matches(['/', '\\']).replace('\\', "/"))
         .filter(|path| !path.is_empty())
         .collect()
 }
 
-pub(crate) fn entry_matches_selection(path: &str, requested: &HashSet<&str>) -> bool {
+pub(crate) fn entry_matches_selection(path: &str, requested: &HashSet<String>) -> bool {
+    // Compare normalized paths, but keep the Entry's original name for readers
+    // that look up legacy ZIP members by their exact backslash-separated name.
+    let path = path.replace('\\', "/");
     let path = path.trim_end_matches('/');
     requested.contains(path)
         || path
@@ -185,6 +188,32 @@ mod tests {
             modified: None,
             crc32: None,
         }
+    }
+
+    #[test]
+    fn legacy_windows_zip_selection_preserves_raw_entry_names() {
+        let all = vec![
+            entry("资料\\子目录\\", true),
+            entry("资料\\子目录\\说明.txt", false),
+            entry("资料\\根文件.txt", false),
+            entry("资料\\子目录-old\\other.txt", false),
+            entry("readme.txt", false),
+        ];
+        let cancel = Arc::new(AtomicBool::new(false));
+        for folder in ["资料/子目录/", "资料\\子目录\\"] {
+            let selected = select_requested_entries(&all, &[folder.into()], &cancel).unwrap();
+            assert_eq!(
+                selected
+                    .iter()
+                    .map(|entry| entry.path.as_str())
+                    .collect::<Vec<_>>(),
+                vec!["资料\\子目录\\", "资料\\子目录\\说明.txt"],
+            );
+        }
+        let selected =
+            select_requested_entries(&all, &["资料\\根文件.txt".into()], &cancel).unwrap();
+        assert_eq!(selected.len(), 1);
+        assert_eq!(selected[0].path, "资料\\根文件.txt");
     }
 
     #[test]

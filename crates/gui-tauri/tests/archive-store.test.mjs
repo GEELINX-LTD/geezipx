@@ -148,6 +148,52 @@ for (const [name, entries] of [
   });
 }
 
+for (const [name, entries] of [
+  ['implicit Windows directories', [entry('资料\\子目录\\说明.txt'), entry('资料\\根文件.txt'), entry('readme.txt')]],
+  ['explicit Windows directories', [entry('资料\\', true), entry('资料\\子目录\\', true), entry('资料\\子目录\\说明.txt'), entry('资料\\根文件.txt'), entry('readme.txt')]],
+  ['mixed separators and directory records after their files', [entry('资料\\子目录/说明.txt'), entry('资料/根文件.txt'), entry('资料/子目录', true), entry('资料\\', true), entry('readme.txt')]],
+]) {
+  test(`ZIP browsing shows one level at a time for ${name}`, async () => {
+    const { archiveManager: manager } = await browser({
+      listArchiveStream: async (_path, chunk) => chunk({ entries, total_entries: entries.length }),
+    });
+    const tab = await opened(manager);
+    assert.deepEqual(tab.currentChildren.map(item => [item.name, item.isDir]), [['资料/', true], ['readme.txt', false]]);
+    tab.navigateTo('资料/');
+    assert.deepEqual(tab.currentChildren.map(item => [item.name, item.isDir]), [['子目录/', true], ['根文件.txt', false]]);
+    tab.navigateTo('资料/子目录/');
+    assert.deepEqual(tab.currentChildren.map(item => [item.name, item.isDir]), [['说明.txt', false]]);
+    const leaf = entries.find(item => item.path.endsWith('说明.txt'));
+    assert.strictEqual(tab.currentChildren[0].entry, leaf);
+    tab.navigateTo('资料/');
+    assert.equal(tab.currentDir, '资料/');
+    assert.deepEqual(tab.currentChildren.map(item => item.name), ['子目录/', '根文件.txt']);
+  });
+}
+
+test('legacy Windows ZIP selection and preview retain the original entry name', async () => {
+  const entries = [entry('资料\\子目录\\说明.txt'), entry('资料\\根文件.txt'), entry('readme.txt')];
+  const previews = [];
+  const { archiveManager: manager } = await browser({
+    listArchiveStream: async (_path, chunk) => chunk({ entries, total_entries: entries.length }),
+    previewEntry: async (archive, path) => {
+      previews.push([archive, path]);
+      return { entry_path: path, content: 'original file', kind: 'text', size_hint: '' };
+    },
+  });
+  const tab = await opened(manager);
+  tab.navigateTo('资料/');
+  tab.selectAll();
+  assert.deepEqual([...tab.selectedPaths], ['资料/子目录/', '资料\\根文件.txt']);
+  tab.navigateTo('资料/子目录/');
+  tab.selectAll();
+  assert.deepEqual([...tab.selectedPaths], ['资料\\子目录\\说明.txt']);
+  await tab.showPreview(tab.currentChildren[0].entry.path);
+  assert.deepEqual(previews, [['/tmp/a.zip', '资料\\子目录\\说明.txt']]);
+  assert.equal(tab.previewState.content, 'original file');
+  assert.deepEqual(tab.entries.map(item => item.path), entries.map(item => item.path));
+});
+
 test('password retries preserve the committed archive and cancellation resolves waiters', async () => {
   const { archiveManager: manager } = await browser({
     listArchiveStream: async (path, chunk, password) => {

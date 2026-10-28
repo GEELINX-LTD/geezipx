@@ -107,7 +107,7 @@ pub trait ArchiveWriter: Send {
 
 | 模块 | 当前职责 |
 |------|----------|
-| `archive::zip` | ZIP 读写，支持 ZIP AES-256 创建与读取 |
+| `archive::zip` | ZIP 读写，支持 ZIP AES-256 创建与读取；写入时将 Windows 路径分隔符统一为 `/`，目录条目保留单个末尾 `/` |
 | `archive::tar` | 纯 TAR 读写 |
 | `archive::targz` | TAR.GZ / TGZ 读写；`--jobs > 1` 时启用并行 gzip |
 | `archive::tarbz2` | TAR.BZ2 / TBZ / TBZ2 读写 |
@@ -453,6 +453,7 @@ crates/gui-tauri/
 - `list_archive_stream` — 流式归档条目列表（通过 Tauri IPC Channel 分批推送，500 条/块）；
 - 右键“解压缩到当前文件夹”由 `dispatch_resolved_action` 在冷/热启动统一路由到 `extract-here-*` 独立进度窗口，`src/main.ts` 根据窗口 URL 挂载 `QuickExtract.svelte`；`main` 使用 `create: false`，仅普通动作按需创建。启动动作按窗口标签暂存，`get_shell_action` 只消费调用窗口的动作；进度继续用显式任务 UUID 隔离，独立窗口具备密码提示、取消及失败确认。窗口状态插件仅持久化主窗口几何，前端挂载后再显示对应窗口。快捷窗口 capability 同时授予 `core:window:allow-close` 和 `core:window:allow-destroy`：注册 `onCloseRequested` 后，Tauri 在未阻止关闭时会通过 `destroy` 完成销毁；运行中关闭仍先取消本窗口的任务，等待执行结束后关闭。
 - 前端当前以 `src/main.ts` 为主，包含最近路径 chips、归档浏览器、任务状态管理；
+- 归档浏览器每层只显示直接子项；对旧 ZIP 的 `\` 分隔符在目录索引和选择匹配时按 `/` 处理，文件预览/读取继续保留原始条目名称，避免破坏旧包的精确查找。
 - 选择性提取、条目预览、拖出归档条目等 GUI 专属交互都建立在 core 的只读/提取能力之上；
 - 前端已内置 i18n 支持（`en.json` / `zh-CN.json` 双语），由 `i18n/index.ts` 管理语言切换；
 - 偏好设置/默认行为配置已在 v0.7.0 中实现（默认输出目录、覆盖策略等）。
