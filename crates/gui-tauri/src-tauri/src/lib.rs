@@ -27,7 +27,7 @@ pub use com_server::{action_for_clsid, run_com_server, CLSID_COMPRESS, CLSID_COM
 // Shell context menu action types
 // ---------------------------------------------------------------------------
 
-/// Payload sent to the frontend via `shell-action` event.
+/// Explicit shell action passed to a main-window launch or quick extraction.
 #[derive(Debug, Clone, Serialize)]
 pub struct ShellActionPayload {
     /// One of "extract", "extract-here", "compress".
@@ -58,7 +58,7 @@ enum ShellAction {
 /// Result from the unified shell argument resolver.
 #[derive(Debug)]
 enum ResolvedAction {
-    /// An explicit shell action with payload (ready to emit).
+    /// An explicit shell action with payload (ready to queue).
     Action(ShellActionPayload),
     /// Legacy open-archives — paths without an explicit flag.
     OpenArchives(Vec<String>),
@@ -281,20 +281,14 @@ fn into_resolved(action: ShellAction) -> ResolvedAction {
     }
 }
 
-/// Emit a `shell-action` event to the frontend.
-/// For `OpenArchives` we emit `opened-archives`; for explicit actions we
-/// emit `shell-action`.
-fn emit_resolved_action(window: &tauri::WebviewWindow, resolved: &ResolvedAction) {
-    match resolved {
-        ResolvedAction::OpenArchives(paths) => {
-            if !paths.is_empty() {
-                let _ = window.emit("opened-archives", paths);
-            }
-        }
-        ResolvedAction::Action(payload) => {
-            let _ = window.emit("shell-action", payload);
-        }
-    }
+/// Retain launches before creating or notifying the webview. Events are only
+/// wakeups; the frontend reads and acknowledges requests through commands.
+fn queue_resolved_action(state: &state::AppState, resolved: ResolvedAction) -> String {
+    let action = match resolved {
+        ResolvedAction::OpenArchives(paths) => state::LaunchAction::OpenArchives(paths),
+        ResolvedAction::Action(payload) => state::LaunchAction::ShellAction(payload),
+    };
+    state.enqueue_launch("main", action)
 }
 
 fn ensure_main_window(app: &tauri::AppHandle) -> tauri::Result<tauri::WebviewWindow> {
@@ -364,27 +358,17 @@ fn dispatch_resolved_action(app: &tauri::AppHandle, resolved: ResolvedAction) ->
         return Ok(());
     }
 
+    // Even an existing webview may still be mounting its frontend. Keep the
+    // request until it is explicitly acknowledged, regardless of emit success.
+    queue_resolved_action(&app.state::<state::AppState>(), resolved);
     if let Some(window) = app.get_webview_window("main") {
-        emit_resolved_action(&window, &resolved);
+        let _ = window.emit("launch-requests-pending", ());
         window.unminimize()?;
         window.show()?;
         window.set_focus()?;
     } else {
-        let state = app.state::<state::AppState>();
-        match resolved {
-            ResolvedAction::OpenArchives(paths) => state
-                .pending_archives
-                .lock()
-                .unwrap_or_else(|error| error.into_inner())
-                .extend(paths),
-            ResolvedAction::Action(payload) => {
-                state
-                    .pending_shell_actions
-                    .lock()
-                    .unwrap_or_else(|error| error.into_inner())
-                    .insert("main".into(), payload);
-            }
-        }
+        // A new window is shown by main.ts after its frontend mounts. Its
+        // initial queue read does not depend on receiving a notification.
         ensure_main_window(app)?;
     }
     Ok(())
@@ -438,7 +422,8 @@ pub fn run() {
             commands::extract::extract_archive,
             commands::cancel::cancel_task,
             commands::compress::compress_archive,
-            commands::app::get_opened_archives,
+            commands::app::get_launch_requests,
+            commands::app::acknowledge_launch_request,
             commands::app::get_shell_action,
             commands::app::get_version,
             commands::extract_entries::extract_entries,
@@ -510,6 +495,50 @@ mod tests {
     // -----------------------------------------------------------------------
     // Helpers
     // -----------------------------------------------------------------------
+
+    #[test]
+    fn repeated_main_launches_queue_without_a_webview_or_event_subscriber() {
+        let state = state::AppState::new();
+        let first = queue_resolved_action(
+            &state,
+            ResolvedAction::OpenArchives(vec!["first.zip".into()]),
+        );
+        let second = queue_resolved_action(
+            &state,
+            ResolvedAction::Action(ShellActionPayload {
+                action: "compress".into(),
+                format: None,
+                paths: vec!["input.txt".into()],
+            }),
+        );
+        let third = queue_resolved_action(
+            &state,
+            ResolvedAction::Action(ShellActionPayload {
+                action: "compress-zip".into(),
+                format: None,
+                paths: vec!["other.txt".into()],
+            }),
+        );
+        let requests = state.launch_requests("main").unwrap();
+        assert_eq!(requests.len(), 3);
+        assert_eq!(requests[0].id, first);
+        assert_eq!(requests[1].id, second);
+        assert_eq!(requests[2].id, third);
+        assert!(matches!(
+            &requests[0].action,
+            state::LaunchAction::OpenArchives(paths) if paths == &["first.zip"]
+        ));
+        assert!(matches!(
+            &requests[1].action,
+            state::LaunchAction::ShellAction(payload) if payload.action == "compress"
+        ));
+        assert!(matches!(
+            &requests[2].action,
+            state::LaunchAction::ShellAction(payload) if payload.action == "compress-zip"
+        ));
+        // Main-window launches cannot be mistaken for a quick-extract action.
+        assert!(state.pending_shell_actions.lock().unwrap().is_empty());
+    }
 
     #[test]
     fn only_extract_here_uses_a_progress_window() {

@@ -131,37 +131,63 @@ test('app consumes rejected startup queries and listener registrations with visi
   componentScript('App.svelte', {
     HomePage() {}, onMount: fn => { mount = fn; },
     appStore: { activeTab: 'home', loadRecent() {} },
-    settingsStore: { get: failure }, listen: failure, getShellAction: failure, getOpenedArchives: failure,
+    settingsStore: { get: failure }, listen: failure, getLaunchRequests: assert.fail,
     toastStore: { show: message => messages.push(message) }, localeStore, console: quietConsole,
   }, '{}');
   const cleanup = mount();
   await settle();
-  assert.equal(messages.length, 6);
+  assert.equal(messages.length, 3);
   assert.equal(messages.every(message => message.includes('bridge unavailable')), true);
   cleanup();
 });
 
-test('app consumes rejected cold and hot archive opens and shell handlers', async () => {
+test('app consumes rejected cold and hot queued archive opens and shell handlers', async () => {
   let mount;
   const callbacks = new Map();
   const messages = [];
+  const acknowledged = [];
+  let phase = 'cold';
   componentScript('App.svelte', {
     HomePage() {}, onMount: fn => { mount = fn; },
     appStore: { activeTab: 'home', loadRecent() {} },
     settingsStore: { get: async () => null },
     listen: async (name, callback) => { callbacks.set(name, callback); return () => {}; },
-    getShellAction: async () => ({ action: 'open', paths: ['/cold-shell.zip'] }),
-    getOpenedArchives: async () => ['/cold-open.zip'],
+    getLaunchRequests: async () => [
+      { id: `${phase}-shell`, action: { kind: 'shell-action', payload: { action: 'open', paths: [`/${phase}-shell.zip`] } } },
+      { id: `${phase}-open`, action: { kind: 'open-archives', payload: [`/${phase}-open.zip`] } },
+    ],
+    acknowledgeLaunchRequest: async id => { acknowledged.push(id); },
     archiveManager: { openArchive: failure },
     toastStore: { show: message => messages.push(message) }, localeStore, console: quietConsole,
     document: { documentElement: { removeAttribute() {} } },
   }, '{}');
   const cleanup = mount();
   await settle();
-  callbacks.get('opened-archives')({ payload: ['/hot-open.zip'] });
-  callbacks.get('shell-action')({ payload: { action: 'open', paths: ['/hot-shell.zip'] } });
+  phase = 'hot';
+  callbacks.get('launch-requests-pending')({ payload: undefined });
   await settle();
   assert.equal(messages.length, 4);
+  assert.deepEqual(acknowledged.sort(), ['cold-open', 'cold-shell', 'hot-open', 'hot-shell']);
+  cleanup();
+});
+
+test('app reports rejected launch snapshot IPC visibly without retrying automatically', async () => {
+  let mount;
+  let fetches = 0;
+  const messages = [];
+  componentScript('App.svelte', {
+    HomePage() {}, onMount: fn => { mount = fn; },
+    appStore: { activeTab: 'home', loadRecent() {} },
+    settingsStore: { get: async () => null }, listen: async () => () => {},
+    getLaunchRequests: async () => { fetches++; return failure(); },
+    toastStore: { show: message => messages.push(message) }, localeStore, console: quietConsole,
+    document: { documentElement: { removeAttribute() {} } },
+  }, '{}');
+  const cleanup = mount();
+  await settle();
+  assert.equal(fetches, 1);
+  assert.equal(messages.length, 1);
+  assert.match(messages[0], /bridge unavailable/);
   cleanup();
 });
 
