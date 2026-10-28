@@ -120,6 +120,12 @@ workflow YAML 和 shell 语法已解析检查，原生 SFX 步骤在 Linux 实�
 
 本轮实际通过：GUI Rust 194 项测试、前端 Node 112 项测试、GUI 与非 GUI workspace Clippy、非 GUI workspace 全 feature 测试、workspace 格式检查、TypeScript 检查和 Svelte 生产构建。Svelte autofixer 无新增问题。上述为本地检查，候选提交的 Windows 构建、Explorer 与 macOS 原生验收按 [发布验收清单](RELEASE_CHECKLIST.md) 另行记录。
 
+## 发布产物校验后续修复（待发布）
+
+复核实际 workflow 时发现，原汇总步骤只校验 CLI，未生成 README 所述的 GUI 校验文件与 `SHA256SUMS`。已提取 `scripts/verify-release-artifacts.sh`：检查三平台 CLI 原始摘要，要求 AppImage、deb、DMG、NSIS 均非空，再生成全部产物的独立/合并摘要和工作流表格。汇总后的文件会上传为 `geezipx-release-artifacts`，手动构建默认 `dry_run: true`。
+
+本地 12 类产物场景通过，包括正常输入、CLI 缺失/空文件、摘要缺失/为空/不匹配、四种 GUI bundle 分别缺失、GUI 空文件及同名目录；带空格的文件名也能正确核验。旧步骤在 GUI 缺失、为空或误为目录时均错误通过，当前脚本会拒绝。YAML 与 shell 语法检查通过；候选提交的远端构建和原生验收分别按发布清单记录。
+
 ## 明确保留的限制与后续工作
 
 | 优先级 | 项目 | 当前边界 |

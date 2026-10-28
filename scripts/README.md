@@ -1,5 +1,23 @@
 # Scripts
 
+## verify-release-artifacts.sh
+
+Verifies downloaded release artifacts before uploading or publishing them:
+
+```bash
+bash scripts/verify-release-artifacts.sh artifacts
+```
+
+Requires nonempty Linux/macOS/Windows CLI archives and matching original
+`.sha256` files, plus nonempty AppImage, deb, DMG and NSIS (`*-setup.exe`)
+GUI bundles. Missing files, empty files and CLI checksum mismatches fail the
+command. After validation, it writes individual checksums and `SHA256SUMS`
+for all bundles. When `GITHUB_STEP_SUMMARY` is set, it appends a table with
+filenames, sizes and hashes.
+
+The Release workflow runs this script and uploads the verified files as
+`geezipx-release-artifacts`, including during a manual `dry_run: true` build.
+
 ## check-interop.sh
 
 Runs external-tool interoperability smoke tests for zip/unzip, tar, tar.gz, and gzip.
