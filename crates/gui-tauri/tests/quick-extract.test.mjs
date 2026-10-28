@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import test from 'node:test';
+import { clearMocks, mockIPC, mockWindows } from '@tauri-apps/api/mocks';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import { componentScript, deferred, settle } from './helpers/component-script.mjs';
 import { runeModule } from './helpers/rune-module.mjs';
 
@@ -24,7 +27,7 @@ async function quickWindow(overrides = {}) {
   let unlistened = 0;
   const extracted = [];
   const cancelled = [];
-  const currentWindow = {
+  const currentWindow = overrides.currentWindow ?? {
     close: async () => { closed++; },
     onCloseRequested: overrides.onCloseRequested ?? (async callback => {
       closeRequested = callback;
@@ -59,6 +62,104 @@ async function quickWindow(overrides = {}) {
     get unlistened() { return unlistened; },
   };
 }
+
+// Use the installed Tauri API so onCloseRequested's final destroy IPC is
+// exercised with the permissions actually assigned to the progress window.
+function nativeCloseWindow(t) {
+  const capability = JSON.parse(fs.readFileSync(new URL('../src-tauri/capabilities/quick-extract.json', import.meta.url), 'utf8'));
+  const previousWindow = Object.getOwnPropertyDescriptor(globalThis, 'window');
+  globalThis.window = { crypto: globalThis.crypto };
+  const label = 'extract-here-close-regression';
+  let handlerId;
+  let destroyed = 0;
+  let unmount = () => {};
+  const commands = [];
+  const requestClose = () => {
+    assert.ok(handlerId, 'the native close listener must be registered');
+    return window.__TAURI_INTERNALS__.callbacks.get(handlerId)({
+      event: 'tauri://close-requested', id: handlerId, payload: null,
+    });
+  };
+  mockWindows(label);
+  mockIPC((command, args) => {
+    if (command === 'plugin:event|listen') {
+      assert.equal(args.event, 'tauri://close-requested');
+      assert.deepEqual(args.target, { kind: 'Window', label });
+      handlerId = args.handler;
+      return handlerId;
+    }
+    if (command === 'plugin:event|unlisten') return;
+    assert.equal(args.label, label);
+    assert.ok(capability.windows.some(pattern => new RegExp(`^${pattern.replaceAll('*', '.*')}$`).test(label)));
+    const name = command.replace('plugin:window|', '');
+    if (!capability.permissions.includes(`core:window:allow-${name}`)) {
+      throw new Error(`window.${name} not allowed by quick-extract capability`);
+    }
+    commands.push(name);
+    if (name === 'close') return requestClose();
+    assert.equal(name, 'destroy');
+    destroyed++;
+  });
+  t.after(() => {
+    unmount();
+    clearMocks();
+    if (previousWindow) Object.defineProperty(globalThis, 'window', previousWindow);
+    else delete globalThis.window;
+  });
+  return {
+    currentWindow: getCurrentWindow(), requestClose, commands,
+    mounted: cleanup => { unmount = cleanup; },
+    get destroyed() { return destroyed; },
+  };
+}
+
+test('Tauri closes the progress window after successful extraction with its actual capability', async t => {
+  const native = nativeCloseWindow(t);
+  const worker = deferred();
+  const view = await quickWindow({ currentWindow: native.currentWindow, extractArchive: async () => worker.promise });
+  native.mounted(view.mount());
+  await settle();
+  worker.resolve();
+  await settle();
+  assert.equal(view.component.windowError, '');
+  assert.equal(native.destroyed, 1);
+  assert.deepEqual(native.commands, ['close', 'destroy']);
+});
+
+for (const action of ['titlebar', 'button']) {
+  test(`Tauri ${action} closes a failed progress window with its actual capability`, async t => {
+    const native = nativeCloseWindow(t);
+    const view = await quickWindow({
+      currentWindow: native.currentWindow,
+      extractArchive: async () => { throw new Error('damaged archive'); },
+    });
+    native.mounted(view.mount());
+    await settle();
+    assert.equal(view.component.busy, false);
+    assert.equal(view.taskStore.getTask(view.component.taskId).status, 'failed');
+    assert.equal(native.destroyed, 0);
+    if (action === 'titlebar') await native.requestClose();
+    else await view.component.handleCancel();
+    assert.equal(view.component.windowError, '');
+    assert.equal(native.destroyed, 1);
+  });
+}
+
+test('Tauri titlebar close waits for the cancelled worker before destroying the progress window', async t => {
+  const native = nativeCloseWindow(t);
+  const worker = deferred();
+  const view = await quickWindow({ currentWindow: native.currentWindow, extractArchive: async () => worker.promise });
+  native.mounted(view.mount());
+  await settle();
+  await native.requestClose();
+  assert.deepEqual(view.cancelled, [view.component.taskId]);
+  assert.equal(native.destroyed, 0);
+  assert.equal(view.component.busy, true);
+  worker.resolve();
+  await settle();
+  assert.equal(view.component.windowError, '');
+  assert.equal(native.destroyed, 1);
+});
 
 test('quick extraction consumes its own action after listeners attach, uses its own task, and closes on success', async () => {
   const worker = deferred();

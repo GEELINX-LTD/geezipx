@@ -451,7 +451,7 @@ crates/gui-tauri/
 - `get_formats` 只报告当前 GUI 桥接能力：创建标志使用 `parse_gui_compress_format`，读取标志和 `open_reader` 共用 `reader_factory`。可选 feature 关闭时不会误报支持，回归测试逐一验证所有标记可创建的格式能通过 GUI 读取工厂解出原内容。core/CLI 的完整格式清单独立维护。
 - 进度通过 `task:progress` 事件推送，文件关联/单实例通过 `opened-archives` 事件通知前端；
 - `list_archive_stream` — 流式归档条目列表（通过 Tauri IPC Channel 分批推送，500 条/块）；
-- 右键“解压缩到当前文件夹”由 `dispatch_resolved_action` 在冷/热启动统一路由到 `extract-here-*` 独立进度窗口，`src/main.ts` 根据窗口 URL 挂载 `QuickExtract.svelte`；`main` 使用 `create: false`，仅普通动作按需创建。启动动作按窗口标签暂存，`get_shell_action` 只消费调用窗口的动作；进度继续用显式任务 UUID 隔离，独立窗口具备密码提示、取消及失败确认。窗口状态插件仅持久化主窗口几何，前端挂载后再显示对应窗口。
+- 右键“解压缩到当前文件夹”由 `dispatch_resolved_action` 在冷/热启动统一路由到 `extract-here-*` 独立进度窗口，`src/main.ts` 根据窗口 URL 挂载 `QuickExtract.svelte`；`main` 使用 `create: false`，仅普通动作按需创建。启动动作按窗口标签暂存，`get_shell_action` 只消费调用窗口的动作；进度继续用显式任务 UUID 隔离，独立窗口具备密码提示、取消及失败确认。窗口状态插件仅持久化主窗口几何，前端挂载后再显示对应窗口。快捷窗口 capability 同时授予 `core:window:allow-close` 和 `core:window:allow-destroy`：注册 `onCloseRequested` 后，Tauri 在未阻止关闭时会通过 `destroy` 完成销毁；运行中关闭仍先取消本窗口的任务，等待执行结束后关闭。
 - 前端当前以 `src/main.ts` 为主，包含最近路径 chips、归档浏览器、任务状态管理；
 - 选择性提取、条目预览、拖出归档条目等 GUI 专属交互都建立在 core 的只读/提取能力之上；
 - 前端已内置 i18n 支持（`en.json` / `zh-CN.json` 双语），由 `i18n/index.ts` 管理语言切换；
