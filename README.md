@@ -150,7 +150,7 @@ tar -xzf geezipx-linux-x86_64.tar.gz
 sudo mv geezipx /usr/local/bin/
 ```
 
-> **Note:** The release workflow is configured to upload pre-built binaries for future `v*` tag releases. Existing releases may be source-only; check the specific GitHub Release page for available artifacts.
+> **Release artifacts:** [v0.7.4](https://github.com/GEELINX-LTD/geezipx/releases/tag/v0.7.4) includes CLI archives and desktop GUI bundles for Linux, macOS, and Windows. Check each release page for its exact files and supported architectures.
 
 ### Prerequisites
 
@@ -583,7 +583,7 @@ All core CLI features and format support are complete. See the Format Support ta
 
 - [x] Tauri v2 project skeleton + TypeScript/Vite frontend
 - [x] Core engine bridge via Tauri commands
-- [x] Archive browser with file associations (all formats open/browse/extract)
+- [x] Archive browser with file associations for the [supported GUI formats](docs/GUI_MVP_PLAN.md#31-支持的格式)
 - [x] Selective extraction from archives
 - [x] In-app text/hex preview
 - [x] Drag & drop into the app
@@ -598,10 +598,11 @@ All core CLI features and format support are complete. See the Format Support ta
 - [x] Toast notifications for task completion and errors
 - [x] Windows right-click context-menu integration
 - [x] GUI bundle CI: standalone `gui-windows.yml` + `release.yml` for `.AppImage`, `.dmg`, `.exe (NSIS installer)`
-- [ ] First end-to-end tag-release verification of GUI bundles
-- [ ] Window state persistence and additional polish
+- [x] Published three-platform GUI bundles in v0.7.4
+- [x] Window state persistence
+- [ ] Candidate build and native desktop acceptance for the next release
 
-See [`docs/GUI_MVP_PLAN.md`](docs/GUI_MVP_PLAN.md) for detailed planning and task breakdown.
+See [`docs/GUI_MVP_PLAN.md`](docs/GUI_MVP_PLAN.md) for detailed planning and [`docs/RELEASE_CHECKLIST.md`](docs/RELEASE_CHECKLIST.md) for the next release's build and acceptance steps.
 
 ### Phase 3 (Future)
 

@@ -70,8 +70,8 @@ GeeZipX 是一个使用 Rust 开发的跨平台压缩/解压缩工具。
 ### 语言与平台
 
 - 主语言：Rust。
-- 第一阶段（CLI）：已在 v0.1.0 达成并保持成熟稳定；当前项目整体版本已演进到 v0.6.0。
-- 第二阶段（GUI）：Tauri，当前阶段（v0.6.0）。
+- 第一阶段（CLI）：已在 v0.1.0 达成并保持成熟稳定；当前正式版本为 v0.7.4，后续修复见 `CHANGELOG.md` 的 Unreleased。
+- 第二阶段（GUI）：Tauri，当前重点为桌面可靠性、原生验收与下一版发布准备。
 - 目标平台：
   - macOS
   - Linux 终端
@@ -183,16 +183,13 @@ CLI 和后续 Tauri GUI 只负责：
 - ARC（只读，unarc-rs 适配器）；
 - ALZ（只读适配模块待接入，当前构建未启用）；
 - Z / Unix Compress（只读适配模块待导出，当前构建不可用）；
-- UU / UUE（只读，自实现解码器，编码写入 P1）；
-- XXE（只读，自实现解码器，编码写入 P1）；
+- UU / UUE（读写，自实现编解码器）；
+- XXE（读写，自实现编解码器）；
 - IMG（透传，identity pass-through，扩展名 .img/.ima）；
 - BIN（透传，identity pass-through，扩展名 .bin）；
 - AES 加密容器（.enc，AES-256-GCM-SIV + Argon2id）；
 
-后续可扩展（剩余待做项）：
-
-- UU/UUE/XXE 编码写入（P1）；
-- 分卷压缩创建（P2）；
+CLI 已支持 `compress --split-size` 分卷创建。后续格式扩展由实际需求驱动，当前优先补齐 GUI 桥接与已知兼容性限制；core/CLI 已支持不代表 GUI 已接入，详见 `docs/GUI_MVP_PLAN.md` §3.1。
 
 格式覆盖评估已完成。永久排除项见 `docs/PRD.md` §5.2：BH/PMA/PEA/EGG（无 Rust 生态）、CPIO bin/crc（无 crate 支持）、ARJ/ACE/ARC/ALZ/Z 写入（只读 API/投入产出比低）、I00/I01（小众分卷 ISO）、ZIPX 高级方法（WinZip 专有）、RAR 写入（许可限制）。
 
@@ -529,7 +526,7 @@ archive/compress pipeline
 
 当前最高优先级：
 
-1. **GUI 迭代（Tauri）** — 桌面 GUI 已达 v0.6.0，继续迭代增强，复用 core 引擎。详见 `docs/GUI_MVP_PLAN.md`。
+1. **GUI 迭代（Tauri）** — 当前正式版本为 v0.7.4，继续增强桌面可靠性并复用 core 引擎。下一版优先完成启动动作交接、原生桌面验收与发布，详见 `docs/GUI_MVP_PLAN.md` 与 `docs/RELEASE_CHECKLIST.md`。
    - list_archive 流式分页推送（通过 Tauri IPC Channel 分批发送，500 条/块）— 已完成
 2. **GUI 相关测试** — 仅针对 GUI 实现添加必要的测试；不主动推进 core/CLI 基准测试基线或覆盖率补测。
 3. **文档同步** — GUI 实现过程中的文档跟随更新。

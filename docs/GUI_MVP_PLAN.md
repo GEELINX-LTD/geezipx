@@ -1,6 +1,6 @@
 # GeeZipX GUI MVP 规划
 
-> 本文档描述 GeeZipX GUI 的架构与已完成功能。当前版本 v0.7.0。
+> 本文档描述 GeeZipX GUI 的当前实现。正式版本为 v0.7.4；未发布变更见 `CHANGELOG.md`，下一版发布准备见 [发布验收清单](RELEASE_CHECKLIST.md)。
 >
 > **前置依赖**：Phase 1 CLI 已完成，core 引擎库 API 稳定，crates.io 已发布。
 
@@ -54,6 +54,7 @@
 - 任务 ID 注册覆盖阻塞 worker 的实际生命周期；重复 ID 拒绝，取消保留注册，panic 或任务结束按令牌身份清理。
 - 归档浏览与增量 Channel 批次使用加载代次隔离，旧的条目、密码回调或错误不再覆盖后来打开的归档；书签缺失目录按归档索引补齐。
 - 全局事件监听在首次挂载启动且支持重复启动/销毁，任务监听在操作失败时关闭；设置持久化写入顺序执行并验证读取值。
+- 主窗口启动动作按窗口保存在进程内存队列，冷启动、单实例转发和 macOS 打开事件共用交接路径。前端先订阅 `launch-requests-pending` 与任务进度，再通过 `get_launch_requests` 读取快照；处理或显示错误后按 ID 调用 `acknowledge_launch_request`。重复通知不会重放同一挂载中已经处理的请求，查询失败仍处理期间收到的通知；销毁后不消费迟到结果。队列不提供进程退出后的持久恢复。
 - 文件预览最多保留 512 KiB；超限提取终止，取消与超限独立处理。前端缓存当前目录的派生列表，避免选择变化时重复扫描；后端单次选择只构建一次路径集合；仍需针对目标桌面的超大归档做交互验收。
 
 完整问题、回归证据与后续限制见 [代码复查报告](CODE_REVIEW.md)。
@@ -104,6 +105,8 @@
 | `test_archive` | `async -> Result<...>` | 路径 + 密码 |
 | `preview_entry` | `async -> Result<...>` | 路径 + 条目 |
 | `cancel_task` | `fn -> Result<()>` | task_id |
+| `get_launch_requests` / `acknowledge_launch_request` | `async -> Result<...>` | 调用窗口自动注入；按启动请求 ID 确认 |
+| `get_shell_action` | `async -> Result<Option<...>>` | 独立快捷解压窗口的单次启动参数 |
 | 辅助命令 | - | `get_formats`、文件关联、版本 |
 
 ## 6. 进度与取消
@@ -127,13 +130,13 @@ GUI 提取使用 `overwrite: bool` 参数，关闭时跳过已有文件并返回
 ## 9. 平台原生打包
 
 | 平台 | bundle | 状态 |
-| macOS | `.dmg` | `release.yml` 已配置并验证 |
-| Linux | `.AppImage` | `release.yml` 已配置并验证 |
-| Windows | `.exe (NSIS 安装器)` | `release.yml` 已配置；`gui-windows.yml` 可手动构建 |
+| macOS | `.dmg` | v0.7.4 已发布；下一候选版需重新构建和验收 |
+| Linux | `.AppImage` / `.deb` | v0.7.4 已发布；下一候选版需重新构建和验收 |
+| Windows | `.exe (NSIS 安装器)` | v0.7.4 已发布；`gui-windows.yml` 可手动构建候选测试包 |
 
 打包配置在 `crates/gui-tauri/src-tauri/tauri.conf.json`。
 
-## 10. 已完成功能概述（v0.7.0）
+## 10. 当前实现功能概述
 
 - **应用骨架** — Tauri v2 + Svelte 5 + Vite workspace member
 - **Core 桥接** — 全部压缩/解压/列表/测试/预览/取消命令
@@ -145,7 +148,7 @@ GUI 提取使用 `overwrite: bool` 参数，关闭时跳过已有文件并返回
 - **Windows 右键菜单** — 运行时通过设置页动态管理，`HKCU\Software\Classes`（无需管理员），`SHChangeNotify` 即时刷新，sentinel 防安装器覆盖。Win11 显示于“显示更多选项”。
 - **三平台打包** — `.AppImage` / `.dmg` / `.exe (NSIS 安装器)` 构建就绪
 
-### 10.1 Windows 右键菜单运行时管理（当前开发分支，待发布/多选支持）
+### 10.1 Windows 右键菜单运行时管理（已合入主线，待下一版发布）
 
 右键菜单从安装器一次性写入升级为运行时动态管理：
 
@@ -155,10 +158,10 @@ GUI 提取使用 `overwrite: bool` 参数，关闭时跳过已有文件并返回
 - **即时生效** — 保存后通过 `SHChangeNotify(SHCNE_ASSOCCHANGED)` 刷新 Explorer。
 - **Sentinel 保护** — 写入 `HKCU\Software\Classes\GeeZipX\ShellMenu\Configured=1`，安装器升级时检测到则跳过默认注册，保留用户选择。
 - **卸载清理** — 使用 Tauri 的 `NSIS_HOOK_PREUNINSTALL` / `NSIS_HOOK_POSTUNINSTALL` 钩子，清理当前与旧版 GeeZipX 菜单树、COM CLSID、sentinel，以及设置页创建的 ProgID / OpenWith / 默认应用能力注册；共享扩展名键仅删除 GeeZipX 值，保留其他应用。卸载完成后通知 Explorer 刷新。安装同样使用正式的 `NSIS_HOOK_PREINSTALL` / `NSIS_HOOK_POSTINSTALL`，升级继续保留用户关闭的菜单项。
-- **COM DelegateExecute 多选**（当前开发分支）— 压缩动词注册于 `AllFilesystemObjects` 父键（文件/目录/混合多选均支持），父子均声明 `MultiSelectModel=Player`。使用 COM `DelegateExecute` 而非静态 `"%*"` 命令——`%*` 在实机测试中确认传递空参数列表，不可作为支持方案。两个稳定 CLSID 通过 `LocalServer32` 指向同一 `geezipx-gui.exe`；Explorer 启动时传入 `-Embedding`，程序跳过 Tauri 以 COM 服务身份运行，实现 `IExecuteCommand` + `IObjectWithSelection` 接收 `IShellItemArray`。选中路径写入版本化二进制 action 文件（`.gzsa`，UTF-16LE，限 `%LOCALAPPDATA%\GeeZipX\ShellActions` 目录，上限 1 MiB / 10 000条 / 32 767 码元），正常 GUI 通过 `--shell-action-file` 参数读取。提取动词仍保持 `SystemFileAssociations` + `"%1"` 静态命令。
+- **COM DelegateExecute 多选**（已合入主线）— 压缩动词注册于 `AllFilesystemObjects` 父键（文件/目录/混合多选均支持），父子均声明 `MultiSelectModel=Player`。使用 COM `DelegateExecute` 而非静态 `"%*"` 命令——`%*` 在实机测试中确认传递空参数列表，不可作为支持方案。两个稳定 CLSID 通过 `LocalServer32` 指向同一 `geezipx-gui.exe`；Explorer 启动时传入 `-Embedding`，程序跳过 Tauri 以 COM 服务身份运行，实现 `IExecuteCommand` + `IObjectWithSelection` 接收 `IShellItemArray`。选中路径写入版本化二进制 action 文件（`.gzsa`，UTF-16LE，限 `%LOCALAPPDATA%\GeeZipX\ShellActions` 目录，上限 1 MiB / 10 000条 / 32 767 码元），正常 GUI 通过 `--shell-action-file` 参数读取。提取动词仍保持 `SystemFileAssociations` + `"%1"` 静态命令。
 - **快捷解压窗口** — 右键“解压缩到当前文件夹”在冷启动与已有实例中均打开独立小型进度窗口，不创建或激活主界面；每个窗口独立消费启动动作、显示密码提示并取消自己的任务，成功后关闭，失败保留错误供确认。普通启动与其他菜单动作仍进入主界面，窗口状态只保存主窗口。
 - **单实例交接** — 操作文件在单实例插件完成主进程判定后解析：冷启动由 setup 消费，热启动由已有进程回调消费，避免转发前删除文件。显式压缩/提取动作不再同时进入普通归档打开队列。
-- **验证状态** — Linux 协议级单元测试通过（action 编解码、resolve 优先级、CLSID 映射、Embedding 检测）；原生 Windows COM 编译/NSIS 安装/Explorer 右键实测尚未完成。禁止 cfg stub 冒充 Windows 通过 CI。
+- **验证状态** — 协议单元测试已通过，原生 Windows GUI 测试和 NSIS 构建已有[成功记录](https://github.com/GEELINX-LTD/geezipx/actions/runs/40615086085)。下一候选版仍需按实际提交重跑构建，并记录 Explorer、多选、密码提示、安装升级和卸载实测，见 [发布验收清单](RELEASE_CHECKLIST.md)。禁止 cfg stub 冒充原生 Windows 验证。
 - **Win11 限制** — 传统菜单项显示于"显示更多选项"(Shift+F10)，这是系统限制，需要 IExplorerCommand COM server / MSIX 包标识才能进入一级菜单。
 - **跨平台** — 非 Windows 平台返回 `supported: false`，前端调用无报错。
 
@@ -170,7 +173,7 @@ Rust 命令：`get_shell_menu_state` → `ShellMenuState`、`set_shell_menu(enab
 
 - **后端**（`commands/list.rs`）：每批 500 条（`STREAM_CHUNK_SIZE = 500`），发送 `EntryChunk { entries, chunk_index, total_chunks, total_entries }`
 - **前端**（`archiveStore.svelte.ts`）：`listArchiveStream()` 接收每个 chunk 渐进追加到 `entries`，条目到达即可渲染
-- **效果**：数万条条目的归档即时展示，零等待，UI 无卡顿
+- **效果**：条目分批到达并渐进展示；超大归档的交互延迟仍需在目标桌面实测。
 
 ```rust
 const STREAM_CHUNK_SIZE: usize = 500;

@@ -112,12 +112,19 @@ CI 增加前端回归、TypeScript 检查和 Linux 最小 CLI feature 构建，�
 
 workflow YAML 和 shell 语法已解析检查，原生 SFX 步骤在 Linux 实际运行通过；摘要脚本对正常、篡改、缺摘要、仅有摘要和空文件五类输入结果正确。现有 Windows GUI 测试流程已审查；本次未触发远端构建、发布或安装。
 
+## 启动交接后续修复（待发布）
+
+已修复下表原先列出的“单实例热启动交付”：冷启动、单实例转发和 macOS 打开事件先将主窗口动作加入进程内存队列，再创建或通知窗口。`get_launch_requests` 按调用窗口返回非破坏性快照，前端订阅通知与进度后读取并按请求 ID 确认。不同动作不会覆盖，同一挂载中的重复通知和确认重试不会重复执行动作；查询失败后仍处理查询期间已收到的通知。队列不跨进程退出持久化。
+
+回归先在旧实现复现“队列中有归档、实际打开列表为空”，再在第一版修复中复现“查询失败期间收到的通知没有触发后续读取”。当前用例覆盖这两处窗口，以及延迟订阅、重复与过期快照、确认失败重试、并行压缩、窗口销毁后的迟到结果和失败提示。
+
+本轮实际通过：GUI Rust 194 项测试、前端 Node 112 项测试、GUI 与非 GUI workspace Clippy、非 GUI workspace 全 feature 测试、workspace 格式检查、TypeScript 检查和 Svelte 生产构建。Svelte autofixer 无新增问题。上述为本地检查，候选提交的 Windows 构建、Explorer 与 macOS 原生验收按 [发布验收清单](RELEASE_CHECKLIST.md) 另行记录。
+
 ## 明确保留的限制与后续工作
 
 | 优先级 | 项目 | 当前边界 |
 | --- | --- | --- |
 | 高 | Windows/macOS 桌面和安装验收 | Linux 已完成编译/测试；Wine 注册表与 Windows SFX 交叉构建不能证明 Explorer、NSIS、Finder、Launch Services 实际行为 |
-| 高 | 单实例热启动交付 | 主实例建立但前端尚未订阅期间，直接 emit 仍可能丢事件；需要持久队列和确认协议；冷启动消费顺序修复没有覆盖此窗口 |
 | 高 | WIM LZX/LZMS | LZX 的独立 wimlib 样本仍报解码错误；LZMS 未实现；不能承诺完整 WIM 支持。分割 SWM 与第一映像以外提取同样不支持 |
 | 中 | 整体内存预算 | AES、ISZ 写入、UDF 映像读写、UU/XXE 和部分第三方适配器仍整体缓冲；WIM metadata/目录信息仍驻内存。当前变更不构成所有格式低于固定内存上限的保证 |
 | 中 | AES 兼容边界 | 当前 writer 的非流式容器保持兼容；存在漏洞的 streaming 容器及超出 KDF 策略的外部容器明确拒绝。真正流式 AES 需要认证 framing 设计 |
