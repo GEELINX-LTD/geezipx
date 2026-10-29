@@ -62,7 +62,7 @@ Linux release 在虚拟桌面实跑的界面截图：
 | ZIP 别名 | zipx/jar/war/apk/ipa/xpi 等由 core 检测为 ZIP；不增加 WinZip 专有方法支持 |
 | 未接入 | 单流 gz/bz2/br/lz4/xz/lzma/lz/zst、AES `.enc`、WIM、ISZ、SFX 创建、IMG/BIN、UU/XXE、ALZ、Unix `.Z` |
 
-ZPAQ 是可选后端，默认关闭。其 C++ LTO 在部分 GCC/LLVM 组合上不兼容；需要该格式时可使用 `cargo run -p geezipx-egui --features zpaq`，release 构建在 Unix 上可能需要 `CXXFLAGS=-fno-lto cargo build -p geezipx-egui --release --features zpaq`。
+ZPAQ 是可选后端，默认关闭。其 C++ LTO 在部分 GCC/LLVM 组合上不兼容；需要该格式时可使用 `cargo run -p geezipx-egui --features zpaq`，release 构建在 Unix 上可能需要 `CXXFLAGS=-fno-lto cargo build -p geezipx-egui --release --features zpaq`。Windows MSVC 启用 ZPAQ 时需统一静态 C++ 运行库；PowerShell 中先设置 `$env:RUSTFLAGS="-C target-feature=+crt-static"` 再构建，与独立原生工作流一致。
 
 只提供 ZIP/7z 加密创建及 ZIP/7z/RAR 密码读取。7z 的 solid、字典和文件名加密等高级创建选项仍通过 CLI 使用。遇到未接入格式时，界面提示使用 CLI。
 

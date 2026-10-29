@@ -51,6 +51,10 @@ jobs:
           toolchain: stable
           components: clippy
           cache: true
+      - name: Match Windows static C++ runtime
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: '"RUSTFLAGS=$env:RUSTFLAGS -C target-feature=+crt-static" >> $env:GITHUB_ENV'
       - name: Check native frontend
         run: cargo clippy -p geezipx-egui --all-targets ${{ matrix.test_features }} --locked -- -D warnings
       - name: Test archive operations
