@@ -23,6 +23,15 @@ geezipx/
 │   │   │   ├── render/        # 进度条与终端输出
 │   │   │   └── signal.rs      # Ctrl+C 取消处理
 │   │   └── tests/             # CLI 集成测试
+│   ├── gui-egui/             # 独立 egui/eframe 原生桌面端
+│   │   ├── assets/           # 内嵌中文字体与许可
+│   │   ├── src/
+│   │   │   ├── app/          # 三个工作页面与交互状态
+│   │   │   ├── browser.rs    # 缓存目录索引、共享行数据与选择
+│   │   │   ├── engine/       # core reader/writer 适配与安全 I/O 编排
+│   │   │   ├── job.rs        # 后台线程、取消与进度快照
+│   │   │   └── theme.rs      # 独立浅/深色主题
+│   │   └── tests/            # 原生端实际文件操作回归
 │   └── gui-tauri/
 │       ├── src/
 │       │   ├── bridge.ts
@@ -40,6 +49,8 @@ geezipx/
 ```
 
 ### 分层原则
+
+CLI、Tauri GUI 和 egui GUI 分别是独立前端，都单向依赖 core；两个 GUI 互不依赖。原生 egui 使用 eframe/Glow 直接绘制，不经过 WebView 或 Tauri IPC。根目录默认 Cargo 成员为 core/CLI，桌面端必须显式选择包。
 
 ```text
 ┌─────────────┐  ┌─────────────────┐
@@ -61,6 +72,7 @@ geezipx/
 - core 只保留格式逻辑、I/O 包装、错误模型与安全检查；
 - CLI 负责参数解析、TTY 进度、stdout/stderr 呈现；
 - Tauri GUI 负责图形交互、任务管理、事件桥接；
+- egui GUI 负责独立的原生交互、共享进度快照与后台任务；不实现压缩编解码；
 - RAR 在当前版本中保持只读语义（UnRAR 许可限制）。WIM 支持无压缩写入与 XPRESS 读取；LZX 保留实验实现，但尚未通过 wimlib 样本互操作验证，LZMS 返回不支持错误。ISZ 为块压缩 ISO 包装，使用单流引擎读写。
 - ARJ/ACE/ARC/ALZ/Z 写入经评估永久排除（见 PRD §5.2）；UU/UUE/XXE 编码写入为 P1 待做项。
 - DEB、CAB、ASAR、CPIO（newc/odc）、LZH/LHA（lh0-lh7）、7z（含高级方法选择）、ISO、ZPAQ、UDF、AES、IMG、BIN 均已实现完整读写。
@@ -77,6 +89,11 @@ pub trait ArchiveReader: Send {
     fn entries(&mut self) -> GeeZipResult<Vec<Entry>>;
     fn extract(&mut self, entry: &Entry, writer: &mut dyn Write) -> GeeZipResult<u64>;
     fn extract_all(&mut self, dest: &Path, overwrite: bool) -> GeeZipResult<ExtractReport>;
+    fn visit_entries(
+        &mut self,
+        visitor: &mut dyn FnMut(&Entry, &mut dyn Read) -> GeeZipResult<bool>,
+        is_cancelled: &dyn Fn() -> bool,
+    ) -> GeeZipResult<()>;
     fn extract_all_with_cancel(
         &mut self,
         dest: &Path,
@@ -89,6 +106,7 @@ pub trait ArchiveReader: Send {
 pub trait ArchiveWriter: Send {
     fn format(&self) -> ArchiveFormat;
     fn add_entry_from_reader(&mut self, path: &Path, reader: &mut dyn Read) -> GeeZipResult<()>;
+    fn add_entry_with_size(&mut self, path: &Path, reader: &mut dyn Read, size: u64) -> GeeZipResult<()>;
     fn finish(self: Box<Self>) -> GeeZipResult<u64>;
     fn add_directory(&mut self, _path: &Path) -> GeeZipResult<()>;
 }
@@ -101,6 +119,8 @@ pub trait ArchiveWriter: Send {
 - 文件先流式写入同目录临时文件，读取或取消失败会清理临时文件；成功后才替换目标。禁止覆盖模式在发布文件时再次以原子方式保护已存在的目标。
 - `finish(self: Box<Self>) -> GeeZipResult<u64>` 负责结束写入并返回写出的总字节数。
 - `extract_all(..., overwrite)` 与 `extract_all_with_cancel(..., overwrite, ...)` 是当前真实批量提取入口。
+- `visit_entries` 是兼容现有 reader 的 object-safe 单次遍历接口，visitor 返回 `false` 可停止。ZIP/TAR 系列/7z 提供流式覆盖；默认实现使用临时文件适配旧 reader，部分后端本身仍有内存缓冲。
+- `add_entry_with_size` 默认委托原有输入 API，TAR 系列覆盖为已知长度流式写入；`ExactSizeReader` 拒绝来源在处理过程中缩短或增长。
 - 读取路径的密码接口由各 reader 覆盖；写入加密当前由 ZIP 与 7z writer 分别支持 AES-256。
 
 当前模块职责：
@@ -478,6 +498,16 @@ crates/gui-tauri/
 || WIM / ISZ writer 为标准模式外的实现 | WIM 为无压缩写入、ISZ 为单流引擎（非 ArchiveWriter trait） | 在文档中明确能力边界 |
 | LZH/LHA writer 为缓冲写入（lh0-lh7 压缩均支持） | 不支持加密、多卷、extended header；单个 entry payload 会缓冲 | 在产品文档中明确限制范围 |
 | Windows COM DelegateExecute 右键菜单仍需完整原生验收 | 已通过原生编译和 NSIS 构建，Explorer 选区传递、升级与卸载仍需实机确认 | 按 `docs/RELEASE_CHECKLIST.md` 记录候选提交与逐项验收结果 |
+## 9. 独立 egui 原生 GUI
+
+`crates/gui-egui` 使用 egui/eframe 0.33.3 + Glow、rfd 系统文件选择器，独立于 Tauri/Svelte。所有阻塞文件工作在 `Job<T>` 后台线程执行；结果通过容量 1 的 channel 返回，进度使用 `Arc<Mutex<Progress>>` 最新快照和限频唤醒，不积累读取块事件。取消状态属于每个任务，界面一次只启动一个后台操作；退出时等待取消清理。
+
+归档目录索引在后台建立，按名称与大小的排序结果预计算并共享 `Arc<Row>`；名称搜索只在条件变化时过滤当前目录缓存，绘制使用可见行虚拟列表。预览限制为 512 KiB，密码不进入持久化，外观与最多八条最近路径使用 eframe 存储。
+
+原生端 `engine` 只编排 core 的 reader/writer、进度、来源收集和安全输出。压缩通过同目录临时归档提交；解压复用 core `ExtractionDir`，预先拒绝危险名称与输入归档别名覆盖。格式清单以 `engine/formats.rs` 为准，RAR 默认启用，ZPAQ 可选且默认关闭以避开原生 C++ LTO 兼容性问题。
+
+独立 `gui-egui.yml` 覆盖 Linux x86_64、Windows x86_64、macOS arm64 的检查、测试、release 编译与裸可执行文件 artifacts；当前不接入正式 Release、系统右键菜单或文件关联。使用说明、完整格式范围与已知限制见 [EGUI_GUI.md](EGUI_GUI.md)。
+
 ## 附录：Cargo Workspace 配置
 
 ```toml

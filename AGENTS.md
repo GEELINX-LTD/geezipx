@@ -1,6 +1,6 @@
 # AGENTS.md
 
-> **Svelte 5 + AI Tools**: 本项目 GUI 使用 Svelte 5 和官方 Svelte AI 工具。创建/编辑 Svelte 文件时，优先使用 `svelte-file-editor` subagent。
+> **Tauri 前端：Svelte 5 + AI Tools**: `crates/gui-tauri` 使用 Svelte 5 和官方 Svelte AI 工具。创建/编辑 Svelte 文件时，优先使用 `svelte-file-editor` subagent。独立原生 GUI 位于 `crates/gui-egui`，使用 egui/eframe + Rust，不适用下述 Svelte 专用规则。
 
 ## Svelte MCP 工具使用指南
 
@@ -52,7 +52,7 @@ GeeZipX 是一个使用 Rust 开发的跨平台压缩/解压缩工具。
    - 重点支持 macOS、Linux 终端、Windows 终端。
    - 核心目标是性能、可靠性、流式处理和跨平台一致性。
 2. **第二阶段：桌面 GUI（当前阶段）**
-   - GUI 使用 Tauri 实现。
+   - 保留现有 Tauri GUI，另提供独立设计的 egui/eframe 原生 GUI（`crates/gui-egui`，说明见 `docs/EGUI_GUI.md`）。
    - GUI 应复用已有 Rust core 引擎，不应重复实现压缩逻辑。
    - 桌面目标平台为 macOS、Linux 桌面、Windows。
 
@@ -61,7 +61,8 @@ GeeZipX 是一个使用 Rust 开发的跨平台压缩/解压缩工具。
 - `docs/PRD.md`：产品需求文档。
 - `docs/TECH_ARCHITECTURE.md`：技术架构文档。
 - `docs/PHASE1_CLI_TASKS.md`：第一阶段 CLI MVP 任务拆分。
-- `docs/GUI_MVP_PLAN.md`：第二阶段桌面 GUI MVP 规划和任务拆分。
+- `docs/GUI_MVP_PLAN.md`：Tauri 桌面 GUI MVP 规划和任务拆分。
+- `docs/EGUI_GUI.md`：独立 egui 原生桌面端的运行、能力范围、架构和限制。
 
 在实现功能前，应优先阅读以上文档。
 
@@ -71,7 +72,7 @@ GeeZipX 是一个使用 Rust 开发的跨平台压缩/解压缩工具。
 
 - 主语言：Rust。
 - 第一阶段（CLI）：已在 v0.1.0 达成并保持成熟稳定；当前正式版本为 v0.7.4，后续修复见 `CHANGELOG.md` 的 Unreleased。
-- 第二阶段（GUI）：Tauri，当前重点为桌面可靠性、原生验收与下一版发布准备。
+- 第二阶段（GUI）：Tauri 与独立 egui/eframe 两条路线，共享 Rust core；界面和格式适配清单分别维护。
 - 目标平台：
   - macOS
   - Linux 终端
@@ -88,7 +89,8 @@ geezipx/
 ├── crates/
 │   ├── core/        # 压缩/解压缩核心引擎库
 │   ├── cli/         # 命令行入口
-│   └── gui-tauri/   # 当前 Tauri 桌面应用
+│   ├── gui-tauri/   # Tauri 桌面应用
+│   └── gui-egui/    # 独立 egui/eframe 原生桌面应用
 ├── docs/
 └── AGENTS.md
 ```
@@ -526,7 +528,8 @@ archive/compress pipeline
 
 当前最高优先级：
 
-1. **GUI 迭代（Tauri）** — 当前正式版本为 v0.7.4，继续增强桌面可靠性并复用 core 引擎。下一版优先完成启动动作交接、原生桌面验收与发布，详见 `docs/GUI_MVP_PLAN.md` 与 `docs/RELEASE_CHECKLIST.md`。
+1. **GUI 迭代（Tauri + egui）** — 当前正式版本为 v0.7.4，两个桌面端都复用 core 引擎。Tauri 发布验收见 `docs/GUI_MVP_PLAN.md` 与 `docs/RELEASE_CHECKLIST.md`；egui 独立设计、构建与能力范围见 `docs/EGUI_GUI.md`。
+   - egui：`cargo run -p geezipx-egui`；默认 Cargo 包仍是 core/CLI。独立三平台构建工作流为 `gui-egui.yml`。
    - list_archive 流式分页推送（通过 Tauri IPC Channel 分批发送，500 条/块）— 已完成
 2. **GUI 相关测试** — 仅针对 GUI 实现添加必要的测试；不主动推进 core/CLI 基准测试基线或覆盖率补测。
 3. **文档同步** — GUI 实现过程中的文档跟随更新。

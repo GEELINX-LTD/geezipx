@@ -84,16 +84,28 @@
 ## Status
 
 Phase 1 (CLI MVP) is **complete and mature**. All formats listed in the Format Support table support their applicable subcommands. The `completions` command is also complete.
-Phase 2 (Desktop GUI via Tauri) is **the active development focus**. The GUI already includes archive browsing, drag/drop, progress display, selective extraction, text/hex preview, sidebar navigation, password prompts, task cancellation, multi-tab browsing, home page, settings panel, toast notifications, and Windows right-click context-menu integration. See [`docs/GUI_MVP_PLAN.md`](docs/GUI_MVP_PLAN.md) for the full task breakdown.
+Phase 2 (Desktop GUIs) is **the active development focus**. Two independent frontends share the Rust core: the existing Tauri desktop app and **GeeZipX Native**, a new egui/eframe app with a separate design, no webview, archive browsing, drag/drop, selective extraction, ZIP/7z encryption, bounded text preview, integrity checks, task cancellation, and light/dark themes. See [`docs/GUI_MVP_PLAN.md`](docs/GUI_MVP_PLAN.md) for Tauri and [`docs/EGUI_GUI.md`](docs/EGUI_GUI.md) for the native frontend and its format scope.
 
 | Phase | Theme | Status |
 |-------|-------|--------|
 | 1 | CLI MVP | **Complete** -- crates.io releases `geezipx` (v0.7.4) and `geezipx-core` are available |
 | 2 | Desktop GUI (Tauri) | **In development** -- v0.7.4 includes archive browsing, drag/drop, progress reporting, selective extraction, text/hex preview, sidebar navigation, settings panel, Toast notifications, and Windows right-click context-menu integration |
 
-See [`docs/GUI_MVP_PLAN.md`](docs/GUI_MVP_PLAN.md) for detailed planning and remaining tasks.
+| 2 | Desktop GUI (egui) | **Unreleased** -- independent native app; build with `cargo run -p geezipx-egui`; standalone three-platform build workflow |
 
-### GUI Settings
+See [`docs/GUI_MVP_PLAN.md`](docs/GUI_MVP_PLAN.md) and [`docs/EGUI_GUI.md`](docs/EGUI_GUI.md) for each frontend's features and remaining work.
+
+### Native GUI (egui)
+
+```sh
+cargo run -p geezipx-egui
+cargo run -p geezipx-egui -- /path/to/archive.zip
+cargo build -p geezipx-egui --release --locked
+```
+
+The native frontend uses Rust, egui/eframe and OpenGL, with system file dialogs and an embedded Chinese font. It requires no Node.js, Tauri, WebView2 or WebKitGTK. `cargo build` defaults to core/CLI; select a GUI package explicitly. Native build artifacts are standalone executables; installers and file associations remain future work. Performance improvements over Tauri have not yet been measured on the same hardware.
+
+### Tauri GUI Settings
 
 The desktop GUI exposes the following settings (persisted locally via the Tauri store):
 

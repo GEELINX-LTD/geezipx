@@ -1,0 +1,27 @@
+[package]
+name = "geezipx-egui"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+description = "GeeZipX native desktop archive manager powered by egui"
+
+[features]
+default = ["rar"]
+rar = ["geezipx-core/rar"]
+zpaq = ["geezipx-core/zpaq"]
+
+[dependencies]
+geezipx-core.workspace = true
+eframe = { version = "0.33.3", default-features = false, features = ["accesskit", "default_fonts", "glow", "wayland", "x11", "persistence"] }
+rfd = "0.16"
+open = "5"
+serde = { version = "1", features = ["derive"] }
+tempfile = "3"
+same-file = "1"
+
+[[bin]]
+name = "geezipx-egui"
+path = "src/main.rs"

@@ -2,7 +2,7 @@
 
 ## 1. 产品定位
 
-GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开发。CLI 已进入成熟阶段，当前为第二阶段 — 基于 Tauri 的桌面 GUI，复用已有 Rust core 引擎。当前正式版本为 v0.7.4，下一版优先收尾桌面可靠性、原生验收与发布。
+GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开发。CLI 已进入成熟阶段，桌面端采用两条并行路线：保留现有 Tauri GUI，新增独立设计的 egui/eframe 原生 GUI；两者都复用 Rust core 引擎。当前正式版本为 v0.7.4，egui 桌面端为未发布功能，详见 [原生桌面端说明](EGUI_GUI.md)。原生端以减少 WebView 依赖和界面开销为目标，尚未完成同机性能对照测量。
 
 > **核心理念**：压缩操作通常位于自动化脚本、服务器运维、CI/CD 流水线中，CLI 是先发价值；GUI 提供附加便捷，不牺牲底层性能。
 
@@ -22,6 +22,8 @@ GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开�
 | macOS (x86_64, arm64) | 原生二进制 / Homebrew | Tauri .dmg |
 | Windows (x86_64) | 原生二进制 / winget | Tauri .exe (NSIS 安装器) |
 
+另提供 `geezipx-egui` 原生桌面可执行文件，目标为 Windows/macOS/Linux；当前配置 Linux x86_64、Windows x86_64、macOS arm64 独立 CI 编译，安装器、文件关联和系统右键菜单尚未接入。
+
 ## 4. 核心场景
 
 1. **批量归档**：将多个文件/目录打包为 `.tar.gz`、`.zip`，带进度显示。
@@ -35,7 +37,7 @@ GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开�
 
 ### 5.1 已支持格式
 
-以下为 core/CLI 格式能力。桌面 GUI 仅开放已接入桥接的格式，范围见 `docs/GUI_MVP_PLAN.md` §3.1；GUI 的 `get_formats` 根据当前构建的创建解析器与读取工厂报告能力。
+以下为 core/CLI 格式能力。Tauri 桌面端范围见 `docs/GUI_MVP_PLAN.md` §3.1，其 `get_formats` 根据创建解析器与读取工厂报告能力；egui 桌面端使用独立的适配清单，范围见 `docs/EGUI_GUI.md`。
 
 | 格式 | 能力 | 备注 |
 |------|------|------|

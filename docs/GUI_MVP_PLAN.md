@@ -1,6 +1,6 @@
 # GeeZipX GUI MVP 规划
 
-> 本文档描述 GeeZipX GUI 的当前实现。正式版本为 v0.7.4；未发布变更见 `CHANGELOG.md`，下一版发布准备见 [发布验收清单](RELEASE_CHECKLIST.md)。
+> 本文档描述 GeeZipX **Tauri GUI** 的当前实现。独立 egui/eframe 原生桌面端见 [EGUI_GUI.md](EGUI_GUI.md)，两者的格式范围和构建流程分别维护。正式版本为 v0.7.4；未发布变更见 `CHANGELOG.md`，下一版发布准备见 [发布验收清单](RELEASE_CHECKLIST.md)。
 >
 > **前置依赖**：Phase 1 CLI 已完成，core 引擎库 API 稳定，crates.io 已发布。
 
