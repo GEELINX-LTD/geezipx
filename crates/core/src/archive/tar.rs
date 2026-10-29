@@ -100,6 +100,53 @@ fn collect_tar_entries<R: Read>(archive: &mut tar::Archive<R>) -> GeeZipResult<V
     Ok(entries)
 }
 
+/// Visit a TAR stream once, including draining codec trailers for verification.
+pub(crate) fn visit_tar_archive<R: Read>(
+    mut archive: tar::Archive<R>,
+    visitor: &mut super::EntryVisitor<'_>,
+    is_cancelled: &dyn Fn() -> bool,
+) -> GeeZipResult<()> {
+    for item in archive.entries()? {
+        if is_cancelled() {
+            return Err(GeeZipError::Cancelled);
+        }
+        let mut data = item?;
+        let header = data.header();
+        if matches!(
+            header.entry_type(),
+            tar::EntryType::XGlobalHeader
+                | tar::EntryType::GNULongLink
+                | tar::EntryType::GNULongName
+        ) {
+            continue;
+        }
+        let entry = Entry {
+            path: data.path()?.to_string_lossy().into_owned(),
+            size: data.size(),
+            compressed_size: 0,
+            crc32: None,
+            modified: header.mtime().ok(),
+            is_dir: header.entry_type().is_dir(),
+        };
+        if !visitor(&entry, &mut data)? {
+            return Ok(());
+        }
+        drain(&mut data, is_cancelled)?;
+    }
+    drain(&mut archive.into_inner(), is_cancelled)
+}
+
+fn drain(reader: &mut dyn Read, is_cancelled: &dyn Fn() -> bool) -> GeeZipResult<()> {
+    let mut sink = std::io::sink();
+    let mut output = super::CancellableWriter::new(&mut sink, is_cancelled);
+    let result = std::io::copy(reader, &mut output);
+    if output.was_cancelled() || is_cancelled() {
+        return Err(GeeZipError::Cancelled);
+    }
+    result?;
+    Ok(())
+}
+
 impl<R: Read + Seek + Send> ArchiveReader for TarReader<R> {
     fn format(&self) -> ArchiveFormat {
         self.format
@@ -109,6 +156,15 @@ impl<R: Read + Seek + Send> ArchiveReader for TarReader<R> {
         self.inner.seek(SeekFrom::Start(0))?;
         let mut archive = tar::Archive::new(&mut self.inner);
         collect_tar_entries(&mut archive)
+    }
+
+    fn visit_entries(
+        &mut self,
+        visitor: &mut super::EntryVisitor<'_>,
+        is_cancelled: &dyn Fn() -> bool,
+    ) -> GeeZipResult<()> {
+        self.inner.seek(SeekFrom::Start(0))?;
+        visit_tar_archive(tar::Archive::new(&mut self.inner), visitor, is_cancelled)
     }
 
     fn extract(&mut self, entry: &Entry, writer: &mut dyn Write) -> GeeZipResult<u64> {
@@ -221,12 +277,21 @@ impl<W: Write + Send> ArchiveWriter for TarWriter<W> {
             data.extend_from_slice(&chunk[..n]);
         }
 
+        self.add_entry_with_size(path, &mut std::io::Cursor::new(&data), data.len() as u64)
+    }
+
+    fn add_entry_with_size(
+        &mut self,
+        path: &Path,
+        reader: &mut dyn Read,
+        size: u64,
+    ) -> GeeZipResult<()> {
         let mut header = tar::Header::new_gnu();
         header.set_path(path).map_err(|e| GeeZipError::Format {
             message: format!("setting tar header path: {e}"),
             format: ArchiveFormat::Tar,
         })?;
-        header.set_size(data.len() as u64);
+        header.set_size(size);
         header.set_cksum();
 
         let builder = self.inner.as_mut().ok_or_else(|| GeeZipError::Format {
@@ -234,7 +299,7 @@ impl<W: Write + Send> ArchiveWriter for TarWriter<W> {
             format: ArchiveFormat::Tar,
         })?;
         builder
-            .append(&header, std::io::Cursor::new(data))
+            .append(&header, super::ExactSizeReader::new(reader, size))
             .map_err(convert_tar_error)?;
 
         Ok(())

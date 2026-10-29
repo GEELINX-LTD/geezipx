@@ -103,6 +103,16 @@ impl<R: Read + Seek + Send> ArchiveReader for TarBz2Reader<R> {
         collect_tarbz2_entries(&mut archive)
     }
 
+    fn visit_entries(
+        &mut self,
+        visitor: &mut super::EntryVisitor<'_>,
+        is_cancelled: &dyn Fn() -> bool,
+    ) -> GeeZipResult<()> {
+        self.inner.seek(SeekFrom::Start(0))?;
+        let decoder = ::bzip2::read::MultiBzDecoder::new(&mut self.inner);
+        super::tar::visit_tar_archive(tar::Archive::new(decoder), visitor, is_cancelled)
+    }
+
     fn extract(&mut self, entry: &Entry, writer: &mut dyn Write) -> GeeZipResult<u64> {
         self.inner.seek(SeekFrom::Start(0))?;
         let decoder = ::bzip2::read::MultiBzDecoder::new(&mut self.inner);
@@ -222,12 +232,21 @@ impl<W: Write + Send> ArchiveWriter for TarBz2Writer<W> {
             data.extend_from_slice(&chunk[..n]);
         }
 
+        self.add_entry_with_size(path, &mut std::io::Cursor::new(&data), data.len() as u64)
+    }
+
+    fn add_entry_with_size(
+        &mut self,
+        path: &Path,
+        reader: &mut dyn Read,
+        size: u64,
+    ) -> GeeZipResult<()> {
         let mut header = tar::Header::new_gnu();
         header.set_path(path).map_err(|e| GeeZipError::Format {
             message: format!("setting tar header path: {e}"),
             format: ArchiveFormat::TarBz2,
         })?;
-        header.set_size(data.len() as u64);
+        header.set_size(size);
         header.set_cksum();
 
         let builder = self.inner.as_mut().ok_or_else(|| GeeZipError::Format {
@@ -235,7 +254,7 @@ impl<W: Write + Send> ArchiveWriter for TarBz2Writer<W> {
             format: ArchiveFormat::TarBz2,
         })?;
         builder
-            .append(&header, std::io::Cursor::new(data))
+            .append(&header, super::ExactSizeReader::new(reader, size))
             .map_err(convert_tarbz2_error)?;
 
         Ok(())
