@@ -8,7 +8,7 @@ impl App {
                 egui::Frame::new()
                     .fill(context.style().visuals.window_fill)
                     .stroke(egui::Stroke::new(
-                        1.0,
+                        1.0_f32,
                         context
                             .style()
                             .visuals

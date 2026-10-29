@@ -27,7 +27,7 @@ pub enum Icon {
 pub fn paint_icon(p: &egui::Painter, rect: Rect, icon: Icon, color: Color32) {
     let r = Rect::from_center_size(rect.center(), Vec2::splat(rect.width().min(rect.height())));
     let point = |x, y| r.min + egui::vec2(x, y) * (r.width() / 24.0);
-    let stroke = Stroke::new(1.6, color);
+    let stroke = Stroke::new(1.6_f32, color);
     let line = |a: (f32, f32), b: (f32, f32)| {
         p.line_segment([point(a.0, a.1), point(b.0, b.1)], stroke);
     };
@@ -210,7 +210,7 @@ fn focus(ui: &Ui, response: &Response) {
         ui.painter().rect_stroke(
             response.rect.shrink(1.0),
             8,
-            Stroke::new(2.0, theme::palette(ui).accent),
+            Stroke::new(2.0_f32, theme::palette(ui).accent),
             StrokeKind::Inside,
         );
     }
@@ -243,7 +243,7 @@ pub fn button(ui: &mut Ui, text: &str, icon: Icon, primary: bool, width: f32) ->
         .rect_filled(rect, 8, fill.gamma_multiply(opacity));
     if !primary {
         ui.painter()
-            .rect_stroke(rect, 8, Stroke::new(1.0, p.border), StrokeKind::Inside);
+            .rect_stroke(rect, 8, Stroke::new(1.0_f32, p.border), StrokeKind::Inside);
     }
     let color = if primary { Color32::WHITE } else { p.text }.gamma_multiply(opacity);
     let left = rect.center().x - (galley.size().x + 28.0) / 2.0;
@@ -332,7 +332,7 @@ pub fn paint_check(ui: &Ui, rect: Rect, selected: bool, hovered: bool) {
         rect,
         4,
         Stroke::new(
-            1.0,
+            1.0_f32,
             if selected || hovered {
                 p.accent
             } else {
@@ -468,7 +468,7 @@ pub fn choice(ui: &mut Ui, label: &str, selected: bool, width: f32) -> Response 
         .rect_filled(rect, 7, if selected { p.tint } else { p.soft });
     if selected {
         ui.painter()
-            .rect_stroke(rect, 7, Stroke::new(1.0, p.accent), StrokeKind::Inside);
+            .rect_stroke(rect, 7, Stroke::new(1.0_f32, p.accent), StrokeKind::Inside);
     }
     ui.painter().text(
         rect.center(),
@@ -542,7 +542,7 @@ pub fn illustration(ui: &mut Ui) {
         );
         ui.painter().rect_filled(rect, 14, p.surface);
         ui.painter()
-            .rect_stroke(rect, 14, Stroke::new(1.0, p.border), StrokeKind::Inside);
+            .rect_stroke(rect, 14, Stroke::new(1.0_f32, p.border), StrokeKind::Inside);
         paint_icon(ui.painter(), rect.shrink(size * 0.23), icon, p.accent);
     }
     for offset in [egui::vec2(-92.0, -42.0), egui::vec2(92.0, 48.0)] {

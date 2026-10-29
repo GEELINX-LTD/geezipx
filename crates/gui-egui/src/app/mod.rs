@@ -620,7 +620,7 @@ impl App {
             };
             egui::Frame::new()
                 .fill(color.gamma_multiply(0.10))
-                .stroke(egui::Stroke::new(1.0, color.gamma_multiply(0.35)))
+                .stroke(egui::Stroke::new(1.0_f32, color.gamma_multiply(0.35)))
                 .corner_radius(8)
                 .inner_margin(12)
                 .show(ui, |ui| {

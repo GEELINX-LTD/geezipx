@@ -81,7 +81,7 @@ pub fn apply(context: &egui::Context, dark: bool) {
     style.visuals.faint_bg_color = p.soft;
     style.visuals.override_text_color = Some(p.text);
     style.visuals.selection.bg_fill = p.tint;
-    style.visuals.selection.stroke = Stroke::new(1.0, p.accent);
+    style.visuals.selection.stroke = Stroke::new(1.0_f32, p.accent);
     style.visuals.hyperlink_color = p.accent;
     style.visuals.window_corner_radius = 14.into();
     for (state, fill) in [
@@ -93,13 +93,13 @@ pub fn apply(context: &egui::Context, dark: bool) {
     ] {
         state.bg_fill = fill;
         state.weak_bg_fill = fill;
-        state.bg_stroke = Stroke::new(1.0, p.border);
-        state.fg_stroke = Stroke::new(1.0, p.text);
+        state.bg_stroke = Stroke::new(1.0_f32, p.border);
+        state.fg_stroke = Stroke::new(1.0_f32, p.text);
         state.corner_radius = 7.into();
         state.expansion = 0.0;
     }
-    style.visuals.widgets.hovered.bg_stroke = Stroke::new(1.0, p.accent);
-    style.visuals.widgets.active.bg_stroke = Stroke::new(1.0, p.accent);
+    style.visuals.widgets.hovered.bg_stroke = Stroke::new(1.0_f32, p.accent);
+    style.visuals.widgets.active.bg_stroke = Stroke::new(1.0_f32, p.accent);
     style.spacing.item_spacing = egui::vec2(10.0, 10.0);
     style.spacing.button_padding = egui::vec2(12.0, 8.0);
     style.spacing.interact_size.y = 34.0;
@@ -137,7 +137,7 @@ pub fn card(ui: &egui::Ui) -> egui::Frame {
     let p = palette(ui);
     egui::Frame::new()
         .fill(p.surface)
-        .stroke(Stroke::new(1.0, p.border))
+        .stroke(Stroke::new(1.0_f32, p.border))
         .corner_radius(14)
         .inner_margin(20)
 }
@@ -164,7 +164,7 @@ pub fn rule(ui: &mut egui::Ui) {
     ui.painter().hline(
         rect.x_range(),
         rect.center().y,
-        Stroke::new(1.0, palette(ui).border),
+        Stroke::new(1.0_f32, palette(ui).border),
     );
 }
 
