@@ -86,8 +86,8 @@ test('app unmount cleans listeners whose registration resolves after unmount', a
     onMount: fn => { mounted = fn; }, HomePage() {},
     appStore: { activeTab: 'home', loadRecent() {} },
     listen: () => registration.promise,
-    getShellAction: async () => null,
-    getOpenedArchives: async () => [],
+    getLaunchRequests: async () => [],
+    acknowledgeLaunchRequest: async () => {},
     settingsStore: { get: async () => null },
     localeStore: { switchLocale() {} },
     document: { documentElement: { setAttribute() {}, removeAttribute() {} } },
@@ -96,7 +96,7 @@ test('app unmount cleans listeners whose registration resolves after unmount', a
   cleanup();
   registration.resolve(() => removed.push('listener'));
   await settle();
-  assert.equal(removed.length, 3);
+  assert.equal(removed.length, 2);
 });
 
 test('app restores saved theme and locale during startup', async () => {
@@ -107,7 +107,7 @@ test('app restores saved theme and locale during startup', async () => {
     onMount: fn => { mounted = fn; }, HomePage() {},
     appStore: { activeTab: 'home', loadRecent() {} },
     listen: async () => () => {},
-    getShellAction: async () => null, getOpenedArchives: async () => [],
+    getLaunchRequests: async () => [], acknowledgeLaunchRequest: async () => {},
     settingsStore: { get: async key => ({ theme: 'dark', locale: 'en' })[key] },
     localeStore: { switchLocale: locale => locales.push(locale) },
     document: { documentElement: { setAttribute: (...args) => attributes.push(args), removeAttribute() {} } },

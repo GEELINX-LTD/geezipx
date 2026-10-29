@@ -139,6 +139,10 @@ pub struct ExtractReport {
     pub errors: Vec<(String, crate::error::GeeZipError)>,
 }
 
+/// A streaming visitor returns `false` to stop without reading subsequent entries.
+/// It may consume all, some, or none of the current entry's payload.
+pub type EntryVisitor<'a> = dyn FnMut(&Entry, &mut dyn Read) -> GeeZipResult<bool> + 'a;
+
 /// Archive reader trait — list entries and extract data.
 ///
 /// Implementations are expected to be object-safe so callers can work
@@ -155,6 +159,37 @@ pub trait ArchiveReader: Send {
     /// The caller is responsible for locating the output path; this
     /// method only writes the decompressed payload.
     fn extract(&mut self, entry: &Entry, writer: &mut dyn Write) -> GeeZipResult<u64>;
+
+    /// Visit entry payloads in archive order, with bounded intermediary storage.
+    /// ZIP, TAR and 7z override this with direct streaming in a single pass.
+    /// The compatibility implementation spools each entry to a temporary file.
+    /// Cancellation is checked during payload writes and between entries.
+    fn visit_entries(
+        &mut self,
+        visitor: &mut EntryVisitor<'_>,
+        is_cancelled: &dyn Fn() -> bool,
+    ) -> GeeZipResult<()> {
+        use std::io::{Seek, SeekFrom};
+        for entry in self.entries()? {
+            if is_cancelled() {
+                return Err(GeeZipError::Cancelled);
+            }
+            let mut file = tempfile::tempfile()?;
+            if !entry.is_dir {
+                let mut output = CancellableWriter::new(&mut file, is_cancelled);
+                let result = self.extract(&entry, &mut output);
+                if output.was_cancelled() {
+                    return Err(GeeZipError::Cancelled);
+                }
+                result?;
+            }
+            file.seek(SeekFrom::Start(0))?;
+            if !visitor(&entry, &mut file)? {
+                break;
+            }
+        }
+        Ok(())
+    }
 
     /// Extract all entries under `dest`.
     ///
@@ -253,6 +288,18 @@ pub trait ArchiveWriter: Send {
     /// handled transparently by the encoder.  Callers should avoid
     /// passing unbounded streams when using tar-based writers.
     fn add_entry_from_reader(&mut self, path: &Path, reader: &mut dyn Read) -> GeeZipResult<()>;
+
+    /// Add an entry whose uncompressed size is known before writing its header.
+    /// TAR implementations stream directly and require exactly `size` bytes.
+    /// Other formats retain their existing streaming implementation by default.
+    fn add_entry_with_size(
+        &mut self,
+        path: &Path,
+        reader: &mut dyn Read,
+        _size: u64,
+    ) -> GeeZipResult<()> {
+        self.add_entry_from_reader(path, reader)
+    }
 
     /// Finalise the archive and return the total bytes written.
     ///
@@ -451,6 +498,53 @@ pub fn is_entry_path_dangerous(path: &Path) -> bool {
     let normalised = normalize_path(path);
     let first = normalised.components().next();
     matches!(first, Some(std::path::Component::ParentDir))
+}
+
+/// Enforce a TAR header's declared length even if a source file changes.
+pub(crate) struct ExactSizeReader<'a> {
+    reader: &'a mut dyn Read,
+    remaining: u64,
+}
+
+impl<'a> ExactSizeReader<'a> {
+    pub(crate) fn new(reader: &'a mut dyn Read, size: u64) -> Self {
+        Self {
+            reader,
+            remaining: size,
+        }
+    }
+}
+
+impl Read for ExactSizeReader<'_> {
+    fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+        use std::io::{Error, ErrorKind};
+        if buffer.is_empty() {
+            return Ok(0);
+        }
+        if self.remaining == 0 {
+            let mut extra = [0];
+            return if self.reader.read(&mut extra)? == 0 {
+                Ok(0)
+            } else {
+                Err(Error::new(
+                    ErrorKind::InvalidData,
+                    "input grew beyond its declared size",
+                ))
+            };
+        }
+        let limit = buffer
+            .len()
+            .min(self.remaining.min(usize::MAX as u64) as usize);
+        let count = self.reader.read(&mut buffer[..limit])?;
+        if count == 0 {
+            return Err(Error::new(
+                ErrorKind::UnexpectedEof,
+                "input shorter than its declared size",
+            ));
+        }
+        self.remaining -= count as u64;
+        Ok(count)
+    }
 }
 
 /// Counting writer wrapper that tracks total bytes written through a

@@ -115,6 +115,28 @@ impl<R: Read + Seek + Send> ArchiveReader for ZipReader<R> {
         Ok(entries)
     }
 
+    fn visit_entries(
+        &mut self,
+        visitor: &mut super::EntryVisitor<'_>,
+        is_cancelled: &dyn Fn() -> bool,
+    ) -> GeeZipResult<()> {
+        let entries = self.entries()?;
+        for (index, entry) in entries.iter().enumerate() {
+            if is_cancelled() {
+                return Err(GeeZipError::Cancelled);
+            }
+            let mut file = match &self.password {
+                Some(password) => self.archive.by_index_decrypt(index, password.as_bytes()),
+                None => self.archive.by_index(index),
+            }
+            .map_err(convert_zip_error)?;
+            if !visitor(entry, &mut file)? {
+                break;
+            }
+        }
+        Ok(())
+    }
+
     fn extract(&mut self, entry: &Entry, writer: &mut dyn Write) -> GeeZipResult<u64> {
         let mut file = match &self.password {
             Some(password) => self

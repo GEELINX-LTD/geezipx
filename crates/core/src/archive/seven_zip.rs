@@ -392,6 +392,58 @@ impl ArchiveReader for SevenZipReader {
         Ok(entries)
     }
 
+    fn visit_entries(
+        &mut self,
+        visitor: &mut super::EntryVisitor<'_>,
+        is_cancelled: &dyn Fn() -> bool,
+    ) -> GeeZipResult<()> {
+        let mut reader = self.open_reader()?;
+        let mut visitor_error = None;
+        let mut stopped = false;
+        let result = reader.for_each_entries(|file, data| {
+            let result = (|| {
+                if is_cancelled() {
+                    return Err(GeeZipError::Cancelled);
+                }
+                if !visitor(&Self::to_entry(file), data)? {
+                    return Ok(false);
+                }
+                // Solid blocks require every preceding payload to be consumed.
+                let mut sink = std::io::sink();
+                let mut output = CancellableWriter::new(&mut sink, is_cancelled);
+                let result = std::io::copy(data, &mut output);
+                if output.was_cancelled() || is_cancelled() {
+                    return Err(GeeZipError::Cancelled);
+                }
+                result?;
+                Ok(true)
+            })();
+            match result {
+                Ok(true) => Ok(true),
+                result => {
+                    match result {
+                        Ok(false) => stopped = true,
+                        Err(error) => visitor_error = Some(error),
+                        Ok(true) => unreachable!(),
+                    }
+                    // In sevenz-rust2 0.21 a false return only stops the current
+                    // block. An error is required to stop the outer block loop.
+                    Err(sevenz_rust2::Error::Io(
+                        std::io::Error::other("entry visitor stopped"),
+                        Cow::Borrowed("entry visitor"),
+                    ))
+                }
+            }
+        });
+        if let Some(error) = visitor_error {
+            Err(error)
+        } else if stopped {
+            Ok(())
+        } else {
+            result.map_err(convert_7z_error)
+        }
+    }
+
     fn extract(&mut self, entry: &Entry, writer: &mut dyn Write) -> GeeZipResult<u64> {
         let mut reader = self.open_reader()?;
         let data = reader

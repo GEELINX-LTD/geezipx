@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { listen, getShellAction, getOpenedArchives, compressArchive } from './bridge';
-  import type { TaskProgressPayload, ShellActionPayload } from './bridge';
+  import { listen, getLaunchRequests, acknowledgeLaunchRequest, compressArchive } from './bridge';
+  import type { TaskProgressPayload, ShellActionPayload, LaunchRequest } from './bridge';
   import { getCurrentWindow } from '@tauri-apps/api/window';
   import { basename, dirname, join } from '@tauri-apps/api/path';
   import { appStore } from './stores/appStore.svelte';
@@ -48,21 +48,16 @@
   let compressDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 
   /** Handle a shell context menu action. */
-  async function handleShellAction(payload: ShellActionPayload) {
-    if (payload.paths.length === 0) return;
+  async function handleShellAction(payload: ShellActionPayload, isDisposed: () => boolean = () => false) {
+    if (isDisposed() || payload.paths.length === 0) return;
 
     switch (payload.action) {
       // ── "用 GeeZipX 打开" — browse archive ──
-      case 'open': {
-        const { tabId, label } = await archiveManager.openArchive(payload.paths[0]);
-        appStore.addArchiveTab(tabId, label, payload.paths[0]);
-        appStore.switchTab(tabId);
-        break;
-      }
-
+      case 'open':
       // ── "解压缩到..." — jump to extract page ──
       case 'extract': {
         const { tabId, label } = await archiveManager.openArchive(payload.paths[0]);
+        if (isDisposed()) return;
         appStore.addArchiveTab(tabId, label, payload.paths[0]);
         appStore.switchTab(tabId);
         break;
@@ -79,10 +74,12 @@
             settingsStore.get('recursive'),
             settingsStore.get('default_output_dir'),
           ]);
+          if (isDisposed()) return;
           const baseName = payload.paths.length === 1 ? (await basename(first) || 'archive') : 'archive';
           const parentDir = defaultOutputDir || await dirname(first);
           const outputName = `${baseName}.zip`;
           const outputPath = await join(parentDir, outputName);
+          if (isDisposed()) return;
           const res = await compressArchive(
             payload.paths,
             outputPath,
@@ -93,6 +90,7 @@
             rec ?? true,
             taskId,
           );
+          if (isDisposed()) return;
           const status = taskStore.finishTask(taskId, 'finished');
           if (status === 'cancelled' || status === 'failed') return;
           toastStore.show(
@@ -101,6 +99,7 @@
             5000,
           );
         } catch (e: unknown) {
+          if (isDisposed()) return;
           const msg = e instanceof Error ? e.message : String(e);
           const status = taskStore.finishTask(taskId, 'failed', msg);
           if (status === 'cancelled') return;
@@ -115,7 +114,7 @@
         // Debounce: accumulate paths from rapid multi-file invocations.
         if (compressDebounceTimer) clearTimeout(compressDebounceTimer);
         compressDebounceTimer = setTimeout(() => {
-          appStore.switchTab('compress');
+          if (!isDisposed()) appStore.switchTab('compress');
         }, 300);
         break;
     }
@@ -187,34 +186,85 @@
       if (locale) localeStore.switchLocale(locale);
     }).catch(reportFailure);
 
-    listen<TaskProgressPayload>('task:progress', (event) => {
-      taskStore.updateTask(event.payload);
-    }).then(keepUnlistener).catch(reportFailure);
-    // Hot-start: another instance forwarded opened archives
-    listen<string[]>('opened-archives', (event) => {
+    // Keep IDs for this mount, including acknowledged requests: a stale snapshot
+    // must never execute the same launch again.
+    const deliveries: Record<string, 'running' | 'processed' | 'acknowledging' | 'acknowledged' | undefined> = Object.create(null);
+    const acknowledge = async (id: string) => {
+      if (disposed || deliveries[id] !== 'processed') return;
+      deliveries[id] = 'acknowledging';
+      try {
+        await acknowledgeLaunchRequest(id);
+        deliveries[id] = 'acknowledged';
+      } catch (error) {
+        deliveries[id] = 'processed';
+        reportFailure(error);
+      }
+    };
+    const deliver = async (request: LaunchRequest) => {
+      deliveries[request.id] = 'running';
+      try {
+        if (request.action.kind === 'open-archives') {
+          await Promise.all(request.action.payload.map(path => openArchive(path).catch(reportFailure)));
+        } else {
+          await handleShellAction(request.action.payload, () => disposed);
+        }
+      } catch (error) {
+        reportFailure(error);
+      }
+      // A surfaced handler failure is delivered too; replaying it could repeat work.
       if (disposed) return;
-      for (const p of event.payload) {
-        void openArchive(p).catch(reportFailure);
+      deliveries[request.id] = 'processed';
+      await acknowledge(request.id);
+    };
+    let ready = false;
+    let draining = false;
+    let drainRequested = false;
+    const drain = async () => {
+      draining = true;
+      try {
+        while (!disposed && drainRequested) {
+          drainRequested = false;
+          try {
+            const requests = await getLaunchRequests();
+            if (disposed) return;
+            for (const request of requests) {
+              if (deliveries[request.id] === undefined) void deliver(request);
+              else if (deliveries[request.id] === 'processed') void acknowledge(request.id);
+            }
+          } catch (error) {
+            // Honor queued wakeups after failure; without one, stop instead of spinning.
+            reportFailure(error);
+          }
+        }
+      } finally {
+        draining = false;
       }
-    }).then(keepUnlistener).catch(reportFailure);
-
-    listen<ShellActionPayload>('shell-action', (event) => {
-      if (!disposed) void handleShellAction(event.payload).catch(reportFailure);
-    }).then(keepUnlistener).catch(reportFailure);
-
-    // Check for cold-start shell action (e.g., opened from context menu while GUI was not running).
-    getShellAction().then((action) => {
-      if (!disposed && action && action.paths.length > 0) {
-        return handleShellAction(action);
-      }
-    }).catch(reportFailure);
-
-    // ── COLD-START BUG FIX: pull pending archive paths from direct file-open (Windows double-click, etc.) ──
-    getOpenedArchives().then((paths) => {
+    };
+    const requestDrain = () => {
       if (disposed) return;
-      for (const p of paths) {
-        void openArchive(p).catch(reportFailure);
+      drainRequested = true;
+      if (ready && !draining) void drain();
+    };
+    const registered = async (registration: Promise<() => void>) => {
+      try {
+        keepUnlistener(await registration);
+        return true;
+      } catch (error) {
+        reportFailure(error);
+        return false;
       }
+    };
+    // Subscribe before the first snapshot. Setup wakeups only set the drain flag;
+    // launch handlers cannot run before progress and wakeup listeners are ready.
+    Promise.all([
+      registered(listen<TaskProgressPayload>('task:progress', (event) => {
+        if (!disposed) taskStore.updateTask(event.payload);
+      })),
+      registered(listen<void>('launch-requests-pending', requestDrain)),
+    ]).then((registrations) => {
+      if (disposed || !registrations.every(Boolean)) return;
+      ready = true;
+      requestDrain();
     }).catch(reportFailure);
 
     appStore.loadRecent();

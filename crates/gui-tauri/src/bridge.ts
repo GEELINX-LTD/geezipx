@@ -223,9 +223,24 @@ export async function cancelTask(taskId: string): Promise<void> {
   return invoke<void>("cancel_task", { taskId });
 }
 
-/** Retrieve pending archive paths received via file association / open-with. */
-export async function getOpenedArchives(): Promise<string[]> {
-  return invoke<string[]>("get_opened_archives");
+export type LaunchAction =
+  | { kind: 'open-archives'; payload: string[] }
+  | { kind: 'shell-action'; payload: ShellActionPayload };
+
+/** A launch retained by the backend until the receiving window acknowledges it. */
+export interface LaunchRequest {
+  id: string;
+  action: LaunchAction;
+}
+
+/** Read the calling window's pending launches without removing them. */
+export async function getLaunchRequests(): Promise<LaunchRequest[]> {
+  return invoke<LaunchRequest[]>('get_launch_requests');
+}
+
+/** Acknowledge one handled request; retries never clear a newer launch. */
+export async function acknowledgeLaunchRequest(id: string): Promise<void> {
+  return invoke<void>('acknowledge_launch_request', { id });
 }
 
 /** Return the list of bindable archive formats and their current OS binding state. */
@@ -297,7 +312,7 @@ export interface ShellMenuState {
   archive_extensions: string[];
 }
 
-/** Payload of `shell-action` event emitted when launched from context menu. */
+/** Explicit shell action passed to a queued launch or quick-extract window. */
 export interface ShellActionPayload {
   action: 'open' | 'extract' | 'extract-here' | 'compress-zip' | 'compress';
   /** Archive format for compress action (e.g. "zip", "7z"). */
@@ -306,7 +321,7 @@ export interface ShellActionPayload {
   paths: string[];
 }
 
-/** Retrieve the shell action from cold start (if app was launched from context menu). */
+/** Consume the one-shot shell action belonging to a quick-extract window. */
 export async function getShellAction(): Promise<ShellActionPayload | null> {
   return invoke<ShellActionPayload | null>('get_shell_action');
 }

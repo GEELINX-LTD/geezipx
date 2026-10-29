@@ -26,6 +26,20 @@ allow = [
 name = "xxhash-rust"
 allow = ["BSL-1.0"]
 
+# egui's Windows clipboard backend; permissive Boost Software License.
+[[licenses.exceptions]]
+name = "clipboard-win"
+allow = ["BSL-1.0"]
+
+[[licenses.exceptions]]
+name = "error-code"
+allow = ["BSL-1.0"]
+
+# egui's bundled fonts; redistribution notices are shipped in gui-egui/assets.
+[[licenses.exceptions]]
+name = "epaint_default_fonts"
+allow = ["OFL-1.1", "Ubuntu-font-1.0"]
+
 [bans]
 multiple-versions = "warn"
 wildcards = "deny"

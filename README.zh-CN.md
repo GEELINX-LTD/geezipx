@@ -135,7 +135,7 @@ tar -xzf geezipx-linux-x86_64.tar.gz
 sudo mv geezipx /usr/local/bin/
 ```
 
-> **注意：** Release workflow 已配置为在后续 `v*` tag release 自动上传预构建二进制。历史 release 可能仍只有源码包；请以具体 GitHub Release 页面为准。
+> **发布产物：** [v0.7.4](https://github.com/GEELINX-LTD/geezipx/releases/tag/v0.7.4) 已包含 Linux、macOS、Windows 的 CLI 归档与桌面 GUI 安装包；具体文件和架构以各版本的 Release 页面为准。
 
 ### 前置条件
 
@@ -559,7 +559,7 @@ cargo build --release --workspace
 
 - [x] Tauri v2 项目骨架 + TypeScript/Vite 前端
 - [x] Core 引擎桥接（Tauri commands）
-- [x] 归档浏览器 + 文件关联（所有格式打开/浏览/提取）
+- [x] 归档浏览器 + 文件关联（范围见 [GUI 格式支持](docs/GUI_MVP_PLAN.md#31-支持的格式)）
 - [x] 选择性提取
 - [x] 内联预览（文本 + 十六进制）
 - [x] 拖入应用与拖出条目
@@ -573,10 +573,11 @@ cargo build --release --workspace
 - [x] 任务完成与错误通知（Toast）
 - [x] Windows 右键菜单集成
 - [x] GUI bundle CI：`gui-windows.yml` + `release.yml`（.AppImage/.dmg/.exe (NSIS 安装器)）
-- [ ] GUI bundle 的首次 tag release 端到端验证
-- [ ] 窗口状态持久化与更多打磨项
+- [x] v0.7.4 已发布三平台 GUI bundle
+- [x] 窗口状态持久化
+- [ ] 下一版候选包构建与原生桌面验收
 
-详见 [`docs/GUI_MVP_PLAN.md`](docs/GUI_MVP_PLAN.md) 了解详细规划和任务拆解。
+详见 [`docs/GUI_MVP_PLAN.md`](docs/GUI_MVP_PLAN.md) 了解详细规划，候选构建与验收步骤见 [`docs/RELEASE_CHECKLIST.md`](docs/RELEASE_CHECKLIST.md)。
 
 ### 第三阶段（未来）
 

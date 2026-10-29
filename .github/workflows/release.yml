@@ -9,7 +9,7 @@ on:
       dry_run:
         description: 'Dry-run (build & verify artifacts but skip release creation)'
         type: boolean
-        default: false
+        default: true
 
 env:
   CARGO_TERM_COLOR: always
@@ -228,36 +228,15 @@ jobs:
         with:
           path: artifacts
           merge-multiple: true
-      - name: Verify artifacts
+      - name: Verify artifacts and generate checksums
         shell: bash
-        run: |
-          set -euo pipefail
-          errors=0
-
-          required_patterns=(
-            "geezipx-linux-x86_64.tar.gz"
-            "geezipx-macos-x86_64.tar.gz"
-            "geezipx-windows-x86_64.zip"
-          )
-
-          cd artifacts
-          for asset in "${required_patterns[@]}"; do
-            if [ ! -s "$asset" ] || [ ! -s "$asset.sha256" ]; then
-              echo "::error::$asset or its checksum is missing/empty"
-              errors=$((errors + 1))
-              continue
-            fi
-            if ! sha256sum --check --strict "$asset.sha256"; then
-              echo "::error::$asset checksum verification failed"
-              errors=$((errors + 1))
-            fi
-          done
-
-          if [ "$errors" -gt 0 ]; then
-            echo "::error::$errors artifact(s) missing"
-            exit 1
-          fi
-          echo "All artifacts verified"
+        run: bash scripts/verify-release-artifacts.sh artifacts
+      - name: Upload verified release artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: geezipx-release-artifacts
+          path: artifacts/*
+          if-no-files-found: error
       - name: Create release
         if: startsWith(github.ref, 'refs/tags/v') && inputs.dry_run != true
         uses: softprops/action-gh-release@v2

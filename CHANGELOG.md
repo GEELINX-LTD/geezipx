@@ -9,16 +9,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Native GUI (egui)**: Add the independent `geezipx-egui` desktop app with a custom-painted light/dark workspace, icon navigation, two-column creation form, persistent primary actions, archive tree, search, virtualized lists, drag/drop, selective extraction, ZIP/7z encryption, text preview, integrity testing, progress and cooperative cancellation. Reuse Rust core through background jobs; include an embedded Chinese font and a separate Linux/Windows/macOS build-and-artifact workflow. See `docs/EGUI_GUI.md` for supported formats and current limits.
+- **Core streaming adapters**: Add object-safe entry visitation for archive readers and known-length entry input for writers. ZIP, TAR variants and 7z support sequential visitation; TAR writers stream known-size inputs and reject length changes.
+
 - **Windows GUI — Configurable shell context menu**: The right-click menu in Explorer is now dynamically manageable from the Settings page. Users can toggle a master on/off switch and individually enable four verbs: Extract here, Extract to..., Compress as ZIP, and Compress as.... Settings are written to `HKCU\Software\Classes` (no admin required) and take effect immediately via `SHChangeNotify`. A persistent sentinel (`HKCU\Software\Classes\GeeZipX\ShellMenu\Configured=1`) prevents the NSIS installer from re-registering defaults on upgrade when the user has turned the menu off.
-- **Windows Shell Extension (experimental PoC)**: Added `crates/shell-extension/` — an `IExplorerCommand` COM DLL with sparse MSIX package identity for Windows 11 first-level modern context menu (no "Show more options" required). Includes PowerShell build/register/unregister scripts, CI workflow, and documentation. **Default-off; development-only.** Requires a trusted certificate (Azure Trusted Signing / CA) for production.
+- **Windows GUI — Shell multi-selection and quick extraction**: Explorer compression commands use a COM `DelegateExecute` server to pass selected files and folders together. Extract-here operations open independent progress windows with password prompts, cancellation, and failure details.
 
 ### Changed
 
+- **Workspace defaults**: Default Cargo commands select core and CLI only. Select `geezipx-egui` or `geezipx-gui` explicitly to build a desktop frontend.
+- **Release verification**: Manual builds default to `dry_run: true`. Verify all three CLI archives and the required AppImage, deb, DMG and NSIS bundles, generate individual and combined SHA256 checksums, and retain verified artifacts and a workflow summary for candidate testing.
 - **Windows GUI — Migrate registry access to `windows-registry` 0.6.1**: Replaced all `reg.exe` subprocess calls in `shell_menu.rs` and `associations.rs` with the Microsoft [`windows-registry`](https://crates.io/crates/windows-registry) safe in-process API. Registry operations now use structured `windows_result::HRESULT` error codes (with `ERROR_FILE_NOT_FOUND` detection) instead of locale-dependent stderr text from `reg.exe`. All registry paths are HKCU-relative (`Software\Classes\...`). `CommandExt` / `ExitStatusExt` / `CREATE_NO_WINDOW` imports removed from the Windows platform modules. The `SHChangeNotify` FFI and NSIS installer registry paths are unchanged.
 - **Windows NSIS installer — Shell menu migration**: Shell context menu registration moved from `HKCR` (machine-wide) to `HKCU\Software\Classes` (per-user), matching the runtime management path. Legacy `HKCR` keys are cleaned on uninstall. Menu labels changed from Chinese to English to avoid stale localised strings when toggling verbs via Settings.
 
+### Security
+
+- Upgrade ZIP to 9.1.3, `unarc-rs` to 0.8, Zstandard to 0.14.3, and GUI Tokio to 1.53.3; refresh transitive dependencies to resolve audit advisories.
+
 ### Fixed
 
+- **GUI — Startup launch delivery**: Keep archive-open and shell requests in a window-scoped memory queue until acknowledged. Subscribe before the first snapshot and deduplicate request IDs, so launches received while the frontend mounts are retained and repeated notifications do not repeat work. Snapshot failures preserve wakeups received during the query; late results after unmount are ignored.
+- **GUI — Task and archive state**: Isolate concurrent progress and cancellation by task ID, reject duplicate registrations until their workers stop, and prevent stale archive loads or password callbacks from replacing a newer selection.
+- **GUI — Native paths and archive navigation**: Use native path APIs and separate file/folder pickers; preserve Windows ZIP folder hierarchy, include descendants of selected folders, avoid redundant output folders for 7z archives, and keep page layout stable during navigation.
+- **Windows GUI — Window closure and uninstall**: Allow completed quick-extraction windows to close through Tauri's destroy permission. Run the NSIS uninstall hooks and clean GeeZipX shell menus, COM registrations, and file associations while preserving unrelated application entries.
+- **Core, CLI and SFX — Failure handling**: Preserve existing destinations through failed or cancelled writes, reject unsafe extraction paths and conflicting output locations, validate archive data, and propagate extraction or finalization failures instead of reporting success. Stream SFX payloads through temporary files and verify matching native stubs in release builds.
+- **GUI — Format reporting**: Report create/read capabilities from the actual GUI bridge implementations and enabled features, with round-trip validation for advertised writers.
 - **Windows shell context menu reliability**: Right-click menu verbs are now written to the per-user registry hive and refreshed immediately via `SHChangeNotify(SHCNE_ASSOCCHANGED)`, eliminating the previous issue where verbs registered only by the installer would not appear reliably after system updates or would fail to reflect Settings changes.
 
 ## [0.7.4] - 2026-07-13

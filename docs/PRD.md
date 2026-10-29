@@ -2,7 +2,7 @@
 
 ## 1. 产品定位
 
-GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开发。CLI 已进入成熟阶段，当前为第二阶段 — 基于 Tauri 的桌面 GUI（v0.7.0），复用已有 Rust core 引擎。
+GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开发。CLI 已进入成熟阶段，桌面端采用两条并行路线：保留现有 Tauri GUI，新增独立设计的 egui/eframe 原生 GUI；两者都复用 Rust core 引擎。当前正式版本为 v0.7.4，egui 桌面端为未发布功能，详见 [原生桌面端说明](EGUI_GUI.md)。原生端以减少 WebView 依赖和界面开销为目标，尚未完成同机性能对照测量。
 
 > **核心理念**：压缩操作通常位于自动化脚本、服务器运维、CI/CD 流水线中，CLI 是先发价值；GUI 提供附加便捷，不牺牲底层性能。
 
@@ -22,6 +22,8 @@ GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开�
 | macOS (x86_64, arm64) | 原生二进制 / Homebrew | Tauri .dmg |
 | Windows (x86_64) | 原生二进制 / winget | Tauri .exe (NSIS 安装器) |
 
+另提供 `geezipx-egui` 原生桌面可执行文件，目标为 Windows/macOS/Linux；当前配置 Linux x86_64、Windows x86_64、macOS arm64 独立 CI 编译，安装器、文件关联和系统右键菜单尚未接入。
+
 ## 4. 核心场景
 
 1. **批量归档**：将多个文件/目录打包为 `.tar.gz`、`.zip`，带进度显示。
@@ -35,7 +37,7 @@ GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开�
 
 ### 5.1 已支持格式
 
-以下为 core/CLI 格式能力。桌面 GUI 仅开放已接入桥接的格式，范围见 `docs/GUI_MVP_PLAN.md` §3.1；GUI 的 `get_formats` 根据当前构建的创建解析器与读取工厂报告能力。
+以下为 core/CLI 格式能力。Tauri 桌面端范围见 `docs/GUI_MVP_PLAN.md` §3.1，其 `get_formats` 根据创建解析器与读取工厂报告能力；egui 桌面端使用独立的适配清单，范围见 `docs/EGUI_GUI.md`。
 
 | 格式 | 能力 | 备注 |
 |------|------|------|
@@ -153,7 +155,7 @@ TTY 下默认显示进度条（文件名、处理大小、百分比、速度、E
 ```
 Phase 1 (CLI MVP)                已完成并成熟
 
-Phase 2 (Desktop GUI via Tauri)  当前阶段 (v0.7.0)
+Phase 2 (Desktop GUI via Tauri)  当前阶段（正式版 v0.7.4，下一版准备中）
 ├── Tauri + TypeScript/Vite 项目骨架与 Core 命令桥接
 ├── 文件浏览器 + 拖拽导入归档 + 归档内容浏览
 ├── 压缩/解压任务管理 + 实时进度显示 + 安全取消
@@ -167,6 +169,8 @@ Phase 3 (生态 + 发布)
 ├── 格式覆盖评估已完成 (§5.2)
 └── UU/XXE 编码写入与分卷压缩创建均已完成
 ```
+
+近期顺序：完成启动动作交接回归 → 构建候选安装包并验收 Windows/macOS 原生交互 → 发布下一版 → 按需求补齐 GUI 常用格式桥接。具体验收与发布步骤见 [发布验收清单](RELEASE_CHECKLIST.md)。Win11 一级菜单仍为独立实验，不作为本轮发布前置。
 
 ## 10. 成功指标
 

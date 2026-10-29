@@ -1,0 +1,72 @@
+name: egui Desktop
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'crates/gui-egui/**'
+      - 'crates/core/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/gui-egui.yml'
+  pull_request:
+    paths:
+      - 'crates/gui-egui/**'
+      - 'crates/core/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/gui-egui.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: egui-desktop-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  desktop:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux-x86_64
+            suffix: ''
+            test_features: '--all-features'
+          - os: windows-latest
+            platform: windows-x86_64
+            suffix: '.exe'
+            test_features: '--all-features'
+          - os: macos-14
+            platform: macos-arm64
+            suffix: ''
+            test_features: '' # Match the existing macOS exclusion of ZPAQ (C++/LLVM compatibility).
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+          components: clippy
+          cache: true
+      - name: Match Windows static C++ runtime
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: '"RUSTFLAGS=$env:RUSTFLAGS -C target-feature=+crt-static" >> $env:GITHUB_ENV'
+      - name: Check native frontend
+        run: cargo clippy -p geezipx-egui --all-targets ${{ matrix.test_features }} --locked -- -D warnings
+      - name: Test archive operations
+        run: cargo test -p geezipx-egui ${{ matrix.test_features }} --locked
+      - name: Build standalone native frontend
+        run: cargo build -p geezipx-egui --release --locked
+      - uses: actions/upload-artifact@v4
+        with:
+          name: geezipx-egui-${{ matrix.platform }}
+          if-no-files-found: error
+          path: |
+            target/release/geezipx-egui${{ matrix.suffix }}
+            crates/gui-egui/assets/*.txt
+            docs/EGUI_GUI.md
+            LICENSE
