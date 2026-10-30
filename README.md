@@ -32,7 +32,7 @@
 - **Encrypted archive read support** -- `list`, `decompress`, and `test` handle password-protected ZIP, 7z, and RAR archives
 - **AES-256-GCM-SIV encrypted container** -- `.enc` files via Argon2id key derivation
 - **ISZ compressed ISO wrapper** -- read and write compressed ISO images
-- **IMG / BIN pass-through** -- identity copy preserves raw disk images verbatim
+- **Optical BIN extraction** -- browse ISO/UDF content from cooked or single-track Mode 1/2 images with bounded buffers
 - **UU / UUE / XXE text encoding** -- decode and encode legacy text-encoded binaries
 - **Cross-platform** -- Linux, macOS, Windows (3-platform CI)
 - **Single binary** -- `cargo install` ready; no runtime dependencies
@@ -72,7 +72,7 @@
 | Compound / MSI | `.msi`, `.msp`, `.mst`, `.cfb`, `.ole` | ✗ | ✓ | Raw storage streams; seek-based; no MSI database reconstruction or recursive CAB extraction |
 | AES Crypt | `.aes` | ✗ | ✓ | v0–v3 via aescrypt-rs; bounded buffers; authenticate before plaintext output |
 | IMG / IMA | `.img`, `.ima` | ✓ | ✓ | pass-through identity copy |
-| BIN | `.bin` | ✓ | ✓ | pass-through identity copy |
+| BIN | `.bin` | copy | ✓ | ISO/UDF optical content; cooked and raw Mode 1/2 Form 1; no audio/CUE/partitioned disks |
 | UU / UUE | `.uu`, `.uue` | ✓ | ✓ | text encoding/decoding |
 | XXE | `.xxe` | ✓ | ✓ | text encoding/decoding |
 | Z (Unix Compress) | `.Z` | ✗ | ✓ | Streaming LZW decoder (9–16 bit); no format checksum |
@@ -494,7 +494,8 @@ Most format limitations are documented in the Format Support table above. Key de
 - **ZPAQ write**: Supports level 1-5. Per-entry extraction goes through byte-buffer helpers; streaming extraction not guaranteed.
 - **ISZ**: Single-stream compression wrapper around ISO data. `list` shows a synthetic entry rather than individual files.
 - **AES `.enc`**: AES-256-GCM-SIV encryption with Argon2id key derivation. Opening an archive authenticates it, including `list` and `test`. Buffered processing remains; streaming AES containers are rejected until fully supported.
-- **IMG / BIN**: Identity pass-through — data is copied verbatim with no compression or transformation.
+- **BIN**: CLI extracts ISO/UDF optical files from 2048-byte cooked or 2352-byte Mode 1/Mode 2 Form 1 images. Audio/CUE/mixed tracks and partitioned disk filesystems are unsupported. Core copy helpers and creation retain explicit identity-copy behavior.
+- **IMG**: Identity copy until its filesystem reader is selected.
 - **UU / UUE / XXE**: Legacy text-encoding formats. Both decode (list/decompress/test) and encode (compress) are supported.
 - **RAR**: Read-only by licensing limitation. Decryption is supported via password flags.
 

@@ -61,7 +61,7 @@ fn run_verify(archive: &Path, json: bool, password: Option<String>) -> Result<()
         | ArchiveFormat::Lzma
         | ArchiveFormat::Isz => verify_single_stream(archive, format)
             .with_context(|| format!("verifying '{}'", archive.display()))?,
-        ArchiveFormat::Lz | ArchiveFormat::Img | ArchiveFormat::Bin | ArchiveFormat::Aes => {
+        ArchiveFormat::Lz | ArchiveFormat::Img | ArchiveFormat::Aes => {
             let mut input = fs::File::open(archive)?;
             let mut sink = std::io::sink();
             let bytes_read = match format {
@@ -70,9 +70,6 @@ fn run_verify(archive: &Path, json: bool, password: Option<String>) -> Result<()
                 }
                 ArchiveFormat::Img => {
                     geezipx_core::archive::img::img_decompress(&mut input, &mut sink)?
-                }
-                ArchiveFormat::Bin => {
-                    geezipx_core::archive::bin::bin_decompress(&mut input, &mut sink)?
                 }
                 ArchiveFormat::Aes => geezipx_core::archive::aes::aes_decrypt(
                     &mut input,
@@ -119,6 +116,7 @@ fn run_verify(archive: &Path, json: bool, password: Option<String>) -> Result<()
         | ArchiveFormat::Deb
         | ArchiveFormat::Cab
         | ArchiveFormat::Lzh
+        | ArchiveFormat::Bin
         | ArchiveFormat::Iso
         | ArchiveFormat::Zpaq
         | ArchiveFormat::Tar

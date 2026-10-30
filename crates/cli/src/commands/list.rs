@@ -24,10 +24,9 @@ pub fn execute(archive: &Path, json: bool, password: Option<String>) -> Result<(
     common::validate_read_password_support(format, password.as_deref())?;
 
     let entries = match format {
-        ArchiveFormat::Img | ArchiveFormat::Bin | ArchiveFormat::Aes | ArchiveFormat::Isz => {
+        ArchiveFormat::Img | ArchiveFormat::Aes | ArchiveFormat::Isz => {
             let inferred_name = match format {
                 ArchiveFormat::Img => common::img_output_filename(archive),
-                ArchiveFormat::Bin => common::bin_output_filename(archive),
                 ArchiveFormat::Aes => common::aes_output_filename(archive),
                 ArchiveFormat::Isz => archive
                     .with_extension("iso")

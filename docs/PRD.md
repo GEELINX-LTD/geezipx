@@ -79,7 +79,7 @@ GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开�
 | 化合物 / MSI (.msi/.msp/.mst/.cfb/.ole) | 只读 | 按需提取原始 CFB streams；不解析安装数据库或自动展开 CAB |
 | AES Crypt (.aes) | 只读 | v0–v3，认证后输出明文；有界缓冲、非 seek 输入暂存密文到磁盘 |
 | IMG (.img/.ima) | 透传 | 原始磁盘镜像 |
-| BIN (.bin) | 透传 | 原始二进制 |
+| BIN (.bin) | 光盘只读/创建透传 | ISO9660/Joliet/Rock Ridge/UDF 内容，cooked 2048 或单轨 raw 2352 Mode1/Mode2 Form1；无音轨/CUE/分区盘支持 |
 | RAR (.rar) | 只读 | UnRAR 许可限制 |
 | ARJ, ACE, ARC | 只读 | unarc-rs 适配器 |
 | ALZ | 部分只读 | 单卷 Store/Deflate 流式提取与 ZipCrypto；修改版 BZip2 / method 3 / 分卷暂缓 |

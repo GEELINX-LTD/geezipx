@@ -25,6 +25,7 @@ pub mod cab;
 pub mod compound;
 pub mod cpio;
 pub mod deb;
+pub mod disk_image;
 pub mod egg;
 pub mod extraction;
 pub mod gzip;

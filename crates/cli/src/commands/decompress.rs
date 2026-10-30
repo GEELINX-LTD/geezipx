@@ -29,7 +29,6 @@ fn is_stream(format: ArchiveFormat) -> bool {
             | ArchiveFormat::Lzma
             | ArchiveFormat::Lz
             | ArchiveFormat::Img
-            | ArchiveFormat::Bin
             | ArchiveFormat::Isz
             | ArchiveFormat::Aes
             | ArchiveFormat::Uu
@@ -75,7 +74,9 @@ pub fn execute(
     if use_stdin {
         let format =
             common::parse_format(format.context("--format is required when using --stdin")?)?;
-        if !(is_stream(format) || is_wrapped(format)) || format == ArchiveFormat::Isz {
+        if !(is_stream(format) || is_wrapped(format) || format == ArchiveFormat::Bin)
+            || format == ArchiveFormat::Isz
+        {
             anyhow::bail!("--stdin is only supported for single-stream formats and tar-wrapped streams; got '{format}'");
         }
         validate_password(format, password.as_deref())?;

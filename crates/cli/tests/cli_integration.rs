@@ -8186,7 +8186,7 @@ fn img_compress_decompress_roundtrip() {
 }
 
 #[test]
-fn bin_compress_decompress_roundtrip() {
+fn bin_optical_filesystem_extracts_contents() {
     let td = TestDir::new();
     td.write("payload.raw", "raw bin format test");
 
@@ -8195,7 +8195,7 @@ fn bin_compress_decompress_roundtrip() {
         .args([
             "compress",
             "-f",
-            "bin",
+            "iso",
             td.join("payload.raw").to_str().unwrap(),
             "-o",
             td.join("out.bin").to_str().unwrap(),
@@ -8217,8 +8217,8 @@ fn bin_compress_decompress_roundtrip() {
         .assert()
         .success();
 
-    // BIN is pass-through: content must be byte-identical
-    let extracted = std::fs::read(out_dir.join("out")).unwrap();
+    // The extension may be BIN; the payload remains an optical filesystem.
+    let extracted = std::fs::read(out_dir.join("payload.raw")).unwrap();
     assert_eq!(extracted, b"raw bin format test");
 }
 

@@ -520,6 +520,7 @@ pub fn open_reader(
         ArchiveFormat::Deb => Box::new(DebReader::new(file)),
         ArchiveFormat::Cpio => Box::new(CpioReader::new(path)),
         ArchiveFormat::Lzh => Box::new(LzhReader::new(file)),
+        ArchiveFormat::Bin => Box::new(geezipx_core::archive::disk_image::DiskImageReader::open(path, format)?),
         ArchiveFormat::Iso => Box::new(IsoReader::new(file)),
         ArchiveFormat::Udf => Box::new(UdfReader::new(path)?),
         #[cfg(feature = "wim")]
