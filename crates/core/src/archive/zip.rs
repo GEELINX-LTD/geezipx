@@ -153,6 +153,10 @@ impl<R: Read + Seek + Send> ArchiveReader for ZipReader<R> {
         Ok(entries)
     }
 
+    fn has_direct_visitor(&self) -> bool {
+        true
+    }
+
     fn visit_entries(
         &mut self,
         visitor: &mut super::EntryVisitor<'_>,

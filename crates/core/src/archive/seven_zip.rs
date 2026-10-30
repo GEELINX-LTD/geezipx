@@ -417,6 +417,10 @@ impl ArchiveReader for SevenZipReader {
         Ok(entries)
     }
 
+    fn has_direct_visitor(&self) -> bool {
+        true
+    }
+
     fn visit_entries(
         &mut self,
         visitor: &mut super::EntryVisitor<'_>,

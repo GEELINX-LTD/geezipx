@@ -47,6 +47,30 @@ pub struct TestReport {
 /// mismatch produces a `GeeZipError::Format` error.
 pub fn verify_archive_reader(reader: &mut dyn ArchiveReader) -> GeeZipResult<TestReport> {
     let format = reader.format();
+    if reader.has_direct_visitor() {
+        let mut entry_count = 0;
+        let mut bytes_read = 0;
+        reader.visit_entries(
+            &mut |entry, data| {
+                entry_count += 1;
+                if !entry.is_dir {
+                    let n = std::io::copy(data, &mut std::io::sink())?;
+                    if n != entry.size {
+                        return Err(GeeZipError::format("entry size mismatch", format));
+                    }
+                    bytes_read += n;
+                }
+                Ok(true)
+            },
+            &|| false,
+        )?;
+        return Ok(TestReport {
+            format,
+            entry_count,
+            bytes_read,
+            crc32_verified: matches!(format, ArchiveFormat::Zip | ArchiveFormat::Zipx),
+        });
+    }
     let entries = reader.entries()?;
     let entry_count = entries.len() as u64;
     let mut bytes_read = 0u64;
@@ -141,6 +165,65 @@ pub fn verify_single_stream(path: &Path, format: ArchiveFormat) -> GeeZipResult<
 mod tests {
     use super::*;
     use std::io::Write;
+
+    #[test]
+    fn tar_verification_and_extraction_scan_payload_once() {
+        use crate::archive::{ArchiveReader, ArchiveWriter};
+        use std::io::{Cursor, Read, Seek, SeekFrom};
+        use std::sync::{
+            atomic::{AtomicU64, Ordering},
+            Arc,
+        };
+        struct Measured {
+            inner: Cursor<Vec<u8>>,
+            bytes: Arc<AtomicU64>,
+        }
+        impl Read for Measured {
+            fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+                let n = self.inner.read(buf)?;
+                self.bytes.fetch_add(n as u64, Ordering::Relaxed);
+                Ok(n)
+            }
+        }
+        impl Seek for Measured {
+            fn seek(&mut self, pos: SeekFrom) -> std::io::Result<u64> {
+                self.inner.seek(pos)
+            }
+        }
+        let mut writer = crate::archive::tar::TarWriter::new(Vec::new());
+        for i in 0..100 {
+            writer
+                .add_entry_with_size(
+                    Path::new(&format!("{i}.bin")),
+                    &mut vec![42; 4096].as_slice(),
+                    4096,
+                )
+                .unwrap();
+        }
+        let (_, data) = writer.finalize().unwrap();
+        let len = data.len() as u64;
+        let bytes = Arc::new(AtomicU64::new(0));
+        let mut reader = crate::archive::tar::TarReader::new(Measured {
+            inner: Cursor::new(data),
+            bytes: bytes.clone(),
+        });
+        let report = verify_archive_reader(&mut reader).unwrap();
+        assert_eq!(report.entry_count, 100);
+        assert_eq!(report.bytes_read, 409600);
+        assert!(
+            bytes.load(Ordering::Relaxed) <= len * 2,
+            "verification rescanned the archive"
+        );
+        bytes.store(0, Ordering::Relaxed);
+        let dir = tempfile::tempdir().unwrap();
+        let report = reader.extract_all(dir.path(), true).unwrap();
+        assert_eq!(report.files_extracted, 100);
+        assert!(report.errors.is_empty());
+        assert!(
+            bytes.load(Ordering::Relaxed) <= len * 2,
+            "extraction rescanned the archive"
+        );
+    }
 
     /// Build a minimal valid ZIP archive from entries in memory.
     fn build_zip(entries: &[(&str, &[u8])]) -> Vec<u8> {

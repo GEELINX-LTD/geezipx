@@ -103,6 +103,10 @@ impl<R: Read + Seek + Send> ArchiveReader for TarBz2Reader<R> {
         collect_tarbz2_entries(&mut archive)
     }
 
+    fn has_direct_visitor(&self) -> bool {
+        true
+    }
+
     fn visit_entries(
         &mut self,
         visitor: &mut super::EntryVisitor<'_>,

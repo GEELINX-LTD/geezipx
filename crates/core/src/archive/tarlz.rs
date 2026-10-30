@@ -43,6 +43,10 @@ impl<R: Read + Seek + Send> ArchiveReader for TarLzReader<R> {
         )?;
         Ok(entries)
     }
+    fn has_direct_visitor(&self) -> bool {
+        true
+    }
+
     fn visit_entries(
         &mut self,
         visitor: &mut EntryVisitor<'_>,

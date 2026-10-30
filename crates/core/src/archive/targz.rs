@@ -230,6 +230,10 @@ impl<R: Read + Seek + Send> ArchiveReader for TarGzReader<R> {
         collect_targz_entries(&mut archive)
     }
 
+    fn has_direct_visitor(&self) -> bool {
+        true
+    }
+
     fn visit_entries(
         &mut self,
         visitor: &mut super::EntryVisitor<'_>,

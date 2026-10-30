@@ -112,6 +112,8 @@ fn run_verify(archive: &Path, json: bool, password: Option<String>) -> Result<()
         | ArchiveFormat::Arj
         | ArchiveFormat::Ace
         | ArchiveFormat::Arc
+        | ArchiveFormat::Egg
+        | ArchiveFormat::Compound
         | ArchiveFormat::Alz
         | ArchiveFormat::Asar
         | ArchiveFormat::Deb
