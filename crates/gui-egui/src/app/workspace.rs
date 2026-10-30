@@ -21,10 +21,6 @@ impl App {
             self.welcome(ui, context);
             return;
         }
-        let mut preview = None;
-        let mut extract = false;
-        let mut drag_out = false;
-        let mut start_marquee = None;
         let archive = self.archive.as_mut().expect("archive checked above");
         let browser = &mut archive.browser;
         ui.horizontal(|ui| {
@@ -106,6 +102,21 @@ impl App {
             }
         });
         ui.add_space(5.0);
+        self.folder_tree(ui);
+        egui::CentralPanel::default()
+            .frame(egui::Frame::NONE)
+            .show_inside(ui, |ui| self.archive_contents(ui, context));
+    }
+    fn archive_contents(&mut self, ui: &mut egui::Ui, context: &egui::Context) {
+        let busy = self.busy();
+        let mut preview = None;
+        let mut extract = false;
+        let mut drag_out = false;
+        let mut start_marquee = None;
+        let archive = self.archive.as_mut().expect("archive checked above");
+        let browser = &mut archive.browser;
+        let parent_offset = usize::from(!browser.directory.is_empty());
+        let row_count = browser.visible.len() + parent_offset;
         let columns = widgets::Columns::new(ui.available_width(), self.column_widths);
         let (header, _) =
             ui.allocate_exact_size(egui::vec2(ui.available_width(), 29.0), egui::Sense::hover());
@@ -199,7 +210,7 @@ impl App {
         }
         let list_height = ui.available_height().max(60.0);
         if let Some(index) = browser.reveal.take() {
-            let top = index as f32 * 29.0;
+            let top = (index + parent_offset) as f32 * 29.0;
             if top < self.list_offset {
                 self.list_offset = top;
             }
@@ -222,6 +233,7 @@ impl App {
         }
         let list_focused = list.has_focus();
         let mut navigate = None;
+        let mut go_parent = false;
         ui.scope(|ui| {
             ui.spacing_mut().item_spacing.y = 0.0;
             let output = egui::ScrollArea::vertical()
@@ -233,9 +245,43 @@ impl App {
                 .auto_shrink([false, false])
                 .max_height(list_height)
                 .vertical_scroll_offset(self.list_offset)
-                .show_rows(ui, 29.0, browser.visible.len(), |ui, range| {
+                .show_rows(ui, 29.0, row_count, |ui, range| {
                     let columns = widgets::Columns::new(ui.available_width(), self.column_widths);
-                    for index in range {
+                    for visual_index in range {
+                        if parent_offset == 1 && visual_index == 0 {
+                            let response = widgets::file_row(
+                                ui,
+                                egui::Id::new((
+                                    "archive-parent",
+                                    &archive.path,
+                                    &browser.directory,
+                                )),
+                                widgets::FileRow {
+                                    name: "..",
+                                    size: "",
+                                    packed: "",
+                                    kind: "上一级",
+                                    folder: true,
+                                    selected: false,
+                                    focused: false,
+                                },
+                                columns,
+                            );
+                            if response.clicked()
+                                && !ui.input(|i| i.modifiers.any())
+                                && response.interact_pointer_pos().is_some_and(|pos| {
+                                    self.row_activation.click(context, response.id, pos)
+                                })
+                            {
+                                go_parent = true;
+                            }
+                            if response.drag_started() {
+                                self.row_activation.reset();
+                            }
+                            response.on_hover_text("双击返回上一级");
+                            continue;
+                        }
+                        let index = visual_index - parent_offset;
                         let row = browser.visible[index].clone();
                         ui.push_id(&row.path, |ui| {
                             let size = if row.is_dir {
@@ -399,8 +445,10 @@ impl App {
                     let point = pointer - viewport.min.to_vec2() + output.state.offset;
                     let rect = egui::Rect::from_two_pos(drag.origin, point);
                     let mut selection = drag.original.clone();
-                    let first = (rect.top().max(0.0) / 29.0).floor() as usize;
+                    let first = ((rect.top().max(0.0) / 29.0).floor() as usize)
+                        .saturating_sub(parent_offset);
                     let end = ((rect.bottom().max(0.0) / 29.0).ceil() as usize)
+                        .saturating_sub(parent_offset)
                         .min(browser.visible.len());
                     if rect.right() >= 0.0 && rect.left() <= viewport.width() {
                         for row in browser.visible.iter().take(end).skip(first) {
@@ -431,10 +479,8 @@ impl App {
                             0.0
                         };
                         if delta != 0.0 {
-                            self.list_offset = (self.list_offset + delta).clamp(
-                                0.0,
-                                (browser.visible.len() as f32 * 29.0 - viewport.height()).max(0.0),
-                            );
+                            self.list_offset = (self.list_offset + delta)
+                                .clamp(0.0, (row_count as f32 * 29.0 - viewport.height()).max(0.0));
                             context.request_repaint_after(Duration::from_millis(16));
                         }
                     }
@@ -444,7 +490,11 @@ impl App {
                 self.marquee = None;
             }
         });
-        if let Some(path) = navigate {
+        if go_parent {
+            browser.parent();
+            self.marquee = None;
+            self.list_offset = 0.0;
+        } else if let Some(path) = navigate {
             browser.navigate(path);
             self.marquee = None;
             self.list_offset = 0.0;

@@ -710,6 +710,184 @@ fn successive_double_clicks_enter_nested_directories_even_after_egui_triple_clic
     assert_eq!(app.archive.as_ref().unwrap().browser.directory, "项目/目录");
 }
 
+fn primary_click(app: &mut App, context: &egui::Context, position: egui::Pos2) {
+    pointer_frame(app, context, position, Some(true), egui::Modifiers::NONE);
+    pointer_frame(app, context, position, Some(false), egui::Modifiers::NONE);
+}
+
+#[test]
+fn folder_tree_expand_is_separate_from_navigation_and_preserves_list_selection() {
+    let context = context();
+    let mut app = App::empty(Preferences::default());
+    app.archive = Some(archive());
+    app.archive
+        .as_mut()
+        .unwrap()
+        .browser
+        .select(0, false, false);
+    for _ in 0..2 {
+        draw(&mut app, &context, [1000.0, 680.0]);
+    }
+    let id = egui::Id::new(("folder-tree-entry", &PathBuf::from("设计.zip"), "项目"));
+    let expand = context
+        .read_response(id.with("expand"))
+        .unwrap()
+        .rect
+        .center();
+    primary_click(&mut app, &context, expand);
+    let browser = &app.archive.as_ref().unwrap().browser;
+    assert_eq!(browser.directory, "");
+    assert!(browser.selection.contains("项目"));
+    assert!(browser
+        .folder_tree
+        .iter()
+        .any(|node| node.path == "项目/目录"));
+    draw(&mut app, &context, [1000.0, 680.0]);
+    let child = context
+        .read_response(egui::Id::new((
+            "folder-tree-entry",
+            &PathBuf::from("设计.zip"),
+            "项目/目录",
+        )))
+        .unwrap()
+        .rect
+        .center();
+    primary_click(&mut app, &context, child);
+    let browser = &app.archive.as_ref().unwrap().browser;
+    assert_eq!(browser.directory, "项目/目录");
+    assert!(browser.selection.is_empty());
+    assert!(browser.can_back());
+    assert!(app.marquee.is_none());
+}
+
+#[test]
+fn expanding_a_scrolled_tree_keeps_the_scroll_position_instead_of_jumping_to_root() {
+    let context = context();
+    let mut app = App::empty(Preferences::default());
+    let mut archive = archive();
+    archive.entries = (0..40)
+        .map(|i| Entry {
+            path: format!("folder{i:02}/nested/file.txt"),
+            size: 128,
+            compressed_size: 64,
+            crc32: None,
+            modified: None,
+            is_dir: false,
+        })
+        .collect();
+    archive.browser = geezipx_egui::browser::Browser::new(&archive.entries);
+    app.archive = Some(archive);
+    for _ in 0..2 {
+        draw(&mut app, &context, [1000.0, 680.0]);
+    }
+    app.tree_offset = 500.0;
+    for _ in 0..2 {
+        draw(&mut app, &context, [1000.0, 680.0]);
+    }
+    let id = egui::Id::new(("folder-tree-entry", &PathBuf::from("设计.zip"), "folder20"));
+    let expand = context
+        .read_response(id.with("expand"))
+        .unwrap()
+        .rect
+        .center();
+    primary_click(&mut app, &context, expand);
+    for _ in 0..2 {
+        draw(&mut app, &context, [1000.0, 680.0]);
+    }
+    assert!(
+        app.tree_offset > 400.0,
+        "expanding a folder jumped the tree to its selected root"
+    );
+    let browser = &app.archive.as_ref().unwrap().browser;
+    assert!(browser.directory.is_empty());
+    assert!(browser
+        .folder_tree
+        .iter()
+        .any(|node| node.path == "folder20/nested"));
+}
+
+#[test]
+fn parent_folder_row_stays_first_during_filtering_and_double_click_returns_with_child_focus() {
+    let context = context();
+    let mut app = App::empty(Preferences::default());
+    app.archive = Some(archive());
+    app.archive
+        .as_mut()
+        .unwrap()
+        .browser
+        .navigate("项目/目录".into());
+    for _ in 0..2 {
+        draw(&mut app, &context, [1000.0, 680.0]);
+    }
+    let parent = context
+        .read_response(egui::Id::new((
+            "archive-parent",
+            &PathBuf::from("设计.zip"),
+            "项目/目录",
+        )))
+        .unwrap()
+        .rect;
+    assert!(parent.bottom() <= row_rect(&context, "项目/目录/文件.txt").top());
+    let point = parent.left_center() + egui::vec2(60.0, 0.0);
+    primary_click(&mut app, &context, point);
+    assert_eq!(app.archive.as_ref().unwrap().browser.directory, "项目/目录");
+    assert!(app.archive.as_ref().unwrap().browser.selection.is_empty());
+    primary_click(&mut app, &context, point);
+    assert_eq!(app.archive.as_ref().unwrap().browser.directory, "项目");
+    assert_eq!(
+        app.archive.as_ref().unwrap().browser.focus.as_deref(),
+        Some("项目/目录")
+    );
+    let browser = &mut app.archive.as_mut().unwrap().browser;
+    browser.query = "unmatched".into();
+    browser.refresh();
+    for _ in 0..2 {
+        draw(&mut app, &context, [1000.0, 680.0]);
+    }
+    let parent = context
+        .read_response(egui::Id::new((
+            "archive-parent",
+            &PathBuf::from("设计.zip"),
+            "项目",
+        )))
+        .unwrap()
+        .rect;
+    let point = parent.left_center() + egui::vec2(60.0, 0.0);
+    primary_click(&mut app, &context, point);
+    primary_click(&mut app, &context, point);
+    let browser = &app.archive.as_ref().unwrap().browser;
+    assert_eq!(browser.directory, "");
+    assert!(browser.query.is_empty());
+    assert_eq!(browser.focus.as_deref(), Some("项目"));
+}
+
+#[test]
+fn rectangle_selection_with_parent_row_never_selects_or_exports_dot_dot() {
+    let context = context();
+    let mut app = App::empty(Preferences::default());
+    app.archive = Some(archive());
+    app.archive
+        .as_mut()
+        .unwrap()
+        .browser
+        .navigate("项目/目录".into());
+    for _ in 0..2 {
+        draw(&mut app, &context, [1000.0, 680.0]);
+    }
+    let file = row_rect(&context, "项目/目录/文件.txt");
+    let start = egui::pos2(file.right() - 20.0, file.bottom() + 35.0);
+    let end = egui::pos2(file.right() - 90.0, file.top() - 20.0);
+    pointer_frame(&mut app, &context, start, Some(true), egui::Modifiers::NONE);
+    pointer_frame(&mut app, &context, end, None, egui::Modifiers::NONE);
+    pointer_frame(&mut app, &context, end, Some(false), egui::Modifiers::NONE);
+    assert_eq!(
+        app.archive.as_ref().unwrap().browser.selection,
+        BTreeSet::from(["项目/目录/文件.txt".into()])
+    );
+    assert!(app.export.pending.is_none());
+    assert!(!app.busy());
+}
+
 #[test]
 fn folder_double_click_accepts_system_interval_above_egui_default() {
     let context = context();

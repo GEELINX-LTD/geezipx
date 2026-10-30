@@ -22,7 +22,7 @@ GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开�
 | macOS (x86_64, arm64) | 原生二进制 / Homebrew | Tauri .dmg |
 | Windows (x86_64) | 原生二进制 / winget | Tauri .exe (NSIS 安装器) |
 
-另提供 `geezipx-egui` 原生桌面可执行文件，目标为 Windows/macOS/Linux；当前配置 Linux x86_64、Windows x86_64、macOS arm64 独立 CI 编译，Windows 另提供按用户安装的 NSIS 测试安装包。原生工作区支持鼠标框选与选区拖出解压，拖出使用 Windows/macOS 系统拖放或 Linux X11/XWayland，原生 Wayland 拖出暂不支持。文件关联和系统右键菜单尚未接入。
+另提供 `geezipx-egui` 原生桌面可执行文件，目标为 Windows/macOS/Linux；当前配置 Linux x86_64、Windows x86_64、macOS arm64 独立 CI 编译，Windows 另提供按用户安装的 NSIS 测试安装包。原生工作区支持可调整宽度的左侧归档目录树、文件列表顶部的 `..` 父目录入口、鼠标框选与选区拖出解压；拖出在目标松手后才解压，一次拖动完成，拖出使用 Windows/macOS 系统拖放或 Linux X11/XWayland，原生 Wayland 拖出暂不支持。文件关联和系统右键菜单尚未接入。
 
 ## 4. 核心场景
 

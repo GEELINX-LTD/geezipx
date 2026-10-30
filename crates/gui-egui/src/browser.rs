@@ -40,6 +40,15 @@ pub struct Row {
     search: String,
 }
 
+#[derive(Clone, Debug)]
+pub struct FolderNode {
+    pub path: String,
+    pub name: String,
+    pub depth: usize,
+    pub expanded: bool,
+    pub has_children: bool,
+}
+
 #[derive(Default)]
 struct Directory {
     by_name: Vec<Arc<Row>>,
@@ -65,6 +74,9 @@ pub struct Browser {
     forward: Vec<String>,
     pub selected_bytes: u64,
     pub hidden_selected: usize,
+    pub folder_tree: Vec<FolderNode>,
+    pub tree_reveal: Option<usize>,
+    tree_open: BTreeSet<String>,
 }
 
 impl Browser {
@@ -165,10 +177,64 @@ impl Browser {
         let mut browser = Self {
             directories,
             rows,
+            tree_open: BTreeSet::from([String::new()]),
             ..Self::default()
         };
         browser.refresh();
+        browser.rebuild_tree();
         browser
+    }
+    fn rebuild_tree(&mut self) {
+        let mut tree = Vec::new();
+        let mut pending = vec![(String::new(), 0)];
+        while let Some((path, depth)) = pending.pop() {
+            let Some(directory) = self.directories.get(&path) else {
+                continue;
+            };
+            let folder_count = directory.by_name.partition_point(|row| row.is_dir);
+            let expanded = self.tree_open.contains(&path);
+            if expanded {
+                pending.extend(
+                    directory.by_name[..folder_count]
+                        .iter()
+                        .rev()
+                        .map(|row| (row.path.clone(), depth + 1)),
+                );
+            }
+            tree.push(FolderNode {
+                name: self
+                    .rows
+                    .get(&path)
+                    .map_or_else(|| "归档根目录".into(), |row| row.name.clone()),
+                path,
+                depth,
+                expanded,
+                has_children: folder_count > 0,
+            });
+        }
+        self.folder_tree = tree;
+    }
+    pub fn toggle_folder(&mut self, path: &str) {
+        if !self.directories.contains_key(path) {
+            return;
+        }
+        if !self.tree_open.remove(path) {
+            self.tree_open.insert(path.into());
+        }
+        self.rebuild_tree();
+        self.tree_reveal = None;
+    }
+    fn reveal_directory(&mut self) {
+        self.tree_open.insert(String::new());
+        for (separator, _) in self.directory.match_indices('/') {
+            self.tree_open.insert(self.directory[..separator].into());
+        }
+        self.tree_open.insert(self.directory.clone());
+        self.rebuild_tree();
+        self.tree_reveal = self
+            .folder_tree
+            .iter()
+            .position(|node| node.path == self.directory);
     }
     pub fn refresh(&mut self) {
         let query = self.query.to_lowercase();
@@ -217,6 +283,7 @@ impl Browser {
         self.clear_selection();
         self.focus = None;
         self.refresh();
+        self.reveal_directory();
     }
     pub fn navigate(&mut self, path: String) {
         if path != self.directory && self.directories.contains_key(&path) {
@@ -388,6 +455,82 @@ mod tests {
             modified: None,
             is_dir: false,
         }
+    }
+    #[test]
+    fn folder_tree_keeps_implicit_and_empty_directories_independent_of_filtering() {
+        let mut empty = file("空目录/");
+        empty.is_dir = true;
+        let mut browser = Browser::new(&[
+            file("资料\\子目录\\a.txt"),
+            file("资料2/b.txt"),
+            file("root.txt"),
+            empty,
+        ]);
+        assert_eq!(
+            browser
+                .folder_tree
+                .iter()
+                .map(|node| node.path.as_str())
+                .collect::<Vec<_>>(),
+            ["", "空目录", "资料", "资料2"]
+        );
+        assert!(
+            !browser
+                .folder_tree
+                .iter()
+                .find(|node| node.path == "空目录")
+                .unwrap()
+                .has_children
+        );
+        browser.toggle_folder("资料");
+        let child = browser
+            .folder_tree
+            .iter()
+            .find(|node| node.path == "资料/子目录")
+            .unwrap();
+        assert_eq!(child.depth, 2);
+        assert!(!child.has_children);
+        browser.query = "does not match any file".into();
+        browser.refresh();
+        assert!(browser.visible.is_empty());
+        assert!(browser
+            .folder_tree
+            .iter()
+            .any(|node| node.path == "资料/子目录"));
+        browser.toggle_folder("资料");
+        assert!(!browser
+            .folder_tree
+            .iter()
+            .any(|node| node.path == "资料/子目录"));
+    }
+    #[test]
+    fn navigation_and_history_reveal_ancestors_in_the_folder_tree() {
+        let mut browser = Browser::new(&[file("a/b/c/file.txt"), file("sibling/other.txt")]);
+        browser.navigate("a/b/c".into());
+        for path in ["", "a", "a/b", "a/b/c"] {
+            assert!(browser
+                .folder_tree
+                .iter()
+                .any(|node| node.path == path && node.expanded));
+        }
+        assert_eq!(
+            browser.folder_tree[browser.tree_reveal.unwrap()].path,
+            "a/b/c"
+        );
+        browser.navigate("sibling".into());
+        browser.back();
+        assert_eq!(
+            browser.folder_tree[browser.tree_reveal.unwrap()].path,
+            "a/b/c"
+        );
+        browser.forward();
+        assert_eq!(
+            browser.folder_tree[browser.tree_reveal.unwrap()].path,
+            "sibling"
+        );
+        browser.parent();
+        assert_eq!(browser.folder_tree[browser.tree_reveal.unwrap()].path, "");
+        assert_eq!(browser.focus.as_deref(), Some("sibling"));
     }
     #[test]
     fn implicit_windows_folders_and_selection_boundaries() {

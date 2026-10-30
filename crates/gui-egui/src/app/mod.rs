@@ -1,6 +1,7 @@
 mod chrome;
 mod create;
 mod extract;
+mod folders;
 mod interaction;
 mod native_drag;
 mod tasks;
@@ -167,6 +168,7 @@ pub struct App {
     last_typed: Instant,
     column_widths: [f32; 3],
     list_offset: f32,
+    tree_offset: f32,
     marquee: Option<interaction::Marquee>,
     row_activation: interaction::RowActivation,
     export: interaction::ExportState,
@@ -210,6 +212,7 @@ impl App {
             last_typed: Instant::now(),
             column_widths: [110.0, 110.0, 90.0],
             list_offset: 0.0,
+            tree_offset: 0.0,
             marquee: None,
             row_activation: interaction::RowActivation::default(),
             export: interaction::ExportState::default(),
@@ -387,6 +390,7 @@ impl App {
                 self.read_password.clear();
                 self.typeahead.clear();
                 self.list_offset = 0.0;
+                self.tree_offset = 0.0;
             }
             Ok(Outcome::Done(summary)) => {
                 self.notice = Some((summary.message.clone(), false));
