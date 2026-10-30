@@ -5,13 +5,13 @@
 //!
 //! Writing produces UDF 2.01 images via `hadris_udf::write::UdfWriter`.
 //! Entries are buffered in memory during `add_entry_from_reader` and written
-//! in a single pass when `finish()` is called (non-streaming by UDF format
-//! constraints).
+//! in a single pass when `finish()` is called. The current writer API requires
+//! buffered input; UDF itself does not require whole-image buffering.
 
 use std::collections::HashSet;
 use std::fmt;
 use std::fs;
-use std::io::{Cursor, Read, Seek, SeekFrom, Write};
+use std::io::{BufReader, Cursor, Read, Seek, SeekFrom, Write};
 use std::path::Path;
 // use std::sync::Arc;
 
@@ -62,10 +62,30 @@ fn validate_udf_entry_path(path: &Path) -> GeeZipResult<String> {
 // Reader
 // ============================================================================
 
-/// UDF image reader.
+/// Seekable image source. Only tests keep images in memory.
+enum UdfSource {
+    File(std::path::PathBuf),
+    #[cfg(test)]
+    Memory(Vec<u8>),
+}
+trait ReadSeek: Read + Seek {}
+impl<T: Read + Seek> ReadSeek for T {}
+impl UdfSource {
+    fn open(&self) -> GeeZipResult<Box<dyn ReadSeek + '_>> {
+        match self {
+            Self::File(path) => Ok(Box::new(BufReader::with_capacity(
+                64 * 1024,
+                fs::File::open(path)?,
+            ))),
+            #[cfg(test)]
+            Self::Memory(data) => Ok(Box::new(Cursor::new(data.as_slice()))),
+        }
+    }
+}
+
+/// UDF image reader; only directory metadata stays resident.
 pub struct UdfReader {
-    /// Raw image data for parsing and extraction.
-    data: Vec<u8>,
+    data: UdfSource,
     /// Cached entries after parsing.
     entries_cache: Option<Vec<Entry>>,
     format: ArchiveFormat,
@@ -82,14 +102,10 @@ impl fmt::Debug for UdfReader {
 impl UdfReader {
     /// Create a UDF reader from a file path.
     pub fn new(path: impl AsRef<Path>) -> GeeZipResult<Self> {
-        let data = fs::read(path.as_ref()).map_err(|e| {
-            GeeZipError::io(
-                e,
-                format!("reading UDF image '{}'", path.as_ref().display()),
-            )
-        })?;
+        let path = path.as_ref();
+        fs::File::open(path).map_err(|e| GeeZipError::io(e, "opening UDF image"))?;
         Ok(Self {
-            data,
+            data: UdfSource::File(path.to_path_buf()),
             entries_cache: None,
             format: ArchiveFormat::Udf,
         })
@@ -100,7 +116,7 @@ impl UdfReader {
             return Ok(());
         }
 
-        let cursor = Cursor::new(self.data.as_slice());
+        let cursor = self.data.open()?;
         let udf = UdfFs::open(cursor).map_err(|err| convert_udf_error(err, "opening UDF image"))?;
 
         let root = udf
@@ -110,7 +126,7 @@ impl UdfReader {
         let mut entries = Vec::new();
         collect_udf_entries(
             &udf,
-            &self.data,
+            &mut self.data.open()?,
             &root,
             "",
             &mut entries,
@@ -122,11 +138,10 @@ impl UdfReader {
 
     /// Extract a file from the UDF image by navigating to its ICB.
     fn extract_file_internal(&self, entry_path: &str, writer: &mut dyn Write) -> GeeZipResult<u64> {
-        let mut reader = Cursor::new(self.data.as_slice());
+        let mut reader = self.data.open()?;
 
-        // The filesystem and extent reader borrow the image instead of making
-        // two full image copies for every extracted file.
-        let udf = UdfFs::open(Cursor::new(self.data.as_slice()))
+        // Independent handles keep directory seeks separate from payload I/O.
+        let udf = UdfFs::open(self.data.open()?)
             .map_err(|err| convert_udf_error(err, "re-opening UDF image for extraction"))?;
 
         let root = udf
@@ -151,9 +166,9 @@ impl UdfReader {
 }
 
 /// Recursively collect entries from a UDF directory tree.
-fn collect_udf_entries(
-    udf: &UdfFs<Cursor<&[u8]>>,
-    data: &[u8],
+fn collect_udf_entries<R: Read + Seek>(
+    udf: &UdfFs<R>,
+    data: &mut dyn ReadSeek,
     dir: &hadris_udf::dir::UdfDir,
     parent: &str,
     out: &mut Vec<Entry>,
@@ -180,8 +195,7 @@ fn collect_udf_entries(
         let size = if entry.is_directory {
             0
         } else {
-            let mut reader = Cursor::new(data);
-            let buffer = read_udf_file_entry(&mut reader, udf, entry)?;
+            let buffer = read_udf_file_entry(data, udf, entry)?;
             u64::from_le_bytes(buffer[56..64].try_into().unwrap())
         };
         out.push(Entry {
@@ -209,8 +223,8 @@ fn collect_udf_entries(
 
 /// Resolve every path component so a nested lookup cannot select a root file
 /// with the same basename.
-fn find_udf_entry(
-    udf: &UdfFs<Cursor<&[u8]>>,
+fn find_udf_entry<R: Read + Seek>(
+    udf: &UdfFs<R>,
     mut dir: hadris_udf::dir::UdfDir,
     path: &str,
 ) -> GeeZipResult<UdfDirEntry> {
@@ -242,9 +256,9 @@ fn find_udf_entry(
 /// This manually parses the File Entry structure to find the allocation
 /// descriptors and read the file data, because `hadris-udf` does not expose
 /// a public file-reading API.
-fn read_udf_file_entry<R: Read + Seek>(
+fn read_udf_file_entry<R: Read + Seek + ?Sized, S: Read + Seek>(
     reader: &mut R,
-    udf: &UdfFs<Cursor<&[u8]>>,
+    udf: &UdfFs<S>,
     entry: &UdfDirEntry,
 ) -> GeeZipResult<Vec<u8>> {
     let info = udf.info();
@@ -289,9 +303,9 @@ fn read_udf_file_entry<R: Read + Seek>(
 
 /// Stream recorded extents, bound them against the image before reading, and
 /// reject unsupported allocation layouts instead of interpreting them as data.
-fn read_udf_file_data<R: Read + Seek>(
+fn read_udf_file_data<R: Read + Seek, S: Read + Seek>(
     reader: &mut R,
-    udf: &UdfFs<Cursor<&[u8]>>,
+    udf: &UdfFs<S>,
     entry: &UdfDirEntry,
     writer: &mut dyn Write,
 ) -> GeeZipResult<u64> {
@@ -676,10 +690,27 @@ mod tests {
     }
 
     #[test]
+    fn udf_sparse_image_reads_without_loading_padding() {
+        let mut file = tempfile::NamedTempFile::new().unwrap();
+        file.write_all(&build_test_udf()).unwrap();
+        file.as_file().set_len(8 * 1024 * 1024 * 1024).unwrap();
+        let mut reader = UdfReader::new(file.path()).unwrap();
+        let entry = reader
+            .entries()
+            .unwrap()
+            .into_iter()
+            .find(|e| e.path == "hello.txt")
+            .unwrap();
+        let mut data = Vec::new();
+        reader.extract(&entry, &mut data).unwrap();
+        assert_eq!(data, b"hello udf\n");
+    }
+
+    #[test]
     fn udf_entries_and_extract_file() {
         let data = build_test_udf();
         let mut reader = UdfReader {
-            data,
+            data: UdfSource::Memory(data),
             entries_cache: None,
             format: ArchiveFormat::Udf,
         };
@@ -704,7 +735,7 @@ mod tests {
     #[test]
     fn udf_lists_and_extracts_nested_entries() {
         let mut reader = UdfReader {
-            data: build_test_udf_nested(),
+            data: UdfSource::Memory(build_test_udf_nested()),
             entries_cache: None,
             format: ArchiveFormat::Udf,
         };
@@ -747,7 +778,7 @@ mod tests {
         writer.add_directory(Path::new("a/empty/deep")).unwrap();
         writer.finish().unwrap();
         let mut reader = UdfReader {
-            data,
+            data: UdfSource::Memory(data),
             entries_cache: None,
             format: ArchiveFormat::Udf,
         };
@@ -779,7 +810,7 @@ mod tests {
             let offset = first_file_icb_offset(&data);
             data[offset + 176..offset + 180].copy_from_slice(&length.to_le_bytes());
             let mut reader = UdfReader {
-                data,
+                data: UdfSource::Memory(data),
                 entries_cache: None,
                 format: ArchiveFormat::Udf,
             };
@@ -805,7 +836,7 @@ mod tests {
                 data[offset + 184..offset + 192].fill(0);
             }
             let mut reader = UdfReader {
-                data,
+                data: UdfSource::Memory(data),
                 entries_cache: None,
                 format: ArchiveFormat::Udf,
             };
@@ -827,7 +858,7 @@ mod tests {
     #[test]
     fn udf_invalid_image_fails_cleanly() {
         let mut reader = UdfReader {
-            data: b"not a udf image".to_vec(),
+            data: UdfSource::Memory(b"not a udf image".to_vec()),
             entries_cache: None,
             format: ArchiveFormat::Udf,
         };
