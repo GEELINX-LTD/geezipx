@@ -26,7 +26,7 @@
 | BR | 待复核 | |
 | BZ / BZ2 / TBZ / TBZ2 | 待复核 | |
 | CAB | 待复核 | |
-| 化合物 / MSI | 待复核 | |
+| 化合物 / MSI | 已实现容器流提取 | cfb 0.15；识别 CFB magic/.msi/.msp/.mst/.cfb/.ole；目录/mini-stream/普通流使用 Read+Seek 按需复制，元数据驻内存。提取原始 OLE/MSI streams，不解释 MSI 数据库 File 表，不自动展开内嵌 CAB |
 | DAA 1.0 | 待复核 | |
 | DEB | 待复核 | |
 | EGG | 待复核 | |

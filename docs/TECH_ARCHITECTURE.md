@@ -334,6 +334,7 @@ CLI 当前子命令为：
 | `xpress-huffman` 0.1 | WIM XPRESS 解压（pull 依赖） |
 | `sha1` 0.10 | WIM 资源 SHA-1 增量摘要；仅用于格式完整性 |
 | `tempfile` 3 | WIM 文件数据磁盘暂存；失败或销毁时自动清理 |
+| `cfb` 0.15 | MSI/OLE 化合物原始流读取，Read+Seek 按需复制 mini-stream/普通流；不解释安装数据库 |
 | `aescrypt-rs` =0.2.0-rc.18 | AES Crypt v0–v3，只读双遍认证后解密；通用 Read 输入暂存密文，seek API 可直接读取 |
 | `base64` 0.22 / `ciborium` 0.2 | AES 容器 armor/CBOR 预检；限制头部大小、嵌套与 KDF 成本 |
 | `unarc-rs` 0.8 | ARJ / ACE / ARC 只读适配；使用已修复安全公告的 ZIP 依赖 |

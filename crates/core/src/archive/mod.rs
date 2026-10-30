@@ -22,6 +22,7 @@ pub mod bin;
 pub mod brotli;
 pub mod bzip2;
 pub mod cab;
+pub mod compound;
 pub mod cpio;
 pub mod deb;
 pub mod extraction;

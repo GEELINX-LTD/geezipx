@@ -68,6 +68,7 @@
 | ISZ | `.isz` | ✓ | ✓ | compressed ISO wrapper; single-stream |
 | RAR | `.rar` | ✓ | ✗ | read-only (licensing limitation); decryption supported |
 | AES encrypted | `.enc` | ✓ | ✓ | AES-256-GCM-SIV + Argon2id; authenticated container; buffered processing |
+| Compound / MSI | `.msi`, `.msp`, `.mst`, `.cfb`, `.ole` | ✗ | ✓ | Raw storage streams; seek-based; no MSI database reconstruction or recursive CAB extraction |
 | AES Crypt | `.aes` | ✗ | ✓ | v0–v3 via aescrypt-rs; bounded buffers; authenticate before plaintext output |
 | IMG / IMA | `.img`, `.ima` | ✓ | ✓ | pass-through identity copy |
 | BIN | `.bin` | ✓ | ✓ | pass-through identity copy |
