@@ -89,23 +89,15 @@ fn run_verify(archive: &Path, json: bool, password: Option<String>) -> Result<()
             }
         }
         ArchiveFormat::Uu | ArchiveFormat::Xxe => {
-            let data = match format {
-                ArchiveFormat::Uu => {
-                    uu::uu_decode_file(archive)
-                        .map_err(|e| anyhow::anyhow!("uu verification failed: {}", e))?
-                        .1
-                }
-                ArchiveFormat::Xxe => {
-                    xxe::xxe_decode_file(archive)
-                        .map_err(|e| anyhow::anyhow!("xxe verification failed: {}", e))?
-                        .1
-                }
+            let bytes_read = match format {
+                ArchiveFormat::Uu => uu::uu_decode_to_writer(archive, &mut std::io::sink())?,
+                ArchiveFormat::Xxe => xxe::xxe_decode_to_writer(archive, &mut std::io::sink())?,
                 _ => unreachable!(),
             };
             TestReport {
                 format,
                 entry_count: 1,
-                bytes_read: data.len() as u64,
+                bytes_read,
                 crc32_verified: false,
             }
         }

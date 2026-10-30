@@ -126,8 +126,13 @@ pub fn xxe_decode(input: &str) -> Result<(String, Vec<u8>), String> {
 
 pub fn xxe_decode_to_writer(path: &Path, writer: &mut dyn Write) -> GeeZipResult<u64> {
     let file = fs::File::open(path).map_err(|e| GeeZipError::io(e, "opening xxe input"))?;
+    xxe_decode_stream(file, writer)
+}
+
+/// Decode an XXE stream with bounded line buffers, including non-seekable input.
+pub fn xxe_decode_stream<R: Read>(reader: R, writer: &mut dyn Write) -> GeeZipResult<u64> {
     super::text_encoding::decode(
-        &mut std::io::BufReader::new(file),
+        &mut std::io::BufReader::new(reader),
         writer,
         XXE_ALPHABET,
         false,

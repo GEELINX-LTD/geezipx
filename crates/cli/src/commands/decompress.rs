@@ -278,18 +278,8 @@ fn decode<R: Read, W: Write>(
         ArchiveFormat::Aes => {
             aes::aes_decrypt(&mut reader, &mut writer, password.unwrap_or_default())?
         }
-        ArchiveFormat::Uu | ArchiveFormat::Xxe => {
-            let mut content = String::new();
-            reader.read_to_string(&mut content)?;
-            let (_, data) = if format == ArchiveFormat::Uu {
-                uu::uu_decode(&content).context("failed to decode uu stream")?
-            } else {
-                xxe::xxe_decode(&content)
-                    .map_err(|error| anyhow::anyhow!("failed to decode xxe stream: {error}"))?
-            };
-            writer.write_all(&data)?;
-            data.len() as u64
-        }
+        ArchiveFormat::Uu => uu::uu_decode_stream(&mut reader, &mut writer)?,
+        ArchiveFormat::Xxe => xxe::xxe_decode_stream(&mut reader, &mut writer)?,
         _ => anyhow::bail!("unsupported format for single-stream decompression: {format}"),
     };
     writer.flush()?;
