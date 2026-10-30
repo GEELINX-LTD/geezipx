@@ -52,11 +52,8 @@ use geezipx_core::detect::{self, ArchiveFormat};
 
 /// Parse a user-supplied format string into an [`ArchiveFormat`].
 ///
-/// Accepts: `zip`, ZIP-derived aliases (`zipx`, `jar`, `war`, `apk`, `ipa`, `xpi`),
-/// `tar`, `tar.gz`, `tgz`, `tar.bz2`, `tbz`, `tbz2`, `tar.br`, `gz`, `gzip`,
-/// `bz2`, `bzip2`, `br`, `brotli`, `lz4`, `tar.lz4`, `zst`, `zstd`, `tar.zst`,
-/// `tzst`, `tar.xz`, `txz`, `xz`, `lzma`, `7z`, `rar`, `cab`, `asar`, `deb`,
-/// `lzh`, `lha`, `iso`, `cpio`, `zpaq`, `zpq`.
+/// Accepts core/CLI format names and extension aliases. Some parsed formats
+/// are read-only; creation paths must reject those formats explicitly.
 pub fn parse_format(s: &str) -> Result<ArchiveFormat> {
     match s.to_ascii_lowercase().as_str() {
         "zip" | "jar" | "war" | "apk" | "ipa" | "xpi" => Ok(ArchiveFormat::Zip),
@@ -102,7 +99,7 @@ pub fn parse_format(s: &str) -> Result<ArchiveFormat> {
         "uu" | "uue" => Ok(ArchiveFormat::Uu),
         "xxe" => Ok(ArchiveFormat::Xxe),
         other => Err(anyhow::anyhow!(
-            "unsupported format '{other}'; expected: zip, zipx, jar, war, apk, ipa, xpi, tar, tar.gz, tgz, tar.bz2, tbz, tbz2, tar.br, gz, gzip, bz2, bzip2, br, brotli, lz4, tar.lz4, zst, zstd, tar.zst, tzst, tar.xz, txz, tar.lzma, tar.lz, tlz, xz, lzma, lz, 7z, rar, cab, asar, deb, lzh, lha, iso, udf, cpio, zpaq, zpq, wim, swm, uu, uue, xxe, isz"
+            "unsupported format '{other}'; expected: zip, zipx, jar, war, apk, ipa, xpi, tar, tar.gz, tgz, tar.bz2, tbz, tbz2, tar.br, gz, gzip, bz, bz2, bzip2, br, brotli, lz4, tar.lz4, zst, zstd, tar.zst, tzst, tar.xz, txz, tar.lzma, tar.lz, tlz, xz, lzma, lz, 7z, rar, cab, asar, deb, lzh, lha, pma, iso, udf, cpio, zpaq, zpq, wim, swm, uu, uue, xxe, isz, img, ima, bin, aes, enc, arj, ace, arc, alz, z, egg, msi, compound, cfb, ole"
         )),
     }
 }

@@ -49,7 +49,8 @@ enum Commands {
         #[arg(short = 'o', long = "output")]
         output: Option<PathBuf>,
 
-        /// Archive format: zip, zipx, jar, war, apk, ipa, xpi, tar, tar.gz, tgz, tar.bz2, tbz, tbz2, tar.br, gz, gzip, bz2, bzip2, br, brotli, lz4, tar.lz4, zst, zstd, tar.zst, tzst, tar.xz, txz, xz, lzma, cpio (read-only; writing rejected) (default: derived from output extension or zip)
+        /// Format to create (e.g. zip, zipx, 7z, tar.gz, lzh, iso, cpio, gz, xz; see README for the full list).
+        /// Inferred from the output extension, falling back to zip.
         #[arg(short = 'f', long = "format")]
         format: Option<String>,
 
@@ -62,22 +63,22 @@ enum Commands {
         level: Option<u32>,
 
         /// Number of worker threads (0 = auto, default: 1 = single-threaded).
-        /// tar.gz, zstd, and tar.zst use multiple threads;
+        /// tar.gz, zstd, tar.zst, xz, tar.xz, and 7z LZMA2 support multiple threads;
         /// other formats accept this flag for forward compatibility but ignore it.
         #[arg(short = 'j', long = "jobs", default_value_t = 1, value_parser = clap::value_parser!(u32).range(0..=256))]
         jobs: u32,
 
-        /// Encrypt the archive with a password (ZIP AES-256 or 7z AES-256).
-        /// Using --password with formats other than ZIP or 7z will cause an error.
+        /// Encrypt with a password (ZIP/ZIPX AES-256, 7z AES-256, or the .enc container).
+        /// Other creation formats reject this option.
         #[arg(long = "password")]
         password: Option<String>,
 
-        /// Read the encryption password from a file (ZIP AES-256 or 7z AES-256).
+        /// Read the encryption password from a file (ZIP/ZIPX, 7z, or .enc).
         /// Mutually exclusive with --password and --password-stdin.
         #[arg(long = "password-file")]
         password_file: Option<PathBuf>,
 
-        /// Read the encryption password from stdin (ZIP AES-256 or 7z AES-256).
+        /// Read the encryption password from stdin (ZIP/ZIPX, 7z, or .enc).
         /// Mutually exclusive with --password and --password-file.
         #[arg(long = "password-stdin")]
         password_stdin: bool,
@@ -98,7 +99,7 @@ enum Commands {
         #[arg(long = "no-encrypt-filenames", action = clap::ArgAction::SetTrue, conflicts_with = "encrypt_filenames")]
         no_encrypt_filenames: bool,
 
-        /// Enable solid archive mode for 7z (compress all files together in one block).
+        /// Enable solid 7z mode (flush thresholds: 64 MiB or 1024 files; a single file may exceed the byte threshold).
         /// Improves compression ratios, especially for many small files.
         #[arg(long = "solid", action = clap::ArgAction::SetTrue)]
         solid: bool,
@@ -149,16 +150,16 @@ enum Commands {
         #[arg(long = "force", conflicts_with = "no_clobber")]
         force: bool,
 
-        /// Password for decrypting encrypted archives (ZIP, 7z, and RAR).
+        /// Decryption password for formats that support encryption.
         #[arg(long = "password")]
         password: Option<String>,
 
-        /// Read the decryption password from a file (ZIP, 7z, and RAR only).
+        /// Read the decryption password from a file.
         /// Mutually exclusive with --password and --password-stdin.
         #[arg(long = "password-file")]
         password_file: Option<PathBuf>,
 
-        /// Read the decryption password from stdin (ZIP, 7z, and RAR only).
+        /// Read the decryption password from stdin.
         /// Mutually exclusive with --password and --password-file.
         #[arg(long = "password-stdin")]
         password_stdin: bool,
@@ -182,16 +183,16 @@ enum Commands {
         #[arg(short = 'j', long = "json")]
         json: bool,
 
-        /// Password for decrypting encrypted archives (ZIP, 7z, and RAR).
+        /// Decryption password for formats that support encryption.
         #[arg(long = "password")]
         password: Option<String>,
 
-        /// Read the decryption password from a file (ZIP, 7z, and RAR only).
+        /// Read the decryption password from a file.
         /// Mutually exclusive with --password and --password-stdin.
         #[arg(long = "password-file")]
         password_file: Option<PathBuf>,
 
-        /// Read the decryption password from stdin (ZIP, 7z, and RAR only).
+        /// Read the decryption password from stdin.
         /// Mutually exclusive with --password and --password-file.
         #[arg(long = "password-stdin")]
         password_stdin: bool,
@@ -207,16 +208,16 @@ enum Commands {
         #[arg(short = 'j', long = "json")]
         json: bool,
 
-        /// Password for decrypting encrypted archives (ZIP, 7z, and RAR).
+        /// Decryption password for formats that support encryption.
         #[arg(long = "password")]
         password: Option<String>,
 
-        /// Read the verification password from a file (ZIP, 7z, and RAR only).
+        /// Read the verification password from a file.
         /// Mutually exclusive with --password and --password-stdin.
         #[arg(long = "password-file")]
         password_file: Option<PathBuf>,
 
-        /// Read the verification password from stdin (ZIP, 7z, and RAR only).
+        /// Read the verification password from stdin.
         /// Mutually exclusive with --password and --password-file.
         #[arg(long = "password-stdin")]
         password_stdin: bool,
