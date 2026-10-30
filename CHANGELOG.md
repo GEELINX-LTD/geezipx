@@ -19,6 +19,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Native GUI — Font settings**: Add Tools → Settings to choose the system default, embedded Noto Sans SC or a searchable installed font. Apply changes immediately, preserve Chinese fallbacks and monospace previews, remember the choice across restarts and restore system defaults if a saved font becomes unavailable.
+- **Native GUI — Fonts**: Prefer installed system UI, Chinese and monospace fonts, with embedded Noto Sans SC 2.004 (SIL OFL 1.1) filling missing Chinese glyphs offline. Replace Droid Sans Fallback and update the About dialog and installer notices. Discover fonts once at startup and retain collection face indices.
 - **Native GUI workflows**: Replace large cards with a compact toolbar, path/search bar, resizable folder tree, 29-point file rows and inline task progress. Support conventional mouse/keyboard range selection, hidden-selection counts during search, Enter to submit operation dialogs, quick extract-all destinations and a 760×480 minimum window. Failed operations restore their inputs for retry without retaining passwords. Escape closes or clears UI state; task cancellation uses an explicit button.
 - **Repository cleanup**: Remove unregistered ALZ/Unix Compress adapter sources, unused mobile icons and vendored Cargo download metadata. Stop tracking generated Tauri schemas; consolidate completed plans, review notes and duplicated configuration examples into current documentation.
 - **Workspace defaults**: Default Cargo commands select core and CLI only. Select `geezipx-egui` or `geezipx-gui` explicitly to build a desktop frontend.

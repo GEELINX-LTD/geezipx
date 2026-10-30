@@ -16,6 +16,8 @@ zpaq = ["geezipx-core/zpaq"]
 [dependencies]
 geezipx-core.workspace = true
 eframe = { version = "0.33.3", default-features = false, features = ["accesskit", "default_fonts", "glow", "wayland", "x11", "persistence"] }
+fontdb = "0.24"
+ab_glyph = "0.2"
 rfd = "0.16"
 open = "5"
 serde = { version = "1", features = ["derive"] }

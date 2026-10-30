@@ -77,6 +77,8 @@ Section "GeeZipX Native" Main
   File "${REPO_ROOT}\target\release\${APP_EXE}"
   File "${REPO_ROOT}\LICENSE"
   SetOutPath "$INSTDIR\licenses"
+  ; Remove the previous Droid font license when upgrading an existing installation.
+  Delete "$INSTDIR\licenses\FONT-APACHE-2.0.txt"
   File "${REPO_ROOT}\crates\gui-egui\assets\*.txt"
   SetOutPath "$INSTDIR"
   FileOpen $0 "$INSTDIR\build-info.txt" w

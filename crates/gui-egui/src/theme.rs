@@ -1,6 +1,4 @@
-use eframe::egui::{
-    self, Color32, FontData, FontDefinitions, FontFamily, FontId, RichText, Stroke, TextStyle,
-};
+use eframe::egui::{self, Color32, FontId, RichText, Stroke, TextStyle};
 use std::sync::Arc;
 
 pub const ACCENT: Color32 = Color32::from_rgb(82, 99, 224);
@@ -47,18 +45,8 @@ pub fn colors(dark: bool) -> Palette {
     }
 }
 
-pub fn fonts(context: &egui::Context) {
-    let mut fonts = FontDefinitions::default();
-    fonts.font_data.insert(
-        "cjk".into(),
-        Arc::new(FontData::from_static(include_bytes!(
-            "../assets/DroidSansFallbackFull.ttf"
-        ))),
-    );
-    for family in [FontFamily::Proportional, FontFamily::Monospace] {
-        fonts.families.entry(family).or_default().push("cjk".into());
-    }
-    context.set_fonts(fonts);
+pub fn fonts(context: &egui::Context, selection: &crate::fonts::Selection) -> bool {
+    crate::fonts::install(context, selection)
 }
 
 pub fn apply(context: &egui::Context, dark: bool) {

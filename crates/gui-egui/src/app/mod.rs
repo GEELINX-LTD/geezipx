@@ -5,6 +5,7 @@ mod folders;
 mod interaction;
 mod native_drag;
 mod notices;
+mod settings;
 mod tasks;
 #[cfg(test)]
 mod tests;
@@ -25,6 +26,7 @@ use geezipx_egui::{
 };
 use notices::Notice;
 use serde::{Deserialize, Serialize};
+use settings::Settings;
 use std::{
     collections::BTreeSet,
     path::PathBuf,
@@ -86,6 +88,7 @@ struct History {
 struct Preferences {
     dark: bool,
     recent: Vec<PathBuf>,
+    font: crate::fonts::Selection,
 }
 #[derive(Default)]
 struct PathField {
@@ -147,6 +150,7 @@ struct Unlock {
 
 pub struct App {
     preferences: Preferences,
+    settings: Settings,
     archive: Option<Archive>,
     active: Option<Active>,
     history: Vec<History>,
@@ -177,13 +181,13 @@ pub struct App {
 }
 impl App {
     pub fn new(cc: &eframe::CreationContext<'_>, paths: Vec<PathBuf>) -> Self {
-        theme::fonts(&cc.egui_ctx);
         interaction::configure_pointer(&cc.egui_ctx);
         let preferences = cc
             .storage
             .and_then(|s| eframe::get_value(s, "native-preferences"))
             .unwrap_or_default();
         let mut app = Self::empty(preferences);
+        app.settings.available = theme::fonts(&cc.egui_ctx, &app.preferences.font);
         theme::apply(&cc.egui_ctx, app.preferences.dark);
         app.accept_paths(&cc.egui_ctx, paths);
         app
@@ -191,6 +195,7 @@ impl App {
     fn empty(preferences: Preferences) -> Self {
         Self {
             preferences,
+            settings: Settings::default(),
             archive: None,
             active: None,
             history: Vec::new(),
@@ -231,6 +236,7 @@ impl App {
             || self.preview.is_some()
             || self.close_prompt
             || self.about
+            || self.settings.open
     }
     fn start(
         &mut self,
@@ -303,6 +309,7 @@ impl App {
             || self.close_prompt
             || self.tasks_open
             || self.about
+            || self.settings.open
         {
             return;
         }
@@ -710,6 +717,7 @@ impl App {
         self.create_window(context);
         self.extract_window(context);
         self.tasks_window(context);
+        self.settings_window(context);
         if self.about {
             let response = theme::modal(context, "about").show(context, |ui| {
                 ui.set_width(460.0_f32.min(context.content_rect().width() - 64.0));
@@ -720,7 +728,7 @@ impl App {
                 theme::caption(ui, "轻巧、专注的原生归档工具");
                 ui.hyperlink_to("项目主页与问题反馈", env!("CARGO_PKG_REPOSITORY"));
                 ui.label(
-                    "GeeZipX 采用 MIT 许可。中文字体 Droid Sans Fallback 采用 Apache 2.0 许可。",
+                    "GeeZipX 采用 MIT 许可。优先使用系统字体，中文缺字由内置 Noto Sans SC 补齐（SIL OFL 1.1 许可）。",
                 );
                 ui.collapsing("字体版权与许可", |ui| {
                     egui::ScrollArea::vertical()
@@ -728,7 +736,6 @@ impl App {
                         .show(ui, |ui| {
                             ui.label(include_str!("../../assets/FONT-NOTICE.txt"));
                             ui.label(include_str!("../../assets/FONT-LICENSE.txt"));
-                            ui.label(include_str!("../../assets/FONT-APACHE-2.0.txt"));
                             ui.label(include_str!("../../assets/EGUI-FONTS-LICENSES.txt"));
                         });
                 });

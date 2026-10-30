@@ -185,6 +185,11 @@ impl App {
                                     self.tasks_open = true;
                                     ui.close();
                                 }
+                                ui.separator();
+                                if widgets::menu_item(ui, "设置…", None, true).clicked() {
+                                    self.show_settings();
+                                    ui.close();
+                                }
                                 if has_archive {
                                     ui.separator();
                                     theme::caption(ui, "下一次读取使用的密码");

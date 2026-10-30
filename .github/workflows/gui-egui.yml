@@ -107,7 +107,7 @@ jobs:
           $exe = Join-Path $installDir 'geezipx-egui.exe'
           $expected = (Get-FileHash target/release/geezipx-egui.exe -Algorithm SHA256).Hash
           if ((Get-FileHash $exe -Algorithm SHA256).Hash -ne $expected) { throw 'Installed executable differs from build' }
-          foreach ($file in @('LICENSE', 'build-info.txt', 'licenses/EGUI-FONTS-LICENSES.txt', 'licenses/FONT-LICENSE.txt', 'licenses/FONT-NOTICE.txt', 'licenses/FONT-APACHE-2.0.txt')) {
+          foreach ($file in @('LICENSE', 'build-info.txt', 'licenses/EGUI-FONTS-LICENSES.txt', 'licenses/FONT-LICENSE.txt', 'licenses/FONT-NOTICE.txt')) {
             if (-not (Test-Path (Join-Path $installDir $file))) { throw "Installed file missing: $file" }
           }
           if (-not (Select-String -Path (Join-Path $installDir 'build-info.txt') -SimpleMatch $env:GITHUB_SHA -Quiet)) { throw 'Installed build revision differs from run' }

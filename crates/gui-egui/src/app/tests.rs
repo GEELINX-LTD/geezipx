@@ -22,7 +22,7 @@ fn archive() -> Archive {
 }
 fn context() -> egui::Context {
     let context = egui::Context::default();
-    theme::fonts(&context);
+    theme::fonts(&context, &crate::fonts::Selection::default());
     interaction::configure_pointer(&context);
     theme::apply(&context, false);
     context
@@ -75,6 +75,157 @@ fn assert_action_visible(output: &egui::FullOutput, size: [f32; 2], action: &str
         screen.intersect(text.0).contains_rect(bounds),
         "{action} clipped at {size:?}: {bounds:?}"
     );
+}
+
+fn click_text(app: &mut App, context: &egui::Context, label: &str) {
+    draw(app, context, [1000.0, 680.0]);
+    let output = draw(app, context, [1000.0, 680.0]);
+    let position = output
+        .shapes
+        .iter()
+        // A matching menu choice is painted after the editable search text.
+        .rev()
+        .find_map(|shape| match &shape.shape {
+            egui::Shape::Text(text) if text.galley.text() == label => {
+                Some(text.galley.rect.translate(text.pos.to_vec2()).center())
+            }
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("missing clickable text: {label}"));
+    pointer_frame(app, context, position, Some(true), egui::Modifiers::NONE);
+    pointer_frame(app, context, position, Some(false), egui::Modifiers::NONE);
+}
+
+#[test]
+fn font_settings_support_menu_selection_reset_and_escape_without_losing_selection() {
+    let context = context();
+    let mut app = App::empty(Preferences::default());
+    app.archive = Some(archive());
+    app.archive
+        .as_mut()
+        .unwrap()
+        .browser
+        .select(0, false, false);
+    click_text(&mut app, &context, "工具");
+    click_text(&mut app, &context, "设置…");
+    assert!(app.settings.open && app.modal_open());
+    click_text(&mut app, &context, "跟随系统（默认）");
+    assert!(egui::Popup::is_any_open(&context));
+    click_text(&mut app, &context, "搜索已安装字体…");
+    assert!(
+        egui::Popup::is_any_open(&context),
+        "clicking the search field closed the font popup"
+    );
+    key(&mut app, &context, egui::Key::Escape, egui::Modifiers::NONE);
+    assert!(
+        app.settings.open,
+        "Escape closed settings together with the font popup"
+    );
+    assert!(!egui::Popup::is_any_open(&context));
+    click_text(&mut app, &context, "跟随系统（默认）");
+    click_text(&mut app, &context, "Noto Sans SC（内置）");
+    assert_eq!(app.preferences.font, crate::fonts::Selection::Noto);
+    assert!(app.settings.available);
+    if let Some(family) = crate::fonts::families().first() {
+        click_text(&mut app, &context, "Noto Sans SC（内置）");
+        click_text(&mut app, &context, "搜索已安装字体…");
+        let _ = context.run(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(1000.0, 680.0),
+                )),
+                events: vec![egui::Event::Text(family.clone())],
+                ..Default::default()
+            },
+            |context| app.render(context),
+        );
+        click_text(&mut app, &context, family);
+        assert_eq!(
+            app.preferences.font,
+            crate::fonts::Selection::Installed(family.clone())
+        );
+        assert!(!egui::Popup::is_any_open(&context));
+    }
+    click_text(&mut app, &context, "恢复默认");
+    assert_eq!(app.preferences.font, crate::fonts::Selection::System);
+    click_text(&mut app, &context, "完成");
+    assert!(!app.settings.open);
+    assert!(app
+        .archive
+        .as_ref()
+        .unwrap()
+        .browser
+        .selection
+        .contains("项目"));
+}
+
+#[test]
+fn font_settings_keep_actions_visible_with_large_or_missing_font_names() {
+    let context = context();
+    let mut app = App::empty(Preferences::default());
+    app.settings.open = true;
+    for dark in [false, true] {
+        theme::apply(&context, dark);
+        app.preferences.dark = dark;
+        for font in [
+            crate::fonts::Selection::System,
+            crate::fonts::Selection::Noto,
+            crate::fonts::Selection::Installed(
+                "A very long saved font family name that is no longer installed on this computer"
+                    .into(),
+            ),
+        ] {
+            app.preferences.font = font;
+            app.settings.available = theme::fonts(&context, &app.preferences.font);
+            for size in [[760.0, 480.0], [1000.0, 680.0]] {
+                for _ in 0..2 {
+                    draw(&mut app, &context, size);
+                }
+                let output = draw(&mut app, &context, size);
+                assert_action_visible(&output, size, "完成");
+                assert_action_visible(&output, size, "恢复默认");
+            }
+        }
+    }
+}
+
+#[derive(Default)]
+struct PreferenceStorage(std::collections::HashMap<String, String>);
+impl eframe::Storage for PreferenceStorage {
+    fn get_string(&self, key: &str) -> Option<String> {
+        self.0.get(key).cloned()
+    }
+    fn set_string(&mut self, key: &str, value: String) {
+        self.0.insert(key.into(), value);
+    }
+    fn flush(&mut self) {}
+}
+
+#[test]
+fn font_preferences_restore_across_restarts_and_migrate_existing_preferences() {
+    let mut storage = PreferenceStorage::default();
+    eframe::Storage::set_string(
+        &mut storage,
+        "native-preferences",
+        "(dark:true,recent:[\"旧归档.zip\"])".into(),
+    );
+    let mut preferences: Preferences = eframe::get_value(&storage, "native-preferences").unwrap();
+    assert!(preferences.dark);
+    assert_eq!(preferences.recent, vec![PathBuf::from("旧归档.zip")]);
+    assert_eq!(preferences.font, crate::fonts::Selection::System);
+    for font in [
+        crate::fonts::Selection::System,
+        crate::fonts::Selection::Noto,
+        crate::fonts::Selection::Installed("Microsoft YaHei UI".into()),
+    ] {
+        preferences.font = font.clone();
+        eframe::set_value(&mut storage, "native-preferences", &preferences);
+        let restored: Preferences = eframe::get_value(&storage, "native-preferences").unwrap();
+        assert_eq!(restored.font, font);
+        assert!(restored.dark);
+        assert_eq!(restored.recent, preferences.recent);
+    }
 }
 
 #[test]
