@@ -1,4 +1,6 @@
+mod chrome;
 mod create;
+mod extract;
 mod tasks;
 #[cfg(test)]
 mod tests;
@@ -13,18 +15,17 @@ use geezipx_core::{
     detect::{detect_from_extension, ArchiveFormat},
 };
 use geezipx_egui::{
+    browser::SortColumn,
     engine::{self, Archive, CompressRequest, Preview, ReadRequest, Summary},
     job::{Job, CANCELLED},
 };
 use serde::{Deserialize, Serialize};
-use std::{collections::BTreeSet, path::PathBuf, time::Duration};
+use std::{
+    collections::BTreeSet,
+    path::PathBuf,
+    time::{Duration, Instant},
+};
 
-#[derive(Clone, Copy, PartialEq)]
-enum Page {
-    Archive,
-    Create,
-    Tasks,
-}
 #[derive(Clone, Copy, PartialEq)]
 enum Kind {
     List,
@@ -81,7 +82,6 @@ struct Preferences {
     dark: bool,
     recent: Vec<PathBuf>,
 }
-
 #[derive(Default)]
 struct PathField {
     path: PathBuf,
@@ -92,18 +92,12 @@ impl PathField {
         self.text = path.to_string_lossy().into_owned();
         self.path = path;
     }
-    fn edit(&mut self, ui: &mut egui::Ui, hint: &str) {
-        if ui
-            .add(
-                egui::TextEdit::singleline(&mut self.text)
-                    .margin(egui::Margin::symmetric(10, 8))
-                    .hint_text(hint)
-                    .desired_width(f32::INFINITY),
-            )
-            .changed()
-        {
+    fn edit(&mut self, ui: &mut egui::Ui, hint: &str) -> egui::Response {
+        let response = ui.add(widgets::text_edit(&mut self.text).hint_text(hint));
+        if response.changed() {
             self.path = PathBuf::from(&self.text);
         }
+        response
     }
 }
 struct Draft {
@@ -114,6 +108,9 @@ struct Draft {
     password: String,
     confirm: String,
     replace: bool,
+    show_sources: bool,
+    show_password: bool,
+    show_advanced: bool,
 }
 impl Default for Draft {
     fn default() -> Self {
@@ -125,8 +122,18 @@ impl Default for Draft {
             password: String::new(),
             confirm: String::new(),
             replace: false,
+            show_sources: false,
+            show_password: false,
+            show_advanced: false,
         }
     }
+}
+struct Extraction {
+    selection: BTreeSet<String>,
+    destination: PathField,
+    overwrite: bool,
+    open_after: bool,
+    show_password: bool,
 }
 struct Unlock {
     path: PathBuf,
@@ -134,16 +141,18 @@ struct Unlock {
 }
 
 pub struct App {
-    page: Page,
     preferences: Preferences,
     archive: Option<Archive>,
     active: Option<Active>,
     history: Vec<History>,
     draft: Draft,
-    destination: PathField,
-    overwrite: bool,
+    create_open: bool,
+    extraction: Option<Extraction>,
+    pending_extraction: Option<Extraction>,
+    tasks_open: bool,
     read_password: String,
     notice: Option<(String, bool)>,
+    form_error: Option<String>,
     retry_path: Option<PathBuf>,
     opening_path: Option<PathBuf>,
     unlock: Option<Unlock>,
@@ -151,33 +160,38 @@ pub struct App {
     about: bool,
     close_prompt: bool,
     close_when_finished: bool,
-    range_anchor: Option<usize>,
+    open_after_extract: bool,
+    typeahead: String,
+    last_typed: Instant,
+    column_widths: [f32; 3],
+    list_offset: f32,
 }
-
 impl App {
     pub fn new(cc: &eframe::CreationContext<'_>, paths: Vec<PathBuf>) -> Self {
         theme::fonts(&cc.egui_ctx);
-        let preferences: Preferences = cc
+        let preferences = cc
             .storage
-            .and_then(|storage| eframe::get_value(storage, "native-preferences"))
+            .and_then(|s| eframe::get_value(s, "native-preferences"))
             .unwrap_or_default();
-        theme::apply(&cc.egui_ctx, preferences.dark);
         let mut app = Self::empty(preferences);
+        theme::apply(&cc.egui_ctx, app.preferences.dark);
         app.accept_paths(&cc.egui_ctx, paths);
         app
     }
     fn empty(preferences: Preferences) -> Self {
         Self {
-            page: Page::Archive,
             preferences,
             archive: None,
             active: None,
             history: Vec::new(),
             draft: Draft::default(),
-            destination: PathField::default(),
-            overwrite: false,
+            create_open: false,
+            extraction: None,
+            pending_extraction: None,
+            tasks_open: false,
             read_password: String::new(),
             notice: None,
+            form_error: None,
             retry_path: None,
             opening_path: None,
             unlock: None,
@@ -185,11 +199,24 @@ impl App {
             about: false,
             close_prompt: false,
             close_when_finished: false,
-            range_anchor: None,
+            open_after_extract: false,
+            typeahead: String::new(),
+            last_typed: Instant::now(),
+            column_widths: [110.0, 110.0, 90.0],
+            list_offset: 0.0,
         }
     }
     fn busy(&self) -> bool {
         self.active.is_some()
+    }
+    fn modal_open(&self) -> bool {
+        self.create_open
+            || self.extraction.is_some()
+            || self.tasks_open
+            || self.unlock.is_some()
+            || self.preview.is_some()
+            || self.close_prompt
+            || self.about
     }
     fn start(
         &mut self,
@@ -211,12 +238,19 @@ impl App {
             return;
         }
         self.opening_path = Some(path.clone());
-        self.page = Page::Archive;
         self.start(context, Kind::List, move |control| {
             engine::list(path, password, control).map(|archive| Outcome::Archive(Box::new(archive)))
         });
     }
+    fn new_archive(&mut self) {
+        self.draft = Draft::default();
+        self.form_error = None;
+        self.create_open = true;
+    }
     fn add_sources(&mut self, paths: Vec<PathBuf>) {
+        if !self.create_open {
+            self.draft = Draft::default();
+        }
         let mut seen = self
             .draft
             .sources
@@ -229,15 +263,17 @@ impl App {
         if self.draft.output.path.as_os_str().is_empty() {
             if let Some(first) = self.draft.sources.first() {
                 let stem = first.file_stem().unwrap_or_default().to_string_lossy();
-                let suggested = first.with_file_name(format!("{stem}.zip"));
+                let format = engine::formats::WRITE_FORMATS[self.draft.format].0;
+                let suggested = first.with_file_name(format!("{stem}.{format}"));
                 self.draft.output.set(if suggested == *first {
-                    first.with_file_name(format!("{stem}-archive.zip"))
+                    first.with_file_name(format!("{stem}-archive.{format}"))
                 } else {
                     suggested
                 });
             }
         }
-        self.page = Page::Create;
+        self.form_error = None;
+        self.create_open = true;
     }
     fn accept_paths(&mut self, context: &egui::Context, paths: Vec<PathBuf>) {
         if paths.is_empty() {
@@ -247,10 +283,16 @@ impl App {
             self.notice = Some(("请等待当前任务结束后再添加文件。".into(), true));
             return;
         }
-        if paths.len() == 1
-            && detect_from_extension(&paths[0]).is_some()
-            && self.page != Page::Create
+        if self.extraction.is_some()
+            || self.unlock.is_some()
+            || self.preview.is_some()
+            || self.close_prompt
+            || self.tasks_open
+            || self.about
         {
+            return;
+        }
+        if paths.len() == 1 && detect_from_extension(&paths[0]).is_some() && !self.create_open {
             self.open_archive(context, paths[0].clone(), None);
         } else {
             self.add_sources(paths);
@@ -258,6 +300,10 @@ impl App {
     }
     fn dialog(&mut self, context: &egui::Context, dialog: Dialog) {
         let output = self.draft.output.path.clone();
+        let destination = self
+            .extraction
+            .as_ref()
+            .map(|options| options.destination.path.clone());
         self.start(context, Kind::Dialog, move |_| {
             let paths = match dialog {
                 Dialog::Open => rfd::FileDialog::new()
@@ -274,20 +320,22 @@ impl App {
                     .pick_folders()
                     .unwrap_or_default(),
                 Dialog::Save => {
-                    let mut dialog = rfd::FileDialog::new().set_title("保存压缩包");
+                    let mut picker = rfd::FileDialog::new().set_title("保存压缩包");
                     if let Some(name) = output.file_name() {
-                        dialog = dialog.set_file_name(name.to_string_lossy());
+                        picker = picker.set_file_name(name.to_string_lossy());
                     }
                     if let Some(parent) = output.parent() {
-                        dialog = dialog.set_directory(parent);
+                        picker = picker.set_directory(parent);
                     }
-                    dialog.save_file().into_iter().collect()
+                    picker.save_file().into_iter().collect()
                 }
-                Dialog::Destination => rfd::FileDialog::new()
-                    .set_title("选择解压位置")
-                    .pick_folder()
-                    .into_iter()
-                    .collect(),
+                Dialog::Destination => {
+                    let mut picker = rfd::FileDialog::new().set_title("选择解压位置");
+                    if let Some(destination) = destination {
+                        picker = picker.set_directory(destination);
+                    }
+                    picker.pick_folder().into_iter().collect()
+                }
             };
             Ok(Outcome::Paths(dialog, paths))
         });
@@ -299,7 +347,6 @@ impl App {
         let Some(active) = self.active.take() else {
             return;
         };
-        let elapsed = active.job.started.elapsed();
         let kind = active.kind;
         let mut record = History {
             kind,
@@ -307,25 +354,40 @@ impl App {
             output: None,
             failed: false,
             cancelled: false,
-            elapsed,
+            elapsed: active.job.started.elapsed(),
         };
         match result {
             Ok(Outcome::Archive(archive)) => {
                 self.preferences.recent.retain(|path| *path != archive.path);
                 self.preferences.recent.insert(0, archive.path.clone());
                 self.preferences.recent.truncate(8);
-                self.destination
-                    .set(engine::default_destination(&archive.path));
+                context.send_viewport_cmd(egui::ViewportCommand::Title(format!(
+                    "{} — GeeZipX",
+                    archive
+                        .path
+                        .file_name()
+                        .unwrap_or_default()
+                        .to_string_lossy()
+                )));
                 self.archive = Some(*archive);
                 self.retry_path = None;
                 self.opening_path = None;
-                self.range_anchor = None;
                 self.read_password.clear();
+                self.typeahead.clear();
+                self.list_offset = 0.0;
             }
             Ok(Outcome::Done(summary)) => {
                 self.notice = Some((summary.message.clone(), false));
                 record.message = summary.message;
                 record.output = summary.output;
+                if kind == Kind::Compress {
+                    self.draft.show_password = false;
+                }
+                if kind == Kind::Extract && self.open_after_extract && !self.close_when_finished {
+                    if let Some(path) = &record.output {
+                        self.open_output(path.clone());
+                    }
+                }
             }
             Ok(Outcome::Preview(preview)) => self.preview = Some(preview),
             Ok(Outcome::Paths(_, _)) if self.close_when_finished => {}
@@ -346,8 +408,10 @@ impl App {
                     }
                 }
                 Dialog::Destination => {
-                    if let Some(path) = paths.into_iter().next() {
-                        self.destination.set(path);
+                    if let (Some(options), Some(path)) =
+                        (&mut self.extraction, paths.into_iter().next())
+                    {
+                        options.destination.set(path);
                     }
                 }
             },
@@ -355,18 +419,36 @@ impl App {
                 record.cancelled = error == CANCELLED;
                 record.failed = !record.cancelled;
                 record.message = error.clone();
+                if record.failed && !self.close_when_finished {
+                    if kind == Kind::Compress {
+                        self.create_open = true;
+                        self.tasks_open = false;
+                        self.form_error = Some(error.clone());
+                    } else if kind == Kind::Extract {
+                        self.extraction = self.pending_extraction.take();
+                        self.tasks_open = false;
+                        self.form_error = Some(error.clone());
+                    }
+                }
                 self.notice = Some((error, record.failed));
                 if kind == Kind::List {
                     self.retry_path = self.opening_path.take();
                 }
             }
         }
+        if kind == Kind::Extract {
+            self.pending_extraction = None;
+            self.open_after_extract = false;
+        }
         if kind.record() {
             self.history.insert(0, record);
             self.history.truncate(30);
         }
-        if self.close_when_finished && self.active.is_none() {
-            context.send_viewport_cmd(egui::ViewportCommand::Close);
+        if self.active.is_none() {
+            self.close_prompt = false;
+            if self.close_when_finished {
+                context.send_viewport_cmd(egui::ViewportCommand::Close);
+            }
         }
     }
     fn read_request(&mut self, all: bool) -> Option<ReadRequest> {
@@ -374,29 +456,15 @@ impl App {
         let password = std::mem::take(&mut self.read_password);
         Some(ReadRequest {
             archive: archive.path.clone(),
-            password: if password.is_empty() {
-                None
-            } else {
-                Some(password)
-            },
+            password: (!password.is_empty()).then_some(password),
             selection: if all {
                 BTreeSet::new()
             } else {
                 archive.browser.selection.clone()
             },
-            destination: self.destination.path.clone(),
-            overwrite: self.overwrite,
+            destination: engine::default_destination(&archive.path),
+            overwrite: false,
         })
-    }
-    fn extract(&mut self, context: &egui::Context, all: bool) {
-        if self.busy() {
-            return;
-        }
-        if let Some(request) = self.read_request(all) {
-            self.start(context, Kind::Extract, move |control| {
-                engine::extract(request, control).map(Outcome::Done)
-            });
-        }
     }
     fn verify(&mut self, context: &egui::Context) {
         if self.busy() {
@@ -408,12 +476,41 @@ impl App {
             });
         }
     }
+    fn preview_entry(&mut self, context: &egui::Context, index: usize) {
+        if self.busy() {
+            return;
+        }
+        let Some(archive) = &self.archive else {
+            return;
+        };
+        let Some(entry) = archive.entries.get(index).cloned() else {
+            return;
+        };
+        let path = archive.path.clone();
+        let password = std::mem::take(&mut self.read_password);
+        self.start(context, Kind::Preview, move |control| {
+            engine::preview(
+                path,
+                (!password.is_empty()).then_some(password),
+                entry,
+                control,
+            )
+            .map(Outcome::Preview)
+        });
+    }
     fn create_archive(&mut self, context: &egui::Context) {
         if self.busy() {
             return;
         }
+        if self.draft.show_password && self.draft.password.is_empty() {
+            self.form_error = Some("请设置密码，或关闭密码保护。".into());
+            return;
+        }
         if self.draft.password != self.draft.confirm {
-            self.notice = Some(("两次密码不一致，请重新输入。".into(), true));
+            self.form_error = Some("两次密码不一致，请重新输入。".into());
+            return;
+        }
+        if self.draft.sources.is_empty() || self.draft.output.path.as_os_str().is_empty() {
             return;
         }
         let format = engine::formats::WRITE_FORMATS[self.draft.format].0;
@@ -441,15 +538,13 @@ impl App {
                     std::thread::available_parallelism()
                         .map_or(1, |count| count.get().min(8) as u32),
                 ),
-                password: if password.is_empty() {
-                    None
-                } else {
-                    Some(password)
-                },
+                password: (!password.is_empty()).then_some(password),
                 seven_zip: None,
             },
             replace: self.draft.replace,
         };
+        self.create_open = false;
+        self.form_error = None;
         self.start(context, Kind::Compress, move |control| {
             engine::compress(request, control).map(Outcome::Done)
         });
@@ -460,200 +555,181 @@ impl App {
         }
     }
     fn shortcuts(&mut self, context: &egui::Context) {
-        if self.unlock.is_none()
-            && self.preview.is_none()
-            && !self.close_prompt
-            && !self.about
-            && context
-                .input_mut(|input| input.consume_key(egui::Modifiers::NONE, egui::Key::Escape))
-        {
-            if let Some(active) = &self.active {
-                if active.kind != Kind::Dialog {
-                    active.job.control.cancel();
-                }
-            } else if !context.wants_keyboard_input() {
-                if let Some(archive) = &mut self.archive {
-                    archive.browser.selection.clear();
-                }
-                self.range_anchor = None;
-            }
-        }
-        if self.busy()
-            || self.unlock.is_some()
-            || self.preview.is_some()
-            || self.close_prompt
-            || self.about
-        {
+        if self.modal_open() || egui::Popup::is_any_open(context) {
             return;
         }
-        if context.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::O)) {
-            self.dialog(context, Dialog::Open);
-        }
-        if context.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::N)) {
-            self.page = Page::Create;
-        }
-        if self.page == Page::Archive
-            && self.archive.is_some()
-            && context.input_mut(|input| input.consume_key(egui::Modifiers::COMMAND, egui::Key::F))
-        {
-            context.memory_mut(|memory| memory.request_focus(egui::Id::new("archive-search")));
-        }
-        if !context.wants_keyboard_input() && self.page == Page::Archive {
-            if context.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Backspace)) {
-                if let Some(archive) = &mut self.archive {
-                    archive.browser.parent();
-                    self.range_anchor = None;
+        if context.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape)) {
+            if let Some(archive) = &mut self.archive {
+                if !archive.browser.query.is_empty() {
+                    archive.browser.query.clear();
+                    archive.browser.refresh();
+                    context.memory_mut(|m| m.request_focus(egui::Id::new("archive-list")));
+                } else {
+                    archive.browser.clear_selection();
                 }
             }
-            if context.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::A)) {
-                if let Some(archive) = &mut self.archive {
-                    for row in &archive.browser.visible {
-                        archive.browser.selection.insert(row.path.clone());
+            self.typeahead.clear();
+            return;
+        }
+        if !self.busy() {
+            if context.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::O)) {
+                self.dialog(context, Dialog::Open);
+                return;
+            }
+            if context.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::N)) {
+                self.new_archive();
+                return;
+            }
+            if context.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::E)) {
+                self.show_extract(false);
+                return;
+            }
+        }
+        if self.archive.is_none() {
+            return;
+        }
+        if context.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::F)) {
+            context.memory_mut(|m| m.request_focus(egui::Id::new("archive-search")));
+            return;
+        }
+        let list_focus = context.memory(|m| m.has_focus(egui::Id::new("archive-list")));
+        if context.wants_keyboard_input() && !list_focus {
+            return;
+        }
+        let mut preview = None;
+        if let Some(archive) = &mut self.archive {
+            let browser = &mut archive.browser;
+            let input = |modifiers, key| context.input_mut(|i| i.consume_key(modifiers, key));
+            if input(egui::Modifiers::ALT, egui::Key::ArrowLeft) {
+                browser.back();
+            }
+            if input(egui::Modifiers::ALT, egui::Key::ArrowRight) {
+                browser.forward();
+            }
+            if input(egui::Modifiers::NONE, egui::Key::Backspace)
+                || input(egui::Modifiers::ALT, egui::Key::ArrowUp)
+            {
+                browser.parent();
+            }
+            if input(egui::Modifiers::COMMAND, egui::Key::A) {
+                browser.select_all();
+            }
+            let modifiers = context.input(|i| i.modifiers);
+            for (key, offset) in [
+                (egui::Key::ArrowDown, 1),
+                (egui::Key::ArrowUp, -1),
+                (egui::Key::PageDown, 12),
+                (egui::Key::PageUp, -12),
+            ] {
+                if input(modifiers, key) {
+                    browser.move_focus(
+                        offset,
+                        modifiers.shift,
+                        modifiers.command || modifiers.ctrl,
+                    );
+                }
+            }
+            for (key, offset) in [(egui::Key::Home, isize::MIN), (egui::Key::End, isize::MAX)] {
+                if input(modifiers, key) {
+                    if browser.focus.is_none() && !browser.visible.is_empty() {
+                        browser.focus = Some(browser.visible[0].path.clone());
+                    }
+                    browser.move_focus(offset, modifiers.shift, false);
+                }
+            }
+            if input(egui::Modifiers::NONE, egui::Key::Space) {
+                if let Some(path) = browser.focus.clone() {
+                    browser.toggle(&path);
+                }
+            }
+            if input(egui::Modifiers::NONE, egui::Key::Enter) {
+                if let Some(row) = browser
+                    .visible
+                    .iter()
+                    .find(|row| Some(&row.path) == browser.focus.as_ref())
+                    .cloned()
+                {
+                    if row.is_dir {
+                        browser.navigate(row.path.clone());
+                    } else {
+                        preview = row.entry_index;
                     }
                 }
             }
-        }
-    }
-    fn sidebar(&mut self, context: &egui::Context) {
-        egui::SidePanel::left("navigation")
-            .exact_width(204.0)
-            .resizable(false)
-            .frame(
-                egui::Frame::new()
-                    .fill(theme::colors(self.preferences.dark).sidebar)
-                    .inner_margin(16),
-            )
-            .show(context, |ui| {
-                ui.add_space(12.0);
-                ui.horizontal(|ui| {
-                    theme::logo(ui, 35.0);
-                    ui.vertical(|ui| {
-                        ui.label(RichText::new("GeeZipX").size(20.0).strong());
-                        theme::caption(ui, "文件归档工作台");
-                    });
+            if !modifiers.command && !modifiers.ctrl && !modifiers.alt {
+                let typed = context.input(|i| {
+                    i.events
+                        .iter()
+                        .filter_map(|event| match event {
+                            egui::Event::Text(text) if !text.chars().all(char::is_whitespace) => {
+                                Some(text.clone())
+                            }
+                            _ => None,
+                        })
+                        .collect::<String>()
                 });
-                ui.add_space(34.0);
-                theme::caption(ui, "工作空间");
-                for (page, label, icon, detail) in [
-                    (Page::Archive, "归档浏览", Icon::Archive, "01"),
-                    (Page::Create, "新建压缩", Icon::Plus, "02"),
-                    (Page::Tasks, "任务中心", Icon::Clock, "03"),
-                ] {
-                    if widgets::nav(ui, label, icon, self.page == page, detail).clicked() {
-                        self.page = page;
+                if !typed.is_empty() {
+                    if self.last_typed.elapsed() > Duration::from_millis(900) {
+                        self.typeahead.clear();
                     }
+                    if self.typeahead == typed {
+                        self.typeahead.clear();
+                    }
+                    self.typeahead.push_str(&typed);
+                    self.last_typed = Instant::now();
+                    browser.jump_to(&self.typeahead);
                 }
-                ui.add_space(28.0);
-                ui.horizontal(|ui| {
-                    theme::caption(ui, "最近打开");
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if !self.preferences.recent.is_empty()
-                            && widgets::icon_button(ui, Icon::Close, "清空最近记录").clicked()
-                        {
-                            self.preferences.recent.clear();
-                        }
-                    });
-                });
-                let mut open = None;
-                for path in self.preferences.recent.iter().take(4) {
-                    let name = path.file_name().unwrap_or_default().to_string_lossy();
-                    ui.add_enabled_ui(!self.busy(), |ui| {
-                        if ui
-                            .add_sized(
-                                [ui.available_width(), 30.0],
-                                egui::Button::new((
-                                    RichText::new(name).size(12.0),
-                                    egui::Atom::grow(),
-                                ))
-                                .frame(false)
-                                .truncate(),
-                            )
-                            .on_hover_text(path.display().to_string())
-                            .clicked()
-                        {
-                            open = Some(path.clone());
-                        }
-                    });
-                }
-                if self.preferences.recent.is_empty() {
-                    theme::caption(ui, "还没有打开过归档");
-                }
-                if let Some(path) = open {
-                    self.open_archive(context, path, None);
-                }
-                ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
-                    ui.add_space(6.0);
-                    theme::caption(ui, format!("NATIVE  /  {}", env!("CARGO_PKG_VERSION")));
-                    ui.horizontal(|ui| {
-                        if widgets::icon_button(ui, Icon::Shield, "关于 GeeZipX 与字体许可")
-                            .clicked()
-                        {
-                            self.about = true;
-                        }
-                        theme::caption(ui, "本地处理 · 安心归档");
-                    });
-                    ui.horizontal(|ui| {
-                        for (dark, text, icon) in
-                            [(false, "浅色", Icon::Sun), (true, "深色", Icon::Moon)]
-                        {
-                            ui.scope(|ui| {
-                                ui.set_width(80.0);
-                                if widgets::nav(ui, text, icon, self.preferences.dark == dark, "")
-                                    .clicked()
-                                {
-                                    self.preferences.dark = dark;
-                                    theme::apply(context, dark);
-                                }
-                            });
-                        }
-                    });
-                    theme::rule(ui);
-                });
-            });
+            }
+        }
+        if let Some(index) = preview {
+            self.preview_entry(context, index);
+        }
     }
     fn notices(&mut self, ui: &mut egui::Ui) {
         if let Some((message, error)) = self.notice.clone() {
             let color = if error {
-                Color32::from_rgb(184, 69, 59)
+                Color32::from_rgb(194, 81, 70)
             } else {
-                theme::ACCENT
+                theme::palette(ui).accent
             };
             egui::Frame::new()
-                .fill(color.gamma_multiply(0.10))
-                .stroke(egui::Stroke::new(1.0_f32, color.gamma_multiply(0.35)))
-                .corner_radius(8)
-                .inner_margin(12)
+                .fill(color.gamma_multiply(0.09))
+                .corner_radius(6)
+                .inner_margin(8)
                 .show(ui, |ui| {
                     ui.set_width(ui.available_width());
                     ui.horizontal(|ui| {
-                        ui.vertical(|ui| {
-                            ui.set_max_width((ui.available_width() - 42.0).max(80.0));
-                            ui.label(RichText::new(message).color(color));
-                        });
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if widgets::icon_button(ui, Icon::Close, "关闭消息").clicked() {
-                                self.notice = None;
-                            }
-                        });
+                        let width = (ui.available_width() - 44.0).max(80.0);
+                        ui.add_sized(
+                            [width, 24.0],
+                            egui::Label::new(RichText::new(message).color(color)).truncate(),
+                        );
+                        if widgets::icon_button(ui, Icon::Close, "关闭消息").clicked() {
+                            self.notice = None;
+                        }
                     });
                 });
-            ui.add_space(6.0);
         }
     }
     fn windows(&mut self, context: &egui::Context) {
-        egui::Window::new("关于 GeeZipX Native")
-            .open(&mut self.about)
-            .default_width(520.0)
-            .show(context, |ui| {
-                ui.heading(format!("GeeZipX Native {}", env!("CARGO_PKG_VERSION")));
-                ui.label("简洁、原生的归档工作空间。");
+        self.create_window(context);
+        self.extract_window(context);
+        self.tasks_window(context);
+        if self.about {
+            let response = theme::modal(context, "about").show(context, |ui| {
+                ui.set_width(460.0_f32.min(context.content_rect().width() - 64.0));
+                ui.horizontal(|ui| {
+                    theme::logo(ui, 34.0);
+                    ui.heading(format!("GeeZipX {}", env!("CARGO_PKG_VERSION")));
+                });
+                theme::caption(ui, "轻巧、专注的原生归档工具");
                 ui.hyperlink_to("项目主页与问题反馈", env!("CARGO_PKG_REPOSITORY"));
                 ui.label(
                     "GeeZipX 采用 MIT 许可。中文字体 Droid Sans Fallback 采用 Apache 2.0 许可。",
                 );
                 ui.collapsing("字体版权与许可", |ui| {
                     egui::ScrollArea::vertical()
-                        .max_height(280.0)
+                        .max_height(200.0)
                         .show(ui, |ui| {
                             ui.label(include_str!("../../assets/FONT-NOTICE.txt"));
                             ui.label(include_str!("../../assets/FONT-LICENSE.txt"));
@@ -661,63 +737,64 @@ impl App {
                             ui.label(include_str!("../../assets/EGUI-FONTS-LICENSES.txt"));
                         });
                 });
+                ui.button("关闭").clicked()
             });
+            if response.inner || response.should_close() {
+                self.about = false;
+            }
+        }
         if let Some(unlock) = &mut self.unlock {
-            let mut open = true;
-            let mut retry = false;
-            egui::Window::new("使用密码打开归档")
-                .collapsible(false)
-                .resizable(false)
-                .open(&mut open)
-                .show(context, |ui| {
-                    ui.label(
-                        unlock
-                            .path
-                            .file_name()
-                            .unwrap_or_default()
-                            .to_string_lossy(),
-                    );
-                    ui.add(
-                        egui::TextEdit::singleline(&mut unlock.password)
-                            .margin(egui::Margin::symmetric(10, 8))
-                            .password(true)
-                            .hint_text("归档密码"),
-                    );
-                    retry = theme::primary(ui, "重新打开").clicked();
-                });
-            if retry {
+            let response = theme::modal(context, "unlock").show(context, |ui| {
+                ui.set_width(360.0);
+                ui.heading("使用密码打开归档");
+                ui.label(
+                    unlock
+                        .path
+                        .file_name()
+                        .unwrap_or_default()
+                        .to_string_lossy(),
+                );
+                ui.add(
+                    widgets::text_edit(&mut unlock.password)
+                        .password(true)
+                        .hint_text("归档密码"),
+                );
+                theme::primary(ui, "重新打开").clicked()
+            });
+            if response.inner {
                 if let Some(unlock) = self.unlock.take() {
                     self.open_archive(context, unlock.path, Some(unlock.password));
                 }
-            } else if !open {
+            } else if response.should_close() {
                 self.unlock = None;
             }
         }
         if let Some(preview) = &mut self.preview {
-            let mut open = true;
-            egui::Window::new("文本预览")
-                .collapsible(false)
-                .default_size([680.0, 480.0])
-                .open(&mut open)
-                .show(context, |ui| {
+            let response = theme::modal(context, "preview").show(context, |ui| {
+                ui.set_width(640.0_f32.min(context.content_rect().width() - 80.0));
+                ui.horizontal(|ui| {
                     ui.label(RichText::new(&preview.name).strong());
-                    if preview.truncated {
-                        ui.label("仅显示前 512 KiB；预览不代表完整性验证。完整内容请解压后查看。");
-                    }
-                    egui::ScrollArea::both().show(ui, |ui| {
+                });
+                if preview.truncated {
+                    theme::caption(ui, "仅显示前 512 KiB；完整内容请解压后查看。");
+                }
+                egui::ScrollArea::both()
+                    .max_height((context.content_rect().height() - 200.0).max(120.0))
+                    .show(ui, |ui| {
                         ui.add(
                             egui::TextEdit::multiline(&mut preview.text.as_str())
                                 .code_editor()
                                 .desired_width(f32::INFINITY),
                         );
                     });
-                });
-            if !open {
+                ui.button("关闭").clicked()
+            });
+            if response.inner || response.should_close() {
                 self.preview = None;
             }
         }
         if self.close_prompt {
-            egui::Modal::new(egui::Id::new("close-confirmation")).show(context, |ui| {
+            theme::modal(context, "close-confirmation").show(context, |ui| {
                 ui.set_width(380.0);
                 ui.heading("任务仍在进行");
                 ui.label("关闭前会安全取消任务并清理临时文件。已经解压完成的文件会保留。");
@@ -736,19 +813,32 @@ impl App {
             });
         }
     }
+    fn render(&mut self, context: &egui::Context) {
+        self.shortcuts(context);
+        self.chrome(context);
+        self.status_bar(context);
+        egui::CentralPanel::default()
+            .frame(
+                egui::Frame::new()
+                    .fill(theme::colors(self.preferences.dark).surface)
+                    .inner_margin(12),
+            )
+            .show(context, |ui| {
+                self.notices(ui);
+                self.workspace(ui, context);
+            });
+        self.windows(context);
+    }
 }
-
 impl eframe::App for App {
     fn update(&mut self, context: &egui::Context, _frame: &mut eframe::Frame) {
         self.poll(context);
-        if context.input(|input| input.viewport().close_requested()) && self.busy() {
+        if context.input(|i| i.viewport().close_requested()) && self.busy() {
             context.send_viewport_cmd(egui::ViewportCommand::CancelClose);
             self.close_prompt = true;
         }
-        self.shortcuts(context);
-        let drops = context.input(|input| {
-            input
-                .raw
+        let drops = context.input(|i| {
+            i.raw
                 .dropped_files
                 .iter()
                 .filter_map(|file| file.path.clone())
@@ -757,45 +847,29 @@ impl eframe::App for App {
         if !drops.is_empty() {
             self.accept_paths(context, drops);
         }
-        self.status_bar(context);
-        self.sidebar(context);
-        if self.page == Page::Archive && self.archive.is_some() {
-            self.extract_panel(context);
-        }
-        egui::CentralPanel::default()
-            .frame(
-                egui::Frame::new()
-                    .fill(context.style().visuals.panel_fill)
-                    .inner_margin(24),
-            )
-            .show(context, |ui| {
-                self.notices(ui);
-                match self.page {
-                    Page::Archive => self.workspace(ui, context),
-                    Page::Create => self.create_page(ui, context),
-                    Page::Tasks => self.tasks_page(ui),
-                }
-            });
-        self.windows(context);
-        if !context.input(|i| i.raw.hovered_files.is_empty()) {
-            let layer = egui::LayerId::new(egui::Order::Foreground, egui::Id::new("drop-overlay"));
-            let painter = context.layer_painter(layer);
+        self.render(context);
+        if !context.input(|i| i.raw.hovered_files.is_empty())
+            && (!self.modal_open() || self.create_open)
+        {
+            let painter = context.layer_painter(egui::LayerId::new(
+                egui::Order::Foreground,
+                egui::Id::new("drop-overlay"),
+            ));
             let rect = context.content_rect();
             painter.rect_filled(
-                rect.shrink(12.0),
-                16,
-                Color32::from_rgba_unmultiplied(46, 54, 103, 235),
+                rect.shrink(10.0),
+                10,
+                Color32::from_rgba_unmultiplied(39, 47, 84, 238),
             );
-            let text = if self.page == Page::Create {
-                "松开鼠标，添加到压缩列表"
-            } else {
-                "松开鼠标，打开归档或添加待压缩文件"
-            };
             painter.text(
                 rect.center(),
                 egui::Align2::CENTER_CENTER,
-                text,
-                egui::FontId::proportional(24.0),
+                if self.create_open {
+                    "松开鼠标，添加到压缩列表"
+                } else {
+                    "松开鼠标，打开归档或创建压缩包"
+                },
+                egui::FontId::proportional(22.0),
                 Color32::WHITE,
             );
         }

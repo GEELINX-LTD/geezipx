@@ -102,7 +102,7 @@ cargo run -p geezipx-egui -- /path/to/archive.zip
 cargo build -p geezipx-egui --release --locked
 ```
 
-The native frontend uses Rust, egui/eframe and OpenGL, with system file dialogs and an embedded Chinese font. It requires no Node.js, Tauri, WebView2 or WebKitGTK. `cargo build` defaults to core/CLI; select a GUI package explicitly. Native build artifacts are standalone executables; installers and file associations remain future work. Performance improvements over Tauri have not yet been measured on the same hardware.
+The native frontend uses Rust, egui/eframe and OpenGL, with system file dialogs and an embedded Chinese font. Its compact file manager provides sortable, resizable columns, conventional mouse/keyboard selection, creation and extraction dialogs, and inline task progress; `Ctrl/Cmd+O`, `N`, `E` and `F` open archives, create, extract and search. It requires no Node.js, Tauri, WebView2 or WebKitGTK. `cargo build` defaults to core/CLI; select a GUI package explicitly. Native build artifacts include standalone executables and a separate per-user NSIS test installer for Windows; file associations remain future work. Performance improvements over Tauri have not yet been measured on the same hardware.
 
 ### Tauri GUI Settings
 

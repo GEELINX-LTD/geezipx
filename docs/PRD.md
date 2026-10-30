@@ -22,7 +22,7 @@ GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开�
 | macOS (x86_64, arm64) | 原生二进制 / Homebrew | Tauri .dmg |
 | Windows (x86_64) | 原生二进制 / winget | Tauri .exe (NSIS 安装器) |
 
-另提供 `geezipx-egui` 原生桌面可执行文件，目标为 Windows/macOS/Linux；当前配置 Linux x86_64、Windows x86_64、macOS arm64 独立 CI 编译，安装器、文件关联和系统右键菜单尚未接入。
+另提供 `geezipx-egui` 原生桌面可执行文件，目标为 Windows/macOS/Linux；当前配置 Linux x86_64、Windows x86_64、macOS arm64 独立 CI 编译，Windows 另提供按用户安装的 NSIS 测试安装包。文件关联和系统右键菜单尚未接入。
 
 ## 4. 核心场景
 

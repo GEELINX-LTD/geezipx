@@ -501,11 +501,13 @@ crates/gui-tauri/
 
 `crates/gui-egui` 使用 egui/eframe 0.33.3 + Glow、rfd 系统文件选择器，独立于 Tauri/Svelte。所有阻塞文件工作在 `Job<T>` 后台线程执行；结果通过容量 1 的 channel 返回，进度使用 `Arc<Mutex<Progress>>` 最新快照和限频唤醒，不积累读取块事件。取消状态属于每个任务，界面一次只启动一个后台操作；退出时等待取消清理。
 
-归档目录索引在后台建立，按名称与大小的排序结果预计算并共享 `Arc<Row>`；名称搜索只在条件变化时过滤当前目录缓存，绘制使用可见行虚拟列表。预览限制为 512 KiB，密码不进入持久化，外观与最多八条最近路径使用 eframe 存储。
+主窗口由 `app/chrome.rs` 的菜单/工具栏、`app/workspace.rs` 的路径/搜索与紧凑文件表格、底部状态/进度组成；创建、解压、任务详情分别在 `app/create.rs`、`app/extract.rs`、`app/tasks.rs` 按需打开 Modal。对话框提交使用独立状态和选择快照，失败后恢复原目标/来源/选择及非密码选项，密码在每次提交后清空。主操作独立于可滚动设置区域；输入框编辑期间不抢占导航和全选快捷键，Esc 不取消后台任务。窗口默认 1000×680、最小 760×480（逻辑像素）。
+
+归档目录索引在后台建立，按名称、大小、压缩后大小和类型的排序结果预计算并共享 `Arc<Row>`；名称搜索只在条件变化时过滤当前目录缓存，绘制使用 29 逻辑像素的可见行虚拟列表。点击、Ctrl/Cmd、Shift 和键盘范围选择共享模型；切换目录清空选择，搜索保留选择并报告隐藏项。预览限制为 512 KiB，密码不进入持久化，外观与最多八条最近路径使用 eframe 存储。
 
 原生端 `engine` 只编排 core 的 reader/writer、进度、来源收集和安全输出。压缩通过同目录临时归档提交；解压复用 core `ExtractionDir`，预先拒绝危险名称与输入归档别名覆盖。格式清单以 `engine/formats.rs` 为准，RAR 默认启用，ZPAQ 可选且默认关闭以避开原生 C++ LTO 兼容性问题。
 
-独立 `gui-egui.yml` 覆盖 Linux x86_64、Windows x86_64、macOS arm64 的检查、测试、release 编译与裸可执行文件 artifacts；当前不接入正式 Release、系统右键菜单或文件关联。使用说明、完整格式范围与已知限制见 [EGUI_GUI.md](EGUI_GUI.md)。
+独立 `gui-egui.yml` 覆盖 Linux x86_64、Windows x86_64、macOS arm64 的检查、测试、release 编译与裸可执行文件 artifacts；Windows 使用 `crates/gui-egui/windows/installer.nsi` 额外打包按用户安装的 NSIS，安装后验证 EXE 校验和、许可证、提交标识、快捷方式和卸载清理。独立安装目录与卸载注册项允许和 Tauri 并存；当前不接入正式 Release、系统右键菜单或文件关联。使用说明、完整格式范围与已知限制见 [EGUI_GUI.md](EGUI_GUI.md)。
 
 ## 10. 当前实现限制
 

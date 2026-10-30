@@ -61,6 +61,75 @@ jobs:
         run: cargo test -p geezipx-egui ${{ matrix.test_features }} --locked
       - name: Build standalone native frontend
         run: cargo build -p geezipx-egui --release --locked
+      - name: Build Windows installer
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $nsis = Join-Path ${env:ProgramFiles(x86)} 'NSIS\makensis.exe'
+          if (-not (Test-Path $nsis)) {
+            choco install nsis --yes --no-progress
+            if ($LASTEXITCODE -ne 0) { throw 'NSIS installation failed' }
+          }
+          if (-not (Test-Path $nsis)) { throw 'makensis.exe not found' }
+          $metadata = cargo metadata --no-deps --format-version 1 --locked | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0) { throw 'Cargo metadata failed' }
+          $version = ($metadata.packages | Where-Object name -eq 'geezipx-egui').version
+          if (-not $version) { throw 'Native GUI version not found' }
+          $output = Join-Path $env:GITHUB_WORKSPACE 'target/release/bundle/egui-nsis'
+          New-Item -ItemType Directory -Force -Path $output | Out-Null
+          & $nsis /WX "/DREPO_ROOT=$env:GITHUB_WORKSPACE" "/DOUTPUT_DIR=$output" "/DAPP_VERSION=$version" "/DAPP_REVISION=$env:GITHUB_SHA" crates/gui-egui/windows/installer.nsi
+          if ($LASTEXITCODE -ne 0) { throw 'NSIS packaging failed' }
+          $installer = Join-Path $output "GeeZipX-Native_${version}_x64-setup.exe"
+          if (-not (Test-Path $installer)) { throw 'Windows installer missing' }
+          $build = @{
+            version = $version
+            commit = $env:GITHUB_SHA
+            architecture = 'x86_64'
+            installer = Split-Path $installer -Leaf
+          }
+          $build | ConvertTo-Json | Set-Content -Encoding utf8 (Join-Path $output 'build-info.json')
+          Get-ChildItem $output -Filter '*.exe' | ForEach-Object {
+            $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$hash  $($_.Name)"
+          } | Set-Content -Encoding ascii (Join-Path $output 'SHA256SUMS.txt')
+      - name: Verify Windows install and uninstall
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $installers = @(Get-ChildItem target/release/bundle/egui-nsis/*-setup.exe)
+          if ($installers.Count -ne 1) { throw 'Expected one Windows installer' }
+          $installer = $installers[0]
+          $installDir = Join-Path $env:RUNNER_TEMP 'GeeZipX Native 安装测试'
+          $result = Start-Process $installer.FullName -ArgumentList "/S /D=$installDir" -Wait -PassThru
+          if ($result.ExitCode -ne 0) { throw "Installer failed: $($result.ExitCode)" }
+          $exe = Join-Path $installDir 'geezipx-egui.exe'
+          $expected = (Get-FileHash target/release/geezipx-egui.exe -Algorithm SHA256).Hash
+          if ((Get-FileHash $exe -Algorithm SHA256).Hash -ne $expected) { throw 'Installed executable differs from build' }
+          foreach ($file in @('LICENSE', 'build-info.txt', 'licenses/EGUI-FONTS-LICENSES.txt', 'licenses/FONT-LICENSE.txt', 'licenses/FONT-NOTICE.txt', 'licenses/FONT-APACHE-2.0.txt')) {
+            if (-not (Test-Path (Join-Path $installDir $file))) { throw "Installed file missing: $file" }
+          }
+          if (-not (Select-String -Path (Join-Path $installDir 'build-info.txt') -SimpleMatch $env:GITHUB_SHA -Quiet)) { throw 'Installed build revision differs from run' }
+          $key = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\GeeZipXNative'
+          if ((Get-ItemProperty $key).InstallLocation -ne $installDir) { throw 'Uninstall registration missing' }
+          $shortcutDir = Join-Path ([Environment]::GetFolderPath('Programs')) 'GeeZipX Native'
+          if (-not (Test-Path (Join-Path $shortcutDir 'GeeZipX Native.lnk'))) { throw 'Start menu shortcut missing' }
+          $keep = Join-Path $installDir 'keep-user-file.txt'
+          Set-Content -Path $keep -Value 'Preserve unrelated files'
+          $result = Start-Process (Join-Path $installDir 'uninstall.exe') -ArgumentList '/S' -Wait -PassThru
+          if ($result.ExitCode -ne 0) { throw "Uninstaller failed: $($result.ExitCode)" }
+          if ((Test-Path $exe) -or (Test-Path $key) -or (Test-Path $shortcutDir)) { throw 'Uninstall did not clean application files and registration' }
+          if (-not (Test-Path $keep)) { throw 'Uninstall removed an unrelated file' }
+          'Verified per-user install, licenses, revision, shortcuts and uninstall.' >> $env:GITHUB_STEP_SUMMARY
+      - name: Upload Windows installer
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: geezipx-egui-windows-x86_64-installer
+          if-no-files-found: error
+          retention-days: 30
+          path: target/release/bundle/egui-nsis/*
       - uses: actions/upload-artifact@v4
         with:
           name: geezipx-egui-${{ matrix.platform }}

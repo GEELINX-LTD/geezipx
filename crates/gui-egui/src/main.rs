@@ -17,8 +17,8 @@ fn main() -> eframe::Result {
         viewport: eframe::egui::ViewportBuilder::default()
             .with_title("GeeZipX · Native")
             .with_app_id("com.geelinx.geezipx.native")
-            .with_inner_size([1180.0, 780.0])
-            .with_min_inner_size([920.0, 620.0])
+            .with_inner_size([1000.0, 680.0])
+            .with_min_inner_size([760.0, 480.0])
             .with_icon(theme::icon()),
         renderer: eframe::Renderer::Glow,
         ..Default::default()

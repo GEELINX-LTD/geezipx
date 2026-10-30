@@ -3,468 +3,445 @@ use super::*;
 impl App {
     pub(super) fn workspace(&mut self, ui: &mut egui::Ui, context: &egui::Context) {
         let busy = self.busy();
-        ui.horizontal(|ui| {
-            ui.vertical(|ui| {
-                theme::title(
-                    ui,
-                    "ARCHIVE / WORKSPACE",
-                    "归档浏览",
-                    "浏览、选择，解压所需的内容。",
-                );
-            });
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.add_enabled_ui(!busy, |ui| {
-                    if widgets::button(ui, "打开归档", Icon::Folder, false, 130.0)
-                        .on_hover_text("Ctrl/⌘ O")
-                        .clicked()
-                    {
-                        self.dialog(context, Dialog::Open);
-                    }
-                });
-            });
-        });
-        ui.add_space(22.0);
         if let Some(path) = self.retry_path.clone() {
-            ui.horizontal_wrapped(|ui| {
-                ui.label(format!("未能打开：{}", path.display()));
-                ui.add_enabled_ui(!busy, |ui| {
-                    if widgets::button(ui, "输入密码重试", Icon::Lock, false, 0.0).clicked() {
-                        self.unlock = Some(Unlock {
-                            path,
-                            password: String::new(),
-                        });
-                    }
-                });
+            ui.horizontal(|ui| {
+                ui.add(egui::Label::new(format!("未能打开：{}", path.display())).truncate());
+                if ui
+                    .add_enabled(!busy, egui::Button::new("输入密码重试"))
+                    .clicked()
+                {
+                    self.unlock = Some(Unlock {
+                        path,
+                        password: String::new(),
+                    });
+                }
             });
-            ui.add_space(12.0);
         }
         if self.archive.is_none() {
             self.welcome(ui, context);
             return;
         }
-        let mut verify = false;
-        let mut reload = None;
-        let mut preview_entry = None;
-        theme::card(ui).show(ui, |ui| {
-            ui.set_width(ui.available_width());
-            let Some(archive) = &mut self.archive else {
-                return;
-            };
-            ui.horizontal(|ui| {
-                let (rect, _) =
-                    ui.allocate_exact_size(egui::vec2(42.0, 42.0), egui::Sense::hover());
-                ui.painter().rect_filled(rect, 10, theme::palette(ui).tint);
-                widgets::paint_icon(
-                    ui.painter(),
-                    rect.shrink(10.0),
-                    Icon::Archive,
-                    theme::palette(ui).accent,
-                );
-                ui.vertical(|ui| {
-                    ui.set_max_width((ui.available_width() - 155.0).max(100.0));
-                    ui.add(
-                        egui::Label::new(
-                            RichText::new(
-                                archive
+        let mut preview = None;
+        let mut extract = false;
+        let archive = self.archive.as_mut().expect("archive checked above");
+        let browser = &mut archive.browser;
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 4.0;
+            ui.add_enabled_ui(browser.can_back(), |ui| {
+                if widgets::icon_button(ui, Icon::ArrowLeft, "返回 · Alt ←").clicked() {
+                    browser.back();
+                }
+            });
+            ui.add_enabled_ui(browser.can_forward(), |ui| {
+                if widgets::icon_button(ui, Icon::ArrowRight, "前进 · Alt →").clicked() {
+                    browser.forward();
+                }
+            });
+            ui.add_enabled_ui(!browser.directory.is_empty(), |ui| {
+                if widgets::icon_button(ui, Icon::ArrowUp, "上一级 · Backspace / Alt ↑").clicked()
+                {
+                    browser.parent();
+                }
+            });
+            let search_width = (ui.available_width() * 0.30).clamp(180.0, 260.0);
+            let path_width = (ui.available_width() - search_width - 12.0).max(180.0);
+            ui.allocate_ui_with_layout(
+                egui::vec2(path_width, 30.0),
+                egui::Layout::left_to_right(egui::Align::Center),
+                |ui| {
+                    ui.set_min_width(path_width);
+                    egui::ScrollArea::horizontal()
+                        .id_salt("breadcrumbs")
+                        .show(ui, |ui| {
+                            ui.horizontal(|ui| {
+                                let name = archive
                                     .path
                                     .file_name()
                                     .unwrap_or_default()
-                                    .to_string_lossy(),
-                            )
-                            .size(17.0)
-                            .strong(),
-                        )
-                        .truncate(),
-                    )
-                    .on_hover_text(archive.path.display().to_string());
-                    theme::caption(
-                        ui,
-                        format!(
-                            "{} 个条目  ·  {}",
-                            archive.entries.len(),
-                            theme::bytes(archive.bytes)
-                        ),
-                    );
-                });
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.add_enabled_ui(!busy, |ui| {
-                        if widgets::icon_button(ui, Icon::Shield, "测试完整性").clicked() {
-                            verify = true;
-                        }
-                        if widgets::icon_button(ui, Icon::Refresh, "重新读取").clicked() {
-                            reload = Some(archive.path.clone());
-                        }
-                    });
-                    widgets::badge(ui, &archive.format.to_string().to_uppercase());
-                });
-            });
-        });
-        if verify {
-            self.verify(context);
-        }
-        if let Some(path) = reload {
-            let password = std::mem::take(&mut self.read_password);
-            self.open_archive(
-                context,
-                path,
-                if password.is_empty() {
-                    None
-                } else {
-                    Some(password)
-                },
-            );
-        }
-        ui.add_space(16.0);
-        let Some(archive) = &mut self.archive else {
-            return;
-        };
-        let browser = &mut archive.browser;
-        theme::card(ui).inner_margin(12).show(ui, |ui| {
-            ui.set_width(ui.available_width());
-            ui.horizontal_wrapped(|ui| {
-                ui.add_enabled_ui(!browser.directory.is_empty(), |ui| {
-                    if widgets::icon_button(ui, Icon::ArrowUp, "上一级 / Backspace").clicked() {
-                        browser.parent();
-                        self.range_anchor = None;
-                    }
-                });
-                if ui.add(egui::Button::new("根目录").frame(false)).clicked() {
-                    browser.navigate(String::new());
-                    self.range_anchor = None;
-                }
-                let parts: Vec<_> = browser
-                    .directory
-                    .split('/')
-                    .filter(|s| !s.is_empty())
-                    .map(str::to_owned)
-                    .collect();
-                let mut prefix = String::new();
-                for part in parts {
-                    if !prefix.is_empty() {
-                        prefix.push('/');
-                    }
-                    prefix.push_str(&part);
-                    let (rect, _) =
-                        ui.allocate_exact_size(egui::vec2(10.0, 16.0), egui::Sense::hover());
-                    widgets::paint_icon(
-                        ui.painter(),
-                        rect,
-                        Icon::Chevron,
-                        theme::palette(ui).muted,
-                    );
-                    if ui.add(egui::Button::new(&part).frame(false)).clicked() {
-                        browser.navigate(prefix.clone());
-                        self.range_anchor = None;
-                    }
-                }
-            });
-            ui.horizontal(|ui| {
-                let (rect, _) =
-                    ui.allocate_exact_size(egui::vec2(20.0, 24.0), egui::Sense::hover());
-                widgets::paint_icon(ui.painter(), rect, Icon::Search, theme::palette(ui).muted);
-                if ui
-                    .add(
-                        egui::TextEdit::singleline(&mut browser.query)
-                            .margin(egui::Margin::symmetric(10, 8))
-                            .id(egui::Id::new("archive-search"))
-                            .hint_text("搜索当前文件夹…   Ctrl/⌘ F")
-                            .desired_width(f32::INFINITY),
-                    )
-                    .changed()
-                {
-                    browser.refresh();
-                    self.range_anchor = None;
-                }
-            });
-            ui.horizontal(|ui| {
-                let mut all = !browser.visible.is_empty()
-                    && browser
-                        .visible
-                        .iter()
-                        .all(|row| browser.selection.contains(&row.path));
-                if widgets::check(ui, &mut all, "全选").changed() {
-                    for row in &browser.visible {
-                        if all {
-                            browser.selection.insert(row.path.clone());
-                        } else {
-                            browser.selection.remove(&row.path);
-                        }
-                    }
-                }
-                if ui
-                    .add(egui::Button::new("名称 A–Z").small().frame(false))
-                    .clicked()
-                {
-                    browser.size_descending = false;
-                    browser.refresh();
-                    self.range_anchor = None;
-                }
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui
-                        .add(egui::Button::new("大小优先").small().frame(false))
-                        .clicked()
-                    {
-                        browser.size_descending = true;
-                        browser.refresh();
-                        self.range_anchor = None;
-                    }
-                });
-            });
-            theme::rule(ui);
-            let height = (ui.available_height() - 55.0).max(80.0);
-            let mut navigate = None;
-            ui.scope(|ui| {
-                ui.spacing_mut().item_spacing.y = 2.0;
-                egui::ScrollArea::vertical()
-                    .id_salt("archive-rows")
-                    .max_height(height)
-                    .auto_shrink([false, false])
-                    .show_rows(ui, 44.0, browser.visible.len(), |ui, range| {
-                        for index in range {
-                            let row = browser.visible[index].clone();
-                            ui.push_id(&row.path, |ui| {
-                                let checked = browser.selection.contains(&row.path);
-                                let detail = if row.is_dir {
-                                    "文件夹".into()
-                                } else {
-                                    theme::bytes(row.size)
-                                };
-                                let (response, toggle) =
-                                    widgets::file_row(ui, &row.name, &detail, row.is_dir, checked);
-                                if toggle {
-                                    browser.toggle(&row.path);
-                                    self.range_anchor = Some(index);
-                                } else if response.double_clicked() && !busy {
-                                    if row.is_dir {
-                                        navigate = Some(row.path.clone());
-                                    } else {
-                                        preview_entry = row.entry_index;
+                                    .to_string_lossy();
+                                if ui
+                                    .add(
+                                        egui::Button::new(RichText::new(name).strong())
+                                            .frame(false),
+                                    )
+                                    .on_hover_text(archive.path.display().to_string())
+                                    .clicked()
+                                {
+                                    browser.navigate(String::new());
+                                }
+                                let parts: Vec<_> = browser
+                                    .directory
+                                    .split('/')
+                                    .filter(|part| !part.is_empty())
+                                    .map(str::to_owned)
+                                    .collect();
+                                let mut prefix = String::new();
+                                for part in parts {
+                                    if !prefix.is_empty() {
+                                        prefix.push('/');
                                     }
-                                } else if response.clicked() {
-                                    let modifiers = ui.input(|input| input.modifiers);
-                                    if modifiers.shift {
-                                        let anchor = self
-                                            .range_anchor
-                                            .unwrap_or(index)
-                                            .min(browser.visible.len().saturating_sub(1));
-                                        for row in
-                                            &browser.visible[anchor.min(index)..=anchor.max(index)]
-                                        {
-                                            browser.selection.insert(row.path.clone());
-                                        }
-                                    } else if modifiers.command || modifiers.ctrl {
-                                        browser.toggle(&row.path);
-                                        self.range_anchor = Some(index);
-                                    } else {
-                                        browser.selection.clear();
-                                        browser.selection.insert(row.path.clone());
-                                        self.range_anchor = Some(index);
+                                    prefix.push_str(&part);
+                                    let (rect, _) = ui.allocate_exact_size(
+                                        egui::vec2(12.0, 16.0),
+                                        egui::Sense::hover(),
+                                    );
+                                    widgets::paint_icon(
+                                        ui.painter(),
+                                        rect,
+                                        Icon::Chevron,
+                                        theme::palette(ui).muted,
+                                    );
+                                    if ui.add(egui::Button::new(part).frame(false)).clicked() {
+                                        browser.navigate(prefix.clone());
                                     }
                                 }
-                                response.on_hover_text(format!(
-                                    "{}\n{}",
-                                    row.name,
-                                    if row.is_dir {
-                                        "双击进入；勾选可提取全部内容"
-                                    } else {
-                                        "双击预览文本；Ctrl/⌘ 多选，Shift 连选"
-                                    }
-                                ));
                             });
-                        }
-                        if browser.visible.is_empty() {
-                            theme::caption(ui, "此文件夹为空，或没有匹配的项目。");
-                        }
-                    });
-            });
-            theme::rule(ui);
-            ui.horizontal(|ui| {
-                theme::caption(
-                    ui,
-                    format!(
-                        "{} 项  ·  已选 {} 项",
-                        browser.visible.len(),
-                        browser.selection.len()
-                    ),
-                );
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if !browser.selection.is_empty()
-                        && ui
-                            .add(egui::Button::new("清空选择").small().frame(false))
-                            .clicked()
-                    {
-                        browser.selection.clear();
-                        self.range_anchor = None;
-                    }
-                });
-            });
-            if let Some(path) = navigate {
-                browser.navigate(path);
-                self.range_anchor = None;
+                        });
+                },
+            );
+            ui.add_space(4.0);
+            if widgets::search(ui, &mut browser.query, search_width).changed() {
+                browser.refresh();
             }
         });
-        if let Some(index) = preview_entry {
-            if let Some(entry) = archive.entries.get(index).cloned() {
-                let path = archive.path.clone();
-                let password = std::mem::take(&mut self.read_password);
-                self.start(context, Kind::Preview, move |control| {
-                    engine::preview(
-                        path,
-                        if password.is_empty() {
-                            None
-                        } else {
-                            Some(password)
-                        },
-                        entry,
-                        control,
-                    )
-                    .map(Outcome::Preview)
-                });
+        ui.add_space(5.0);
+        let columns = widgets::Columns::new(ui.available_width(), self.column_widths);
+        let (header, _) =
+            ui.allocate_exact_size(egui::vec2(ui.available_width(), 29.0), egui::Sense::hover());
+        let palette = theme::palette(ui);
+        ui.painter().rect_filled(header, 4, palette.soft);
+        for (index, (label, sort)) in [
+            ("名称", Some(SortColumn::Name)),
+            ("大小", Some(SortColumn::Size)),
+            ("压缩后", Some(SortColumn::Packed)),
+            ("类型", Some(SortColumn::Type)),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let cell = columns.cell(header, index);
+            let response = ui.interact(
+                cell.shrink2(egui::vec2(4.0, 0.0)),
+                ui.id().with(("header", index)),
+                egui::Sense::click(),
+            );
+            if let Some(sort) = sort {
+                if response.clicked() {
+                    browser.sort_by(sort);
+                }
+                response.on_hover_cursor(egui::CursorIcon::PointingHand);
+            }
+            let selected = sort == Some(browser.sort);
+            let galley = ui.painter().layout_no_wrap(
+                label.into(),
+                egui::FontId::proportional(12.0),
+                if selected {
+                    palette.accent
+                } else {
+                    palette.muted
+                },
+            );
+            let origin = cell.left_center() + egui::vec2(if index == 0 { 12.0 } else { 10.0 }, 0.0);
+            if selected {
+                widgets::paint_icon(
+                    ui.painter(),
+                    egui::Rect::from_center_size(
+                        origin + egui::vec2(galley.size().x + 10.0, 0.0),
+                        egui::vec2(12.0, 12.0),
+                    ),
+                    if browser.descending {
+                        Icon::ArrowDown
+                    } else {
+                        Icon::ArrowUp
+                    },
+                    palette.accent,
+                );
+            }
+            ui.painter().galley(
+                origin - egui::vec2(0.0, galley.size().y / 2.0),
+                galley,
+                palette.text,
+            );
+        }
+        for boundary in 1..4 {
+            let x = header.left() + columns.edges[boundary];
+            let hit = egui::Rect::from_center_size(
+                egui::pos2(x, header.center().y),
+                egui::vec2(8.0, header.height()),
+            );
+            let response = ui
+                .interact(
+                    hit,
+                    ui.id().with(("column-resize", boundary)),
+                    egui::Sense::drag(),
+                )
+                .on_hover_cursor(egui::CursorIcon::ResizeHorizontal);
+            ui.painter().vline(
+                x,
+                header.y_range().shrink(7.0),
+                egui::Stroke::new(1.0_f32, palette.border),
+            );
+            if response.dragged() {
+                let delta = response.drag_delta().x;
+                let next = boundary - 1;
+                let max_growth = if next == 0 {
+                    (columns.edges[1] - 180.0).max(0.0)
+                } else {
+                    self.column_widths[next - 1] - 64.0
+                };
+                let delta = delta.clamp(-max_growth, (self.column_widths[next] - 64.0).max(0.0));
+                self.column_widths[next] -= delta;
+                if next > 0 {
+                    self.column_widths[next - 1] += delta;
+                }
             }
         }
-    }
-
-    fn welcome(&mut self, ui: &mut egui::Ui, context: &egui::Context) {
-        let height = ui.available_height();
-        let width = ui.available_width();
-        theme::card(ui).show(ui, |ui| {
-            ui.set_min_size(egui::vec2(width - 42.0, (height - 70.0).max(320.0)));
-            ui.add_space(((height - 480.0) / 2.0).max(8.0));
-            ui.vertical_centered(|ui| {
-                widgets::illustration(ui);
-                ui.add_space(12.0);
-                ui.label(RichText::new("让文件轻装上阵").size(28.0).strong());
-                theme::caption(ui, "拖入压缩包浏览内容，或添加文件开始压缩。");
-                ui.add_space(18.0);
-                ui.horizontal(|ui| {
-                    ui.add_space(((ui.available_width() - 310.0) / 2.0).max(0.0));
-                    ui.add_enabled_ui(!self.busy(), |ui| {
-                        if widgets::button(ui, "打开归档", Icon::Folder, true, 150.0).clicked()
-                        {
-                            self.dialog(context, Dialog::Open);
-                        }
-                    });
-                    if widgets::button(ui, "新建压缩", Icon::Plus, false, 150.0).clicked() {
-                        self.page = Page::Create;
+        let list_height = ui.available_height().max(60.0);
+        if let Some(index) = browser.reveal.take() {
+            let top = index as f32 * 29.0;
+            if top < self.list_offset {
+                self.list_offset = top;
+            }
+            if top + 29.0 > self.list_offset + list_height {
+                self.list_offset = (top + 29.0 - list_height).max(0.0);
+            }
+        }
+        let list = ui.interact(
+            ui.available_rect_before_wrap(),
+            egui::Id::new("archive-list"),
+            egui::Sense::click(),
+        );
+        if list.clicked() {
+            browser.clear_selection();
+            list.request_focus();
+        }
+        let list_focused = list.has_focus();
+        let mut navigate = None;
+        ui.scope(|ui| {
+            ui.spacing_mut().item_spacing.y = 0.0;
+            let output = egui::ScrollArea::vertical()
+                .id_salt("archive-rows")
+                .auto_shrink([false, false])
+                .max_height(list_height)
+                .vertical_scroll_offset(self.list_offset)
+                .show_rows(ui, 29.0, browser.visible.len(), |ui, range| {
+                    let columns = widgets::Columns::new(ui.available_width(), self.column_widths);
+                    for index in range {
+                        let row = browser.visible[index].clone();
+                        ui.push_id(&row.path, |ui| {
+                            let size = if row.is_dir {
+                                String::new()
+                            } else {
+                                theme::bytes(row.size)
+                            };
+                            let packed = row
+                                .entry_index
+                                .and_then(|index| archive.entries.get(index))
+                                .map_or_else(String::new, |entry| {
+                                    theme::bytes(entry.compressed_size)
+                                });
+                            let response = widgets::file_row(
+                                ui,
+                                widgets::FileRow {
+                                    name: &row.name,
+                                    size: &size,
+                                    packed: &packed,
+                                    kind: &row.kind,
+                                    folder: row.is_dir,
+                                    selected: browser.selection.contains(&row.path),
+                                    focused: list_focused
+                                        && browser.focus.as_ref() == Some(&row.path),
+                                },
+                                columns,
+                            );
+                            if response.clicked() {
+                                let modifiers = ui.input(|i| i.modifiers);
+                                browser.select(
+                                    index,
+                                    modifiers.shift,
+                                    modifiers.command || modifiers.ctrl,
+                                );
+                                list.request_focus();
+                            }
+                            if response.double_clicked() {
+                                if row.is_dir {
+                                    navigate = Some(row.path.clone());
+                                } else if !busy {
+                                    preview = row.entry_index;
+                                }
+                            }
+                            if response.secondary_clicked() {
+                                if !browser.selection.contains(&row.path) {
+                                    browser.select(index, false, false);
+                                }
+                                list.request_focus();
+                            }
+                            response.context_menu(|ui| {
+                                widgets::menu(ui);
+                                if row.is_dir && ui.button("打开文件夹").clicked() {
+                                    navigate = Some(row.path.clone());
+                                    ui.close();
+                                }
+                                if !row.is_dir
+                                    && ui
+                                        .add_enabled(!busy, egui::Button::new("预览文本"))
+                                        .clicked()
+                                {
+                                    preview = row.entry_index;
+                                    ui.close();
+                                }
+                                ui.separator();
+                                if ui
+                                    .add_enabled(
+                                        !busy,
+                                        egui::Button::new(format!(
+                                            "解压所选 ({})…",
+                                            browser.selection.len()
+                                        )),
+                                    )
+                                    .clicked()
+                                {
+                                    extract = true;
+                                    ui.close();
+                                }
+                                if ui.button("复制归档内路径").clicked() {
+                                    context.copy_text(
+                                        browser
+                                            .selection
+                                            .iter()
+                                            .cloned()
+                                            .collect::<Vec<_>>()
+                                            .join("\n"),
+                                    );
+                                    ui.close();
+                                }
+                                ui.separator();
+                                if ui.button("全选").clicked() {
+                                    browser.select_all();
+                                    ui.close();
+                                }
+                                if ui.button("清空选择").clicked() {
+                                    browser.clear_selection();
+                                    ui.close();
+                                }
+                            });
+                        });
+                    }
+                    if browser.visible.is_empty() {
+                        ui.add_space(28.0);
+                        ui.vertical_centered(|ui| {
+                            theme::caption(
+                                ui,
+                                if browser.query.is_empty() {
+                                    "此文件夹为空"
+                                } else {
+                                    "没有匹配的文件 · 按 Esc 清除搜索"
+                                },
+                            );
+                        });
                     }
                 });
-                ui.add_space(24.0);
-                theme::caption(ui, "ZIP  /  7z  /  TAR 及常见归档格式");
-            });
+            self.list_offset = output.state.offset.y;
         });
-        ui.add_space(8.0);
-        ui.horizontal(|ui| {
-            let (rect, _) = ui.allocate_exact_size(egui::vec2(16.0, 16.0), egui::Sense::hover());
-            widgets::paint_icon(ui.painter(), rect, Icon::Shield, theme::palette(ui).muted);
-            theme::caption(ui, "文件在本地处理，密码仅用于本次操作。");
-        });
+        if let Some(path) = navigate {
+            browser.navigate(path);
+        }
+        if let Some(index) = preview {
+            self.preview_entry(context, index);
+        }
+        if extract {
+            self.show_extract(false);
+        }
     }
-
-    pub(super) fn extract_panel(&mut self, context: &egui::Context) {
-        egui::SidePanel::right("extract-options")
-            .exact_width(260.0)
-            .resizable(false)
-            .frame(
-                egui::Frame::new()
-                    .fill(context.style().visuals.window_fill)
-                    .inner_margin(20),
-            )
-            .show(context, |ui| {
-                let count = self
-                    .archive
-                    .as_ref()
-                    .map_or(0, |a| a.browser.selection.len());
-                let reserved = if count > 0 { 110.0 } else { 60.0 };
-                egui::ScrollArea::vertical()
-                    .max_height((ui.available_height() - reserved).max(100.0))
-                    .auto_shrink([false, false])
-                    .show(ui, |ui| {
-                        ui.add_space(12.0);
-                        theme::title(ui, "EXTRACT", "提取文件", "只取所需，保留目录结构。");
-                        ui.add_space(20.0);
-                        theme::rule(ui);
-                        ui.add_space(12.0);
-                        let count = self
-                            .archive
-                            .as_ref()
-                            .map_or(0, |a| a.browser.selection.len());
-                        widgets::badge(
-                            ui,
-                            &if count > 0 {
-                                format!("已选择 {count} 项")
-                            } else {
-                                "整个归档".into()
-                            },
-                        );
-                        ui.add_space(14.0);
-                        ui.label(RichText::new("保存位置").strong());
-                        let busy = self.busy();
-                        ui.add_enabled_ui(!busy, |ui| {
-                            self.destination.edit(ui, "输出文件夹");
-                            if widgets::button(
-                                ui,
-                                "选择文件夹",
-                                Icon::Folder,
-                                false,
-                                ui.available_width(),
-                            )
-                            .clicked()
-                            {
-                                self.dialog(context, Dialog::Destination);
-                            }
-                            ui.add_space(14.0);
-                            widgets::check(ui, &mut self.overwrite, "替换同名文件");
-                        });
-                        theme::caption(
-                            ui,
-                            if self.overwrite {
-                                "成功提取后替换同名文件。"
-                            } else {
-                                "默认跳过同名文件，保留原有内容。"
-                            },
-                        );
-                        let encrypted = self.archive.as_ref().is_some_and(|a| {
-                            matches!(
-                                a.format,
-                                ArchiveFormat::Zip | ArchiveFormat::SevenZip | ArchiveFormat::Rar
-                            )
-                        });
-                        if encrypted {
-                            ui.add_space(20.0);
-                            ui.label("归档密码（如需要）");
-                            ui.add(
-                                egui::TextEdit::singleline(&mut self.read_password)
-                                    .margin(egui::Margin::symmetric(10, 8))
-                                    .password(true)
-                                    .hint_text("仅供下一次操作")
-                                    .desired_width(f32::INFINITY),
-                            );
-                        }
-                        theme::caption(ui, "勾选文件夹将包含其全部内容。可跨目录选择多个项目。");
-                    });
-                ui.add_space(12.0);
-                let enabled = !self.busy() && !self.destination.path.as_os_str().is_empty();
-                ui.add_enabled_ui(enabled, |ui| {
-                    let label = if count > 0 {
-                        format!("解压选中项（{count}）")
+    fn welcome(&mut self, ui: &mut egui::Ui, context: &egui::Context) {
+        let opening = self
+            .active
+            .as_ref()
+            .is_some_and(|active| active.kind == Kind::List);
+        let busy = self.busy();
+        egui::ScrollArea::vertical()
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                ui.add_space((ui.available_height() * 0.10).clamp(12.0, 48.0));
+                ui.vertical_centered(|ui| {
+                    if opening {
+                        ui.spinner();
+                        ui.add_space(10.0);
+                        ui.heading("正在打开归档…");
+                        theme::caption(ui, "归档目录在后台读取，你可以随时取消。");
+                        return;
+                    }
+                    if ui.available_height() > 560.0 {
+                        widgets::illustration(ui);
                     } else {
-                        "解压全部".into()
-                    };
-                    if theme::primary(ui, &label).clicked() {
-                        self.extract(context, count == 0);
+                        theme::logo(ui, 48.0);
+                        ui.add_space(12.0);
                     }
-                    if count > 0
-                        && widgets::button(
-                            ui,
-                            "解压全部",
-                            Icon::Archive,
-                            false,
-                            ui.available_width(),
-                        )
-                        .clicked()
-                    {
-                        self.extract(context, true);
-                    }
+                    ui.label(RichText::new("文件归档，轻松处理").size(23.0).strong());
+                    theme::caption(ui, "拖入压缩包直接浏览，拖入文件或文件夹开始压缩。");
+                    ui.add_space(18.0);
+                    ui.horizontal(|ui| {
+                        ui.add_space(((ui.available_width() - 302.0) / 2.0).max(0.0));
+                        ui.add_enabled_ui(!busy, |ui| {
+                            if widgets::button(ui, "打开归档", Icon::Folder, true, 146.0).clicked()
+                            {
+                                self.dialog(context, Dialog::Open);
+                            }
+                            if widgets::button(ui, "新建压缩包", Icon::Plus, false, 146.0).clicked()
+                            {
+                                self.new_archive();
+                            }
+                        });
+                    });
+                });
+                if opening {
+                    return;
+                }
+                ui.add_space(26.0);
+                let recent_width = 520.0_f32.min(ui.available_width() - 24.0);
+                ui.horizontal(|ui| {
+                    ui.add_space(((ui.available_width() - recent_width) / 2.0).max(0.0));
+                    ui.vertical(|ui| {
+                        ui.set_width(recent_width);
+                        ui.horizontal(|ui| {
+                            theme::caption(ui, "最近打开");
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    if !self.preferences.recent.is_empty()
+                                        && widgets::subtle_button(ui, "清空").clicked()
+                                    {
+                                        self.preferences.recent.clear();
+                                    }
+                                },
+                            );
+                        });
+                        theme::rule(ui);
+                        let mut open = None;
+                        for path in self.preferences.recent.iter().take(4) {
+                            ui.add_enabled_ui(!busy, |ui| {
+                                if widgets::nav(
+                                    ui,
+                                    &path.file_name().unwrap_or_default().to_string_lossy(),
+                                    Icon::Archive,
+                                    false,
+                                    "打开",
+                                )
+                                .on_hover_text(path.display().to_string())
+                                .clicked()
+                                {
+                                    open = Some(path.clone());
+                                }
+                            });
+                        }
+                        if self.preferences.recent.is_empty() {
+                            ui.add_space(8.0);
+                            theme::caption(ui, "打开过的归档会显示在这里。");
+                        }
+                        if let Some(path) = open {
+                            self.open_archive(context, path, None);
+                        }
+                    });
                 });
             });
     }

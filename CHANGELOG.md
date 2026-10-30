@@ -9,7 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Native GUI (egui)**: Add the independent `geezipx-egui` desktop app with a custom-painted light/dark workspace, icon navigation, two-column creation form, persistent primary actions, archive tree, search, virtualized lists, drag/drop, selective extraction, ZIP/7z encryption, text preview, integrity testing, progress and cooperative cancellation. Reuse Rust core through background jobs; include an embedded Chinese font and a separate Linux/Windows/macOS build-and-artifact workflow. See `docs/EGUI_GUI.md` for supported formats and current limits.
+- **Native GUI — Windows installer**: Package the egui frontend as a per-user x64 NSIS installer with Chinese/English setup, Start menu shortcuts, bundled license notices and a separate uninstall entry. Verify install/uninstall on the Windows runner and upload the installer with commit metadata and SHA-256 checksums.
+- **Native GUI (egui)**: Add the independent `geezipx-egui` desktop app with a compact light/dark file manager, sortable and resizable virtual file table, creation/extraction dialogs, drag/drop, selective extraction, ZIP/7z encryption, text preview, integrity testing, progress and cooperative cancellation. Reuse Rust core through background jobs; include an embedded Chinese font and a separate Linux/Windows/macOS build-and-artifact workflow. See `docs/EGUI_GUI.md` for supported formats and current limits.
 - **Core streaming adapters**: Add object-safe entry visitation for archive readers and known-length entry input for writers. ZIP, TAR variants and 7z support sequential visitation; TAR writers stream known-size inputs and reject length changes.
 
 - **Windows GUI — Configurable shell context menu**: The right-click menu in Explorer is now dynamically manageable from the Settings page. Users can toggle a master on/off switch and individually enable four verbs: Extract here, Extract to..., Compress as ZIP, and Compress as.... Settings are written to `HKCU\Software\Classes` (no admin required) and take effect immediately via `SHChangeNotify`. A persistent sentinel (`HKCU\Software\Classes\GeeZipX\ShellMenu\Configured=1`) prevents the NSIS installer from re-registering defaults on upgrade when the user has turned the menu off.
@@ -17,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Native GUI workflows**: Replace permanent sidebars and large cards with a compact toolbar, path/search bar, 29-point file rows and inline task progress. Support conventional mouse/keyboard range selection, hidden-selection counts during search, Enter to submit operation dialogs, quick extract-all destinations and a 760×480 minimum window. Failed operations restore their inputs for retry without retaining passwords. Escape closes or clears UI state; task cancellation uses an explicit button.
 - **Repository cleanup**: Remove unregistered ALZ/Unix Compress adapter sources, unused mobile icons and vendored Cargo download metadata. Stop tracking generated Tauri schemas; consolidate completed plans, review notes and duplicated configuration examples into current documentation.
 - **Workspace defaults**: Default Cargo commands select core and CLI only. Select `geezipx-egui` or `geezipx-gui` explicitly to build a desktop frontend.
 - **Release verification**: Manual builds default to `dry_run: true`. Verify all three CLI archives and the required AppImage, deb, DMG and NSIS bundles, generate individual and combined SHA256 checksums, and retain verified artifacts and a workflow summary for candidate testing.
@@ -29,6 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Native GUI — Component layout**: Give menu labels and platform-specific shortcuts separate aligned columns; use distinct shortcut hints in search, tooltips and the idle status bar. Align form controls, add consistent dialog padding, constrain popup widths, and keep file selection when Escape dismisses a menu.
 - **GUI — Startup launch delivery**: Keep archive-open and shell requests in a window-scoped memory queue until acknowledged. Subscribe before the first snapshot and deduplicate request IDs, so launches received while the frontend mounts are retained and repeated notifications do not repeat work. Snapshot failures preserve wakeups received during the query; late results after unmount are ignored.
 - **GUI — Task and archive state**: Isolate concurrent progress and cancellation by task ID, reject duplicate registrations until their workers stop, and prevent stale archive loads or password callbacks from replacing a newer selection.
 - **GUI — Native paths and archive navigation**: Use native path APIs and separate file/folder pickers; preserve Windows ZIP folder hierarchy, include descendants of selected folders, avoid redundant output folders for 7z archives, and keep page layout stable during navigation.
