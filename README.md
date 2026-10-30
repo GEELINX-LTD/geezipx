@@ -64,7 +64,7 @@
 | ASAR | `.asar` | ✓ | ✓ | Electron archive; no encrypt |
 | CAB | `.cab` | ✓ | ✓ | single-volume only; no encrypt |
 | DEB | `.deb` | ✓ | ✓ | data.tar\* payload; no encrypt |
-| WIM / SWM | `.wim`, `.swm` | ✓ | ✓ | Uncompressed write; XPRESS read; LZX interoperability remains unresolved; LZMS unsupported |
+| WIM | `.wim` | ✓ | ✓ | Uncompressed write; XPRESS read; LZX interoperability unresolved; LZMS and split SWM unsupported |
 | ISZ | `.isz` | ✓ | ✓ | block-bounded ISO wrapper; lists/extracts ISO files; `decompress --stdout` restores padded ISO; no encryption/segments |
 | RAR | `.rar` | ✓ | ✗ | read-only (licensing limitation); decryption supported |
 | AES encrypted | `.enc` | ✓ | ✓ | AES-256-GCM-SIV + Argon2id; authenticated container; buffered processing |
@@ -491,13 +491,15 @@ Most format limitations are documented in the Format Support table above. Key de
 - **LZH/LHA write**: The writer supports lh0 (store) through lh7 compression via `oxiarc-lzhuf`. CLI level 0 → lh0, 1 → lh4, 2 → lh5, 3 → lh6, 4+ → lh7. Single entries >4 GiB and extended-header metadata are not supported.
 - **ISO write**: Writer emits ISO 9660 Level 1 volumes with Joliet. Extended Rock Ridge/Joliet creator metadata is preserved during copy. UDF-only writing is handled by the separate `udf` format.
 - **CPIO write**: Supports `newc` and `odc` variants. Does not create symlinks, devices, FIFOs, or sockets on extraction.
-- **ZPAQ write**: Supports level 1-5. Per-entry extraction goes through byte-buffer helpers; streaming extraction not guaranteed.
-- **ISZ**: Single-stream compression wrapper around ISO data. `list` shows a synthetic entry rather than individual files.
+- **ZPAQ write**: Supports level 1-5. Creation buffers all inputs and compressed output; each path-addressed extraction also reads the whole archive and buffers the decoded entry. Archive-aware streaming requires an upstream API change.
+- **ISZ**: Block-compressed ISO wrapper. CLI lists/extracts files inside the ISO through a seekable block cache; `decompress --stdout` restores the sector-padded ISO. Encryption and split ISZ remain unsupported.
 - **AES `.enc`**: AES-256-GCM-SIV encryption with Argon2id key derivation. Opening an archive authenticates it, including `list` and `test`. Buffered processing remains; streaming AES containers are rejected until fully supported.
 - **BIN**: CLI extracts ISO/UDF optical files from 2048-byte cooked or 2352-byte Mode 1/Mode 2 Form 1 images. Audio/CUE/mixed tracks and partitioned disk filesystems are unsupported. Core copy helpers and creation retain explicit identity-copy behavior.
 - **IMG/IMA**: Uses the same optical filesystem reader as BIN; FAT, NTFS and partitioned disks remain unsupported. Explicit stdin copy helpers retain identity behavior.
 - **UU / UUE / XXE**: Legacy text-encoding formats. Both decode (list/decompress/test) and encode (compress) are supported.
 - **RAR**: Read-only by licensing limitation. Decryption is supported via password flags.
+
+The complete core/CLI pass against the Bandizip format list, including performance debt and deferred work, is recorded in [FORMAT_PARITY_AUDIT.md](docs/FORMAT_PARITY_AUDIT.md). BH, DAA 1.0, PEA and NSIS extraction remain unimplemented. ALZ, EGG, optical disk images, WIM and executable SFX have the subset limits recorded there; a matching extension alone does not imply full compatibility.
 
 ### Benchmarks
 

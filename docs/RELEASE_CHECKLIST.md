@@ -8,6 +8,7 @@
 - Windows：可配置右键菜单、COM 多选压缩、独立快捷解压窗口、窗口关闭权限和卸载清理。
 - GUI：并发任务隔离、密码提示、原生路径、ZIP 目录层级、7z 默认输出目录和稳定页面布局。
 - Core/CLI/SFX：失败或取消时保留已有输出、归档校验与错误传播，以及安全依赖更新。变更细节见 [CHANGELOG](../CHANGELOG.md)。
+- Core/CLI 格式对齐：完整清单已完成一轮逐项实现/性能审查，新增能力、独立样本结果、部分兼容范围与暂缓项见 [格式审查](FORMAT_PARITY_AUDIT.md)。新增读取能力不代表两个 GUI 已接入，也不代表已完成三平台发布验证。
 
 Win11 一级菜单的实验 [PR #33](https://github.com/GEELINX-LTD/geezipx/pull/33) 独立评估。本轮安装包采用已接入的传统 Explorer 菜单。
 
@@ -27,6 +28,12 @@ Win11 一级菜单的实验 [PR #33](https://github.com/GEELINX-LTD/geezipx/pull
 启动交接回归包含两个先失败、再修复的场景：订阅前通知已丢失但队列仍有请求；查询失败时已经收到下一次通知。另覆盖重复通知、确认失败、独立请求、异步压缩与销毁后的迟到结果。实现约束见 [GUI 规划](GUI_MVP_PLAN.md#33-代码复查后的行为约束)。
 
 ## 3. 候选包构建与追溯
+
+格式对齐分支在 Linux 上的全 feature fmt/Clippy/工作区测试已通过（1119 通过、9 忽略、0 失败），core/CLI 关闭默认 feature 测试亦通过（998 通过、4 忽略、0 失败），`cargo deny check advisories bans licenses sources` 通过。忽略项没有计入通过数；各格式实际互操作样本与未完成变体以格式审查为准。发布前还需：
+
+- [ ] 对最终候选提交执行 Windows/macOS/Linux CLI 构建与新增格式抽查，覆盖 ZIPX/XZ、AES Crypt、PMA/TLZ、ALZ/EGG 子集及 IMG/BIN/ISZ 内容视图。
+- [ ] 补充官方 AES v0–v2、真实 EGG 与 UltraISO ISZ 独立样本；内部 round-trip 不替代这些互操作验收。
+- [ ] 涉及 stub 源码/依赖变化时重建三平台嵌入 stub，并对实际产出的 ZIP SFX 执行创建/提取验收。
 
 - [ ] 将通过检查的修复整理到可审查提交，并将候选分支推送至远端。
 - [ ] 针对候选分支触发 `.github/workflows/gui-windows.yml`，记录 run URL 与完整 `head_sha`，确认 GUI Rust 测试及 NSIS 构建通过。

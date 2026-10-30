@@ -69,7 +69,7 @@ egui GUI ─────┘
 - egui GUI 负责独立的原生交互、共享进度快照与后台任务；不实现压缩编解码；
 - RAR 在当前版本中保持只读语义（UnRAR 许可限制）。WIM 支持无压缩写入与 XPRESS 读取；LZX 保留实验实现，但尚未通过 wimlib 样本互操作验证，LZMS 返回不支持错误。ISZ 为块压缩 ISO 包装，使用单流引擎读写。
 - ARJ/ACE/ARC/ALZ/Z 创建不在当前目标内；ALZ 通过 MIT `unalz` 索引加自有 `File` 接入单卷 Store/Deflate/ZipCrypto，保持 `ArchiveReader: Send` 与有界提取；Unix compress `.Z` 支持流式 LZW 解码；UU/UUE/XXE 支持流式编码与解码。
-- DEB、CAB、ASAR、CPIO（newc/odc）、LZH/LHA（lh0-lh7）、7z（含高级方法选择）、ISO、ZPAQ、UDF、AES、IMG、BIN 均已实现完整读写。
+- DEB、CAB、ASAR、CPIO（newc/odc）、LZH/LHA（lh0-lh7）、7z、ISO、ZPAQ、UDF 具备读写实现，但各有性能/变体边界；`.enc` 为认证后处理的缓冲容器，`.aes` 另有只读兼容器。IMG/BIN 的创建仍为显式透传，CLI 已能提取 cooked/raw ISO/UDF 光盘文件，不能称为通用磁盘镜像完整读写。
 
 ## 2. 模块设计
 
@@ -113,7 +113,7 @@ pub trait ArchiveWriter: Send {
 - 文件先流式写入同目录临时文件，读取或取消失败会清理临时文件；成功后才替换目标。禁止覆盖模式在发布文件时再次以原子方式保护已存在的目标。
 - `finish(self: Box<Self>) -> GeeZipResult<u64>` 负责结束写入并返回写出的总字节数。
 - `extract_all(..., overwrite)` 与 `extract_all_with_cancel(..., overwrite, ...)` 是当前真实批量提取入口。
-- `visit_entries` 是兼容现有 reader 的 object-safe 单次遍历接口，visitor 返回 `false` 可停止。ZIP/TAR 系列/7z 提供流式覆盖；默认实现使用临时文件适配旧 reader，部分后端本身仍有内存缓冲。
+- `visit_entries` 是 object-safe 顺序访问接口，visitor 返回 `false` 可停止。具备直接覆盖的 reader 通过 `has_direct_visitor` 声明；共享整包提取/校验选择单次顺序处理，随机访问 reader 保留原有路径。默认 visitor 用临时文件适配旧 reader，部分后端本身仍有整项缓冲。
 - `add_entry_with_size` 默认委托原有输入 API，TAR 系列覆盖为已知长度流式写入；`ExactSizeReader` 拒绝来源在处理过程中缩短或增长。
 - 读取路径的密码接口由各 reader 覆盖；写入加密当前由 ZIP 与 7z writer 分别支持 AES-256。
 
@@ -121,14 +121,19 @@ pub trait ArchiveWriter: Send {
 
 | 模块 | 当前职责 |
 |------|----------|
-| `archive::zip` | ZIP 读写，支持 ZIP AES-256 创建与读取；写入时将 Windows 路径分隔符统一为 `/`，目录条目保留单个末尾 `/` |
+| `archive::zip` | ZIP/ZIPX 读写，Deflate/XZ(method95) 创建与 AES-256；启用多种标准 ZIP codec；统一写入路径分隔符 |
+| `archive::compound` | CFB/MSI/OLE 原始 streams 的 Read+Seek 提取，不解释 MSI 数据库 |
+| `archive::egg` | 单卷非 solid 未加密 EGG 的 Store/Deflate/BZip2/LZMA 流式块与 CRC 校验 |
+| `archive::aes` | 旧 `.enc` 缓冲认证容器及 `.aes` AES Crypt v0–v3 双遍认证解密 |
+| `archive::disk_image` | cooked 2048/raw 2352 单轨扇区视图，IMG/BIN 复用 ISO/UDF reader |
 | `archive::tar` | 纯 TAR 读写 |
 | `archive::targz` | TAR.GZ / TGZ 读写；`--jobs > 1` 时启用并行 gzip |
 | `archive::tarbz2` | TAR.BZ2 / TBZ / TBZ2 读写 |
 | `archive::tarbr` | TAR.BR 读写 |
 | `archive::tarlz4` | TAR.LZ4 读写（LZ4 frame） |
 | `archive::tarzst` | TAR.ZST / TZST 读写 |
-| `archive::tarxz` | TAR.XZ / TXZ 读写 |
+| `archive::tarxz` | TAR.XZ / TXZ 读写，多流解码与可选 liblzma 多线程编码 |
+| `archive::tarlz` | TLZ/TAR.LZMA/TAR.LZ 只读，LZMA Alone 或 Lzip 外层 |
 | `archive::gzip` | GZIP/GZ 单流压缩/解压 helper |
 | `archive::bzip2` | BZIP2/BZ2 单流压缩/解压 helper |
 | `archive::brotli` | Brotli/BR 单流压缩/解压 helper |
@@ -136,7 +141,7 @@ pub trait ArchiveWriter: Send {
 | `archive::zstd` | ZSTD/ZST 单流压缩/解压 helper |
 | `archive::xz` | XZ/LZMA 单流压缩/解压 helper |
 | `archive::lz` | LZ（Lzip）单流压缩/解压 helper（通过 `lzma-rust2` lzip feature） |
-| `archive::asar` | ASAR 读写（`compress` / `list` / `extract` / `test`）；reader/writer 基于 `asar` crate） |
+| `archive::asar` | ASAR 读写；读取仅缓存有上限的 JSON 索引并按需 seek payload；创建仍缓冲整包 |
 | `archive::deb` | DEB 读写（ar 容器 + control.tar.gz + data.tar.*） |
 | `archive::cab` | CAB 读写（`compress` / `list` / `extract` / `test`；reader 基于 `cab` crate，writer 基于 `cab` crate 实现 MSZIP 压缩写入） |
 | `archive::cpio` | CPIO 读写（`compress` / `list` / `extract` / `test`；reader/writer 基于 `cpio-archive` crate，MVP 支持 `newc` / `odc`，不创建宿主 symlink/device/FIFO/socket） |
@@ -146,7 +151,7 @@ pub trait ArchiveWriter: Send {
 | `archive::seven_zip` | 7z 读写；默认 non-solid LZMA2，支持多方法选择、solid 模式与 AES-256 密码写入 |
 | `archive::rar` | RAR 只读（`list` / `extract` / `test`，feature-gated） |
 | `archive::wim` | WIM 无压缩写入（文件数据暂存临时磁盘，64 KiB 读入并增量 SHA-1）；XPRESS 读取，LZX 兼容性待修复，LZMS 未实现；默认第一映像；feature-gated |
-| `archive::isz` | ISZ — 块压缩 ISO 包装，单流引擎实现（读/写）；不实现 `ArchiveReader`/`ArchiveWriter` trait |
+| `archive::isz` | ISZ 有界块创建/读取；IszImage 提供单块缓存 Read+Seek，CLI 通过 ISO reader 直接列出/提取内容；--stdout 还原 ISO |
 | `sfx` | 自解压 ZIP 创建，`write_zip_sfx` 流式拼接 stub 与 ZIP；只允许非空的已嵌入目标 stub；运行时校验 ZIP/ZIP64 定位并用目录句柄安全提取；feature-gated |
 | `volume` | 数字分卷发现、缺卷检测、跨卷读取/查找与分卷写入；CLI 在临时目录暂存完整卷组，发布时拒绝覆盖已有分卷 |
 
@@ -325,15 +330,15 @@ CLI 当前子命令为：
 | `cab` 0.6 | CAB 读写支持（单卷 cabinet 浏览、提取、验证、MSZIP 压缩创建） |
 | `asar` 0.3 | ASAR 读写支持（Electron 归档，JSON header + 内容写入） |
 | `ar` 0.9 | ar 归档读写（DEB 包解析与创建） |
-| `delharc` 0.6 / `oxiarc-lzhuf` 0.3 | LZH/LHA 读取及 lh0、lh4-lh7 写入 |
-| `isomage` 2.1 | ISO 读取（ISO9660 / Rock Ridge / Joliet 解析与流式读取）；`hadris-iso` 1.1 提供 ISO 9660 Level 1 写入 |
+| `delharc` 0.8 / `oxiarc-lzhuf` 0.3 | LZH/LHA/PMA 读取及 lh0、lh4-lh7 写入 |
+| `isomage` 2.1 | ISO9660 / Rock Ridge / Joliet seek 读取；`hadris-iso` 1.1+ 提供 Level 1 + Joliet Level 3 + Rock Ridge 写入 |
 | `cpio-archive` 0.10 | CPIO 读写支持（`newc` / `odc` 读写；MPL-2.0，作为未修改 Cargo 依赖使用） |
 | `zpaq_rs` 1.0 | ZPAQ 读写支持（writer 基于 `archive_from_entries`，压缩级别 1-5；optional, default-enabled；需 Rust 1.85+ 与 C++17 编译器） |
 | `sevenz-rust2` 0.21 | 7z 读写，支持方法选择、solid 模式和 AES-256 密码写入 |
 | `lzxd` 0.2 | WIM LZX 解压（pull 依赖） |
 | `xpress-huffman` 0.1 | WIM XPRESS 解压（pull 依赖） |
 | `sha1` 0.10 | WIM 资源 SHA-1 增量摘要；仅用于格式完整性 |
-| `tempfile` 3 | WIM 文件数据磁盘暂存；失败或销毁时自动清理 |
+| `tempfile` 3 | 7z/CPIO 有界内存后溢写及 CAB/DEB/ISZ/WIM 等数据磁盘暂存；失败或销毁时自动清理 |
 | `unegg` 0.2.1 | 仅 EGG 元数据解析；负载用现有编解码库流式读取并校验块 CRC，避开依赖 LZMA 整块缓冲 |
 | `cfb` 0.15 | MSI/OLE 化合物原始流读取，Read+Seek 按需复制 mini-stream/普通流；不解释安装数据库 |
 | `aescrypt-rs` =0.2.0-rc.18 | AES Crypt v0–v3，只读双遍认证后解密；通用 Read 输入暂存密文，seek API 可直接读取 |
@@ -522,11 +527,11 @@ crates/gui-tauri/
 |------|--------------------|
 | 原生桌面与安装 | 编译、单元测试和 Wine 注册表测试不能替代 Explorer、NSIS、Finder、Launch Services 实测；按 [发布验收清单](RELEASE_CHECKLIST.md) 记录候选提交与结果 |
 | WIM | 无压缩写入与 XPRESS 读取可用；LZX 的独立 wimlib 样本尚未通过，LZMS、分割 SWM 与第一映像以外提取未实现 |
-| 内存预算 | AES、ISZ 写入、UDF 映像读写、UU/XXE 和部分第三方适配器仍整体缓冲；WIM 文件内容暂存磁盘，但 metadata/目录信息驻内存；不能保证所有格式低于固定内存上限 |
-| AES 容器 | 支持经过验证的非流式容器；拒绝存在认证漏洞的 streaming schema 和超出 KDF 策略的外部容器；流式 AES 仍需认证 framing 设计 |
+| 内存预算 | ISZ、CAB、DEB、CPIO 创建改用有界块/磁盘暂存；UDF 读取使用64KiB seek缓冲，UU/XXE CLI逐行处理。ISO/UDF/ASAR/LZH/ZPAQ 创建、旧 `.enc`、部分第三方 reader 仍有整包/整项缓冲；WIM metadata/目录驻内存，不能保证所有格式低于固定上限 |
+| AES 容器 | `.enc` 支持经验证的非流式容器，拒绝不安全 schema 和超额 KDF；`.aes` 用 AES Crypt v0–v3 双遍认证后解密，非seek输入暂存密文。两者格式不兼容，创建 `.aes` 不会回退生成 `.enc` |
 | 系统关联恢复 | 多键注册尚无完整回滚；Linux 旧 handler 备份仅会话内有效，desktop ID 查找未完整遵循 XDG；安装关联表仍宽于 GUI 实际能力 |
 | 组事务与持久性 | 多文件提取按条目发布，多卷不能整组原子提交；普通失败会清理，不保证强杀、断电或所有文件系统语义下的完整回滚 |
-| 格式范围 | ALZ 部分只读；Z 已有流式解码；两个 GUI 的适配清单分别维护，均不等同于 core/CLI 全部能力 |
+| 格式范围 | ALZ/EGG 部分只读；Z/PMA/TLZ/AES Crypt/Compound 已接入；BH/DAA1.0/PEA/NSIS 暂缓。逐项证据、性能债务及后续方案见 [格式审查](FORMAT_PARITY_AUDIT.md)；两个 GUI 的清单分别维护，均不等同于 core/CLI |
 | 桌面性能与可访问性 | 尚无 Tauri/egui 同机耗时和 RSS 对照基准；仍需超大归档、键盘焦点与原生拖放实测 |
 
 Cargo workspace 成员、feature 与依赖版本以根目录及各 crate 的 `Cargo.toml`、`Cargo.lock` 为准；本文不复制完整配置。

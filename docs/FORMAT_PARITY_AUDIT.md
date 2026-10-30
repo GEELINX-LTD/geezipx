@@ -4,12 +4,28 @@
 
 性能原则：优先有界缓冲的流式 I/O；可寻址容器优先磁盘暂存而非整文件驻内存；不以未校验的输出换取速度。编码器字典占用随压缩等级变化。专项测试后执行 workspace fmt/clippy/test 门禁；独立工具互操作与内部 round-trip 分开记录。
 
+## 本轮结论与验证
+
+用户清单中的创建与提取项已逐个完成一轮排查；有变化的实现、性能修复及暂缓分析分别提交。创建清单中的 ZIPX/XZ 已补齐，SFX 仍要求对应目标 stub；其它指定创建方法已核对。BH、DAA 1.0、PEA、NSIS 提取本轮暂缓，ALZ/EGG、MSI、光盘映像、WIM、SFX 和 ZIPX 的子集限制见逐项表；本轮完成不代表与 Bandizip 全变体兼容。
+
+最终 Linux 本地检查：
+
+- `cargo fmt --all --check` 通过。
+- `cargo clippy --workspace --exclude geezipx-gui --all-targets --all-features -- -D warnings` 通过。
+- `cargo test --workspace --exclude geezipx-gui --all-features`：1119 通过、9 忽略、0 失败。
+- `cargo test -p geezipx-core -p geezipx --no-default-features --locked`：998 通过、4 忽略、0 失败。
+- `cargo deny check advisories bans licenses sources` 通过；重复依赖等警告按现有策略报告。
+
+独立互操作包括 ZIPX/ZIP 与 7-Zip、`.Z` 与 ncompress、PMA 独立语料、ACE/ARJ 真实样本、RAR4/RAR5 与 bsdtar、WIM XPRESS 与 wimlib；详细范围在对应行记录。真实 EGG、UltraISO ISZ、AES Crypt v0–v2 独立样本及 Windows/macOS 原生验收仍待补，不能用合成结构或 Linux 测试替代。
+
+性能改进集中在消除整包驻内存和重复解码；未建立新的统一吞吐基线。ISO/UDF/ASAR/LZH/ZPAQ 创建与部分第三方读取 API 等性能债务已保留具体原因和后续路线。
+
 ## 逐项记录
 
 | 项目（含别名） | 本轮结果 | 验证/限制 |
 | --- | --- | --- |
 | ZIP / ZIPX / XPI | 已完善 | ZIPX 使用 XZ method 95；ZIP 级别透传；启用 XZ/LZMA/BZIP2/Deflate64/ZSTD/PPMd 读取；专有 JPEG/WavPack 方法未覆盖 |
-| 7Z / 7Z(LZMA2) | 已优化 | solid 按 64 MiB/1024 项分块，单项 >8 MiB 暂存磁盘；加密保留自定义字典；jobs=0 自动识别；读取使用库的顺序提取避免逐项重解 solid |
+| 7Z / 7Z(LZMA2) | 已优化 | solid 按 64 MiB/1024 项阈值分块（单项可超阈值），单项 >8 MiB 暂存磁盘；加密保留自定义字典；jobs=0 自动识别；读取使用库的顺序提取避免逐项重解 solid |
 | EXE / SFX | 已完善 ZIP SFX | 新增可寻址探测：MZ/ELF/Mach-O 前缀后验证 ZIP 中央目录，不将任意 EXE 当压缩包；CLI 自动 list/test/decompress。创建仍需 feature 和对应 stub；7z/RAR/NSIS SFX 待独立载荷路由 |
 | TAR | 已复核 | 读写流式；`visit_entries` 单次顺序扫描，整包提取/校验不再逐项重扫。保留随机单项提取从头扫描的 API；GNU/PAX 路径与危险路径由 tar crate/共享提取层处理；现有专项回归通过 |
 | TGZ / TAR.GZ | 已复核 | 已有 gzp 并行创建、多成员读取与单次顺序提取；访问流尾时 drain 以验证 gzip trailer；现有单/多线程、取消/损坏专项回归通过。单项 extract 提前返回不校验后续项，整包 test 才覆盖全流 |
@@ -55,6 +71,7 @@
 
 - 共享提取和 `test` 入口使用 reader 声明的直接 visitor，TAR 各变体、LHA/PMA、ZIP 和 7z 不再逐项重新解码；随机访问 reader 保留原路径，避免无谓磁盘暂存。
 - 补齐 EGG、Compound 在 CLI `test` 的路由；完整流访问保留解码器的尾部校验。
+- CLI 帮助同步创建能力、XZ/7z 线程、solid 分块阈值及密码适用范围；格式错误提示包含新增及原有别名，避免把 CPIO 误报为只读。
 
 ## 暂缓格式的证据与后续路线
 

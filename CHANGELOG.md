@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **Core/CLI — ZIPX**: Create ZIPX with streaming XZ (ZIP method 95), honor ZIP/ZIPX compression levels, and enable ZIP XZ/LZMA/BZIP2/Deflate64/ZSTD/PPMd readers. ZIPX supports optional AES-256; proprietary ZIPX methods remain unsupported.
+- **Core/CLI — Additional readers**: Add Unix Compress `.Z`, PMA pm0/pm1/pm2, TLZ/TAR.LZMA/TAR.LZ, AES Crypt v0–v3 and CFB/MSI/OLE streams. Add subset ALZ (Store/Deflate, optional ZipCrypto) and EGG (single-volume, non-solid, unencrypted Store/Deflate/BZip2/LZMA) readers. Probe ZIP SFX executables through the ZIP central directory. Parse ISO/UDF contents in cooked/raw IMG/BIN optical images and directly list/extract ISO files from ISZ. Exact compatibility limits and deferred BH/DAA/PEA/NSIS work are recorded in `docs/FORMAT_PARITY_AUDIT.md`.
 
 - **Native GUI — Folder navigation**: Add a resizable left folder tree with independent expansion, single-click navigation and automatic ancestor reveal. Keep it synchronized with breadcrumbs and history. Add a folder-icon `..` row above every subdirectory listing; double-click returns to its parent and focuses the previous folder. Parent rows remain available during filtering and are excluded from selection and extraction.
 - **Native GUI — Windows installer**: Package the egui frontend as a per-user x64 NSIS installer with Chinese/English setup, Start menu shortcuts, bundled license notices and a separate uninstall entry. Verify install/uninstall on the Windows runner and upload the installer with commit metadata and SHA-256 checksums.
@@ -20,6 +21,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Windows GUI — Shell multi-selection and quick extraction**: Explorer compression commands use a COM `DelegateExecute` server to pass selected files and folders together. Extract-here operations open independent progress windows with password prompts, cancellation, and failure details.
 
 ### Changed
+
+- **Core/CLI — Bounded I/O**: Bound 7z solid accumulation and spill large entries to disk; connect XZ/TAR.XZ worker settings to liblzma; cache ASAR indexes without reading complete payloads; use seek-based UDF reads and bounded-block ISZ creation/reading. Stage CAB, DEB and CPIO creation on disk instead of buffering complete inputs; stream CLI UU/XXE processing line by line. Shared extraction and verification use direct sequential visitors where available, preserving solid state and avoiding repeated decoding of TAR, LHA/PMA, DEB and RAR entries. Remaining buffering and rescanning debts are listed per format in the audit.
+- **Core/CLI — Format reporting**: Remove obsolete permanent exclusions and distinguish container subsets, optional features, unsupported variants and the independent GUI capability lists. Synchronize CLI format, password, worker and solid-block help with the implementation.
 
 - **Native GUI — Font settings**: Add Tools → Settings to choose the system default, embedded Noto Sans SC or a searchable installed font. Apply changes immediately, preserve Chinese fallbacks and monospace previews, remember the choice across restarts and restore system defaults if a saved font becomes unavailable.
 - **Native GUI — Fonts**: Prefer installed system UI, Chinese and monospace fonts, with embedded Noto Sans SC 2.004 (SIL OFL 1.1) filling missing Chinese glyphs offline. Replace Droid Sans Fallback and update the About dialog and installer notices. Discover fonts once at startup and retain collection face indices.
@@ -35,6 +39,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Upgrade ZIP to 9.1.3, `unarc-rs` to 0.8, Zstandard to 0.14.3, and GUI Tokio to 1.53.3; refresh transitive dependencies to resolve audit advisories.
 
 ### Fixed
+
+- **Core/CLI — Format correctness**: Validate compression levels and worker conversions before codec use; add `.bz` and `.Z` handling; repair ACE/ARJ/ARC payload traversal and pass passwords when opening their actual decoders. Normalize ACE CRC metadata and stop exposing ARC CRC16 as CRC32. Preserve CAB empty-archive validity and reject CPIO size truncation. Match the public ISZ byte-based block layout while retaining compatibility with older GeeZipX files; reject unsupported variants explicitly.
 
 - **Native GUI — Notifications**: Show compact messages at the lower right above the footer, wrap long text, dismiss after two seconds and reset the timer while hovered. Keep footer information and workspace geometry stable when messages appear, resize or close. Remove the inactive logo before the New toolbar button.
 - **Native GUI — Archive interaction**: Recognize double clicks per entry using the Windows system interval, avoiding missed navigation during rapid folder changes; draw navigation shortcut arrows without relying on font glyphs. Support rectangle selection with modifiers and edge scrolling. Offer native drag descriptors immediately and extract only after an accepted drop, using Windows virtual-file streams, macOS file promises or X11 deferred URI transfer; one drag completes delivery. Keep staging alive for asynchronous receivers; native Wayland drag-out remains unsupported.

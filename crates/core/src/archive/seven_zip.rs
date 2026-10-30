@@ -7,10 +7,11 @@
 //!
 //! # Design notes
 //!
-//! - **Writer scope** — GeeZipX's current writer is an MVP: it creates standard
-//!   `.7z` archives with the upstream crate's default non-solid LZMA2 encoder,
-//!   and can optionally enable AES-256 password protection before the first
-//!   entry is written. Advanced encoder selection is not yet exposed.
+//! - **Writer scope** — Defaults to non-solid LZMA2, with optional AES-256,
+//!   method selection, dictionary tuning, filename encryption and bounded
+//!   solid accumulation. Solid blocks flush at 64 MiB or 1024 entries;
+//!   an individual file may exceed the byte threshold. Entries exceeding
+//!   8 MiB spill to disk instead of remaining wholly in memory.
 //! - **Single-entry extract** re-opens the archive and uses
 //!   `sevenz_rust2::ArchiveReader::read_file()`, which is O(n) for
 //!   solid archives (decodes all preceding data).  Callers that need
