@@ -20,7 +20,7 @@ use crate::error::{GeeZipError, GeeZipResult};
 ///
 /// `level` controls the XZ compression strength:
 /// - `None`: use the default level (6).
-/// - `Some(0)`: no compression (store only).
+/// - `Some(0)`: fastest preset (still compressed).
 /// - `Some(1)`: fastest compression.
 /// - `Some(6)`: default (good balance).
 /// - `Some(9)`: best compression ratio (slowest).
@@ -32,7 +32,9 @@ pub fn xz_compress_with_level<R: Read, W: Write>(
     level: Option<u32>,
 ) -> GeeZipResult<u64> {
     let lvl = level.unwrap_or(6);
-    let mut encoder = xz2::write::XzEncoder::new(writer, lvl);
+    let stream = xz2::stream::Stream::new_easy_encoder(lvl, xz2::stream::Check::Crc64)
+        .map_err(|e| GeeZipError::io(e.into(), "xz encoder init failed"))?;
+    let mut encoder = xz2::write::XzEncoder::new_stream(writer, stream);
     let bytes = std::io::copy(reader, &mut encoder)
         .map_err(|e| GeeZipError::io(e, "xz compression failed"))?;
     encoder
@@ -103,7 +105,7 @@ pub(crate) fn encoder_stream(options: &CompressOptions) -> GeeZipResult<xz2::str
 ///
 /// `level` controls the LZMA compression strength:
 /// - `None`: use the default level (6).
-/// - `Some(0)`: no compression.
+/// - `Some(0)`: fastest preset (still compressed).
 /// - `Some(1..=9)`: specific compression level.
 ///
 /// Returns the number of bytes read from the source (uncompressed size).
@@ -168,6 +170,18 @@ pub fn lzma_decompress<R: Read, W: Write>(reader: &mut R, writer: &mut W) -> Gee
 mod tests {
     use super::*;
     use std::io::Cursor;
+
+    #[test]
+    fn xz_and_lzma_reject_invalid_presets_without_panicking() {
+        for level in [10, u32::MAX] {
+            assert!(
+                xz_compress_with_level(&mut &b"input"[..], std::io::sink(), Some(level)).is_err()
+            );
+            assert!(
+                lzma_compress_with_level(&mut &b"input"[..], std::io::sink(), Some(level)).is_err()
+            );
+        }
+    }
 
     // ---------------------------------------------------------------
     // XZ tests
