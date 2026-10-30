@@ -14,6 +14,7 @@
 //!   receivers so they can be used through `Box<dyn ArchiveReader>` etc.
 pub mod ace;
 pub mod aes;
+pub mod alz;
 pub mod arc;
 pub mod arj;
 pub mod asar;

@@ -440,9 +440,10 @@ pub fn validate_read_password_support(format: ArchiveFormat, password: Option<&s
         && format != ArchiveFormat::SevenZip
         && format != ArchiveFormat::Rar
         && format != ArchiveFormat::Aes
+        && format != ArchiveFormat::Alz
     {
         anyhow::bail!(
-            "--password is only supported for ZIP, 7z, RAR, and AES formats; '{}' does not support encryption",
+            "--password is only supported for ZIP, 7z, RAR, AES, and ALZ formats; '{}' does not support encryption",
             format
         );
     }
@@ -477,7 +478,8 @@ pub fn open_reader(
         ArchiveFormat::Arj => Box::new(geezipx_core::archive::arj::ArjReader::new(path)),
         ArchiveFormat::Ace => Box::new(geezipx_core::archive::ace::AceReader::new(path)),
         ArchiveFormat::Arc => Box::new(geezipx_core::archive::arc::ArcReader::new(path)),
-        ArchiveFormat::Alz | ArchiveFormat::Z => anyhow::bail!("'{format}' support is not available in this core build"),
+        ArchiveFormat::Alz => Box::new(geezipx_core::archive::alz::AlzReader::open(path, password.map(str::to_owned))?),
+        ArchiveFormat::Z => anyhow::bail!("Unix compress is a single stream; use decompress or test"),
         ArchiveFormat::Asar => Box::new(AsarReader::new(path)),
         ArchiveFormat::Cab => Box::new(CabReader::new(path)),
         ArchiveFormat::Deb => Box::new(DebReader::new(file)),

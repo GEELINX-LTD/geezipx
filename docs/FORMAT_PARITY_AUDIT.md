@@ -19,7 +19,7 @@
 | XZ / TXZ | 已优化 | `--jobs` 接入 liblzma MtStreamBuilder；默认单线程；TAR.XZ 各读取路径统一多流解码；无效选项返回错误 |
 | ACE | 待复核 | |
 | AES | 待复核 | `.enc` 不等于 AES Crypt |
-| ALZ | 待复核 | |
+| ALZ | 部分实现 | 新增单卷 Store/Deflate 流式提取、CRC/长度校验、ZipCrypto 密码；索引缓存避免逐项重扫。修改版 BZip2 库需要整压缩项缓冲、method 3 以及分卷暂缓；路径需 UTF-8 |
 | ARJ | 待复核 | |
 | BH | 待复核 | |
 | BIN | 待复核 | 现有透传不算镜像提取 |

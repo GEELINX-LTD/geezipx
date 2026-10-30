@@ -2867,6 +2867,7 @@ dependencies = [
  "tar",
  "tempfile",
  "thiserror 2.0.18",
+ "unalz",
  "unarc-rs",
  "unrar",
  "xpress-huffman",
@@ -7482,6 +7483,20 @@ dependencies = [
  "memoffset",
  "tempfile",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "unalz"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c40c67bcc4b15db1e841062582d318c4abf7f3b2553217e97a2ee2178ae9d4d2"
+dependencies = [
+ "bzip2",
+ "chrono",
+ "crc32fast",
+ "encoding_rs",
+ "flate2",
+ "rpassword",
 ]
 
 [[package]]

@@ -247,6 +247,9 @@ const EXTENSION_MAP: &[(&str, ArchiveFormat)] = &[
 /// extension-only because GeeZipX routes it through an optional parser
 /// integration rather than a shallow first-bytes recognizer.
 pub fn detect_format(data: &[u8]) -> Option<ArchiveFormat> {
+    if data.starts_with(b"ALZ\x01") {
+        return Some(ArchiveFormat::Alz);
+    }
     if data.starts_with(MAGIC_ZIP) || data.starts_with(MAGIC_ZIP_EMPTY) {
         return Some(ArchiveFormat::Zip);
     }

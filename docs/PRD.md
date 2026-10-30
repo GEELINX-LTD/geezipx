@@ -77,7 +77,7 @@ GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开�
 | BIN (.bin) | 透传 | 原始二进制 |
 | RAR (.rar) | 只读 | UnRAR 许可限制 |
 | ARJ, ACE, ARC | 只读 | unarc-rs 适配器 |
-| ALZ | 未实现操作支持 | 仅保留扩展名识别 |
+| ALZ | 部分只读 | 单卷 Store/Deflate 流式提取与 ZipCrypto；修改版 BZip2 / method 3 / 分卷暂缓 |
 | Z (.Z) | 只读 | 流式 LZW，9–16 位有界字典；格式无校验和 |
 
 ### 5.2 对齐目标与暂缓范围

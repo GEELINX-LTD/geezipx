@@ -74,7 +74,7 @@
 | ARJ | `.arj` | ✓ | ✗ | read-only via unarc-rs |
 | ACE | `.ace` | ✓ | ✗ | read-only via unarc-rs |
 | ARC | `.arc` | ✓ | ✗ | read-only via unarc-rs |
-| ALZ | `.alz` | ✗ | ✗ | Format detection only; operations are not implemented |
+| ALZ | `.alz` | ✗ | Partial | Single-volume Store/Deflate, CRC and ZipCrypto; modified BZip2 and splits deferred |
 
 > **ZIPX note**: `-f zipx` or a `.zipx` output selects streaming XZ compression (ZIP method 95), with level 0-9 and optional AES-256. ZIPX reading supports the enabled ZIP codecs; proprietary JPEG/WavPack methods remain unsupported. ZIP and ZIPX use codec-managed dictionaries and do not buffer whole input files.
 > **WIM write**: The WIM writer stores data uncompressed. For compressed write, use wimlib or other tools.
