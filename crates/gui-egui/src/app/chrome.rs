@@ -209,8 +209,6 @@ impl App {
                     ui.add_space(5.0);
                     ui.horizontal(|ui| {
                         ui.spacing_mut().item_spacing.x = 6.0;
-                        theme::logo(ui, 28.0);
-                        ui.add_space(6.0);
                         ui.add_enabled_ui(idle, |ui| {
                             if widgets::button(ui, "新建", Icon::Plus, false, 82.0)
                                 .on_hover_ui(|ui| {

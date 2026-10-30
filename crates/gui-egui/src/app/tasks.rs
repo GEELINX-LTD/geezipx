@@ -1,7 +1,7 @@
 use super::*;
 
 impl App {
-    pub(super) fn status_bar(&mut self, context: &egui::Context) {
+    pub(super) fn status_bar(&mut self, context: &egui::Context) -> egui::Rect {
         let controls_enabled = !self.modal_open();
         egui::TopBottomPanel::bottom("task-status")
             .frame(
@@ -93,8 +93,6 @@ impl App {
                         ui.spinner();
                         ui.label("拖到目标文件夹后松开鼠标 · Esc 取消");
                     });
-                } else if self.notice.is_some() {
-                    self.notices(ui);
                 } else {
                     ui.horizontal(|ui| {
                         if let Some(archive) = &self.archive {
@@ -141,7 +139,9 @@ impl App {
                         });
                     });
                 }
-            });
+            })
+            .response
+            .rect
     }
     pub(super) fn tasks_window(&mut self, context: &egui::Context) {
         if !self.tasks_open {

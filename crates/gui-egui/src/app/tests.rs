@@ -70,7 +70,7 @@ fn assert_action_visible(output: &egui::FullOutput, size: [f32; 2], action: &str
             _ => None,
         })
         .unwrap_or_else(|| panic!("missing primary action {action}"));
-    let bounds = egui::Rect::from_min_size(text.1.pos, text.1.galley.size());
+    let bounds = text.1.galley.rect.translate(text.1.pos.to_vec2());
     assert!(
         screen.intersect(text.0).contains_rect(bounds),
         "{action} clipped at {size:?}: {bounds:?}"
@@ -547,7 +547,7 @@ fn row_rect(context: &egui::Context, path: &str) -> egui::Rect {
         .rect
 }
 #[test]
-fn bottom_notices_keep_rows_stationary_and_double_click_opens_the_same_folder() {
+fn floating_notices_keep_rows_stationary_and_double_click_opens_the_same_folder() {
     let context = context();
     let mut app = App::empty(Preferences::default());
     app.archive = Some(archive());
@@ -558,7 +558,8 @@ fn bottom_notices_keep_rows_stationary_and_double_click_opens_the_same_folder() 
     let pos = before.left_center() + egui::vec2(70.0, 0.0);
     pointer_frame(&mut app, &context, pos, Some(true), egui::Modifiers::NONE);
     pointer_frame(&mut app, &context, pos, Some(false), egui::Modifiers::NONE);
-    app.notice = Some(("已解压完成".into(), false));
+    app.notice = Some(Notice::new("已解压完成", false));
+    draw(&mut app, &context, [1000.0, 680.0]);
     let output = draw(&mut app, &context, [1000.0, 680.0]);
     assert_eq!(before, row_rect(&context, "项目"));
     let message = output
@@ -570,13 +571,161 @@ fn bottom_notices_keep_rows_stationary_and_double_click_opens_the_same_folder() 
         })
         .unwrap();
     assert!(
-        message.y > 620.0,
-        "notice is not at the bottom: {message:?}"
+        message.x > 750.0 && message.y > 570.0 && message.y < 620.0,
+        "notice is not above the footer on the right: {message:?}"
     );
     pointer_frame(&mut app, &context, pos, Some(true), egui::Modifiers::NONE);
     pointer_frame(&mut app, &context, pos, Some(false), egui::Modifiers::NONE);
     assert_eq!(app.archive.as_ref().unwrap().browser.directory, "项目");
 }
+fn notice_rect(context: &egui::Context) -> egui::Rect {
+    context
+        .memory(|memory| memory.area_rect(egui::Id::new("notice-toast")))
+        .expect("notice area missing")
+}
+
+#[test]
+fn floating_notices_fit_the_message_without_changing_the_workspace_or_footer() {
+    for dark in [false, true] {
+        for size in [[760.0, 480.0], [1000.0, 680.0]] {
+            let context = context();
+            theme::apply(&context, dark);
+            let mut app = App::empty(Preferences {
+                dark,
+                ..Default::default()
+            });
+            app.archive = Some(archive());
+            for _ in 0..2 {
+                draw(&mut app, &context, size);
+            }
+            let rows = ["项目", "notes.txt", "other.txt"].map(|path| row_rect(&context, path));
+            let workspace = context.available_rect();
+            for (message, error) in [
+                ("完成".to_string(), false),
+                ("无法打开目标文件夹，请检查路径与访问权限。".repeat(6), true),
+                ("完成".to_string(), false),
+            ] {
+                app.notice = Some(Notice::new(&message, error));
+                // Check the first presented frame, including cached-size replacements.
+                let output = draw(&mut app, &context, size);
+                let rect = notice_rect(&context);
+                assert!(rect.width() <= 421.0, "notice too wide: {rect:?}");
+                if error {
+                    assert!(rect.height() > 60.0, "long notice did not wrap: {rect:?}");
+                } else {
+                    assert!(
+                        rect.width() < 180.0,
+                        "short notice did not shrink: {rect:?}"
+                    );
+                }
+                assert!((rect.right() - (size[0] - 12.0)).abs() < 1.0);
+                assert!((rect.bottom() - (workspace.bottom() - 12.0)).abs() < 1.0);
+                assert_eq!(context.available_rect(), workspace);
+                assert_eq!(
+                    ["项目", "notes.txt", "other.txt"].map(|path| row_rect(&context, path)),
+                    rows
+                );
+                assert_action_visible(&output, size, &message);
+                assert_action_visible(&output, size, "共 3 个条目 · 384 B");
+            }
+            app.notice = None;
+            draw(&mut app, &context, size);
+            assert_eq!(context.available_rect(), workspace);
+        }
+    }
+}
+
+fn timed_notice_frame(
+    app: &mut App,
+    context: &egui::Context,
+    time: f64,
+    events: Vec<egui::Event>,
+) -> egui::FullOutput {
+    context.run(
+        egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(1000.0, 680.0),
+            )),
+            time: Some(time),
+            events,
+            ..Default::default()
+        },
+        |context| app.render(context),
+    )
+}
+
+#[test]
+fn notices_expire_automatically_and_stationary_hover_restarts_the_full_timeout() {
+    let context = context();
+    let mut app = App::empty(Preferences::default());
+    app.notice = Some(Notice::new("已完成", false));
+    timed_notice_frame(&mut app, &context, 0.0, vec![]);
+    timed_notice_frame(&mut app, &context, 0.1, vec![]);
+    timed_notice_frame(&mut app, &context, 4.9, vec![]);
+    assert!(app.notice.is_some());
+    timed_notice_frame(&mut app, &context, 5.1, vec![]);
+    assert!(app.notice.is_none(), "notice did not expire while idle");
+
+    app.notice = Some(Notice::new("新的提示", true));
+    timed_notice_frame(&mut app, &context, 6.0, vec![]);
+    let position = notice_rect(&context).center();
+    timed_notice_frame(
+        &mut app,
+        &context,
+        10.5,
+        vec![egui::Event::PointerMoved(position)],
+    );
+    timed_notice_frame(&mut app, &context, 15.6, vec![]);
+    assert!(
+        app.notice.is_some(),
+        "stationary hover failed to reset the timer"
+    );
+    timed_notice_frame(
+        &mut app,
+        &context,
+        20.5,
+        vec![egui::Event::PointerMoved(egui::pos2(100.0, 100.0))],
+    );
+    timed_notice_frame(&mut app, &context, 25.4, vec![]);
+    assert!(app.notice.is_some(), "notice expired too soon after hover");
+    timed_notice_frame(&mut app, &context, 25.6, vec![]);
+    assert!(app.notice.is_none(), "notice did not expire after leaving");
+}
+
+#[test]
+fn notice_close_button_dismisses_without_clearing_file_selection() {
+    let context = context();
+    let mut app = App::empty(Preferences::default());
+    app.archive = Some(archive());
+    app.archive
+        .as_mut()
+        .unwrap()
+        .browser
+        .select(0, false, false);
+    app.notice = Some(Notice::new("已完成", false));
+    for _ in 0..2 {
+        draw(&mut app, &context, [1000.0, 680.0]);
+    }
+    let close = notice_rect(&context).right_center() - egui::vec2(29.0, 0.0);
+    pointer_frame(&mut app, &context, close, Some(true), egui::Modifiers::NONE);
+    pointer_frame(
+        &mut app,
+        &context,
+        close,
+        Some(false),
+        egui::Modifiers::NONE,
+    );
+    assert!(app.notice.is_none());
+    assert!(app
+        .archive
+        .as_ref()
+        .unwrap()
+        .browser
+        .selection
+        .contains("项目"));
+}
+
 #[test]
 fn rectangle_selection_from_blank_space_and_ctrl_toggle_work_with_real_pointer_events() {
     let context = context();

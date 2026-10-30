@@ -4,6 +4,7 @@ mod extract;
 mod folders;
 mod interaction;
 mod native_drag;
+mod notices;
 mod tasks;
 #[cfg(test)]
 mod tests;
@@ -22,6 +23,7 @@ use geezipx_egui::{
     engine::{self, Archive, CompressRequest, Preview, ReadRequest, Summary},
     job::{Job, CANCELLED},
 };
+use notices::Notice;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::BTreeSet,
@@ -154,7 +156,7 @@ pub struct App {
     pending_extraction: Option<Extraction>,
     tasks_open: bool,
     read_password: String,
-    notice: Option<(String, bool)>,
+    notice: Option<Notice>,
     form_error: Option<String>,
     retry_path: Option<PathBuf>,
     opening_path: Option<PathBuf>,
@@ -292,7 +294,7 @@ impl App {
             return;
         }
         if self.busy() {
-            self.notice = Some(("请等待当前任务结束后再添加文件。".into(), true));
+            self.notice = Some(Notice::new("请等待当前任务结束后再添加文件。", true));
             return;
         }
         if self.extraction.is_some()
@@ -393,7 +395,7 @@ impl App {
                 self.tree_offset = 0.0;
             }
             Ok(Outcome::Done(summary)) => {
-                self.notice = Some((summary.message.clone(), false));
+                self.notice = Some(Notice::new(summary.message.clone(), false));
                 record.message = summary.message;
                 record.output = summary.output;
                 if kind == Kind::Compress {
@@ -446,7 +448,7 @@ impl App {
                         self.form_error = Some(error.clone());
                     }
                 }
-                self.notice = Some((error, record.failed));
+                self.notice = Some(Notice::new(error, record.failed));
                 if kind == Kind::List {
                     self.retry_path = self.opening_path.take();
                 }
@@ -567,7 +569,7 @@ impl App {
     }
     fn open_output(&mut self, path: PathBuf) {
         if let Err(error) = open::that_detached(path) {
-            self.notice = Some((format!("无法打开文件夹：{error}"), true));
+            self.notice = Some(Notice::new(format!("无法打开文件夹：{error}"), true));
         }
     }
     fn shortcuts(&mut self, context: &egui::Context) {
@@ -704,33 +706,6 @@ impl App {
             self.preview_entry(context, index);
         }
     }
-    fn notices(&mut self, ui: &mut egui::Ui) {
-        if let Some((message, error)) = self.notice.clone() {
-            let color = if error {
-                Color32::from_rgb(194, 81, 70)
-            } else {
-                theme::palette(ui).accent
-            };
-            egui::Frame::new()
-                .fill(color.gamma_multiply(0.09))
-                .corner_radius(6)
-                .inner_margin(3)
-                .show(ui, |ui| {
-                    ui.set_width(ui.available_width());
-                    ui.horizontal(|ui| {
-                        let width = (ui.available_width() - 44.0).max(80.0);
-                        ui.add_sized(
-                            [width, 24.0],
-                            egui::Label::new(RichText::new(&message).color(color)).truncate(),
-                        )
-                        .on_hover_text(&message);
-                        if widgets::icon_button(ui, Icon::Close, "关闭消息").clicked() {
-                            self.notice = None;
-                        }
-                    });
-                });
-        }
-    }
     fn windows(&mut self, context: &egui::Context) {
         self.create_window(context);
         self.extract_window(context);
@@ -842,7 +817,7 @@ impl App {
     fn render(&mut self, context: &egui::Context) {
         self.shortcuts(context);
         self.chrome(context);
-        self.status_bar(context);
+        let footer = self.status_bar(context);
         egui::CentralPanel::default()
             .frame(
                 egui::Frame::new()
@@ -852,6 +827,7 @@ impl App {
             .show(context, |ui| {
                 self.workspace(ui, context);
             });
+        self.notices(context, footer);
         self.windows(context);
     }
 }

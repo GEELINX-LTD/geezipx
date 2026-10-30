@@ -76,7 +76,7 @@ impl App {
             control,
         ) {
             Ok(export) => self.export.pending = Some(Arc::new(export)),
-            Err(error) => self.notice = Some((error, true)),
+            Err(error) => self.notice = Some(Notice::new(error, true)),
         }
     }
     pub(super) fn start_native_drag(&mut self, context: &egui::Context, frame: &eframe::Frame) {
@@ -106,7 +106,7 @@ impl App {
             self.export.receiver = None;
             self.export.cancel = None;
             self.export.retained.pop();
-            self.notice = Some((error, true));
+            self.notice = Some(Notice::new(error, true));
         }
     }
     pub(super) fn poll_native_drag(&mut self, context: &egui::Context) {
@@ -131,9 +131,9 @@ impl App {
         context.input_mut(|input| input.pointer = Default::default());
         self.row_activation.reset();
         match result {
-            Ok(true) => self.notice = Some(("已将所选文件交给目标位置。".into(), false)),
+            Ok(true) => self.notice = Some(Notice::new("已将所选文件交给目标位置。", false)),
             Ok(false) => {}
-            Err(error) => self.notice = Some((format!("拖出未完成：{error}"), true)),
+            Err(error) => self.notice = Some(Notice::new(format!("拖出未完成：{error}"), true)),
         }
     }
 }
