@@ -6,13 +6,15 @@
 //! # Supported features
 //!
 //! - WIM v1.0 (0x10D00) containers
-//! - XPRESS (LZ77+Huffman) and LZX chunk decompression
+//! - XPRESS (LZ77+Huffman) chunk decompression
+//! - Experimental LZX decoding: known incompatibility with wimlib-produced
+//!   WIMs (`encountered empty decode tree`); not full LZX support
 //! - Multi-image WIMs (first image only for entries/extract)
 //! - Directory tree enumeration with full paths
 //!
 //! # Not yet supported
 //!
-//! - LZMS compression (no pure-Rust implementation available)
+//! - LZMS compression (decoder not implemented here)
 //! - Split (`.swm`) WIM files
 //! - XPRESS or LZX compression when writing (uncompressed only for now)
 //! - Extracting from images beyond the first one
