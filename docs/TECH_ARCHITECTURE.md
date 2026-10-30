@@ -385,7 +385,7 @@ Reader/File → ProgressReader → Decoder/ArchiveReader → ProgressWriter → 
 | 路径安全 | 提取前统一执行 Zip Slip/path traversal 检查 |
 | 路径分隔符 | 归档内统一使用 `/`；落盘时交给 `Path` 处理 |
 | 覆盖策略 | 通过 `overwrite: bool` / `--no-clobber` / `--force` 控制 |
-| Unicode 文件名 | 作为一等场景测试，ZIP 同时兼顾 CP437 兼容 |
+| Unicode 文件名 | 作为一等场景测试；ZIP 优先 Unicode/UTF-8，对可无损解码且包含汉字的旧名称尝试 GB18030（含 GBK），保留 CP437 回退；统一名称索引并拒绝解码重名，未标代码页的旧名称仍有识别歧义 |
 | 长路径 / 符号链接 | 采取保守策略并在文档中明确限制；当前 CLI 未暴露 `--follow-symlinks` 或 `--win-longpaths` |
 
 ## 6. 测试策略
@@ -501,11 +501,17 @@ crates/gui-tauri/
 
 `crates/gui-egui` 使用 egui/eframe 0.33.3 + Glow、rfd 系统文件选择器，独立于 Tauri/Svelte。所有阻塞文件工作在 `Job<T>` 后台线程执行；结果通过容量 1 的 channel 返回，进度使用 `Arc<Mutex<Progress>>` 最新快照和限频唤醒，不积累读取块事件。取消状态属于每个任务，界面一次只启动一个后台操作；退出时等待取消清理。
 
-归档目录索引在后台建立，按名称与大小的排序结果预计算并共享 `Arc<Row>`；名称搜索只在条件变化时过滤当前目录缓存，绘制使用可见行虚拟列表。预览限制为 512 KiB，密码不进入持久化，外观与最多八条最近路径使用 eframe 存储。
+原生端通过 `fonts.rs` 的 fontdb 在启动时发现系统字体并缓存目录及默认字面，`app/settings.rs` 提供“跟随系统 / 内置 Noto / 已安装字体”的可搜索选择器，保存在现有 `native-preferences` 中；用户选择只在启动及变更时加载，已卸载/不可读的字体回退至默认字体链。Windows 优先 Segoe UI/微软雅黑、macOS 优先系统无衬线/苹方、Linux 使用 Fontconfig 的通用字体配置。等宽文本保留独立的系统等宽字面；缺失中文字形逐字回退到内嵌 Noto Sans SC 2.004（SIL OFL 1.1）。加载前使用与 egui 相同的 ab_glyph 解析器验证字面，保留 TTC 字面索引，不可读/不可解析的字体自动跳过；字体发现与磁盘读取不进入重绘路径。系统字体仅在本机使用，不随应用重新分发。
+
+主窗口由 `app/chrome.rs` 的菜单/工具栏、`app/workspace.rs` 的路径/搜索与紧凑文件表格、`app/folders.rs` 的可调整宽度目录树、底部状态/进度组成；创建、解压、任务详情分别在 `app/create.rs`、`app/extract.rs`、`app/tasks.rs` 按需打开 Modal。对话框提交使用独立状态和选择快照，失败后恢复原目标/来源/选择及非密码选项，密码在每次提交后清空。主操作独立于可滚动设置区域；输入框编辑期间不抢占导航和全选快捷键，Esc 不取消后台任务。窗口默认 1000×680、最小 760×480（逻辑像素）。
+
+归档目录索引在后台建立，按名称、大小、压缩后大小和类型的排序结果预计算并共享 `Arc<Row>`；名称搜索只在条件变化时过滤当前目录缓存，绘制使用 29 逻辑像素的可见行虚拟列表。左侧目录树复用缓存目录索引，仅在展开/导航时以显式栈生成展开节点，虚拟绘制并自动展开当前路径的祖先；搜索和排序不改变树结构。子目录表格额外绘制 `..` 文件夹行，独立处理双击返回，不加入选择或解压模型；框选与滚动索引计入该行偏移。点击、Ctrl/Cmd、Shift 和键盘范围选择共享模型；切换目录清空选择，搜索保留选择并报告隐藏项。预览限制为 512 KiB，密码不进入持久化，外观与最多八条最近路径使用 eframe 存储。
 
 原生端 `engine` 只编排 core 的 reader/writer、进度、来源收集和安全输出。压缩通过同目录临时归档提交；解压复用 core `ExtractionDir`，预先拒绝危险名称与输入归档别名覆盖。格式清单以 `engine/formats.rs` 为准，RAR 默认启用，ZPAQ 可选且默认关闭以避开原生 C++ LTO 兼容性问题。
 
-独立 `gui-egui.yml` 覆盖 Linux x86_64、Windows x86_64、macOS arm64 的检查、测试、release 编译与裸可执行文件 artifacts；当前不接入正式 Release、系统右键菜单或文件关联。使用说明、完整格式范围与已知限制见 [EGUI_GUI.md](EGUI_GUI.md)。
+原生端 `export::DeferredExport` 按归档/选区快照生成描述信息，不读取归档或创建暂存文件；只有系统确认放置、接收方请求内容后，才通过 `engine::extract` 准备一次并缓存结果。`app/interaction.rs` 管理内容坐标框选和拖放生命周期；`app/native_drag/windows.rs` 实现 OLE `IDataObject`、Unicode `FILEGROUPDESCRIPTORW`、`FILECONTENTS` 和 `IStream`，仅在 `IDropSource::QueryContinueDrag` 确认释放后提供内容；macOS 后端使用 `NSFilePromiseProvider` 与串行后台队列；Linux X11 后端在 `XdndDrop` 后响应 URI 请求。原生 Wayland 暂不支持。复制语义和暂存生命周期允许接收方异步读取。目录双击按稳定条目 ID 配对点击，Windows 使用系统双击间隔；导航快捷键方向键由 Painter 绘制。底部提示不改变列表起点。
+
+独立 `gui-egui.yml` 覆盖 Linux x86_64、Windows x86_64、macOS arm64 的检查、测试、release 编译与裸可执行文件 artifacts；Windows 使用 `crates/gui-egui/windows/installer.nsi` 额外打包按用户安装的 NSIS，安装后验证 EXE 校验和、许可证、提交标识、快捷方式和卸载清理。独立安装目录与卸载注册项允许和 Tauri 并存；当前不接入正式 Release、系统右键菜单或文件关联。使用说明、完整格式范围与已知限制见 [EGUI_GUI.md](EGUI_GUI.md)。
 
 ## 10. 当前实现限制
 

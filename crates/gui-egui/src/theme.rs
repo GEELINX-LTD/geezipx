@@ -1,15 +1,11 @@
-use eframe::egui::{
-    self, Color32, FontData, FontDefinitions, FontFamily, FontId, RichText, Stroke, TextStyle,
-};
+use eframe::egui::{self, Color32, FontId, RichText, Stroke, TextStyle};
 use std::sync::Arc;
 
 pub const ACCENT: Color32 = Color32::from_rgb(82, 99, 224);
-pub const MUTED: Color32 = Color32::from_rgb(133, 143, 161);
 
 /// Semantic colors shared by standard inputs and our painted components.
 pub struct Palette {
     pub canvas: Color32,
-    pub sidebar: Color32,
     pub surface: Color32,
     pub soft: Color32,
     pub border: Color32,
@@ -27,7 +23,6 @@ pub fn colors(dark: bool) -> Palette {
     if dark {
         Palette {
             canvas: Color32::from_rgb(23, 26, 34),
-            sidebar: Color32::from_rgb(28, 31, 41),
             surface: Color32::from_rgb(32, 36, 47),
             soft: Color32::from_rgb(40, 44, 58),
             border: Color32::from_rgb(49, 54, 69),
@@ -39,7 +34,6 @@ pub fn colors(dark: bool) -> Palette {
     } else {
         Palette {
             canvas: Color32::from_rgb(248, 249, 252),
-            sidebar: Color32::from_rgb(241, 243, 249),
             surface: Color32::WHITE,
             soft: Color32::from_rgb(243, 245, 250),
             border: Color32::from_rgb(228, 232, 241),
@@ -51,18 +45,8 @@ pub fn colors(dark: bool) -> Palette {
     }
 }
 
-pub fn fonts(context: &egui::Context) {
-    let mut fonts = FontDefinitions::default();
-    fonts.font_data.insert(
-        "cjk".into(),
-        Arc::new(FontData::from_static(include_bytes!(
-            "../assets/DroidSansFallbackFull.ttf"
-        ))),
-    );
-    for family in [FontFamily::Proportional, FontFamily::Monospace] {
-        fonts.families.entry(family).or_default().push("cjk".into());
-    }
-    context.set_fonts(fonts);
+pub fn fonts(context: &egui::Context, selection: &crate::fonts::Selection) -> bool {
+    crate::fonts::install(context, selection)
 }
 
 pub fn apply(context: &egui::Context, dark: bool) {
@@ -83,7 +67,16 @@ pub fn apply(context: &egui::Context, dark: bool) {
     style.visuals.selection.bg_fill = p.tint;
     style.visuals.selection.stroke = Stroke::new(1.0_f32, p.accent);
     style.visuals.hyperlink_color = p.accent;
-    style.visuals.window_corner_radius = 14.into();
+    style.visuals.window_corner_radius = 8.into();
+    style.visuals.menu_corner_radius = 8.into();
+    style.visuals.window_shadow = egui::epaint::Shadow {
+        offset: [0, 5],
+        blur: 16,
+        spread: 0,
+        color: Color32::from_black_alpha(if dark { 64 } else { 24 }),
+    };
+    style.spacing.menu_margin = egui::Margin::same(6);
+    style.spacing.window_margin = egui::Margin::same(16);
     for (state, fill) in [
         (&mut style.visuals.widgets.noninteractive, p.surface),
         (&mut style.visuals.widgets.inactive, p.soft),
@@ -100,11 +93,12 @@ pub fn apply(context: &egui::Context, dark: bool) {
     }
     style.visuals.widgets.hovered.bg_stroke = Stroke::new(1.0_f32, p.accent);
     style.visuals.widgets.active.bg_stroke = Stroke::new(1.0_f32, p.accent);
-    style.spacing.item_spacing = egui::vec2(10.0, 10.0);
-    style.spacing.button_padding = egui::vec2(12.0, 8.0);
-    style.spacing.interact_size.y = 34.0;
+    style.spacing.item_spacing = egui::vec2(8.0, 7.0);
+    style.spacing.button_padding = egui::vec2(10.0, 5.0);
+    style.spacing.interact_size.y = 32.0;
     style.spacing.text_edit_width = 220.0;
     style.spacing.combo_height = 280.0;
+    style.visuals.text_edit_bg_color = Some(p.surface);
     style.spacing.scroll = egui::style::ScrollStyle::thin();
     for (kind, size) in [
         (TextStyle::Body, 14.0),
@@ -123,6 +117,10 @@ pub fn apply(context: &egui::Context, dark: bool) {
     context.set_style(style);
 }
 
+pub fn modal(context: &egui::Context, id: &str) -> egui::Modal {
+    egui::Modal::new(egui::Id::new(id)).frame(egui::Frame::popup(&context.style()).inner_margin(16))
+}
+
 pub fn primary(ui: &mut egui::Ui, text: &str) -> egui::Response {
     crate::widgets::button(
         ui,
@@ -138,24 +136,12 @@ pub fn card(ui: &egui::Ui) -> egui::Frame {
     egui::Frame::new()
         .fill(p.surface)
         .stroke(Stroke::new(1.0_f32, p.border))
-        .corner_radius(14)
-        .inner_margin(20)
+        .corner_radius(8)
+        .inner_margin(12)
 }
 
 pub fn caption(ui: &mut egui::Ui, text: impl Into<String>) {
     ui.label(RichText::new(text).size(12.0).color(palette(ui).muted));
-}
-
-pub fn title(ui: &mut egui::Ui, eyebrow: &str, title: &str, subtitle: &str) {
-    ui.label(
-        RichText::new(eyebrow)
-            .size(11.0)
-            .color(palette(ui).accent)
-            .extra_letter_spacing(1.8),
-    );
-    ui.add_space(2.0);
-    ui.label(RichText::new(title).size(27.0).strong());
-    caption(ui, subtitle);
 }
 
 pub fn rule(ui: &mut egui::Ui) {
