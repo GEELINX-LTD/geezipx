@@ -385,7 +385,7 @@ Reader/File → ProgressReader → Decoder/ArchiveReader → ProgressWriter → 
 | 路径安全 | 提取前统一执行 Zip Slip/path traversal 检查 |
 | 路径分隔符 | 归档内统一使用 `/`；落盘时交给 `Path` 处理 |
 | 覆盖策略 | 通过 `overwrite: bool` / `--no-clobber` / `--force` 控制 |
-| Unicode 文件名 | 作为一等场景测试，ZIP 同时兼顾 CP437 兼容 |
+| Unicode 文件名 | 作为一等场景测试；ZIP 优先 Unicode/UTF-8，对可无损解码且包含汉字的旧名称尝试 GB18030（含 GBK），保留 CP437 回退；统一名称索引并拒绝解码重名，未标代码页的旧名称仍有识别歧义 |
 | 长路径 / 符号链接 | 采取保守策略并在文档中明确限制；当前 CLI 未暴露 `--follow-symlinks` 或 `--win-longpaths` |
 
 ## 6. 测试策略
@@ -506,6 +506,8 @@ crates/gui-tauri/
 归档目录索引在后台建立，按名称、大小、压缩后大小和类型的排序结果预计算并共享 `Arc<Row>`；名称搜索只在条件变化时过滤当前目录缓存，绘制使用 29 逻辑像素的可见行虚拟列表。点击、Ctrl/Cmd、Shift 和键盘范围选择共享模型；切换目录清空选择，搜索保留选择并报告隐藏项。预览限制为 512 KiB，密码不进入持久化，外观与最多八条最近路径使用 eframe 存储。
 
 原生端 `engine` 只编排 core 的 reader/writer、进度、来源收集和安全输出。压缩通过同目录临时归档提交；解压复用 core `ExtractionDir`，预先拒绝危险名称与输入归档别名覆盖。格式清单以 `engine/formats.rs` 为准，RAR 默认启用，ZPAQ 可选且默认关闭以避开原生 C++ LTO 兼容性问题。
+
+原生端 `export` 复用 `engine::extract` 在后台将选区准备到 `TempDir`，只发布去重后的所选根路径；准备结果与归档/选区快照绑定。`app/interaction.rs` 管理内容坐标框选、拖出准备和系统拖放生命周期，`app/native_drag.rs` 在 Windows/macOS 调用 `drag`，Linux 的 X11 后端通过 `x11rb` 提供 Xdnd URI 选择数据，使用 `x11-dl` 释放 winit 的隐式鼠标抓取。原生 Wayland 拖出尚未接入。系统拖放采用复制语义，暂存目录保留至退出以兼容接收方异步读取。文件行交互 ID 由归档路径/条目路径组成，不依赖虚拟列表可见行序号；成功/失败提示复用底部状态栏，不改变列表起点。
 
 独立 `gui-egui.yml` 覆盖 Linux x86_64、Windows x86_64、macOS arm64 的检查、测试、release 编译与裸可执行文件 artifacts；Windows 使用 `crates/gui-egui/windows/installer.nsi` 额外打包按用户安装的 NSIS，安装后验证 EXE 校验和、许可证、提交标识、快捷方式和卸载清理。独立安装目录与卸载注册项允许和 Tauri 并存；当前不接入正式 Release、系统右键菜单或文件关联。使用说明、完整格式范围与已知限制见 [EGUI_GUI.md](EGUI_GUI.md)。
 

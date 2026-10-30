@@ -23,6 +23,8 @@ impl App {
         }
         let mut preview = None;
         let mut extract = false;
+        let mut drag_out = false;
+        let mut start_marquee = None;
         let archive = self.archive.as_mut().expect("archive checked above");
         let browser = &mut archive.browser;
         ui.horizontal(|ui| {
@@ -209,10 +211,14 @@ impl App {
         let list = ui.interact(
             ui.available_rect_before_wrap(),
             egui::Id::new("archive-list"),
-            egui::Sense::click(),
+            egui::Sense::click_and_drag(),
         );
-        if list.clicked() {
+        if list.clicked_by(egui::PointerButton::Primary) {
             browser.clear_selection();
+            list.request_focus();
+        }
+        if list.drag_started_by(egui::PointerButton::Primary) {
+            start_marquee = ui.input(|i| i.pointer.press_origin());
             list.request_focus();
         }
         let list_focused = list.has_focus();
@@ -221,6 +227,10 @@ impl App {
             ui.spacing_mut().item_spacing.y = 0.0;
             let output = egui::ScrollArea::vertical()
                 .id_salt("archive-rows")
+                .scroll_source(egui::scroll_area::ScrollSource {
+                    drag: false,
+                    ..Default::default()
+                })
                 .auto_shrink([false, false])
                 .max_height(list_height)
                 .vertical_scroll_offset(self.list_offset)
@@ -242,6 +252,7 @@ impl App {
                                 });
                             let response = widgets::file_row(
                                 ui,
+                                egui::Id::new(("archive-entry", &archive.path, &row.path)),
                                 widgets::FileRow {
                                     name: &row.name,
                                     size: &size,
@@ -263,7 +274,27 @@ impl App {
                                 );
                                 list.request_focus();
                             }
-                            if response.double_clicked() {
+                            if response.drag_started_by(egui::PointerButton::Primary) {
+                                let origin = ui.input(|i| i.pointer.press_origin());
+                                let from_name = origin.is_some_and(|pos| {
+                                    pos.x < response.rect.left() + columns.edges[1]
+                                });
+                                if from_name || browser.selection.contains(&row.path) {
+                                    if !browser.selection.contains(&row.path) {
+                                        let modifiers = ui.input(|i| i.modifiers);
+                                        browser.select(
+                                            index,
+                                            modifiers.shift,
+                                            modifiers.command || modifiers.ctrl,
+                                        );
+                                    }
+                                    drag_out = !busy;
+                                } else {
+                                    start_marquee = origin;
+                                }
+                                list.request_focus();
+                            }
+                            if response.double_clicked_by(egui::PointerButton::Primary) {
                                 if row.is_dir {
                                     navigate = Some(row.path.clone());
                                 } else if !busy {
@@ -342,9 +373,80 @@ impl App {
                     }
                 });
             self.list_offset = output.state.offset.y;
+            let viewport = output.inner_rect;
+            if let Some(origin) = start_marquee {
+                let modifiers = ui.input(|i| i.modifiers);
+                self.marquee = Some(interaction::Marquee {
+                    archive: archive.path.clone(),
+                    directory: browser.directory.clone(),
+                    origin: origin - viewport.min.to_vec2() + output.state.offset,
+                    original: if modifiers.command || modifiers.ctrl || modifiers.shift {
+                        browser.selection.clone()
+                    } else {
+                        BTreeSet::new()
+                    },
+                    toggle: modifiers.command || modifiers.ctrl,
+                });
+            }
+            if let Some(drag) = &self.marquee {
+                if drag.archive != archive.path || drag.directory != browser.directory {
+                    self.marquee = None;
+                } else if let Some(pointer) = ui.input(|i| i.pointer.interact_pos()) {
+                    let point = pointer - viewport.min.to_vec2() + output.state.offset;
+                    let rect = egui::Rect::from_two_pos(drag.origin, point);
+                    let mut selection = drag.original.clone();
+                    let first = (rect.top().max(0.0) / 29.0).floor() as usize;
+                    let end = ((rect.bottom().max(0.0) / 29.0).ceil() as usize)
+                        .min(browser.visible.len());
+                    if rect.right() >= 0.0 && rect.left() <= viewport.width() {
+                        for row in browser.visible.iter().take(end).skip(first) {
+                            if drag.toggle && !selection.insert(row.path.clone()) {
+                                selection.remove(&row.path);
+                            } else {
+                                selection.insert(row.path.clone());
+                            }
+                        }
+                    }
+                    browser.set_selection(selection);
+                    let painter = ui.painter().with_clip_rect(viewport);
+                    let screen = rect.translate(viewport.min.to_vec2() - output.state.offset);
+                    painter.rect_filled(screen, 0, palette.accent.gamma_multiply(0.10));
+                    painter.rect_stroke(
+                        screen,
+                        0,
+                        egui::Stroke::new(1.0_f32, palette.accent),
+                        egui::StrokeKind::Inside,
+                    );
+                    if ui.input(|i| i.pointer.primary_down()) {
+                        // Scroll near the edges, keeping the content-space anchor fixed.
+                        let delta = if pointer.y < viewport.top() + 20.0 {
+                            -10.0
+                        } else if pointer.y > viewport.bottom() - 20.0 {
+                            10.0
+                        } else {
+                            0.0
+                        };
+                        if delta != 0.0 {
+                            self.list_offset = (self.list_offset + delta).clamp(
+                                0.0,
+                                (browser.visible.len() as f32 * 29.0 - viewport.height()).max(0.0),
+                            );
+                            context.request_repaint_after(Duration::from_millis(16));
+                        }
+                    }
+                }
+            }
+            if !ui.input(|i| i.pointer.primary_down()) {
+                self.marquee = None;
+            }
         });
         if let Some(path) = navigate {
             browser.navigate(path);
+            self.marquee = None;
+            self.list_offset = 0.0;
+        }
+        if drag_out {
+            self.request_export(context);
         }
         if let Some(index) = preview {
             self.preview_entry(context, index);

@@ -1,6 +1,8 @@
 mod chrome;
 mod create;
 mod extract;
+mod interaction;
+mod native_drag;
 mod tasks;
 #[cfg(test)]
 mod tests;
@@ -33,6 +35,7 @@ enum Kind {
     Extract,
     Verify,
     Preview,
+    Export,
     Dialog,
 }
 impl Kind {
@@ -43,6 +46,7 @@ impl Kind {
             Self::Extract => "解压文件",
             Self::Verify => "完整性测试",
             Self::Preview => "文本预览",
+            Self::Export => "准备拖出文件",
             Self::Dialog => "选择文件",
         }
     }
@@ -62,6 +66,7 @@ enum Outcome {
     Archive(Box<Archive>),
     Done(Summary),
     Preview(Preview),
+    Export(Box<geezipx_egui::export::PreparedExport>),
     Paths(Dialog, Vec<PathBuf>),
 }
 struct Active {
@@ -165,6 +170,8 @@ pub struct App {
     last_typed: Instant,
     column_widths: [f32; 3],
     list_offset: f32,
+    marquee: Option<interaction::Marquee>,
+    export: interaction::ExportState,
 }
 impl App {
     pub fn new(cc: &eframe::CreationContext<'_>, paths: Vec<PathBuf>) -> Self {
@@ -204,10 +211,12 @@ impl App {
             last_typed: Instant::now(),
             column_widths: [110.0, 110.0, 90.0],
             list_offset: 0.0,
+            marquee: None,
+            export: interaction::ExportState::default(),
         }
     }
     fn busy(&self) -> bool {
-        self.active.is_some()
+        self.active.is_some() || self.export.receiver.is_some()
     }
     fn modal_open(&self) -> bool {
         self.create_open
@@ -370,6 +379,8 @@ impl App {
                         .to_string_lossy()
                 )));
                 self.archive = Some(*archive);
+                self.marquee = None;
+                self.export.ready = None;
                 self.retry_path = None;
                 self.opening_path = None;
                 self.read_password.clear();
@@ -388,6 +399,13 @@ impl App {
                         self.open_output(path.clone());
                     }
                 }
+            }
+            Ok(Outcome::Export(ready)) => {
+                if !context.input(|i| i.pointer.primary_down()) {
+                    self.export.requested = false;
+                    self.notice = Some(("所选文件已准备好，可再次拖出。".into(), false));
+                }
+                self.export.ready = Some(*ready);
             }
             Ok(Outcome::Preview(preview)) => self.preview = Some(preview),
             Ok(Outcome::Paths(_, _)) if self.close_when_finished => {}
@@ -555,10 +573,13 @@ impl App {
         }
     }
     fn shortcuts(&mut self, context: &egui::Context) {
-        if self.modal_open() || egui::Popup::is_any_open(context) {
+        if self.modal_open() || egui::Popup::is_any_open(context) || self.export.receiver.is_some()
+        {
             return;
         }
         if context.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape)) {
+            self.marquee = None;
+            self.export.requested = false;
             if let Some(archive) = &mut self.archive {
                 if !archive.browser.query.is_empty() {
                     archive.browser.query.clear();
@@ -695,15 +716,16 @@ impl App {
             egui::Frame::new()
                 .fill(color.gamma_multiply(0.09))
                 .corner_radius(6)
-                .inner_margin(8)
+                .inner_margin(3)
                 .show(ui, |ui| {
                     ui.set_width(ui.available_width());
                     ui.horizontal(|ui| {
                         let width = (ui.available_width() - 44.0).max(80.0);
                         ui.add_sized(
                             [width, 24.0],
-                            egui::Label::new(RichText::new(message).color(color)).truncate(),
-                        );
+                            egui::Label::new(RichText::new(&message).color(color)).truncate(),
+                        )
+                        .on_hover_text(&message);
                         if widgets::icon_button(ui, Icon::Close, "关闭消息").clicked() {
                             self.notice = None;
                         }
@@ -803,6 +825,9 @@ impl App {
                         self.close_prompt = false;
                     }
                     if ui.button("取消任务并退出").clicked() {
+                        if let Some(cancel) = &self.export.cancel {
+                            cancel.store(true, std::sync::atomic::Ordering::Relaxed);
+                        }
                         if let Some(active) = &self.active {
                             active.job.control.cancel();
                         }
@@ -824,14 +849,14 @@ impl App {
                     .inner_margin(12),
             )
             .show(context, |ui| {
-                self.notices(ui);
                 self.workspace(ui, context);
             });
         self.windows(context);
     }
 }
 impl eframe::App for App {
-    fn update(&mut self, context: &egui::Context, _frame: &mut eframe::Frame) {
+    fn update(&mut self, context: &egui::Context, frame: &mut eframe::Frame) {
+        self.poll_native_drag(context);
         self.poll(context);
         if context.input(|i| i.viewport().close_requested()) && self.busy() {
             context.send_viewport_cmd(egui::ViewportCommand::CancelClose);
@@ -844,10 +869,19 @@ impl eframe::App for App {
                 .filter_map(|file| file.path.clone())
                 .collect::<Vec<_>>()
         });
-        if !drops.is_empty() {
+        if !drops.is_empty()
+            && self.export.receiver.is_none()
+            && !drops.iter().any(|path| {
+                self.export
+                    .retained
+                    .iter()
+                    .any(|export| export.paths.contains(path))
+            })
+        {
             self.accept_paths(context, drops);
         }
         self.render(context);
+        self.start_native_drag(context, frame);
         if !context.input(|i| i.raw.hovered_files.is_empty())
             && (!self.modal_open() || self.create_open)
         {

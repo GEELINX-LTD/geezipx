@@ -10,6 +10,7 @@ impl App {
                     .inner_margin(egui::Margin::symmetric(14, 7)),
             )
             .show(context, |ui| {
+                ui.set_min_height(30.0);
                 if let Some(active) = &self.active {
                     let progress = active.job.control.snapshot();
                     ui.horizontal(|ui| {
@@ -87,6 +88,13 @@ impl App {
                             );
                         });
                     }
+                } else if self.export.receiver.is_some() {
+                    ui.horizontal(|ui| {
+                        ui.spinner();
+                        ui.label("拖到目标文件夹后松开鼠标 · Esc 取消");
+                    });
+                } else if self.notice.is_some() {
+                    self.notices(ui);
                 } else {
                     ui.horizontal(|ui| {
                         if let Some(archive) = &self.archive {

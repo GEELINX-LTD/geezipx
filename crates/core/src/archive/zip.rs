@@ -5,6 +5,7 @@
 //! memory buffer; individual entry extraction is streaming via
 //! `std::io::copy`.  The writer is generic over any `Write + Seek` backend.
 
+use std::collections::HashMap;
 use std::fmt;
 use std::io::{Read, Seek, Write};
 use std::path::Path;
@@ -29,6 +30,28 @@ pub struct ZipReader<R: Read + Seek + Send> {
     archive: zip::ZipArchive<R>,
     format: ArchiveFormat,
     password: Option<String>,
+    name_indices: HashMap<String, usize>,
+}
+
+/// Prefer Unicode metadata/UTF-8, then legacy Chinese ZIP names, then CP437.
+/// ZIP has no mandatory code page for legacy names; only accept a lossless
+/// GB18030 decode containing CJK characters, leaving other names to zip.
+fn decoded_name(raw: &[u8], fallback: &str) -> String {
+    if let Ok(name) = std::str::from_utf8(raw) {
+        return name.to_owned();
+    }
+    if let Some(name) =
+        encoding_rs::GB18030.decode_without_bom_handling_and_without_replacement(raw)
+    {
+        if name
+            .chars()
+            .any(|c| matches!(c, '\u{3400}'..='\u{9fff}' | '\u{20000}'..='\u{2fa1f}'))
+            && !name.chars().any(|c| c.is_control())
+        {
+            return name.into_owned();
+        }
+    }
+    fallback.to_owned()
 }
 
 impl<R: Read + Seek + Send> fmt::Debug for ZipReader<R> {
@@ -46,10 +69,25 @@ impl<R: Read + Seek + Send> ZipReader<R> {
     /// directly to the underlying `zip::ZipArchive`.
     pub fn new(reader: R) -> GeeZipResult<Self> {
         let archive = zip::ZipArchive::new(reader).map_err(convert_zip_error)?;
+        let mut name_indices = HashMap::with_capacity(archive.len());
+        for (index, raw) in archive.file_names_raw().enumerate() {
+            let fallback = archive
+                .name_for_index(index)
+                .expect("existing ZIP index")
+                .map_err(convert_zip_error)?;
+            let name = decoded_name(raw, &fallback);
+            if name_indices.insert(name.clone(), index).is_some() {
+                return Err(GeeZipError::Format {
+                    message: format!("ambiguous decoded ZIP filename: {name}"),
+                    format: ArchiveFormat::Zip,
+                });
+            }
+        }
         Ok(ZipReader {
             archive,
             format: ArchiveFormat::Zip,
             password: None,
+            name_indices,
         })
     }
 }
@@ -103,7 +141,7 @@ impl<R: Read + Seek + Send> ArchiveReader for ZipReader<R> {
                 )
             });
             entries.push(Entry {
-                path: file.name().map_err(convert_zip_error)?.into_owned(),
+                path: decoded_name(file.name_raw(), &file.name().map_err(convert_zip_error)?),
                 size: file.size(),
                 compressed_size: file.compressed_size(),
                 crc32: Some(file.crc32()),
@@ -138,26 +176,23 @@ impl<R: Read + Seek + Send> ArchiveReader for ZipReader<R> {
     }
 
     fn extract(&mut self, entry: &Entry, writer: &mut dyn Write) -> GeeZipResult<u64> {
-        let mut file = match &self.password {
-            Some(password) => self
-                .archive
-                .by_name_decrypt(&entry.path, password.as_bytes())
-                .map_err(|e| match e {
-                    zip::result::ZipError::FileNotFound => GeeZipError::EntryNotFound {
-                        name: entry.path.clone(),
-                    },
-                    zip::result::ZipError::InvalidPassword => GeeZipError::Crypto {
-                        message: format!("invalid password for '{}'", entry.path),
-                    },
-                    other => convert_zip_error(other),
-                })?,
-            None => self.archive.by_name(&entry.path).map_err(|e| match e {
-                zip::result::ZipError::FileNotFound => GeeZipError::EntryNotFound {
+        let index =
+            *self
+                .name_indices
+                .get(&entry.path)
+                .ok_or_else(|| GeeZipError::EntryNotFound {
                     name: entry.path.clone(),
-                },
-                other => convert_zip_error(other),
-            })?,
-        };
+                })?;
+        let mut file = match &self.password {
+            Some(password) => self.archive.by_index_decrypt(index, password.as_bytes()),
+            None => self.archive.by_index(index),
+        }
+        .map_err(|error| match error {
+            zip::result::ZipError::InvalidPassword => GeeZipError::Crypto {
+                message: format!("invalid password for '{}'", entry.path),
+            },
+            other => convert_zip_error(other),
+        })?;
 
         let bytes = std::io::copy(&mut file, writer)
             .map_err(|e| GeeZipError::io(e, format!("extracting '{}'", entry.path)))?;

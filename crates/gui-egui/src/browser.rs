@@ -260,6 +260,14 @@ impl Browser {
         self.anchor = None;
         self.selection_changed();
     }
+    /// Replace a rectangle selection in one update, including derived totals.
+    pub fn set_selection(&mut self, selection: BTreeSet<String>) {
+        if self.selection != selection {
+            self.selection = selection;
+            self.anchor = None;
+            self.selection_changed();
+        }
+    }
     pub fn toggle(&mut self, path: &str) {
         if !self.selection.remove(path) {
             self.selection.insert(path.into());

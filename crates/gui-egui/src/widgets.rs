@@ -599,10 +599,10 @@ pub struct FileRow<'a> {
     pub selected: bool,
     pub focused: bool,
 }
-pub fn file_row(ui: &mut Ui, row: FileRow<'_>, columns: Columns) -> Response {
+pub fn file_row(ui: &mut Ui, id: egui::Id, row: FileRow<'_>, columns: Columns) -> Response {
     let p = theme::palette(ui);
-    let (rect, response) =
-        ui.allocate_exact_size(egui::vec2(ui.available_width(), 29.0), Sense::click());
+    let (_, rect) = ui.allocate_space(egui::vec2(ui.available_width(), 29.0));
+    let response = ui.interact(rect, id, Sense::click_and_drag());
     accessible(&response, row.name, Some(row.selected));
     if row.selected || response.hovered() {
         ui.painter()

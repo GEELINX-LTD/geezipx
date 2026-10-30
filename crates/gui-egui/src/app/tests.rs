@@ -503,3 +503,130 @@ fn menu_labels_and_shortcuts_have_separate_unclipped_columns() {
         }
     }
 }
+
+fn pointer_frame(
+    app: &mut App,
+    context: &egui::Context,
+    position: egui::Pos2,
+    button: Option<bool>,
+    modifiers: egui::Modifiers,
+) {
+    let mut events = vec![egui::Event::PointerMoved(position)];
+    if let Some(pressed) = button {
+        events.push(egui::Event::PointerButton {
+            pos: position,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers,
+        });
+    }
+    let time = context.input(|i| i.time) + 0.04;
+    let _ = context.run(
+        egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(1000.0, 680.0),
+            )),
+            time: Some(time),
+            events,
+            modifiers,
+            ..Default::default()
+        },
+        |context| app.render(context),
+    );
+}
+fn row_rect(context: &egui::Context, path: &str) -> egui::Rect {
+    context
+        .read_response(egui::Id::new((
+            "archive-entry",
+            &PathBuf::from("设计.zip"),
+            path,
+        )))
+        .expect("row interaction missing")
+        .rect
+}
+#[test]
+fn bottom_notices_keep_rows_stationary_and_double_click_opens_the_same_folder() {
+    let context = context();
+    let mut app = App::empty(Preferences::default());
+    app.archive = Some(archive());
+    for _ in 0..2 {
+        draw(&mut app, &context, [1000.0, 680.0]);
+    }
+    let before = row_rect(&context, "项目");
+    let pos = before.left_center() + egui::vec2(70.0, 0.0);
+    pointer_frame(&mut app, &context, pos, Some(true), egui::Modifiers::NONE);
+    pointer_frame(&mut app, &context, pos, Some(false), egui::Modifiers::NONE);
+    app.notice = Some(("已解压完成".into(), false));
+    let output = draw(&mut app, &context, [1000.0, 680.0]);
+    assert_eq!(before, row_rect(&context, "项目"));
+    let message = output
+        .shapes
+        .iter()
+        .find_map(|shape| match &shape.shape {
+            egui::Shape::Text(text) if text.galley.text() == "已解压完成" => Some(text.pos),
+            _ => None,
+        })
+        .unwrap();
+    assert!(
+        message.y > 620.0,
+        "notice is not at the bottom: {message:?}"
+    );
+    pointer_frame(&mut app, &context, pos, Some(true), egui::Modifiers::NONE);
+    pointer_frame(&mut app, &context, pos, Some(false), egui::Modifiers::NONE);
+    assert_eq!(app.archive.as_ref().unwrap().browser.directory, "项目");
+}
+#[test]
+fn rectangle_selection_from_blank_space_and_ctrl_toggle_work_with_real_pointer_events() {
+    let context = context();
+    let mut app = App::empty(Preferences::default());
+    app.archive = Some(archive());
+    for _ in 0..2 {
+        draw(&mut app, &context, [1000.0, 680.0]);
+    }
+    let first = row_rect(&context, "项目");
+    let last = row_rect(&context, "other.txt");
+    let start = egui::pos2(last.right() - 20.0, last.bottom() + 35.0);
+    let end = egui::pos2(first.right() - 100.0, first.center().y);
+    for modifiers in [egui::Modifiers::NONE, egui::Modifiers::CTRL] {
+        pointer_frame(&mut app, &context, start, Some(true), modifiers);
+        pointer_frame(&mut app, &context, end, None, modifiers);
+        pointer_frame(&mut app, &context, end, Some(false), modifiers);
+        let browser = &app.archive.as_ref().unwrap().browser;
+        if modifiers.ctrl {
+            assert!(browser.selection.is_empty());
+        } else {
+            assert_eq!(browser.selection.len(), 3);
+        }
+        assert!(app.marquee.is_none());
+        assert!(!app.busy(), "rectangle selection started an export");
+    }
+}
+#[test]
+fn dragging_a_selected_row_preserves_the_group_and_starts_only_preparation() {
+    let context = context();
+    let mut app = App::empty(Preferences::default());
+    app.archive = Some(archive());
+    app.archive.as_mut().unwrap().browser.select_all();
+    for _ in 0..2 {
+        draw(&mut app, &context, [1000.0, 680.0]);
+    }
+    let start = row_rect(&context, "notes.txt").left_center() + egui::vec2(80.0, 0.0);
+    pointer_frame(&mut app, &context, start, Some(true), egui::Modifiers::NONE);
+    pointer_frame(
+        &mut app,
+        &context,
+        start + egui::vec2(20.0, 10.0),
+        None,
+        egui::Modifiers::NONE,
+    );
+    assert_eq!(app.archive.as_ref().unwrap().browser.selection.len(), 3);
+    assert!(app
+        .active
+        .as_ref()
+        .is_some_and(|active| active.kind == Kind::Export));
+    assert!(app.export.requested);
+    assert!(app.marquee.is_none());
+    app.active.as_ref().unwrap().job.control.cancel();
+    finish_job(&mut app, &context);
+}
