@@ -15,13 +15,14 @@ use std::io::{Read, Write};
 use lzma_rust2::{LzipOptions, LzipReader, LzipWriter};
 
 use crate::config::CompressOptions;
+use crate::detect::ArchiveFormat;
 use crate::error::{GeeZipError, GeeZipResult};
 
 /// Compress data from `reader` into `writer` using lzip at the given level.
 ///
 /// `level` controls the LZMA compression strength:
 /// - `None`: use the default level (6).
-/// - `Some(0)`: no compression (store only).
+/// - `Some(0)`: fastest LZMA preset (still compressed).
 /// - `Some(1)`: fastest compression.
 /// - `Some(6)`: default (good balance).
 /// - `Some(9)`: best compression ratio (slowest).
@@ -33,6 +34,12 @@ pub fn lz_compress_with_level<R: Read, W: Write>(
     level: Option<u32>,
 ) -> GeeZipResult<u64> {
     let preset = level.unwrap_or(6);
+    if preset > 9 {
+        return Err(GeeZipError::format(
+            "lzip compression level must be 0..=9",
+            ArchiveFormat::Lz,
+        ));
+    }
     let options = LzipOptions::with_preset(preset);
     let mut encoder = LzipWriter::new(writer, options);
     let bytes = std::io::copy(reader, &mut encoder)
@@ -87,6 +94,18 @@ pub fn lz_decompress<R: Read, W: Write>(reader: &mut R, writer: &mut W) -> GeeZi
 mod tests {
     use super::*;
     use std::io::Cursor;
+
+    #[test]
+    fn lz_crc_and_invalid_preset_are_checked() {
+        assert!(
+            lz_compress_with_level(&mut &b"input"[..], std::io::sink(), Some(u32::MAX)).is_err()
+        );
+        let mut data = Vec::new();
+        lz_compress(&mut &b"CRC-protected payload"[..], &mut data).unwrap();
+        let crc_offset = data.len() - 20;
+        data[crc_offset] ^= 1;
+        assert!(lz_decompress(&mut data.as_slice(), &mut std::io::sink()).is_err());
+    }
 
     #[test]
     fn lz_roundtrip() {
