@@ -1,16 +1,14 @@
-//! ZPAQ (`.zpaq`, `.zpq`) archive reader.
+//! ZPAQ (`.zpaq`, `.zpq`) archive reader/writer.
 //!
-//! GeeZipX exposes ZPAQ as a read-only archive format backed by the `zpaq_rs`
-//! crate. The current MVP supports `list`, `decompress`, and `test`.
+//! GeeZipX supports create, list, decompress and test through `zpaq_rs`.
 //!
-//! Implementation note:
-//! - `zpaq_rs` currently exposes whole-member byte extraction helpers for
-//!   addressing a stored file by path. GeeZipX therefore reuses those helpers
-//!   for `extract()`, which means a selected member may be buffered in memory
-//!   before it is written to the caller's `Write` sink.
-//! - Batch extraction still flows through GeeZipX's shared
-//!   `ArchiveReader::extract_all` implementation so path traversal protection
-//!   and no-clobber behavior remain centralized.
+//! Performance limitations (zpaq_rs 1.0.4):
+//! - Each path-addressed extraction reads the whole archive, then buffers
+//!   the decoded member. Creation buffers all input members and the output.
+//! - `decompress_stream` lacks archive path/journal selection, so it cannot
+//!   replace path-addressed extraction without losing those semantics.
+//! - Batch extraction uses the shared ArchiveReader path/overwrite checks;
+//!   an upstream archive-aware writer callback is needed for bounded I/O.
 
 use std::fmt;
 use std::io::Read;
