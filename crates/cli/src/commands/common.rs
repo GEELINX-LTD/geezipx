@@ -90,7 +90,7 @@ pub fn parse_format(s: &str) -> Result<ArchiveFormat> {
         "cab" => Ok(ArchiveFormat::Cab),
         "asar" => Ok(ArchiveFormat::Asar),
         "deb" => Ok(ArchiveFormat::Deb),
-        "lzh" | "lha" => Ok(ArchiveFormat::Lzh),
+        "lzh" | "lha" | "pma" => Ok(ArchiveFormat::Lzh),
         "iso" => Ok(ArchiveFormat::Iso),
         "udf" => Ok(ArchiveFormat::Udf),
         "cpio" => Ok(ArchiveFormat::Cpio),
@@ -123,6 +123,14 @@ pub fn parse_sfx_target(s: &str) -> anyhow::Result<geezipx_core::sfx::SfxTarget>
 /// Resolve the compress output format from an optional `--format` flag and the
 /// output file extension.  Defaults to `Zip`.
 pub fn resolve_format(cli_format: Option<&str>, output: &Path) -> Result<ArchiveFormat> {
+    if cli_format.is_some_and(|s| s.eq_ignore_ascii_case("pma"))
+        || (cli_format.is_none()
+            && output
+                .extension()
+                .is_some_and(|s| s.eq_ignore_ascii_case("pma")))
+    {
+        anyhow::bail!("PMA creation is not supported; select lzh for LZH output");
+    }
     if let Some(s) = cli_format {
         return parse_format(s);
     }

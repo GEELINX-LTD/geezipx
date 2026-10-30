@@ -34,7 +34,7 @@
 | ISZ | 待复核 | |
 | LZ / Lzip | 待复核 | |
 | LZMA | 待复核 | |
-| PMA | 待复核 | |
+| PMA | 已实现读取 | 升级 delharc 0.8，启用 pm0/pm1/pm2；复用 LHA 流式读取与 CRC16 校验；独立 PM1/PM2 样本及 CRC32 验证通过；拒绝以 PMA 名义创建 LZH |
 | RAR / RAR5 | 待复核 | |
 | TLZ | 待复核 | |
 | UDF | 待复核 | |

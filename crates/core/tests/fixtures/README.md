@@ -1,9 +1,7 @@
-# WIM interoperability fixture
+# Codec interoperability fixtures
 
-`wimlib-xpress.wim` was generated with wimlib-imagex 1.14.4, independently of the GeeZipX writer:
+- `ncompress.Z`: generated with ncompress 4.2.4 `compress -c`; the 16384-byte input is `(i * 73 + i / 13) % 256` for `i=0..16384`.
+- `pm1.pma`: first entry of the generated PM1 fixture from MIT-licensed `royaltm/rust-delharc`, `tests/generated/pm1/pm1.pma` (followed by a zero archive terminator). Original generated archive covers PM1 start states and was verified upstream with `pmext`. Expected first entry size 32768, CRC32 41FE9947.
+- `pm2.pma`: `tests/pmarc2/comment.pma` from the same repository, generated with PMARC2 under openMSX. `HELLO.TXT`, size 128, CRC32 906330C5.
 
-```sh
-wimlib-imagex capture SOURCE wimlib-xpress.wim --compress=XPRESS --no-acls
-```
-
-SOURCE contains `empty` (zero bytes), `empty-dir/`, and `目录/示例.txt` with `b"WIM external fixture\n"` repeated 4000 times. This exercises the standard nameless root dentry, 102-byte dentry fixed header, XPRESS chunks, Unicode names, and empty file/directory handling. All fixture content is original regression test data.
+Upstream: https://github.com/royaltm/rust-delharc (MIT, copyright Roman Ajnenkiel and contributors).

@@ -198,6 +198,7 @@ const EXTENSION_MAP: &[(&str, ArchiveFormat)] = &[
     (".deb", ArchiveFormat::Deb),
     (".lzh", ArchiveFormat::Lzh),
     (".lha", ArchiveFormat::Lzh),
+    (".pma", ArchiveFormat::Lzh),
     (".iso", ArchiveFormat::Iso),
     (".cpio", ArchiveFormat::Cpio),
     (".wim", ArchiveFormat::Wim),

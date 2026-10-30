@@ -588,10 +588,9 @@ fn convert_lha_error(err: LhaError<std::io::Error>, context: impl Into<String>) 
             format!("failed to decompress LZH entry: {message}"),
             ArchiveFormat::Lzh,
         ),
-        LhaError::Checksum(message) => GeeZipError::format(
-            format!("LZH CRC-16 verification failed: {message}"),
-            ArchiveFormat::Lzh,
-        ),
+        LhaError::Checksum => {
+            GeeZipError::format("LZH CRC-16 verification failed", ArchiveFormat::Lzh)
+        }
         _ => GeeZipError::format("LZH decoder error", ArchiveFormat::Lzh),
     }
 }
@@ -841,7 +840,7 @@ mod tests {
             Self {
                 path,
                 data,
-                method: *b"-pm1-",
+                method: *b"-xyz-",
             }
         }
     }
@@ -1020,6 +1019,28 @@ mod tests {
     }
 
     #[test]
+    fn pma_pm1_pm2_fixtures() {
+        for (input, size, crc) in [
+            (
+                include_bytes!("../../tests/fixtures/pm1.pma").as_slice(),
+                32768,
+                0x41FE9947,
+            ),
+            (
+                include_bytes!("../../tests/fixtures/pm2.pma").as_slice(),
+                128,
+                0x906330C5,
+            ),
+        ] {
+            let mut reader = LzhReader::new(std::io::Cursor::new(input));
+            let entries = reader.entries().unwrap();
+            let mut output = Vec::new();
+            assert_eq!(reader.extract(&entries[0], &mut output).unwrap(), size);
+            assert_eq!(crc32fast::hash(&output), crc);
+        }
+    }
+
+    #[test]
     fn lzh_entries_normalize_paths_and_extract_files() {
         let archive = build_lzh(&[
             FixtureEntry::directory("docs\\"),
@@ -1156,7 +1177,7 @@ mod tests {
         assert!(err
             .to_string()
             .contains("unsupported LZH compression method"));
-        assert!(err.to_string().contains("-pm1-"));
+        assert!(err.to_string().contains("-xyz-"));
     }
 
     #[test]

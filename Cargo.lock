@@ -1843,17 +1843,6 @@ checksum = "ac6b926516df9c60bfa16e107b21086399f8285a44ca9711344b9e553c5146e2"
 
 [[package]]
 name = "delharc"
-version = "0.6.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3658b90877f637514897c3dcbd628e0d290bcc7fee551a398b3994ebdc62d51e"
-dependencies = [
- "bitflags 2.13.0",
- "chrono",
- "memchr",
-]
-
-[[package]]
-name = "delharc"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9cfdcd2bee8dc367afd9064f3b0849156a4c29fc70d98370dae62773594d04dd"
@@ -2848,7 +2837,7 @@ dependencies = [
  "cpio-archive",
  "crc32fast",
  "criterion",
- "delharc 0.6.2",
+ "delharc",
  "enc_file",
  "encoding_rs",
  "flate2",
@@ -7511,7 +7500,7 @@ dependencies = [
  "chrono",
  "crc16",
  "crc32fast",
- "delharc 0.8.0",
+ "delharc",
  "flate2",
  "log",
  "lzma-rust2 0.22.0",

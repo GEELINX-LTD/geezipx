@@ -60,6 +60,7 @@ GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开�
 | 7Z (.7z) | 读写 | AES-256，多方法可选，--solid |
 | CAB (.cab) | 读写 | MSZIP 压缩，单卷 |
 | LZH/LHA (.lzh/.lha) | 读写 | lh0-lh7 |
+| PMA (.pma) | 只读 | PMarc pm0/pm1/pm2，流式解码与 CRC16 校验 |
 | LZ (.lz) | 读写 | Lzip 格式 |
 | ISO (.iso) | 读写 | ISO 9660 Level 1 |
 | CPIO (.cpio) | 读写 | newc/odc |
