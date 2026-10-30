@@ -21,7 +21,7 @@
 | AES | 已接入 AES Crypt 读取 | aescrypt-rs 0.2.0-rc.18（锁定版本）支持 v0–v3；`.aes`/AES magic 路由，双遍验证后释放明文；通用非 seek API 将密文暂存磁盘，64 KiB 级缓冲。v3 内部测试通过；v0–v2 兼容由依赖实现，长度字节不受认证是原格式限制；原 `.enc` 仍非流式，拒绝以 `.aes` 创建旧容器 |
 | ALZ | 部分实现 | 新增单卷 Store/Deflate 流式提取、CRC/长度校验、ZipCrypto 密码；索引缓存避免逐项重扫。修改版 BZip2 库需要整压缩项缓冲、method 3 以及分卷暂缓；路径需 UTF-8 |
 | ARJ | 已修复列表与密码 | 列表显式 skip payload 并传播错误；CLI 接受/传递密码（Garble/GOST 由依赖处理）；真实 method0–4 样本 CLI test 通过，损坏 CRC 样本失败符合预期；unarc-rs 返回整项 Vec 和逐项重复扫描仍为性能债务，分卷需 volume provider 尚未接入 |
-| BH | 待复核 | |
+| BH | 暂缓：规范及独立语料不足 | BlakHole/ZipTV 专有容器，未找到足以验证 header/codec/CRC 的可用解析器与独立样本；不能用ZIP别名替代。后续先补来源可追溯的 Store/压缩/损坏/Unicode 档及规范，按索引+有界Read实现，见下方阻碍记录 |
 | BIN | 已实现光盘内容读取 | CLI list/test/decompress 改为解析 ISO9660/Joliet/Rock Ridge/UDF；支持 2048-byte cooked 和单轨 2352-byte Mode1/Mode2 Form1，缓存索引/按需 seek/64KiB 缓冲，拒绝未知文件。音轨/CUE/混合轨、分区/FAT 等磁盘布局暂缓，需多轨/文件系统适配；旧 core bin_decompress 仍为显式原始复制 API |
 | BR | 已复核 | 单流64KiB解码缓冲/流式编码，等级0..11校验；现有空流/截断/级别/往返测试通过。无魔数/原生校验和，依赖扩展名，无法保证检测所有位翻转；默认quality11偏慢，性能敏感调用宜显式--level 4..6，保留默认兼容性；jobs 当前忽略，后续可按用户需求评估多线程编码器 |
 | BZ / BZ2 / TBZ / TBZ2 | 已复核并修复 | BZIP2 多成员流式读取/CRC 已具备；增加 `.bz`/`--format bz` 别名与大小写输出名处理，修复独立编码 API 非法等级 panic。`.bz` 仅指 BZIP2 容器，旧 BZIP/BZ0 算法未实现；TAR.BZ2 顺序 visitor 已接入共享提取/校验路径；旧 infallible TAR writer 构造器仍要求调用者校验等级 |
@@ -53,6 +53,14 @@
 
 - 共享提取和 `test` 入口使用 reader 声明的直接 visitor，TAR 各变体、LHA/PMA、ZIP 和 7z 不再逐项重新解码；随机访问 reader 保留原路径，避免无谓磁盘暂存。
 - 补齐 EGG、Compound 在 CLI `test` 的路由；完整流访问保留解码器的尾部校验。
+
+## 暂缓格式的证据与后续路线
+
+### BH / BlakHole
+
+- 核对对象是 ZipTV 的 BlakHole `.bh`，不是同名的现代 BlackHole compression 项目；参考 [格式目录](http://fileformats.archiveteam.org/wiki/BlakHole)及 [ZipTV 格式说明](https://filext.com/file-extension/BH)。
+- 本轮库/源码检索未取得能验证方法编号、文件头边界、CRC 和密码语义的适配器与独立样本。没有把 `.bh` 直接映射到 ZIP 或声称“无 Rust crate 就无法支持”。
+- 下一步：取得可合法分发的 ZipTV 实际生成语料和可核对的布局；先实现单卷未加密 Store，再接具体 codec；限制名称/索引大小，按需 seek/take，独立校验 CRC/长度并与原工具比较文件哈希。没有这些证据前不合入猜测性的解码器。
 
 ## ZIP / ZIPX
 
