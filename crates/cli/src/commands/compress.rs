@@ -590,6 +590,8 @@ fn validate_compress_inputs(
         || format == ArchiveFormat::TarBz2
         || format == ArchiveFormat::TarXz
         || format == ArchiveFormat::SevenZip
+        || format == ArchiveFormat::Zip
+        || format == ArchiveFormat::Zipx
     {
         if let Some(l) = options.level {
             if l > 9 {
@@ -631,7 +633,7 @@ fn validate_compress_inputs(
 
     // Password-protected archive creation is currently supported for ZIP, 7z, and AES.
     if let Some(password) = options.password.as_deref() {
-        if format != ArchiveFormat::Zip
+        if !matches!(format, ArchiveFormat::Zip | ArchiveFormat::Zipx)
             && format != ArchiveFormat::SevenZip
             && format != ArchiveFormat::Aes
         {

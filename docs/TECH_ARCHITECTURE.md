@@ -256,7 +256,7 @@ pub fn read_magic_bytes<R: Read>(reader: &mut R) -> io::Result<Vec<u8>>;
 - `read_magic_bytes()` 仅读取前 `MAGIC_DETECT_SIZE` 字节，供调用方自行决定后续缓存与回放策略。
 - ZPAQ 当前不做浅层 magic sniff，避免把可选解析器耦合到前 8 字节的启发式判断中。
 
-> **格式扩展方向**：`ArchiveFormat` 枚举随新增格式逐步扩展。新格式检测优先使用魔数字节；若魔数无定义（如 lzma），依赖扩展名回退或用户显式指定。ZIP 兼容别名（`.zipx`/`.jar`/`.war`/`.apk`/`.ipa`/`.xpi`）统一映射到 `ArchiveFormat::Zip`。新增格式枚举值需同步更新所有 `match` 分支的完整性检查。完整格式目标见 `docs/PRD.md` 第 5.1 节。
+> **格式扩展方向**：`ArchiveFormat` 枚举随新增格式逐步扩展。新格式检测优先使用魔数字节；若魔数无定义（如 lzma），依赖扩展名回退或用户显式指定。ZIP 兼容别名（`.jar`/`.war`/`.apk`/`.ipa`/`.xpi`）映射到 `ArchiveFormat::Zip`；`.zipx` 映射到 `ArchiveFormat::Zipx`，创建时选择 XZ，读取共用 ZIP reader。新增格式枚举值需同步更新所有 `match` 分支的完整性检查。完整格式目标见 `docs/PRD.md` 第 5.1 节。
 
 ### 2.4 `core/error` — 统一错误模型
 
@@ -313,7 +313,7 @@ CLI 当前子命令为：
 
 | Crate | 用途 |
 |------|------|
-| `zip` 9.1.3+ | ZIP 读写（启用 `deflate`、`aes-crypto`）；core 与 SFX stub 共用 workspace 版本 |
+| `zip` 9.1.3+ | ZIP/ZIPX 流式读写；Deflate/XZ 写入及 AES-256；启用 XZ/LZMA/BZIP2/Deflate64/ZSTD/PPMd 读取；core 与 SFX stub 共用 workspace 版本 |
 | `tar` 0.4 | TAR 容器读写 |
 | `flate2` 1.x | gzip/deflate（纯 Rust backend） |
 | `bzip2` 0.6 | bzip2 / tar.bz2 |

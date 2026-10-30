@@ -59,7 +59,8 @@ use geezipx_core::detect::{self, ArchiveFormat};
 /// `lzh`, `lha`, `iso`, `cpio`, `zpaq`, `zpq`.
 pub fn parse_format(s: &str) -> Result<ArchiveFormat> {
     match s.to_ascii_lowercase().as_str() {
-        "zip" | "zipx" | "jar" | "war" | "apk" | "ipa" | "xpi" => Ok(ArchiveFormat::Zip),
+        "zip" | "jar" | "war" | "apk" | "ipa" | "xpi" => Ok(ArchiveFormat::Zip),
+        "zipx" => Ok(ArchiveFormat::Zipx),
         "tar" => Ok(ArchiveFormat::Tar),
         "tar.gz" | "tgz" => Ok(ArchiveFormat::TarGz),
         "tar.bz2" | "tbz" | "tbz2" => Ok(ArchiveFormat::TarBz2),
@@ -435,7 +436,7 @@ fn collect_dir_contents(
 
 pub fn validate_read_password_support(format: ArchiveFormat, password: Option<&str>) -> Result<()> {
     if password.is_some()
-        && format != ArchiveFormat::Zip
+        && !matches!(format, ArchiveFormat::Zip | ArchiveFormat::Zipx)
         && format != ArchiveFormat::SevenZip
         && format != ArchiveFormat::Rar
         && format != ArchiveFormat::Aes
@@ -459,7 +460,7 @@ pub fn open_reader(
     validate_read_password_support(format, password)?;
 
     Ok(match format {
-        ArchiveFormat::Zip => {
+        ArchiveFormat::Zip | ArchiveFormat::Zipx => {
             let mut reader = Box::new(ZipReader::new(file)?);
             if let Some(pwd) = password {
                 reader.set_password(pwd);
@@ -534,7 +535,7 @@ pub fn create_writer(
 ) -> Result<Box<dyn ArchiveWriter>> {
     // Validate password: only ZIP and 7z formats support password for writing.
     if options.password.is_some()
-        && format != ArchiveFormat::Zip
+        && !matches!(format, ArchiveFormat::Zip | ArchiveFormat::Zipx)
         && format != ArchiveFormat::SevenZip
     {
         anyhow::bail!(
@@ -549,8 +550,15 @@ pub fn create_writer(
         }
     }
     match format {
-        ArchiveFormat::Zip => {
-            let mut writer = ZipWriter::new(file);
+        ArchiveFormat::Zip | ArchiveFormat::Zipx => {
+            let mut writer = if format == ArchiveFormat::Zipx {
+                ZipWriter::new_xz(file)
+            } else {
+                ZipWriter::new(file)
+            };
+            if let Some(level) = options.level {
+                writer.set_level(level)?;
+            }
             if let Some(pwd) = &options.password {
                 writer.set_password(pwd);
             }
@@ -1057,7 +1065,7 @@ mod tests {
 
     #[test]
     fn parse_format_zipx_alias() {
-        assert_eq!(parse_format("zipx").unwrap(), ArchiveFormat::Zip);
+        assert_eq!(parse_format("zipx").unwrap(), ArchiveFormat::Zipx);
     }
 
     #[test]

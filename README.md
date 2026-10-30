@@ -42,7 +42,8 @@
 
 | Format | Extensions | Read | Write | Limitations |
 |--------|-----------|:----:|:-----:|-------------|
-| ZIP | `.zip`, `.zipx`, `.jar`, `.war`, `.apk`, `.ipa`, `.xpi` | ✓ | ✓ | AES-256 encryption write; no Deflate64 write |
+| ZIP | `.zip`, `.jar`, `.war`, `.apk`, `.ipa`, `.xpi` | ✓ | ✓ | AES-256; Deflate write; Stored/Deflate/Deflate64/BZIP2/LZMA/XZ/ZSTD/PPMd read |
+| ZIPX | `.zipx` | ✓ | ✓ | XZ (method 95) write; same readers as ZIP; proprietary methods not guaranteed |
 | TAR | `.tar` | ✓ | ✓ | |
 | GZIP / TAR.GZ | `.gz`, `.gzip`, `.tar.gz`, `.tgz` | ✓ | ✓ | level 0-9; tar.gz uses gzp parallel engine |
 | BZIP2 / TAR.BZ2 | `.bz2`, `.bzip2`, `.tar.bz2`, `.tbz`, `.tbz2` | ✓ | ✓ | level 0-9 |
@@ -75,7 +76,7 @@
 | ARC | `.arc` | ✓ | ✗ | read-only via unarc-rs |
 | ALZ | `.alz` | ✗ | ✗ | Format detection only; operations are not implemented |
 
-> **ZIPX note**: `.zipx` is supported as a ZIP-compatible container/extension alias. GeeZipX does not implement WinZip-specific advanced compression methods or the full ZIPX method matrix.
+> **ZIPX note**: `-f zipx` or a `.zipx` output selects streaming XZ compression (ZIP method 95), with level 0-9 and optional AES-256. ZIPX reading supports the enabled ZIP codecs; proprietary JPEG/WavPack methods remain unsupported. ZIP and ZIPX use codec-managed dictionaries and do not buffer whole input files.
 > **WIM write**: The WIM writer stores data uncompressed. For compressed write, use wimlib or other tools.
 > **Format limitations are documented in code comments and docs/PRD.md.**
 
@@ -296,7 +297,7 @@ geezipx compress <inputs...> -o <output> [options]
 | `-o`, `--output` | Output file path (required unless `--stdout` is used) |
 | `-f`, `--format` | Format: `zip`, `zipx`, `jar`, `war`, `apk`, `ipa`, `xpi`, `tar`, `tar.gz`, `tgz`, `tar.bz2`, `tbz`, `tbz2`, `tar.br`, `tar.lz4`, `tar.zst`, `tzst`, `tar.xz`, `txz`, `gz`, `gzip`, `bz2`, `bzip2`, `br`, `brotli`, `lz4`, `zst`, `zstd`, `xz`, `lzma`, `lz`, `7z`, `rar` (read-only), `cab`, `asar`, `deb`, `lzh`, `lha`, `iso`, `udf`, `cpio`, `zpaq`, `zpq`, `wim`, `swm`, `uu`, `uue`, `xxe`, `isz`, `aes`, `img`, `ima`, `bin` (inferred from extension if omitted, defaults to zip) |
 | `-r`, `--recursive` | Recursively add directories |
-| `-L`, `--level` | Compression level: 0-9 (gzip/bzip2/tar.gz/tar.bz2/xz/lzma/tar.xz); 0-11 (brotli/tar.br); 0-22 (zstd/zst/tar.zst/tzst); 0-4 (LZH: 0=lh0, 1=lh4, 2=lh5, 3=lh6, 4+=lh7); lz4/tar.lz4 accept `0` or omitted only |
+| `-L`, `--level` | Compression level: 0-9 (zip/zipx/gzip/bzip2/tar.gz/tar.bz2/xz/lzma/tar.xz); 0-11 (brotli/tar.br); 0-22 (zstd/zst/tar.zst/tzst); 0-4 (LZH: 0=lh0, 1=lh4, 2=lh5, 3=lh6, 4+=lh7); lz4/tar.lz4 accept `0` or omitted only |
 | `-j`, `--jobs` | Worker threads: 1 (default, single-threaded), 0 (auto), or N. Effective for tar.gz (gzp) and zstd/tar.zst (zstdmt) |
 | `--password` | Encrypt ZIP or 7z with AES-256. Use `--password-file` or `--password-stdin` alternatives |
 | `--7z-method` | 7z compression method: `lzma2` (default), `lzma`, `bzip2`, `ppmd`, `deflate`, `copy` |

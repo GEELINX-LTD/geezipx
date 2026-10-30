@@ -112,6 +112,12 @@ fn assert_zipx_roundtrip(explicit_format: bool) {
     compress.arg("-o").arg(&archive).assert().success();
 
     assert!(archive.exists(), "ZIPX archive should exist");
+    let bytes = std::fs::read(&archive).unwrap();
+    assert_eq!(
+        u16::from_le_bytes([bytes[8], bytes[9]]),
+        95,
+        "ZIPX must use XZ"
+    );
 
     geezipx()
         .args(["list", archive.to_str().unwrap()])

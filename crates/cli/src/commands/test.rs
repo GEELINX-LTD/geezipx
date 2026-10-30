@@ -111,6 +111,7 @@ fn run_verify(archive: &Path, json: bool, password: Option<String>) -> Result<()
         ArchiveFormat::Cpio => verify_cpio_archive(archive)
             .with_context(|| format!("verifying '{}'", archive.display()))?,
         ArchiveFormat::Zip
+        | ArchiveFormat::Zipx
         | ArchiveFormat::SevenZip
         | ArchiveFormat::Rar
         | ArchiveFormat::Udf

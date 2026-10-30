@@ -17,6 +17,8 @@ use std::path::Path;
 pub enum ArchiveFormat {
     /// ZIP archive.
     Zip,
+    /// ZIP container using XZ compression (method 95) when writing.
+    Zipx,
     /// GNU tar archive (no magic — extension-based).
     Tar,
     /// Gzip compressed stream (`\x1F\x8B`).
@@ -101,6 +103,7 @@ impl fmt::Display for ArchiveFormat {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             ArchiveFormat::Zip => write!(f, "zip"),
+            ArchiveFormat::Zipx => write!(f, "zipx"),
             ArchiveFormat::Tar => write!(f, "tar"),
             ArchiveFormat::Gzip => write!(f, "gzip"),
             ArchiveFormat::Bzip2 => write!(f, "bzip2"),
@@ -171,7 +174,7 @@ pub const MAGIC_CAB: &[u8] = b"MSCF";
 /// Map of well-known single extensions to their archive format.
 const EXTENSION_MAP: &[(&str, ArchiveFormat)] = &[
     (".zip", ArchiveFormat::Zip),
-    (".zipx", ArchiveFormat::Zip),
+    (".zipx", ArchiveFormat::Zipx),
     (".jar", ArchiveFormat::Zip),
     (".war", ArchiveFormat::Zip),
     (".apk", ArchiveFormat::Zip),
@@ -556,7 +559,6 @@ mod tests {
     #[test]
     fn ext_zip_aliases() {
         for path in [
-            "bundle.zipx",
             "plugin.jar",
             "webapp.war",
             "mobile.apk",
@@ -575,7 +577,7 @@ mod tests {
     fn ext_zipx() {
         assert_eq!(
             detect_from_extension(Path::new("archive.zipx")),
-            Some(ArchiveFormat::Zip)
+            Some(ArchiveFormat::Zipx)
         );
     }
 

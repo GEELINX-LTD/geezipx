@@ -41,7 +41,8 @@ GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开�
 
 | 格式 | 能力 | 备注 |
 |------|------|------|
-| ZIP (.zip/.zipx/.jar/.war/.apk/.ipa/.xpi) | 读写 | AES-256 加密 |
+| ZIP (.zip/.jar/.war/.apk/.ipa/.xpi) | 读写 | Deflate 写入、AES-256 加密；读取 Stored/Deflate/Deflate64/BZIP2/LZMA/XZ/ZSTD/PPMd |
+| ZIPX (.zipx) | 读写 | XZ（method 95）流式写入、级别 0–9、可选 AES-256；读取复用 ZIP 编码器 |
 | TAR (.tar) | 读写 | 无压缩容器 |
 | TAR.GZ (.tar.gz/.tgz) | 读写 | 多线程并行 (-j) |
 | TAR.BZ2 (.tar.bz2/.tbz/.tbz2) | 读写 | — |
@@ -79,18 +80,20 @@ GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开�
 | ALZ | 未实现操作支持 | 仅保留扩展名识别 |
 | Z (.Z) | 未实现操作支持 | 仅保留扩展名识别 |
 
-### 5.2 永久排除格式
+### 5.2 对齐目标与暂缓范围
 
-以下格式经评估后明确不做：
+core/CLI 以 Bandizip 格式清单为对齐目标，包含已有格式的性能与兼容性复核。历史上因缺少现成 Rust 库而排除的 BH/PMA/PEA/EGG 以及 ZIPX 方法改为逐项评估；无法可靠实现时记录证据、限制和后续路线，不将识别扩展名或原样复制计为提取支持。逐项状态见 [格式对齐审查](FORMAT_PARITY_AUDIT.md)。
+
+以下为仍需评估或保留限制的范围：
 
 | 格式 | 排除原因 |
 |------|----------|
-| BH, PMA, PEA, EGG | crates.io 无可用的 Rust 库；格式规范未公开或严重不完整；无已知活跃用户群 |
+| BH, PMA, PEA, EGG | 对齐目标，需逐项核对格式规范、可用实现和独立样本 |
 | CPIO bin/crc | `cpio-archive` crate 不支持；1970 年代遗留格式，无现代使用场景 |
 | I00/I01 (分卷 ISO) | 极其小众，未来可复用通用分卷框架实现 |
 | ARJ/ACE/ARC/ALZ 写入 | 适配器为只读 API，创建需逆向 1990s 专有格式，用户群极小 |
 | Z 写入 | 2026 年无创建 .Z 文件的合理场景 |
-| ZIPX 高级方法 | WinZip 专有压缩方法无公开规范与 Rust 实现 |
+| ZIPX JPEG/WavPack 等方法 | 尚未实现；XZ 创建及通用 ZIP 解码方法已接入，不承诺全部专有方法 |
 | RAR 写入 | UnRAR 许可限制 |
 
 ## 6. 阶段目标与边界

@@ -23,7 +23,7 @@ default = ["rar", "zpaq", "wim"]
 thiserror = "2"
 log = "0.4"
 cap-std = "4"
-zip = { workspace = true, features = ["deflate", "aes-crypto"] }
+zip = { workspace = true, features = ["deflate", "aes-crypto", "xz", "lzma", "bzip2", "deflate64", "zstd", "ppmd"] }
 
 tar = "0.4"
 brotli = "8"

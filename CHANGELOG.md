@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Core/CLI — ZIPX**: Create ZIPX with streaming XZ (ZIP method 95), honor ZIP/ZIPX compression levels, and enable ZIP XZ/LZMA/BZIP2/Deflate64/ZSTD/PPMd readers. ZIPX supports optional AES-256; proprietary ZIPX methods remain unsupported.
+
 - **Native GUI — Folder navigation**: Add a resizable left folder tree with independent expansion, single-click navigation and automatic ancestor reveal. Keep it synchronized with breadcrumbs and history. Add a folder-icon `..` row above every subdirectory listing; double-click returns to its parent and focuses the previous folder. Parent rows remain available during filtering and are excluded from selection and extraction.
 - **Native GUI — Windows installer**: Package the egui frontend as a per-user x64 NSIS installer with Chinese/English setup, Start menu shortcuts, bundled license notices and a separate uninstall entry. Verify install/uninstall on the Windows runner and upload the installer with commit metadata and SHA-256 checksums.
 - **Native GUI (egui)**: Add the independent `geezipx-egui` desktop app with a compact light/dark file manager, sortable and resizable virtual file table, creation/extraction dialogs, drag/drop, selective extraction, ZIP/7z encryption, text preview, integrity testing, progress and cooperative cancellation. Reuse Rust core through background jobs; include an embedded Chinese font and a separate Linux/Windows/macOS build-and-artifact workflow. See `docs/EGUI_GUI.md` for supported formats and current limits.
