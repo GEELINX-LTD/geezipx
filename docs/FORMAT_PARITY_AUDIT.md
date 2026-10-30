@@ -41,7 +41,7 @@
 | WIM | 已复核，LZX/LZMS暂缓 | 资源按chunk范围解码、<=512KiB工作块、SHA1核验，37专项测试通过；独立 wimlib XPRESS两文件490003B通过。wimlib LZX样本仍复现 `encountered empty decode tree`，需核对 lzxd 的 LZXD头/状态与WIM变体差异，已修正模块能力说明；需WIM-specific LZX及E8处理/独立XPRESS-LZX-LZMS语料，不把内部roundtrip当互操作。LZMS、SWM、第一映像以外提取未实现；创建仅无压缩；元数据仍整体驻内存 |
 | Z / Unix Compress | 已实现读取 | 流式 LZW，9–16 位有界字典；修复 `.Z` 大小写检测并加入魔数；ncompress 10/12/16 位共 15 例互操作通过；格式无校验和，不能保证发现所有截断 |
 | ZPAQ | 已复核，流式改造暂缓 | 11专项测试通过；确认 zpaq_rs1.0.4 每次按路径提取都 fs::read 整包且返回整项Vec，创建同时驻留所有原文/压缩档，CLI整包逐项重复扫描。公共 decompress_stream 不暴露路径/日志最新版本选择，不能直接替换；下一步上游增加 archive-aware Read+Write/visitor，再实现磁盘暂存创建及一次顺序提取。当前UTF8路径/等级>5裁剪、非流式大包均为债务；不使用绕过共享路径校验的 native extract 命令替代 |
-| PEA | 待复核 | |
+| PEA | 暂缓：容器/认证未实现 | 已查到 public-domain PEA1.6 规范，非“无开放规范”；Store/Deflate、对象/流/卷多层校验及AES/Twofish/Serpent认证模式需分别接入，不能以现有Deflate/AES代替。下一步先单卷未加密Store/Deflate+校验，独立PEA语料核验，再设计认证后输出 |
 | UU / UUE | 已优化 | CLI 编解码改为逐行流式，固定 45 字节输入块，最大 1024 字节行；保留需要返回 Vec 的兼容 API；校验截断和终止符 |
 | XXE | 已优化 | 复用有界逐行编解码器，CLI 不再整文件驻内存；截断回归测试通过 |
 | ASAR | 已优化读取 | 原为每项 `fs::read` 整包且重建索引；现在只缓存 JSON 索引，seek + take 流式读 payload，保留 unpacked/符号链接路径校验；512 MiB 稀疏档与截断/恶意索引回归通过。索引上限 64 MiB；创建端仍缓存全部项，待改磁盘暂存 |
@@ -67,6 +67,12 @@
 - 找到 [daa2iso](https://github.com/rsenn/daa2iso)参考实现：能够把 DAA 转为 ISO，公开仓库为 GPL-2.0；它是 C 转换器，不是现有 Rust archive reader。本项目声明 MIT，本轮未把其实现直接复制或链接进 core。
 - 缺口是 DAA 1.0 容器头、块索引/偏移、压缩块及校验的实现和独立语料。参考转换器可帮助建立预期 ISO 字节，但不能把调用转换器当作已经完成跨平台底层实现。
 - 下一步先取得 DAA1.0 标准样本、不可压缩块、尾块、损坏/截断样本；依据可用规范独立实现 Read+Seek 单块缓存，验证生成 ISO 哈希，再复用 ISO/UDF reader。分卷/密码另列能力范围。若选择接入 C 参考实现或外部转换器，需明确许可/分发及 Windows/macOS/Linux 构建策略。
+
+### PEA / Pack Encrypt Authenticate
+
+- [官方 PEA 1.6 格式说明](https://peazip.github.io/pea-file-format.html)声明规范为 public domain，压缩为 PCOMPRESS0 Store、PCOMPRESS1–3 Deflate；不能再以“格式封闭/没有 Rust 库”为永久排除原因。
+- 其对象、流、卷层级分别携带可选校验/认证，支持多种 hash、AES/Twofish/Serpent EAX/HMAC 以及多卷；本项目尚无这套容器 parser、独立 PEA 生成语料或认证流边界实现。现有 `.enc`/`.aes`/Deflate codec 都不足以替代。
+- 后续先限定单卷未加密 Store/Deflate，获取官方 Pea 可执行程序生成的空文件/目录/Unicode/多项/损坏校验语料，验证长度与所有声明的检查层。内存采用固定块，索引上限明确；对认证加密先验证再发布（必要时仅暂存密文），不能将未验证明文交给调用方。其它加密和多卷逐项扩展。
 
 ## ZIP / ZIPX
 
