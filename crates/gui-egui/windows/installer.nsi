@@ -11,7 +11,7 @@ ManifestDPIAware true
 !include "WinVer.nsh"
 
 !ifndef REPO_ROOT
-  !define REPO_ROOT "${__FILEDIR__}/../../.."
+  !define REPO_ROOT "${__FILEDIR__}\..\..\.."
 !endif
 !ifndef APP_VERSION
   !error "Pass APP_VERSION from the geezipx-egui Cargo package version."
@@ -20,7 +20,7 @@ ManifestDPIAware true
   !define APP_REVISION "local"
 !endif
 !ifndef OUTPUT_DIR
-  !define OUTPUT_DIR "${REPO_ROOT}/target/release/bundle/egui-nsis"
+  !define OUTPUT_DIR "${REPO_ROOT}\target\release\bundle\egui-nsis"
 !endif
 
 !define APP_NAME "GeeZipX Native"
@@ -28,7 +28,7 @@ ManifestDPIAware true
 !define UNINSTALL_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\GeeZipXNative"
 
 Name "${APP_NAME}"
-OutFile "${OUTPUT_DIR}/GeeZipX-Native_${APP_VERSION}_x64-setup.exe"
+OutFile "${OUTPUT_DIR}\GeeZipX-Native_${APP_VERSION}_x64-setup.exe"
 InstallDir "$LOCALAPPDATA\Programs\${APP_NAME}"
 InstallDirRegKey HKCU "${UNINSTALL_KEY}" "InstallLocation"
 BrandingText "GeeZipX · Native"
@@ -39,8 +39,8 @@ VIAddVersionKey /LANG=1033 "FileVersion" "${APP_VERSION}"
 VIAddVersionKey /LANG=1033 "LegalCopyright" "GeeZipX contributors"
 
 !define MUI_ABORTWARNING
-!define MUI_ICON "${REPO_ROOT}/crates/gui-egui/windows/icon.ico"
-!define MUI_UNICON "${REPO_ROOT}/crates/gui-egui/windows/icon.ico"
+!define MUI_ICON "${REPO_ROOT}\crates\gui-egui\windows\icon.ico"
+!define MUI_UNICON "${REPO_ROOT}\crates\gui-egui\windows\icon.ico"
 !define MUI_FINISHPAGE_RUN "$INSTDIR\${APP_EXE}"
 !define MUI_FINISHPAGE_RUN_NOTCHECKED
 !define MUI_LANGDLL_REGISTRY_ROOT HKCU
@@ -48,7 +48,7 @@ VIAddVersionKey /LANG=1033 "LegalCopyright" "GeeZipX contributors"
 !define MUI_LANGDLL_REGISTRY_VALUENAME "InstallerLanguage"
 
 !insertmacro MUI_PAGE_WELCOME
-!insertmacro MUI_PAGE_LICENSE "${REPO_ROOT}/LICENSE"
+!insertmacro MUI_PAGE_LICENSE "${REPO_ROOT}\LICENSE"
 !insertmacro MUI_PAGE_DIRECTORY
 !insertmacro MUI_PAGE_INSTFILES
 !insertmacro MUI_PAGE_FINISH
@@ -74,10 +74,10 @@ FunctionEnd
 
 Section "GeeZipX Native" Main
   SetOutPath "$INSTDIR"
-  File "${REPO_ROOT}/target/release/${APP_EXE}"
-  File "${REPO_ROOT}/LICENSE"
+  File "${REPO_ROOT}\target\release\${APP_EXE}"
+  File "${REPO_ROOT}\LICENSE"
   SetOutPath "$INSTDIR\licenses"
-  File "${REPO_ROOT}/crates/gui-egui/assets/*.txt"
+  File "${REPO_ROOT}\crates\gui-egui\assets\*.txt"
   SetOutPath "$INSTDIR"
   FileOpen $0 "$INSTDIR\build-info.txt" w
   FileWrite $0 "GeeZipX Native ${APP_VERSION}$\r$\nCommit: ${APP_REVISION}$\r$\n"

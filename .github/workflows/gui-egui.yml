@@ -78,7 +78,7 @@ jobs:
           if (-not $version) { throw 'Native GUI version not found' }
           $output = Join-Path $env:GITHUB_WORKSPACE 'target/release/bundle/egui-nsis'
           New-Item -ItemType Directory -Force -Path $output | Out-Null
-          & $nsis /WX "/DREPO_ROOT=$env:GITHUB_WORKSPACE" "/DOUTPUT_DIR=$output" "/DAPP_VERSION=$version" "/DAPP_REVISION=$env:GITHUB_SHA" crates/gui-egui/windows/installer.nsi
+          & $nsis /WX /INPUTCHARSET UTF8 "/DREPO_ROOT=$env:GITHUB_WORKSPACE" "/DOUTPUT_DIR=$output" "/DAPP_VERSION=$version" "/DAPP_REVISION=$env:GITHUB_SHA" crates/gui-egui/windows/installer.nsi
           if ($LASTEXITCODE -ne 0) { throw 'NSIS packaging failed' }
           $installer = Join-Path $output "GeeZipX-Native_${version}_x64-setup.exe"
           if (-not (Test-Path $installer)) { throw 'Windows installer missing' }
