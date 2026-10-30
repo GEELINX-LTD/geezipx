@@ -18,10 +18,14 @@ use crate::error::{GeeZipError, GeeZipResult};
 /// Convert an optional compression level (0-9) to a `flate2::Compression`.
 ///
 /// `None` maps to the default level (6).
-fn level_to_compression(level: Option<u32>) -> flate2::Compression {
+fn level_to_compression(level: Option<u32>) -> GeeZipResult<flate2::Compression> {
     match level {
-        None => flate2::Compression::default(),
-        Some(l) => flate2::Compression::new(l),
+        None => Ok(flate2::Compression::default()),
+        Some(l @ 0..=9) => Ok(flate2::Compression::new(l)),
+        Some(l) => Err(GeeZipError::format(
+            format!("gzip level must be 0..=9 (got {l})"),
+            crate::detect::ArchiveFormat::Gzip,
+        )),
     }
 }
 
@@ -40,7 +44,7 @@ pub fn gzip_compress_with_level<R: Read, W: Write>(
     writer: W,
     level: Option<u32>,
 ) -> GeeZipResult<u64> {
-    let compression = level_to_compression(level);
+    let compression = level_to_compression(level)?;
     let mut encoder = flate2::write::GzEncoder::new(writer, compression);
     let bytes = std::io::copy(reader, &mut encoder)
         .map_err(|e| GeeZipError::io(e, "gzip compression failed"))?;
@@ -93,6 +97,15 @@ pub fn gzip_decompress<R: Read, W: Write>(reader: &mut R, writer: &mut W) -> Gee
 mod tests {
     use super::*;
     use std::io::Cursor;
+
+    #[test]
+    fn gzip_invalid_level_returns_error_before_output() {
+        let mut output = Vec::new();
+        assert!(
+            gzip_compress_with_level(&mut Cursor::new(b"input"), &mut output, Some(10)).is_err()
+        );
+        assert!(output.is_empty());
+    }
 
     fn gzip_member(data: &[u8]) -> Vec<u8> {
         let mut compressed = Vec::new();

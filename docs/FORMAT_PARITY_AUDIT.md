@@ -15,7 +15,7 @@
 | TGZ / TAR.GZ | 待复核 | |
 | LZH / LHA / lh7 | 待复核 | |
 | ISO / Joliet | 待复核 | |
-| GZ | 待复核 | |
+| GZ | 已复核并修复 | 多成员解码与每成员 trailer/CRC 校验已具备；修复非法压缩等级在编码前返回结构化错误。独立 GZ 的 jobs 当前不生效（TAR.GZ 已支持并行），后续需保持非 static writer API 兼容 |
 | XZ / TXZ | 已优化 | `--jobs` 接入 liblzma MtStreamBuilder；默认单线程；TAR.XZ 各读取路径统一多流解码；无效选项返回错误 |
 | ACE | 待复核 | |
 | AES | 待复核 | `.enc` 不等于 AES Crypt |
