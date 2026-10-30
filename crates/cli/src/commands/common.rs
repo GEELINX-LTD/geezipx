@@ -161,13 +161,12 @@ pub fn detect_archive_format_from_reader<R: Read + Seek>(
     reader: &mut R,
     fallback_path: Option<&Path>,
 ) -> Result<ArchiveFormat> {
-    let magic =
-        detect::read_magic_bytes(reader).context("reading magic bytes for format detection")?;
+    let detected = detect::detect_seekable_format(reader).context("reading archive format")?;
     reader
         .seek(std::io::SeekFrom::Start(0))
-        .context("rewinding reader after magic detection")?;
+        .context("rewinding reader after format detection")?;
 
-    let fmt = match detect::detect_format(&magic) {
+    let fmt = match detected {
         Some(ArchiveFormat::Gzip) => {
             resolve_tar_wrapped(ArchiveFormat::Gzip, ArchiveFormat::TarGz, fallback_path)
         }

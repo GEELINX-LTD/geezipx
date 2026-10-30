@@ -342,6 +342,45 @@ pub fn detect_from_extension(path: &Path) -> Option<ArchiveFormat> {
 // Helpers
 // ---------------------------------------------------------------------------
 
+/// Detect ordinary magic and ZIP SFX executables from a seekable source.
+///
+/// ZIP SFX detection validates the central directory through the ZIP reader;
+/// an executable prefix alone never establishes archive support. Reads only
+/// headers/index data and restores the caller's position, including on failure.
+pub fn detect_seekable_format<R: std::io::Read + std::io::Seek>(
+    reader: &mut R,
+) -> std::io::Result<Option<ArchiveFormat>> {
+    use std::io::SeekFrom;
+    let position = reader.stream_position()?;
+    let result = (|| {
+        reader.seek(SeekFrom::Start(0))?;
+        let magic = read_magic_bytes(reader)?;
+        if let Some(format) = detect_format(&magic) {
+            return Ok(Some(format));
+        }
+        let executable = magic.starts_with(b"MZ")
+            || magic.starts_with(b"\x7fELF")
+            || [
+                b"\xfe\xed\xfa\xce",
+                b"\xce\xfa\xed\xfe",
+                b"\xfe\xed\xfa\xcf",
+                b"\xcf\xfa\xed\xfe",
+                b"\xca\xfe\xba\xbe",
+            ]
+            .iter()
+            .any(|m| magic.starts_with(*m));
+        if executable {
+            reader.seek(SeekFrom::Start(0))?;
+            if zip::ZipArchive::new(&mut *reader).is_ok() {
+                return Ok(Some(ArchiveFormat::Zip));
+            }
+        }
+        Ok(None)
+    })();
+    reader.seek(SeekFrom::Start(position))?;
+    result
+}
+
 /// Number of bytes needed for magic-byte detection of all supported formats.
 pub const MAGIC_DETECT_SIZE: usize = 8;
 
@@ -365,6 +404,30 @@ pub fn read_magic_bytes<R: std::io::Read>(reader: &mut R) -> std::io::Result<Vec
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn seekable_detection_validates_zip_sfx_and_restores_position() {
+        use std::io::{Cursor, Write};
+        for prefix in [b"MZ".as_slice(), b"\x7fELF", b"\xcf\xfa\xed\xfe"] {
+            let mut file = Cursor::new(Vec::new());
+            file.write_all(prefix).unwrap();
+            file.write_all(&[0; 256]).unwrap();
+            let mut zip = zip::ZipWriter::new(file);
+            zip.start_file("a.txt", zip::write::SimpleFileOptions::default())
+                .unwrap();
+            zip.write_all(b"sfx contents").unwrap();
+            let mut file = zip.finish().unwrap();
+            file.set_position(9);
+            assert_eq!(
+                super::detect_seekable_format(&mut file).unwrap(),
+                Some(super::ArchiveFormat::Zip)
+            );
+            assert_eq!(file.position(), 9);
+            let mut invalid = Cursor::new(prefix);
+            assert_eq!(super::detect_seekable_format(&mut invalid).unwrap(), None);
+            assert_eq!(invalid.position(), 0);
+        }
+    }
+
     use super::*;
 
     // ---------------------------------------------------------------

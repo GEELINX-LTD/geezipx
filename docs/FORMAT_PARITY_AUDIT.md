@@ -10,7 +10,7 @@
 | --- | --- | --- |
 | ZIP / ZIPX / XPI | 已完善 | ZIPX 使用 XZ method 95；ZIP 级别透传；启用 XZ/LZMA/BZIP2/Deflate64/ZSTD/PPMd 读取；专有 JPEG/WavPack 方法未覆盖 |
 | 7Z / 7Z(LZMA2) | 已优化 | solid 按 64 MiB/1024 项分块，单项 >8 MiB 暂存磁盘；加密保留自定义字典；jobs=0 自动识别；读取使用库的顺序提取避免逐项重解 solid |
-| EXE / SFX | 待复核 | |
+| EXE / SFX | 已完善 ZIP SFX | 新增可寻址探测：MZ/ELF/Mach-O 前缀后验证 ZIP 中央目录，不将任意 EXE 当压缩包；CLI 自动 list/test/decompress。创建仍需 feature 和对应 stub；7z/RAR/NSIS SFX 待独立载荷路由 |
 | TAR | 待复核 | |
 | TGZ / TAR.GZ | 待复核 | |
 | LZH / LHA / lh7 | 待复核 | |
