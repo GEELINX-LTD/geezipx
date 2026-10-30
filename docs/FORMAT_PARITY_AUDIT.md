@@ -27,7 +27,7 @@
 | BZ / BZ2 / TBZ / TBZ2 | 已复核并修复 | BZIP2 多成员流式读取/CRC 已具备；增加 `.bz`/`--format bz` 别名与大小写输出名处理，修复独立编码 API 非法等级 panic。`.bz` 仅指 BZIP2 容器，旧 BZIP/BZ0 算法未实现；TAR.BZ2 顺序 visitor 已接入共享提取/校验路径；旧 infallible TAR writer 构造器仍要求调用者校验等级 |
 | CAB | 已优化创建内存并修复空包 | 创建不再整包 Vec，单临时文件暂存/64KiB 缓冲，限制单项32-bit长度；空输入输出合法 CAB，纯空目录返回明确错误。3MiB生成流/空包及现有 Store/MSZIP/路径回归通过。读取通过 cab 0.6 支持单卷 Store/MSZIP/LZX，单项 read_file 仍重建 folder decoder，整包重复解压债务需上游开放 folder 顺序读取器；多卷未接入 |
 | 化合物 / MSI | 已实现容器流提取 | cfb 0.15；识别 CFB magic/.msi/.msp/.mst/.cfb/.ole；目录/mini-stream/普通流使用 Read+Seek 按需复制，元数据驻内存。提取原始 OLE/MSI streams，不解释 MSI 数据库 File 表，不自动展开内嵌 CAB |
-| DAA 1.0 | 待复核 | |
+| DAA 1.0 | 暂缓：无已验证适配器/语料 | 可参考 GPL-2.0 daa2iso，但本项目 MIT，未直接移植；尚无独立 DAA1.0 chunk/损坏/密码/分卷语料验证。后续独立规范实现或隔离转换器需先定依赖/许可策略；必须有界块索引+缓存，转换 ISO 后再提供内容视图，不能仅识别 DAA 算支持 |
 | DEB | 已优化创建内存及顺序提取 | 创建从整包原文/TAR/压缩载荷 Vec 改为磁盘暂存/64KiB 缓冲，控制信息仅小 Vec；读取 gzip/xz/zstd/bzip2/lzma/plain TAR 复用单次顺序 visitor，整包不再逐项重复解压并验证 codec trailer。现有6 codec/路径/空目录回归与新增 TAR 终止符之后 gzip CRC 损坏回归通过。创建仍经原文/TAR/压缩暂存多遍磁盘I/O，后续可将 TAR builder 直接连到编码器；只提取 data.tar 内容，不解释控制信息 |
 | EGG | 部分实现 | 单卷非 solid 未加密 Store/Deflate/BZip2/LZMA 流式提取，逐块 CRC32/长度校验；LZMA 字典内存上限 256 MiB。使用 unegg 0.2.1 解析索引，绕开其整块 LZMA 缓冲路径。AZO/solid/分卷/加密暂缓；4 方法合成结构与损坏 CRC 测试通过，真实 EGG 样本互操作待补 |
 | IMG / IMA | 已实现光盘内容读取 | 与 BIN 复用 cooked/raw 光盘 reader，实际提取 ISO/UDF 文件，非光盘数据拒绝。FAT12/16/32、NTFS、分区盘、稀疏磁盘/多轨待补，不能宣称通用 IMG 支持；旧 core/CLI stdin copy API 保留显式透传 |
@@ -61,6 +61,12 @@
 - 核对对象是 ZipTV 的 BlakHole `.bh`，不是同名的现代 BlackHole compression 项目；参考 [格式目录](http://fileformats.archiveteam.org/wiki/BlakHole)及 [ZipTV 格式说明](https://filext.com/file-extension/BH)。
 - 本轮库/源码检索未取得能验证方法编号、文件头边界、CRC 和密码语义的适配器与独立样本。没有把 `.bh` 直接映射到 ZIP 或声称“无 Rust crate 就无法支持”。
 - 下一步：取得可合法分发的 ZipTV 实际生成语料和可核对的布局；先实现单卷未加密 Store，再接具体 codec；限制名称/索引大小，按需 seek/take，独立校验 CRC/长度并与原工具比较文件哈希。没有这些证据前不合入猜测性的解码器。
+
+### DAA 1.0
+
+- 找到 [daa2iso](https://github.com/rsenn/daa2iso)参考实现：能够把 DAA 转为 ISO，公开仓库为 GPL-2.0；它是 C 转换器，不是现有 Rust archive reader。本项目声明 MIT，本轮未把其实现直接复制或链接进 core。
+- 缺口是 DAA 1.0 容器头、块索引/偏移、压缩块及校验的实现和独立语料。参考转换器可帮助建立预期 ISO 字节，但不能把调用转换器当作已经完成跨平台底层实现。
+- 下一步先取得 DAA1.0 标准样本、不可压缩块、尾块、损坏/截断样本；依据可用规范独立实现 Read+Seek 单块缓存，验证生成 ISO 哈希，再复用 ISO/UDF reader。分卷/密码另列能力范围。若选择接入 C 参考实现或外部转换器，需明确许可/分发及 Windows/macOS/Linux 构建策略。
 
 ## ZIP / ZIPX
 
