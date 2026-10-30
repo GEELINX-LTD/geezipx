@@ -27,6 +27,7 @@ use crate::error::{GeeZipError, GeeZipResult};
 pub struct AceReader {
     path: PathBuf,
     format: ArchiveFormat,
+    password: Option<String>,
 }
 
 impl fmt::Debug for AceReader {
@@ -44,18 +45,24 @@ impl AceReader {
         Self {
             path: path.into(),
             format: ArchiveFormat::Ace,
+            password: None,
         }
     }
 
     fn open_archive(&self) -> GeeZipResult<UnifiedArchive<BufReader<File>>> {
         let file = File::open(&self.path)
             .map_err(|e| GeeZipError::io(e, format!("opening '{}'", self.path.display())))?;
-        UnifiedArchive::open_with_format(BufReader::new(file), UnarcFormat::Ace).map_err(|e| {
-            GeeZipError::format(
-                format!("invalid ACE archive '{}': {e}", self.path.display()),
-                ArchiveFormat::Ace,
-            )
-        })
+        let mut archive = UnifiedArchive::open_with_format(BufReader::new(file), UnarcFormat::Ace)
+            .map_err(|e| {
+                GeeZipError::format(
+                    format!("invalid ACE archive '{}': {e}", self.path.display()),
+                    ArchiveFormat::Ace,
+                )
+            })?;
+        if let Some(password) = &self.password {
+            archive.set_password(password.clone());
+        }
+        Ok(archive)
     }
 
     fn collect_entries(&self) -> GeeZipResult<Vec<Entry>> {
@@ -66,6 +73,9 @@ impl AceReader {
             .map_err(|e| GeeZipError::format(format!("ACE read error: {e}"), ArchiveFormat::Ace))?
         {
             entries.push(convert_entry(&unarc_entry));
+            archive.skip(&unarc_entry).map_err(|e| {
+                GeeZipError::format(format!("ACE skip error: {e}"), ArchiveFormat::Ace)
+            })?;
         }
         Ok(entries)
     }
@@ -74,6 +84,11 @@ impl AceReader {
 impl ArchiveReader for AceReader {
     fn format(&self) -> ArchiveFormat {
         self.format
+    }
+
+    fn set_password(&mut self, password: &str) -> GeeZipResult<()> {
+        self.password = Some(password.to_owned());
+        Ok(())
     }
 
     fn entries(&mut self) -> GeeZipResult<Vec<Entry>> {
@@ -103,7 +118,15 @@ impl ArchiveReader for AceReader {
                 })?;
                 return Ok(len);
             }
-            let _ = archive.skip(&unarc_entry);
+            let options = archive.options().clone();
+            archive
+                .skip_with_options(&unarc_entry, &options)
+                .map_err(|e| {
+                    GeeZipError::format(
+                        format!("ACE predecessor decode failed: {e}"),
+                        ArchiveFormat::Ace,
+                    )
+                })?;
         }
         Err(GeeZipError::EntryNotFound {
             name: entry.path.clone(),
@@ -126,15 +149,34 @@ fn convert_entry(unarc_entry: &UnarcEntry) -> Entry {
         path: unarc_entry.name().to_owned(),
         size: unarc_entry.original_size(),
         compressed_size: unarc_entry.compressed_size(),
-        crc32: Some(unarc_entry.crc() as u32),
+        // ACE stores the unfinalized (inverted) CRC32 state.
+        crc32: Some(!(unarc_entry.crc() as u32)),
         modified,
-        is_dir: unarc_entry.original_size() == 0 && unarc_entry.name().ends_with('/'),
+        is_dir: unarc_entry.is_directory(),
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ace_real_archive_lists_and_extracts() {
+        let temp = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(
+            temp.path(),
+            include_bytes!("../../tests/fixtures/license1.ace"),
+        )
+        .unwrap();
+        let mut reader = AceReader::new(temp.path());
+        let entries = reader.entries().unwrap();
+        assert!(!entries.is_empty());
+        for entry in entries.iter().filter(|e| !e.is_dir) {
+            let mut data = Vec::new();
+            assert_eq!(reader.extract(entry, &mut data).unwrap(), entry.size);
+            assert_eq!(crc32fast::hash(&data), entry.crc32.unwrap());
+        }
+    }
 
     #[test]
     fn ace_malformed_fails_cleanly() {

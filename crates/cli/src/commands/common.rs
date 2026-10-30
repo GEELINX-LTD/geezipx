@@ -464,9 +464,10 @@ pub fn validate_read_password_support(format: ArchiveFormat, password: Option<&s
         && format != ArchiveFormat::Rar
         && format != ArchiveFormat::Aes
         && format != ArchiveFormat::Alz
+        && format != ArchiveFormat::Ace
     {
         anyhow::bail!(
-            "--password is only supported for ZIP, 7z, RAR, AES, and ALZ formats; '{}' does not support encryption",
+            "--password is only supported for ZIP, 7z, RAR, AES, ALZ, and ACE formats; '{}' does not support encryption",
             format
         );
     }
@@ -499,7 +500,11 @@ pub fn open_reader(
             reader
         }
         ArchiveFormat::Arj => Box::new(geezipx_core::archive::arj::ArjReader::new(path)),
-        ArchiveFormat::Ace => Box::new(geezipx_core::archive::ace::AceReader::new(path)),
+        ArchiveFormat::Ace => {
+            let mut reader = geezipx_core::archive::ace::AceReader::new(path);
+            if let Some(password) = password { reader.set_password(password)?; }
+            Box::new(reader)
+        },
         ArchiveFormat::Arc => Box::new(geezipx_core::archive::arc::ArcReader::new(path)),
         ArchiveFormat::Egg => Box::new(geezipx_core::archive::egg::EggReader::open(path)?),
         ArchiveFormat::Compound => Box::new(geezipx_core::archive::compound::CompoundReader::open(path)?),
