@@ -6,7 +6,8 @@
 //!
 //! Writing produces ISO 9660 Level 1 images via `hadris-iso`. Entries are
 //! buffered in memory during `add_entry_from_reader` and written in a single
-//! pass when `finish()` is called (non-streaming by ISO format constraints).
+//! pass when `finish()` is called. This is a limitation of the current
+//! `hadris-iso` input API, not an inherent ISO format constraint.
 //! Joliet (Unicode filenames) and Rock Ridge (POSIX attributes) are enabled.
 
 use std::fmt;

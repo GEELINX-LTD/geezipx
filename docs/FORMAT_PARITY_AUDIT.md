@@ -14,7 +14,7 @@
 | TAR | 已复核 | 读写流式；`visit_entries` 单次顺序扫描，整包提取/校验不再逐项重扫。保留随机单项提取从头扫描的 API；GNU/PAX 路径与危险路径由 tar crate/共享提取层处理；现有专项回归通过 |
 | TGZ / TAR.GZ | 已复核 | 已有 gzp 并行创建、多成员读取与单次顺序提取；访问流尾时 drain 以验证 gzip trailer；现有单/多线程、取消/损坏专项回归通过。单项 extract 提前返回不校验后续项，整包 test 才覆盖全流 |
 | LZH / LHA / lh7 | 已优化 | 新增顺序 visitor，整包提取/校验避免每项从头扫描，文件 EOF 前验证 CRC16；同样覆盖 PMA。lh7 编码和现有回归通过。创建端仍逐项缓冲原文和压缩结果，后续需流式编码器 |
-| ISO / Joliet | 待复核 | |
+| ISO / Joliet | 已复核，创建性能债务暂缓 | Joliet Level 3 + Rock Ridge 已启用，读取缓存树并 seek 提取；现有 Unicode/嵌套/路径回归通过。hadris-iso 1.2.1 的 File::File 仅接受 Vec，当前创建整包驻内存且建树 clone；下一步应为依赖增加可寻址数据源或更换写入器，不能将整包缓冲归因于 ISO 格式本身 |
 | GZ | 已复核并修复 | 多成员解码与每成员 trailer/CRC 校验已具备；修复非法压缩等级在编码前返回结构化错误。独立 GZ 的 jobs 当前不生效（TAR.GZ 已支持并行），后续需保持非 static writer API 兼容 |
 | XZ / TXZ | 已优化 | `--jobs` 接入 liblzma MtStreamBuilder；默认单线程；TAR.XZ 各读取路径统一多流解码；无效选项返回错误 |
 | ACE | 待复核 | |
