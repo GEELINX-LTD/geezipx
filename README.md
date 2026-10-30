@@ -70,7 +70,7 @@
 | BIN | `.bin` | ✓ | ✓ | pass-through identity copy |
 | UU / UUE | `.uu`, `.uue` | ✓ | ✓ | text encoding/decoding |
 | XXE | `.xxe` | ✓ | ✓ | text encoding/decoding |
-| Z (Unix Compress) | `.Z` | ✗ | ✗ | Format detection only; operations are not implemented |
+| Z (Unix Compress) | `.Z` | ✗ | ✓ | Streaming LZW decoder (9–16 bit); no format checksum |
 | ARJ | `.arj` | ✓ | ✗ | read-only via unarc-rs |
 | ACE | `.ace` | ✓ | ✗ | read-only via unarc-rs |
 | ARC | `.arc` | ✓ | ✗ | read-only via unarc-rs |

@@ -68,7 +68,7 @@ egui GUI ─────┘
 - Tauri GUI 负责图形交互、任务管理、事件桥接；
 - egui GUI 负责独立的原生交互、共享进度快照与后台任务；不实现压缩编解码；
 - RAR 在当前版本中保持只读语义（UnRAR 许可限制）。WIM 支持无压缩写入与 XPRESS 读取；LZX 保留实验实现，但尚未通过 wimlib 样本互操作验证，LZMS 返回不支持错误。ISZ 为块压缩 ISO 包装，使用单流引擎读写。
-- ARJ/ACE/ARC/ALZ/Z 写入经评估永久排除（见 PRD §5.2）；ALZ/Z 仅保留格式识别，尚未实现操作支持；UU/UUE/XXE 已支持编码与解码。
+- ARJ/ACE/ARC/ALZ/Z 创建不在当前目标内；ALZ 仍待接入，Unix compress `.Z` 已支持流式 LZW 解码；UU/UUE/XXE 已支持流式编码与解码。
 - DEB、CAB、ASAR、CPIO（newc/odc）、LZH/LHA（lh0-lh7）、7z（含高级方法选择）、ISO、ZPAQ、UDF、AES、IMG、BIN 均已实现完整读写。
 
 ## 2. 模块设计
@@ -493,7 +493,7 @@ crates/gui-tauri/
 | 下一候选版尚未完成三平台发布演练 | 新变更仍可能暴露平台编译或打包问题 | 按候选提交运行 release dry-run，并核对 artifacts、SHA256 与原生验收记录 |
 | 大文件压缩进度依赖预扫描总量 | 首次开始任务前会有扫描延迟 | UI 上明确扫描阶段 |
 | Windows 长路径/符号链接差异 | 个别归档场景行为与 Unix 不完全一致 | 持续测试 + 文档限制说明 |
-| RAR / ARJ / ACE / ARC 只读，ALZ / Z 尚未实现操作支持 | GUI 不能创建这些格式，且桥接范围小于 core/CLI | 以 PRD 和各 GUI 格式表分别说明范围 |
+| RAR / ARJ / ACE / ARC / Z 只读，ALZ 尚未实现操作支持 | GUI 不能创建这些格式，且桥接范围小于 core/CLI | 以 PRD 和各 GUI 格式表分别说明范围 |
 | WIM / ISZ writer 为标准模式外的实现 | WIM 为无压缩写入、ISZ 为单流引擎（非 ArchiveWriter trait） | 在文档中明确能力边界 |
 | LZH/LHA writer 为缓冲写入（lh0-lh7 压缩均支持） | 不支持加密、多卷、extended header；单个 entry payload 会缓冲 | 在产品文档中明确限制范围 |
 | Windows COM DelegateExecute 右键菜单仍需完整原生验收 | 已通过原生编译和 NSIS 构建，Explorer 选区传递、升级与卸载仍需实机确认 | 按 `docs/RELEASE_CHECKLIST.md` 记录候选提交与逐项验收结果 |
@@ -523,7 +523,7 @@ crates/gui-tauri/
 | AES 容器 | 支持经过验证的非流式容器；拒绝存在认证漏洞的 streaming schema 和超出 KDF 策略的外部容器；流式 AES 仍需认证 framing 设计 |
 | 系统关联恢复 | 多键注册尚无完整回滚；Linux 旧 handler 备份仅会话内有效，desktop ID 查找未完整遵循 XDG；安装关联表仍宽于 GUI 实际能力 |
 | 组事务与持久性 | 多文件提取按条目发布，多卷不能整组原子提交；普通失败会清理，不保证强杀、断电或所有文件系统语义下的完整回滚 |
-| 格式范围 | ALZ/Z 仅识别格式，未实现操作支持；两个 GUI 的适配清单分别维护，均不等同于 core/CLI 全部能力 |
+| 格式范围 | ALZ 仅识别格式；Z 已有流式解码；两个 GUI 的适配清单分别维护，均不等同于 core/CLI 全部能力 |
 | 桌面性能与可访问性 | 尚无 Tauri/egui 同机耗时和 RSS 对照基准；仍需超大归档、键盘焦点与原生拖放实测 |
 
 Cargo workspace 成员、feature 与依赖版本以根目录及各 crate 的 `Cargo.toml`、`Cargo.lock` 为准；本文不复制完整配置。

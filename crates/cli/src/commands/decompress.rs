@@ -20,6 +20,7 @@ fn is_stream(format: ArchiveFormat) -> bool {
     matches!(
         format,
         ArchiveFormat::Gzip
+            | ArchiveFormat::Z
             | ArchiveFormat::Bzip2
             | ArchiveFormat::Brotli
             | ArchiveFormat::Lz4
@@ -246,6 +247,9 @@ fn decode<R: Read, W: Write>(
     // Check cancellation on output too, including buffered or memory-backed decoders.
     let mut writer = ProgressWriter::new(writer).with_callback(Box::new(callback(cancel)));
     let bytes = match format {
+        ArchiveFormat::Z => {
+            geezipx_core::archive::unix_compress::z_decompress(&mut reader, &mut writer)?
+        }
         ArchiveFormat::Gzip | ArchiveFormat::TarGz => {
             gzip::gzip_decompress(&mut reader, &mut writer)?
         }
@@ -290,6 +294,11 @@ fn decode<R: Read, W: Write>(
 
 fn output_filename(archive: &Path, format: ArchiveFormat) -> PathBuf {
     match format {
+        ArchiveFormat::Z => archive
+            .with_extension("")
+            .file_name()
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from("output")),
         ArchiveFormat::Gzip => common::gzip_output_filename(archive),
         ArchiveFormat::Bzip2 => common::bzip2_output_filename(archive),
         ArchiveFormat::Brotli => common::brotli_output_filename(archive),

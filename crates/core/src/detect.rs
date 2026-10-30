@@ -75,10 +75,9 @@ pub enum ArchiveFormat {
     Ace,
     /// ARC/PAK archive (extension-based — `.arc`, `.pak`; no stable magic header).
     Arc,
-    /// Unix compress stream (`.Z`) — LZW compression (extension-based; no stable magic header).
     /// ALZ archive (extension-based — `.alz`; no stable magic header).
     Alz,
-    /// Unix compress stream (`.Z`) — LZW compression (extension-based; no stable magic header).
+    /// Unix compress stream (`.Z`) — LZW compression with a 9–16 bit dictionary.
     Z,
     /// UDF disc image (`.udf`) — extension-based; no reliable magic in first 8 bytes.
     Udf,
@@ -208,7 +207,7 @@ const EXTENSION_MAP: &[(&str, ArchiveFormat)] = &[
     (".arj", ArchiveFormat::Arj),
     (".ace", ArchiveFormat::Ace),
     (".arc", ArchiveFormat::Arc),
-    (".Z", ArchiveFormat::Z),
+    (".z", ArchiveFormat::Z),
     (".alz", ArchiveFormat::Alz),
     (".udf", ArchiveFormat::Udf),
     (".img", ArchiveFormat::Img),
@@ -250,6 +249,9 @@ const EXTENSION_MAP: &[(&str, ArchiveFormat)] = &[
 pub fn detect_format(data: &[u8]) -> Option<ArchiveFormat> {
     if data.starts_with(MAGIC_ZIP) || data.starts_with(MAGIC_ZIP_EMPTY) {
         return Some(ArchiveFormat::Zip);
+    }
+    if data.starts_with(&[0x1f, 0x9d]) {
+        return Some(ArchiveFormat::Z);
     }
     if data.starts_with(MAGIC_GZIP) {
         return Some(ArchiveFormat::Gzip);

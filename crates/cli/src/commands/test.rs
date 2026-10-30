@@ -52,6 +52,7 @@ fn run_verify(archive: &Path, json: bool, password: Option<String>) -> Result<()
 
     let report = match format {
         ArchiveFormat::Gzip
+        | ArchiveFormat::Z
         | ArchiveFormat::Bzip2
         | ArchiveFormat::Brotli
         | ArchiveFormat::Lz4
@@ -120,7 +121,6 @@ fn run_verify(archive: &Path, json: bool, password: Option<String>) -> Result<()
         | ArchiveFormat::Ace
         | ArchiveFormat::Arc
         | ArchiveFormat::Alz
-        | ArchiveFormat::Z
         | ArchiveFormat::Asar
         | ArchiveFormat::Deb
         | ArchiveFormat::Cab

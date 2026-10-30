@@ -81,6 +81,9 @@ pub fn verify_single_stream(path: &Path, format: ArchiveFormat) -> GeeZipResult<
     let mut file = std::fs::File::open(path).map_err(|e| GeeZipError::io(e, "opening archive"))?;
 
     let bytes_read: u64 = match format {
+        ArchiveFormat::Z => {
+            crate::archive::unix_compress::z_decompress(&mut file, &mut std::io::sink())?
+        }
         ArchiveFormat::Gzip => {
             crate::archive::gzip::gzip_decompress(&mut file, &mut std::io::sink())?
         }

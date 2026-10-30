@@ -47,6 +47,18 @@ pub fn execute(archive: &Path, json: bool, password: Option<String>) -> Result<(
                 is_dir: false,
             }]
         }
+        ArchiveFormat::Z => vec![Entry {
+            path: archive
+                .file_stem()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .into_owned(),
+            size: 0,
+            compressed_size: fs::metadata(archive)?.len(),
+            crc32: None,
+            modified: None,
+            is_dir: false,
+        }],
         ArchiveFormat::Gzip => {
             // Gzip is a single-stream compression — produce a synthetic entry.
             let inferred_name = common::gzip_output_filename(archive);
