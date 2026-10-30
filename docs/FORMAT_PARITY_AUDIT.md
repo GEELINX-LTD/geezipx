@@ -25,7 +25,7 @@
 | BIN | 已实现光盘内容读取 | CLI list/test/decompress 改为解析 ISO9660/Joliet/Rock Ridge/UDF；支持 2048-byte cooked 和单轨 2352-byte Mode1/Mode2 Form1，缓存索引/按需 seek/64KiB 缓冲，拒绝未知文件。音轨/CUE/混合轨、分区/FAT 等磁盘布局暂缓，需多轨/文件系统适配；旧 core bin_decompress 仍为显式原始复制 API |
 | BR | 待复核 | |
 | BZ / BZ2 / TBZ / TBZ2 | 已复核并修复 | BZIP2 多成员流式读取/CRC 已具备；增加 `.bz`/`--format bz` 别名与大小写输出名处理，修复独立编码 API 非法等级 panic。`.bz` 仅指 BZIP2 容器，旧 BZIP/BZ0 算法未实现；TAR.BZ2 顺序 visitor 已接入共享提取/校验路径；旧 infallible TAR writer 构造器仍要求调用者校验等级 |
-| CAB | 待复核 | |
+| CAB | 已优化创建内存并修复空包 | 创建不再整包 Vec，单临时文件暂存/64KiB 缓冲，限制单项32-bit长度；空输入输出合法 CAB，纯空目录返回明确错误。3MiB生成流/空包及现有 Store/MSZIP/路径回归通过。读取通过 cab 0.6 支持单卷 Store/MSZIP/LZX，单项 read_file 仍重建 folder decoder，整包重复解压债务需上游开放 folder 顺序读取器；多卷未接入 |
 | 化合物 / MSI | 已实现容器流提取 | cfb 0.15；识别 CFB magic/.msi/.msp/.mst/.cfb/.ole；目录/mini-stream/普通流使用 Read+Seek 按需复制，元数据驻内存。提取原始 OLE/MSI streams，不解释 MSI 数据库 File 表，不自动展开内嵌 CAB |
 | DAA 1.0 | 待复核 | |
 | DEB | 待复核 | |
