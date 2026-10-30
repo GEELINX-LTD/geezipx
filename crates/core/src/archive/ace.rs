@@ -17,7 +17,9 @@ use std::fs::File;
 use std::io::{BufReader, Write};
 use std::path::PathBuf;
 
-use unarc_rs::unified::{ArchiveEntry as UnarcEntry, ArchiveFormat as UnarcFormat, UnifiedArchive};
+use unarc_rs::unified::{
+    ArchiveEntry as UnarcEntry, ArchiveFormat as UnarcFormat, ArchiveOptions, UnifiedArchive,
+};
 
 use crate::archive::{ArchiveReader, Entry};
 use crate::detect::ArchiveFormat;
@@ -52,17 +54,23 @@ impl AceReader {
     fn open_archive(&self) -> GeeZipResult<UnifiedArchive<BufReader<File>>> {
         let file = File::open(&self.path)
             .map_err(|e| GeeZipError::io(e, format!("opening '{}'", self.path.display())))?;
-        let mut archive = UnifiedArchive::open_with_format(BufReader::new(file), UnarcFormat::Ace)
-            .map_err(|e| {
-                GeeZipError::format(
-                    format!("invalid ACE archive '{}': {e}", self.path.display()),
-                    ArchiveFormat::Ace,
-                )
-            })?;
+        // The unified setter changes options without updating the ACE backend.
+        // Supply the password while opening so ordinary read() also receives it.
+        let mut options = ArchiveOptions::default();
         if let Some(password) = &self.password {
-            archive.set_password(password.clone());
+            options = options.with_password(password.clone());
         }
-        Ok(archive)
+        UnifiedArchive::open_with_format_and_options(
+            BufReader::new(file),
+            UnarcFormat::Ace,
+            options,
+        )
+        .map_err(|e| {
+            GeeZipError::format(
+                format!("invalid ACE archive '{}': {e}", self.path.display()),
+                ArchiveFormat::Ace,
+            )
+        })
     }
 
     fn collect_entries(&self) -> GeeZipResult<Vec<Entry>> {
@@ -159,6 +167,45 @@ fn convert_entry(unarc_entry: &UnarcEntry) -> Entry {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ace_password_reaches_backend_before_open() {
+        fn header(data: &[u8]) -> Vec<u8> {
+            let mut bytes = ((!crc32fast::hash(data)) as u16).to_le_bytes().to_vec();
+            bytes.extend_from_slice(&(data.len() as u16).to_le_bytes());
+            bytes.extend_from_slice(data);
+            bytes
+        }
+        let mut main = vec![0, 0, 0];
+        main.extend_from_slice(b"**ACE**");
+        main.extend_from_slice(&[10, 10, 0, 0]);
+        main.extend_from_slice(&[0; 12]);
+        let mut archive = header(&main);
+        let name = b"encrypted.txt";
+        let mut file = vec![1, 0x81, 0]; // file header, payload and encryption flags
+        file.extend_from_slice(&8u32.to_le_bytes());
+        file.extend_from_slice(&8u32.to_le_bytes());
+        file.extend_from_slice(&[0; 8]);
+        file.extend_from_slice(&(!crc32fast::hash(b"AAAAAAAA")).to_le_bytes());
+        file.extend_from_slice(&[0; 6]); // Store method, quality and reserved fields
+        file.extend_from_slice(&(name.len() as u16).to_le_bytes());
+        file.extend_from_slice(name);
+        archive.extend(header(&file));
+        // ACE Blowfish-CBC test vector from MIT-licensed unarc-rs 0.8.0
+        // tests/common/ace.rs: password "test", plaintext "AAAAAAAA".
+        archive.extend_from_slice(&[0x48, 0x75, 0x48, 0xa7, 0x7c, 0xd6, 0x73, 0x5d]);
+        let temp = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(temp.path(), archive).unwrap();
+        let mut reader = AceReader::new(temp.path());
+        let entry = reader.entries().unwrap().remove(0);
+        assert!(reader.extract(&entry, &mut Vec::new()).is_err());
+        reader.set_password("test").unwrap();
+        let mut data = Vec::new();
+        assert_eq!(reader.extract(&entry, &mut data).unwrap(), 8);
+        assert_eq!(data, b"AAAAAAAA");
+        reader.set_password("wrong").unwrap();
+        assert!(reader.extract(&entry, &mut Vec::new()).is_err());
+    }
 
     #[test]
     fn ace_real_archive_lists_and_extracts() {
