@@ -98,6 +98,8 @@ pub enum ArchiveFormat {
     Isz,
     /// Compound File Binary storage, including MSI/OLE streams (read-only).
     Compound,
+    /// EGG (non-solid, unencrypted, read-only).
+    Egg,
     /// Unknown or unrecognised format.
     Unknown,
 }
@@ -146,6 +148,7 @@ impl fmt::Display for ArchiveFormat {
             ArchiveFormat::Bin => write!(f, "bin"),
             ArchiveFormat::Isz => write!(f, "isz"),
             ArchiveFormat::Compound => write!(f, "compound"),
+            ArchiveFormat::Egg => write!(f, "egg"),
             ArchiveFormat::Unknown => write!(f, "unknown"),
         }
     }
@@ -178,6 +181,7 @@ pub const MAGIC_CAB: &[u8] = b"MSCF";
 
 /// Map of well-known single extensions to their archive format.
 const EXTENSION_MAP: &[(&str, ArchiveFormat)] = &[
+    (".egg", ArchiveFormat::Egg),
     (".msi", ArchiveFormat::Compound),
     (".msp", ArchiveFormat::Compound),
     (".mst", ArchiveFormat::Compound),
@@ -260,6 +264,9 @@ const EXTENSION_MAP: &[(&str, ArchiveFormat)] = &[
 /// extension-only because GeeZipX routes it through an optional parser
 /// integration rather than a shallow first-bytes recognizer.
 pub fn detect_format(data: &[u8]) -> Option<ArchiveFormat> {
+    if data.starts_with(b"EGGA") {
+        return Some(ArchiveFormat::Egg);
+    }
     if data.starts_with(&[0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]) {
         return Some(ArchiveFormat::Compound);
     }

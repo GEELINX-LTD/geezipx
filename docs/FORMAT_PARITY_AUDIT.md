@@ -29,7 +29,7 @@
 | 化合物 / MSI | 已实现容器流提取 | cfb 0.15；识别 CFB magic/.msi/.msp/.mst/.cfb/.ole；目录/mini-stream/普通流使用 Read+Seek 按需复制，元数据驻内存。提取原始 OLE/MSI streams，不解释 MSI 数据库 File 表，不自动展开内嵌 CAB |
 | DAA 1.0 | 待复核 | |
 | DEB | 待复核 | |
-| EGG | 待复核 | |
+| EGG | 部分实现 | 单卷非 solid 未加密 Store/Deflate/BZip2/LZMA 流式提取，逐块 CRC32/长度校验；LZMA 字典内存上限 256 MiB。使用 unegg 0.2.1 解析索引，绕开其整块 LZMA 缓冲路径。AZO/solid/分卷/加密暂缓；4 方法合成结构与损坏 CRC 测试通过，真实 EGG 样本互操作待补 |
 | IMG / IMA | 待复核 | 现有透传不算镜像提取 |
 | ISZ | 待复核 | |
 | LZ / Lzip | 待复核 | |

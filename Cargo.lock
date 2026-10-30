@@ -2903,6 +2903,7 @@ dependencies = [
  "thiserror 2.0.18",
  "unalz",
  "unarc-rs",
+ "unegg",
  "unrar",
  "xpress-huffman",
  "xz2",
@@ -4089,6 +4090,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "libazo"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6f6c46e40404f8b8a2157b078568c189fe55ace1772037c4f81281ae85ba5434"
+
+[[package]]
 name = "libbz2-rs-sys"
 version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4193,6 +4200,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7ef0d4ed8669f8f8826eb00dc878084aa8f253506c4fd5e8f58f5bce72ddb97e"
 dependencies = [
  "twox-hash",
+]
+
+[[package]]
+name = "lzma-rs"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "297e814c836ae64db86b36cf2a557ba54368d03f6afcd7d947c266692f71115e"
+dependencies = [
+ "byteorder",
+ "crc",
 ]
 
 [[package]]
@@ -7583,6 +7600,26 @@ dependencies = [
  "tar",
  "thiserror 2.0.18",
  "zip",
+]
+
+[[package]]
+name = "unegg"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b95ae8743531c14d5108515d14669b96f7d83b659b3d778aea692ce67fb23e67"
+dependencies = [
+ "aes",
+ "bzip2",
+ "crc32fast",
+ "encoding_rs",
+ "filetime",
+ "flate2",
+ "hmac",
+ "libazo",
+ "lzma-rs",
+ "pbkdf2",
+ "rpassword",
+ "sha1 0.11.0",
 ]
 
 [[package]]
