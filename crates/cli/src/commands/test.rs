@@ -133,7 +133,8 @@ fn run_verify(archive: &Path, json: bool, password: Option<String>) -> Result<()
         | ArchiveFormat::TarBr
         | ArchiveFormat::TarLz4
         | ArchiveFormat::TarZst
-        | ArchiveFormat::TarXz => {
+        | ArchiveFormat::TarXz
+        | ArchiveFormat::TarLz => {
             let mut reader = common::open_reader(archive, format, password.as_deref())?;
             verify_archive_reader(&mut *reader)
                 .with_context(|| format!("verifying '{}'", archive.display()))?

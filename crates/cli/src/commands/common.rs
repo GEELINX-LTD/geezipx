@@ -73,6 +73,7 @@ pub fn parse_format(s: &str) -> Result<ArchiveFormat> {
         "zst" | "zstd" => Ok(ArchiveFormat::Zstd),
         "tar.zst" | "tzst" => Ok(ArchiveFormat::TarZst),
         "tar.xz" | "txz" => Ok(ArchiveFormat::TarXz),
+        "tar.lzma" | "tar.lz" | "tlz" => Ok(ArchiveFormat::TarLz),
         "xz" => Ok(ArchiveFormat::Xz),
         "lzma" => Ok(ArchiveFormat::Lzma),
         "lz" => Ok(ArchiveFormat::Lz),
@@ -99,7 +100,7 @@ pub fn parse_format(s: &str) -> Result<ArchiveFormat> {
         "uu" | "uue" => Ok(ArchiveFormat::Uu),
         "xxe" => Ok(ArchiveFormat::Xxe),
         other => Err(anyhow::anyhow!(
-            "unsupported format '{other}'; expected: zip, zipx, jar, war, apk, ipa, xpi, tar, tar.gz, tgz, tar.bz2, tbz, tbz2, tar.br, gz, gzip, bz2, bzip2, br, brotli, lz4, tar.lz4, zst, zstd, tar.zst, tzst, tar.xz, txz, xz, lzma, lz, 7z, rar, cab, asar, deb, lzh, lha, iso, udf, cpio, zpaq, zpq, wim, swm, uu, uue, xxe, isz"
+            "unsupported format '{other}'; expected: zip, zipx, jar, war, apk, ipa, xpi, tar, tar.gz, tgz, tar.bz2, tbz, tbz2, tar.br, gz, gzip, bz2, bzip2, br, brotli, lz4, tar.lz4, zst, zstd, tar.zst, tzst, tar.xz, txz, tar.lzma, tar.lz, tlz, xz, lzma, lz, 7z, rar, cab, asar, deb, lzh, lha, iso, udf, cpio, zpaq, zpq, wim, swm, uu, uue, xxe, isz"
         )),
     }
 }
@@ -182,7 +183,12 @@ pub fn detect_archive_format_from_reader<R: Read + Seek>(
         Some(ArchiveFormat::Xz) => {
             resolve_tar_wrapped(ArchiveFormat::Xz, ArchiveFormat::TarXz, fallback_path)
         }
-        Some(ArchiveFormat::Lzma) => ArchiveFormat::Lzma,
+        Some(ArchiveFormat::Lzma) => {
+            resolve_tar_wrapped(ArchiveFormat::Lzma, ArchiveFormat::TarLz, fallback_path)
+        }
+        Some(ArchiveFormat::Lz) => {
+            resolve_tar_wrapped(ArchiveFormat::Lz, ArchiveFormat::TarLz, fallback_path)
+        }
         Some(fmt) => fmt,
         None => match fallback_path {
             Some(path) => detect::detect_from_extension(path).ok_or_else(|| {
@@ -514,6 +520,7 @@ pub fn open_reader(
         ArchiveFormat::TarLz4 => Box::new(TarLz4Reader::new(file)),
         ArchiveFormat::TarZst => Box::new(TarZstReader::new(file)),
         ArchiveFormat::TarXz => Box::new(TarXzReader::new(file)),
+        ArchiveFormat::TarLz => Box::new(geezipx_core::archive::tarlz::TarLzReader::new(file)),
         #[cfg(feature = "rar")]
         ArchiveFormat::Rar => {
             let mut reader = Box::new(RarReader::new(path));
@@ -1108,6 +1115,24 @@ mod tests {
     fn parse_format_zpaq_aliases() {
         assert_eq!(parse_format("zpaq").unwrap(), ArchiveFormat::Zpaq);
         assert_eq!(parse_format("zpq").unwrap(), ArchiveFormat::Zpaq);
+    }
+
+    #[test]
+    fn detect_tlz_conventions() {
+        for suffix in ["tlz", "tar.lzma", "tar.lz"] {
+            for magic in [b"LZIP".as_slice(), &[0x5d, 0, 0, 0x80, 0, 0xff, 0xff, 0xff]] {
+                let mut input = std::io::Cursor::new(magic);
+                assert_eq!(
+                    detect_archive_format_from_reader(
+                        &mut input,
+                        Some(Path::new(&format!("a.{suffix}")))
+                    )
+                    .unwrap(),
+                    ArchiveFormat::TarLz
+                );
+                assert_eq!(input.position(), 0);
+            }
+        }
     }
 
     #[test]

@@ -46,6 +46,7 @@ fn is_wrapped(format: ArchiveFormat) -> bool {
             | ArchiveFormat::TarLz4
             | ArchiveFormat::TarZst
             | ArchiveFormat::TarXz
+            | ArchiveFormat::TarLz
     )
 }
 
@@ -266,6 +267,10 @@ fn decode<R: Read, W: Write>(
             zstd::zstd_decompress(&mut reader, &mut writer)?
         }
         ArchiveFormat::Xz | ArchiveFormat::TarXz => xz::xz_decompress(&mut reader, &mut writer)?,
+        ArchiveFormat::TarLz => std::io::copy(
+            &mut geezipx_core::archive::tarlz::decoder(&mut reader)?,
+            &mut writer,
+        )?,
         ArchiveFormat::Lzma => xz::lzma_decompress(&mut reader, &mut writer)?,
         ArchiveFormat::Lz => lz::lz_decompress(&mut reader, &mut writer)?,
         ArchiveFormat::Img => img::img_decompress(&mut reader, &mut writer)?,

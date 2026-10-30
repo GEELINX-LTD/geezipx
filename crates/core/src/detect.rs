@@ -49,6 +49,8 @@ pub enum ArchiveFormat {
     Lzma,
     /// Tar archive compressed with XZ (extension-based — `.tar.xz`, `.txz`).
     TarXz,
+    /// TAR wrapped in LZMA Alone or lzip (`.tlz`, `.tar.lzma`, `.tar.lz`), read-only.
+    TarLz,
     /// 7z archive (`37 7A BC AF 27 1C`).
     SevenZip,
     /// RAR archive (`52 61 72 21 1A 07`).
@@ -117,6 +119,7 @@ impl fmt::Display for ArchiveFormat {
             ArchiveFormat::TarZst => write!(f, "tar.zst"),
             ArchiveFormat::Udf => write!(f, "udf"),
             ArchiveFormat::TarXz => write!(f, "tar.xz"),
+            ArchiveFormat::TarLz => write!(f, "tar.lzma"),
             ArchiveFormat::Lzma => write!(f, "lzma"),
             ArchiveFormat::Lz => write!(f, "lz"),
             ArchiveFormat::SevenZip => write!(f, "7z"),
@@ -314,6 +317,9 @@ pub fn detect_from_extension(path: &Path) -> Option<ArchiveFormat> {
     }
     if lower.ends_with(".tar.lz4") {
         return Some(ArchiveFormat::TarLz4);
+    }
+    if lower.ends_with(".tar.lzma") || lower.ends_with(".tar.lz") || lower.ends_with(".tlz") {
+        return Some(ArchiveFormat::TarLz);
     }
     if lower.ends_with(".tar.xz") || lower.ends_with(".txz") {
         return Some(ArchiveFormat::TarXz);

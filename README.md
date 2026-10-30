@@ -54,6 +54,7 @@
 | LZMA | `.lzma` | ✓ | ✓ | level 0-9 |
 | LZ / Lzip | `.lz` | ✓ | ✓ | LZMA container with CRC-32 |
 | PMA | `.pma` | ✗ | ✓ | PMarc pm0/pm1/pm2, streaming and CRC16 verification |
+| TLZ | `.tlz`, `.tar.lzma`, `.tar.lz` | ✗ | ✓ | TAR wrapped in LZMA Alone or lzip; streaming |
 | 7Z | `.7z` | ✓ | ✓ | AES-256 encrypt; solid mode; LZMA2/LZMA/BZIP2/PPMD/DEFLATE |
 | ISO 9660 | `.iso` | ✓ | ✓ | Level 1 write; Joliet/Rock Ridge read |
 | UDF | `.udf` | ✓ | ✓ | UDF 2.01 write; non-streaming by format |

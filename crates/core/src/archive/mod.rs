@@ -39,6 +39,7 @@ pub mod tar;
 pub mod tarbr;
 pub mod tarbz2;
 pub mod targz;
+pub mod tarlz;
 pub mod tarlz4;
 pub mod tarxz;
 pub mod tarzst;
