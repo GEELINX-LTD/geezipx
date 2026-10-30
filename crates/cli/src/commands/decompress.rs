@@ -28,7 +28,6 @@ fn is_stream(format: ArchiveFormat) -> bool {
             | ArchiveFormat::Xz
             | ArchiveFormat::Lzma
             | ArchiveFormat::Lz
-            | ArchiveFormat::Isz
             | ArchiveFormat::Aes
             | ArchiveFormat::Uu
             | ArchiveFormat::Xxe
@@ -125,7 +124,10 @@ pub fn execute(
     if stdout
         && !(is_stream(format)
             || is_wrapped(format)
-            || matches!(format, ArchiveFormat::Img | ArchiveFormat::Bin))
+            || matches!(
+                format,
+                ArchiveFormat::Img | ArchiveFormat::Bin | ArchiveFormat::Isz
+            ))
     {
         anyhow::bail!("--stdout is only supported for single-stream formats and tar-wrapped raw-stream output; '{format}' is a multi-file archive");
     }

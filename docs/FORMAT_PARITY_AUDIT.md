@@ -31,7 +31,7 @@
 | DEB | 待复核 | |
 | EGG | 部分实现 | 单卷非 solid 未加密 Store/Deflate/BZip2/LZMA 流式提取，逐块 CRC32/长度校验；LZMA 字典内存上限 256 MiB。使用 unegg 0.2.1 解析索引，绕开其整块 LZMA 缓冲路径。AZO/solid/分卷/加密暂缓；4 方法合成结构与损坏 CRC 测试通过，真实 EGG 样本互操作待补 |
 | IMG / IMA | 已实现光盘内容读取 | 与 BIN 复用 cooked/raw 光盘 reader，实际提取 ISO/UDF 文件，非光盘数据拒绝。FAT12/16/32、NTFS、分区盘、稀疏磁盘/多轨待补，不能宣称通用 IMG 支持；旧 core/CLI stdin copy API 保留显式透传 |
-| ISZ | 待复核 | |
+| ISZ | 已修复兼容性并优化内存/提取 | 按公开规范将 block_size 改为字节并接受 48-byte 头，兼容旧 GeeZipX 64-byte/sector 字段；创建使用 2MiB 输入块/磁盘暂存载荷和索引，Store/Zlib/Zero 自选。新增 Read+Seek 单块缓存（解压块/index 各最大64MiB），CLI list/decompress 直接提取 ISO 内文件，--stdout 仍还原 ISO，test 校验全部块。加密/分卷/非3-byte pointers 暂缓；真实 UltraISO 样本互操作待补；规范 https://forum.imgburn.com/topic/14260-isz-images-supporting/ |
 | LZ / Lzip | 待复核 | |
 | LZMA | 待复核 | |
 | PMA | 已实现读取 | 升级 delharc 0.8，启用 pm0/pm1/pm2；复用 LHA 流式读取与 CRC16 校验；独立 PM1/PM2 样本及 CRC32 验证通过；拒绝以 PMA 名义创建 LZH |

@@ -70,7 +70,7 @@ GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开�
 | DEB (.deb) | 读写 | ar 容器 + control.tar.gz + data.tar.* |
 | ASAR (.asar) | 读写 | Electron 归档 |
 | UDF (.udf) | 读写 | Universal Disk Format |
-| ISZ (.isz) | 读写 | 块压缩 ISO 包装 |
+| ISZ (.isz) | 读写 | 2MiB 有界块/磁盘暂存创建；单块缓存 seek 直接提取 ISO 文件；--stdout 还原 ISO，暂不支持加密/分卷 |
 | SFX (.exe) | 按构建目标提供 | 自解压 ZIP；缺少或为空的目标 stub 明确报错 |
 | UU (.uu/.uue) | 读写 | 自实现编解码器 |
 | XXE (.xxe) | 读写 | 自实现编解码器 |

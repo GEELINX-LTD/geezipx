@@ -65,7 +65,7 @@
 | CAB | `.cab` | ✓ | ✓ | single-volume only; no encrypt |
 | DEB | `.deb` | ✓ | ✓ | data.tar\* payload; no encrypt |
 | WIM / SWM | `.wim`, `.swm` | ✓ | ✓ | Uncompressed write; XPRESS read; LZX interoperability remains unresolved; LZMS unsupported |
-| ISZ | `.isz` | ✓ | ✓ | compressed ISO wrapper; single-stream |
+| ISZ | `.isz` | ✓ | ✓ | block-bounded ISO wrapper; lists/extracts ISO files; `decompress --stdout` restores padded ISO; no encryption/segments |
 | RAR | `.rar` | ✓ | ✗ | read-only (licensing limitation); decryption supported |
 | AES encrypted | `.enc` | ✓ | ✓ | AES-256-GCM-SIV + Argon2id; authenticated container; buffered processing |
 | EGG | `.egg` | ✗ | Partial | Single-volume, non-solid, unencrypted Store/Deflate/BZip2/LZMA; streaming block CRC checks |

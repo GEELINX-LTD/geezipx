@@ -24,14 +24,9 @@ pub fn execute(archive: &Path, json: bool, password: Option<String>) -> Result<(
     common::validate_read_password_support(format, password.as_deref())?;
 
     let entries = match format {
-        ArchiveFormat::Aes | ArchiveFormat::Isz => {
+        ArchiveFormat::Aes => {
             let inferred_name = match format {
                 ArchiveFormat::Aes => common::aes_output_filename(archive),
-                ArchiveFormat::Isz => archive
-                    .with_extension("iso")
-                    .file_name()
-                    .map(std::path::PathBuf::from)
-                    .unwrap_or_else(|| "output.iso".into()),
                 _ => unreachable!(),
             };
             vec![Entry {

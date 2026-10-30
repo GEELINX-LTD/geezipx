@@ -485,11 +485,49 @@ fn optical_images_extract_contents_and_reject_random_data() {
 }
 
 #[test]
+fn isz_lists_and_extracts_inner_optical_files() {
+    let dir = tempfile::tempdir().unwrap();
+    let source = dir.path().join("source.txt");
+    fs::write(&source, b"inside ISZ").unwrap();
+    let iso = dir.path().join("image.iso");
+    let archive = dir.path().join("image.isz");
+    compress(&source, &iso, "iso");
+    compress(&iso, &archive, "isz");
+    cli()
+        .args(["list", "--json"])
+        .arg(&archive)
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("source.txt"));
+    cli().arg("test").arg(&archive).assert().success();
+    let output = dir.path().join("files");
+    cli()
+        .arg("decompress")
+        .arg(&archive)
+        .arg("-o")
+        .arg(&output)
+        .assert()
+        .success();
+    assert_eq!(fs::read(output.join("source.txt")).unwrap(), b"inside ISZ");
+    let decoded = cli()
+        .arg("decompress")
+        .arg(&archive)
+        .arg("--stdout")
+        .output()
+        .unwrap();
+    assert!(decoded.status.success());
+    let original = fs::read(iso).unwrap();
+    assert_eq!(decoded.stdout.len(), original.len().div_ceil(2048) * 2048);
+    assert!(decoded.stdout.starts_with(&original));
+    assert!(decoded.stdout[original.len()..].iter().all(|&b| b == 0));
+}
+
+#[test]
 fn single_stream_test_and_list_are_consistent() {
     let dir = tempfile::tempdir().unwrap();
     let source = dir.path().join("source");
     fs::write(&source, b"data").unwrap();
-    for (format, extension) in [("lz", "lz"), ("isz", "isz")] {
+    for (format, extension) in [("lz", "lz"), ("gzip", "gz")] {
         let archive = dir.path().join(format!("data.{extension}"));
         compress(&source, &archive, format);
         let verification = cli()
