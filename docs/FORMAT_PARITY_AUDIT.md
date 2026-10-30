@@ -28,7 +28,7 @@
 | CAB | 已优化创建内存并修复空包 | 创建不再整包 Vec，单临时文件暂存/64KiB 缓冲，限制单项32-bit长度；空输入输出合法 CAB，纯空目录返回明确错误。3MiB生成流/空包及现有 Store/MSZIP/路径回归通过。读取通过 cab 0.6 支持单卷 Store/MSZIP/LZX，单项 read_file 仍重建 folder decoder，整包重复解压债务需上游开放 folder 顺序读取器；多卷未接入 |
 | 化合物 / MSI | 已实现容器流提取 | cfb 0.15；识别 CFB magic/.msi/.msp/.mst/.cfb/.ole；目录/mini-stream/普通流使用 Read+Seek 按需复制，元数据驻内存。提取原始 OLE/MSI streams，不解释 MSI 数据库 File 表，不自动展开内嵌 CAB |
 | DAA 1.0 | 待复核 | |
-| DEB | 待复核 | |
+| DEB | 已优化创建内存及顺序提取 | 创建从整包原文/TAR/压缩载荷 Vec 改为磁盘暂存/64KiB 缓冲，控制信息仅小 Vec；读取 gzip/xz/zstd/bzip2/lzma/plain TAR 复用单次顺序 visitor，整包不再逐项重复解压并验证 codec trailer。现有6 codec/路径/空目录回归与新增 TAR 终止符之后 gzip CRC 损坏回归通过。创建仍经原文/TAR/压缩暂存多遍磁盘I/O，后续可将 TAR builder 直接连到编码器；只提取 data.tar 内容，不解释控制信息 |
 | EGG | 部分实现 | 单卷非 solid 未加密 Store/Deflate/BZip2/LZMA 流式提取，逐块 CRC32/长度校验；LZMA 字典内存上限 256 MiB。使用 unegg 0.2.1 解析索引，绕开其整块 LZMA 缓冲路径。AZO/solid/分卷/加密暂缓；4 方法合成结构与损坏 CRC 测试通过，真实 EGG 样本互操作待补 |
 | IMG / IMA | 已实现光盘内容读取 | 与 BIN 复用 cooked/raw 光盘 reader，实际提取 ISO/UDF 文件，非光盘数据拒绝。FAT12/16/32、NTFS、分区盘、稀疏磁盘/多轨待补，不能宣称通用 IMG 支持；旧 core/CLI stdin copy API 保留显式透传 |
 | ISZ | 已修复兼容性并优化内存/提取 | 按公开规范将 block_size 改为字节并接受 48-byte 头，兼容旧 GeeZipX 64-byte/sector 字段；创建使用 2MiB 输入块/磁盘暂存载荷和索引，Store/Zlib/Zero 自选。新增 Read+Seek 单块缓存（解压块/index 各最大64MiB），CLI list/decompress 直接提取 ISO 内文件，--stdout 仍还原 ISO，test 校验全部块。加密/分卷/非3-byte pointers 暂缓；真实 UltraISO 样本互操作待补；规范 https://forum.imgburn.com/topic/14260-isz-images-supporting/ |
