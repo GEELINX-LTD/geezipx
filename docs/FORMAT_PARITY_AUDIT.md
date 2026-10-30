@@ -9,7 +9,7 @@
 | 项目（含别名） | 本轮结果 | 验证/限制 |
 | --- | --- | --- |
 | ZIP / ZIPX / XPI | 已完善 | ZIPX 使用 XZ method 95；ZIP 级别透传；启用 XZ/LZMA/BZIP2/Deflate64/ZSTD/PPMd 读取；专有 JPEG/WavPack 方法未覆盖 |
-| 7Z / 7Z(LZMA2) | 待复核 | |
+| 7Z / 7Z(LZMA2) | 已优化 | solid 按 64 MiB/1024 项分块，单项 >8 MiB 暂存磁盘；加密保留自定义字典；jobs=0 自动识别；读取使用库的顺序提取避免逐项重解 solid |
 | EXE / SFX | 待复核 | |
 | TAR | 待复核 | |
 | TGZ / TAR.GZ | 待复核 | |
