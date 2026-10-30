@@ -647,6 +647,66 @@ impl<R: Read + Seek + Send> ArchiveReader for LzhReader<R> {
         scan_lzh_entries(&mut self.inner)
     }
 
+    fn visit_entries(
+        &mut self,
+        visitor: &mut super::EntryVisitor<'_>,
+        is_cancelled: &dyn Fn() -> bool,
+    ) -> GeeZipResult<()> {
+        self.inner.seek(SeekFrom::Start(0))?;
+        let mut reader = LhaDecodeReader::new(&mut self.inner)
+            .map_err(|err| convert_lha_decode_error(err, "reading LZH archive"))?;
+        loop {
+            if is_cancelled() {
+                return Err(GeeZipError::Cancelled);
+            }
+            let header = reader.header();
+            let path = lzh_entry_path(header)?;
+            let entry = Entry {
+                path,
+                size: header.original_size,
+                compressed_size: header.compressed_size,
+                crc32: None,
+                modified: lzh_modified_timestamp(header),
+                is_dir: header.is_directory(),
+            };
+            if !entry.is_dir && !reader.is_decoder_supported() {
+                return Err(unsupported_method_error(reader.header(), &entry.path));
+            }
+            struct Verified<'a, R>(&'a mut LhaDecodeReader<R>);
+            impl<R: Read> Read for Verified<'_, R> {
+                fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+                    let bytes = self.0.read(buf)?;
+                    if bytes == 0 && !buf.is_empty() {
+                        self.0.crc_check().map_err(std::io::Error::other)?;
+                    }
+                    Ok(bytes)
+                }
+            }
+            {
+                let mut data = Verified(&mut reader);
+                if !visitor(&entry, &mut data)? {
+                    return Ok(());
+                }
+                if !entry.is_dir {
+                    let mut sink = std::io::sink();
+                    let mut output = super::CancellableWriter::new(&mut sink, is_cancelled);
+                    let result = std::io::copy(&mut data, &mut output);
+                    if output.was_cancelled() || is_cancelled() {
+                        return Err(GeeZipError::Cancelled);
+                    }
+                    result?;
+                }
+            }
+            if !reader
+                .next_file()
+                .map_err(|err| convert_lha_decode_error(err, "reading LZH archive"))?
+            {
+                break;
+            }
+        }
+        Ok(())
+    }
+
     fn extract(&mut self, entry: &Entry, writer: &mut dyn Write) -> GeeZipResult<u64> {
         self.inner.seek(SeekFrom::Start(0))?;
         let mut reader = LhaDecodeReader::new(&mut self.inner)
@@ -1064,6 +1124,39 @@ mod tests {
             .expect("file extraction should succeed");
         assert_eq!(bytes, 5);
         assert_eq!(out, b"hello");
+    }
+
+    #[test]
+    fn lzh_sequential_visit_drains_and_verifies_skipped_payloads() {
+        let original = build_lzh(&[
+            FixtureEntry::file("a", b"first"),
+            FixtureEntry::file("b", b"second"),
+        ]);
+        let mut reader = LzhReader::from_buf(original.clone());
+        let mut names = Vec::new();
+        reader
+            .visit_entries(
+                &mut |e, _| {
+                    names.push(e.path.clone());
+                    Ok(true)
+                },
+                &|| false,
+            )
+            .unwrap();
+        assert_eq!(names, ["a", "b"]);
+        let mut damaged = original;
+        let pos = damaged.windows(5).position(|w| w == b"first").unwrap();
+        damaged[pos] ^= 1;
+        let mut reader = LzhReader::from_buf(damaged);
+        assert!(reader
+            .visit_entries(
+                &mut |_, r| {
+                    std::io::copy(r, &mut std::io::sink())?;
+                    Ok(true)
+                },
+                &|| false
+            )
+            .is_err());
     }
 
     #[test]
