@@ -46,7 +46,7 @@
 | XXE | 已优化 | 复用有界逐行编解码器，CLI 不再整文件驻内存；截断回归测试通过 |
 | ASAR | 已优化读取 | 原为每项 `fs::read` 整包且重建索引；现在只缓存 JSON 索引，seek + take 流式读 payload，保留 unpacked/符号链接路径校验；512 MiB 稀疏档与截断/恶意索引回归通过。索引上限 64 MiB；创建端仍缓存全部项，待改磁盘暂存 |
 | ZSTD | 已复核并修复溢出 | libzstd 流式、多帧读取、可选多线程编码；新增0..22等级验证，阻止u32MAX转换成负fast等级，jobs转u32不再静默截断。现有多线程/截断/级别/往返及新增溢出回归通过。创建默认不启用可选内容校验和，输入无checksum时不能保证检测所有位翻转；字典/worker占用依设置变化 |
-| NSIS | 待复核 | |
+| NSIS | 暂缓：安装器载荷parser未实现 | 7-Zip NSIS handler 可作参考；需区分NSIS2/3、Unicode字符串/指令表、solid/non-solid及修改版Deflate/BZip2/LZMA，现有ZIP SFX探测不覆盖。下一步用makensis生成6 codec/solid组合基线并实现单次顺序解码/安全路径映射；不执行安装器代替提取 |
 | LZ4 | 已复核 | lz4_flex FrameEncoder/Decoder 固定块缓冲/流式，无按文件体积Vec；现有往返/空流/无效数据测试通过。创建默认无内容校验和，依赖输入frame可选checksum（启用时库验证）；CLI level/jobs未映射LZ4，保留当前fast编码行为，后续若引入HC应单独测吞吐/内存；skippable frame/legacy LZ4专项互操作待补 |
 
 ## 共享顺序处理
@@ -73,6 +73,12 @@
 - [官方 PEA 1.6 格式说明](https://peazip.github.io/pea-file-format.html)声明规范为 public domain，压缩为 PCOMPRESS0 Store、PCOMPRESS1–3 Deflate；不能再以“格式封闭/没有 Rust 库”为永久排除原因。
 - 其对象、流、卷层级分别携带可选校验/认证，支持多种 hash、AES/Twofish/Serpent EAX/HMAC 以及多卷；本项目尚无这套容器 parser、独立 PEA 生成语料或认证流边界实现。现有 `.enc`/`.aes`/Deflate codec 都不足以替代。
 - 后续先限定单卷未加密 Store/Deflate，获取官方 Pea 可执行程序生成的空文件/目录/Unicode/多项/损坏校验语料，验证长度与所有声明的检查层。内存采用固定块，索引上限明确；对认证加密先验证再发布（必要时仅暂存密文），不能将未验证明文交给调用方。其它加密和多卷逐项扩展。
+
+### NSIS 安装器
+
+- 已找到 [7-Zip 的 NSIS handler](https://github.com/ip7z/7zip/tree/main/CPP/7zip/Archive/Nsis)作为可核对的载荷/指令解析参考；该处理器明确区分 Deflate/BZip2/LZMA 与 solid/non-solid。项目构建 NSIS 安装包的能力与读取安装器内部文件无关。
+- 缺少的是 PE 后附载荷定位、NSIS2/3 及 Unicode 字符串/指令表解释、文件名到数据偏移映射和对应 codec 变体。现有 ZIP SFX 和通用压缩 codec 无法直接覆盖；仅在 EXE 中搜索 LZMA 魔数会误识别，也无法恢复文件列表。
+- 下一步用 makensis 构建 Store/各 codec、solid/non-solid、NSIS2/3/Unicode 语料，先支持固定且可验证的子集，再扩覆盖；solid 共享一个顺序解码状态并必要时磁盘暂存，避免逐项从头解压。所有路径仍经共享验证，必须比较提取哈希；不执行安装器或安装脚本作为解压实现。若复用 C++ handler，先决定静态依赖与三平台构建方式。
 
 ## ZIP / ZIPX
 
