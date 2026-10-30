@@ -41,6 +41,7 @@ pub mod targz;
 pub mod tarlz4;
 pub mod tarxz;
 pub mod tarzst;
+mod text_encoding;
 pub mod udf;
 pub mod uu;
 #[cfg(feature = "wim")]
