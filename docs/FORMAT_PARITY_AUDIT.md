@@ -20,7 +20,7 @@
 | ACE | 已修复列表、CRC、密码与 solid 前驱处理 | 列表显式跳过 payload，修复有效档报错；ACE CRC 元数据转为标准 CRC32；CLI 接受并传递密码；单项提取先解码 solid 前驱以恢复字典，传播跳过错误。ACE v1/v2 真实样本 CLI test 通过。unarc-rs 0.8 解码 API 仍返回整项 Vec，逐项重新打开带来重复扫描，流式 writer API 需上游改造；不能将 read_to 包装误报为流式 |
 | AES | 已接入 AES Crypt 读取 | aescrypt-rs 0.2.0-rc.18（锁定版本）支持 v0–v3；`.aes`/AES magic 路由，双遍验证后释放明文；通用非 seek API 将密文暂存磁盘，64 KiB 级缓冲。v3 内部测试通过；v0–v2 兼容由依赖实现，长度字节不受认证是原格式限制；原 `.enc` 仍非流式，拒绝以 `.aes` 创建旧容器 |
 | ALZ | 部分实现 | 新增单卷 Store/Deflate 流式提取、CRC/长度校验、ZipCrypto 密码；索引缓存避免逐项重扫。修改版 BZip2 库需要整压缩项缓冲、method 3 以及分卷暂缓；路径需 UTF-8 |
-| ARJ | 待复核 | |
+| ARJ | 已修复列表与密码 | 列表显式 skip payload 并传播错误；CLI 接受/传递密码（Garble/GOST 由依赖处理）；真实 method0–4 样本 CLI test 通过，损坏 CRC 样本失败符合预期；unarc-rs 返回整项 Vec 和逐项重复扫描仍为性能债务，分卷需 volume provider 尚未接入 |
 | BH | 待复核 | |
 | BIN | 待复核 | 现有透传不算镜像提取 |
 | BR | 待复核 | |

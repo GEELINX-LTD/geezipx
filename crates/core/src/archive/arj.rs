@@ -27,6 +27,7 @@ use crate::error::{GeeZipError, GeeZipResult};
 pub struct ArjReader {
     path: PathBuf,
     format: ArchiveFormat,
+    password: Option<String>,
 }
 
 impl fmt::Debug for ArjReader {
@@ -44,18 +45,24 @@ impl ArjReader {
         Self {
             path: path.into(),
             format: ArchiveFormat::Arj,
+            password: None,
         }
     }
 
     fn open_archive(&self) -> GeeZipResult<UnifiedArchive<BufReader<File>>> {
         let file = File::open(&self.path)
             .map_err(|e| GeeZipError::io(e, format!("opening '{}'", self.path.display())))?;
-        UnifiedArchive::open_with_format(BufReader::new(file), UnarcFormat::Arj).map_err(|e| {
-            GeeZipError::format(
-                format!("invalid ARJ archive '{}': {e}", self.path.display()),
-                ArchiveFormat::Arj,
-            )
-        })
+        let mut archive = UnifiedArchive::open_with_format(BufReader::new(file), UnarcFormat::Arj)
+            .map_err(|e| {
+                GeeZipError::format(
+                    format!("invalid ARJ archive '{}': {e}", self.path.display()),
+                    ArchiveFormat::Arj,
+                )
+            })?;
+        if let Some(password) = &self.password {
+            archive.set_password(password.clone());
+        }
+        Ok(archive)
     }
 
     fn collect_entries(&self) -> GeeZipResult<Vec<Entry>> {
@@ -66,6 +73,9 @@ impl ArjReader {
             .map_err(|e| GeeZipError::format(format!("ARJ read error: {e}"), ArchiveFormat::Arj))?
         {
             entries.push(convert_entry(&unarc_entry));
+            archive.skip(&unarc_entry).map_err(|e| {
+                GeeZipError::format(format!("ARJ skip error: {e}"), ArchiveFormat::Arj)
+            })?;
         }
         Ok(entries)
     }
@@ -74,6 +84,11 @@ impl ArjReader {
 impl ArchiveReader for ArjReader {
     fn format(&self) -> ArchiveFormat {
         self.format
+    }
+
+    fn set_password(&mut self, password: &str) -> GeeZipResult<()> {
+        self.password = Some(password.to_owned());
+        Ok(())
     }
 
     fn entries(&mut self) -> GeeZipResult<Vec<Entry>> {
@@ -105,7 +120,9 @@ impl ArchiveReader for ArjReader {
                 return Ok(len);
             }
             // Skip non-matching entry.
-            let _ = archive.skip(&unarc_entry);
+            archive.skip(&unarc_entry).map_err(|e| {
+                GeeZipError::format(format!("ARJ skip error: {e}"), ArchiveFormat::Arj)
+            })?;
         }
         Err(GeeZipError::EntryNotFound {
             name: entry.path.clone(),
@@ -130,7 +147,7 @@ fn convert_entry(unarc_entry: &UnarcEntry) -> Entry {
         compressed_size: unarc_entry.compressed_size(),
         crc32: Some(unarc_entry.crc() as u32),
         modified,
-        is_dir: unarc_entry.original_size() == 0 && unarc_entry.name().ends_with('/'),
+        is_dir: unarc_entry.is_directory(),
     }
 }
 
@@ -149,6 +166,24 @@ mod tests {
         //   - malformed input → clean error
         //   - trait-object dispatch works
         b"MALFORMED_ARJ_FILE".to_vec()
+    }
+
+    #[test]
+    fn arj_real_archive_lists_and_extracts() {
+        let temp = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(
+            temp.path(),
+            include_bytes!("../../tests/fixtures/stored.arj"),
+        )
+        .unwrap();
+        let mut reader = ArjReader::new(temp.path());
+        let entries = reader.entries().unwrap();
+        assert!(!entries.is_empty());
+        for entry in entries.iter().filter(|e| !e.is_dir) {
+            let mut data = Vec::new();
+            assert_eq!(reader.extract(entry, &mut data).unwrap(), entry.size);
+            assert_eq!(crc32fast::hash(&data), entry.crc32.unwrap());
+        }
     }
 
     #[test]

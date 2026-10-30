@@ -1,5 +1,6 @@
 # Codec interoperability fixtures
 
+- `stored.arj`: stored ARJ sample from MIT-licensed `unarc-rs` 0.8.0 (`tests/arj/stored.arj`), copyright Mike Krüger and contributors; contains the upstream license. Exercises listing past payload and CRC-checked extraction.
 - `license1.ace`: ACE v1 sample from `unarc-rs` 0.8.0 (`tests/ace/license1.ace`), MIT, copyright Mike Krüger and contributors; archive contains the upstream license. Used to verify header/payload traversal and ACE's complemented CRC metadata.
 
 - `ncompress.Z`: generated with ncompress 4.2.4 `compress -c`; the 16384-byte input is `(i * 73 + i / 13) % 256` for `i=0..16384`.
