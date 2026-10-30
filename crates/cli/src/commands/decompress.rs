@@ -28,7 +28,6 @@ fn is_stream(format: ArchiveFormat) -> bool {
             | ArchiveFormat::Xz
             | ArchiveFormat::Lzma
             | ArchiveFormat::Lz
-            | ArchiveFormat::Img
             | ArchiveFormat::Isz
             | ArchiveFormat::Aes
             | ArchiveFormat::Uu
@@ -74,7 +73,9 @@ pub fn execute(
     if use_stdin {
         let format =
             common::parse_format(format.context("--format is required when using --stdin")?)?;
-        if !(is_stream(format) || is_wrapped(format) || format == ArchiveFormat::Bin)
+        if !(is_stream(format)
+            || is_wrapped(format)
+            || matches!(format, ArchiveFormat::Bin | ArchiveFormat::Img))
             || format == ArchiveFormat::Isz
         {
             anyhow::bail!("--stdin is only supported for single-stream formats and tar-wrapped streams; got '{format}'");
@@ -121,7 +122,11 @@ pub fn execute(
         None => common::detect_archive_format(archive)?,
     };
     validate_password(format, password.as_deref())?;
-    if stdout && !(is_stream(format) || is_wrapped(format)) {
+    if stdout
+        && !(is_stream(format)
+            || is_wrapped(format)
+            || matches!(format, ArchiveFormat::Img | ArchiveFormat::Bin))
+    {
         anyhow::bail!("--stdout is only supported for single-stream formats and tar-wrapped raw-stream output; '{format}' is a multi-file archive");
     }
     if !stdout {

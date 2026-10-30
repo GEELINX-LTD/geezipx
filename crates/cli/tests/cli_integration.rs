@@ -8149,7 +8149,7 @@ fn deb_test_valid() {
 }
 
 #[test]
-fn img_compress_decompress_roundtrip() {
+fn img_optical_filesystem_extracts_contents() {
     let td = TestDir::new();
     td.write("payload.bin", "raw image data test");
 
@@ -8158,7 +8158,7 @@ fn img_compress_decompress_roundtrip() {
         .args([
             "compress",
             "-f",
-            "img",
+            "iso",
             td.join("payload.bin").to_str().unwrap(),
             "-o",
             td.join("out.img").to_str().unwrap(),
@@ -8180,8 +8180,8 @@ fn img_compress_decompress_roundtrip() {
         .assert()
         .success();
 
-    // IMG is pass-through: content must be byte-identical
-    let extracted = std::fs::read(out_dir.join("out")).unwrap();
+    // Optical image extraction yields files inside the filesystem.
+    let extracted = std::fs::read(out_dir.join("payload.bin")).unwrap();
     assert_eq!(extracted, b"raw image data test");
 }
 

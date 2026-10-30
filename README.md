@@ -71,7 +71,7 @@
 | EGG | `.egg` | ✗ | Partial | Single-volume, non-solid, unencrypted Store/Deflate/BZip2/LZMA; streaming block CRC checks |
 | Compound / MSI | `.msi`, `.msp`, `.mst`, `.cfb`, `.ole` | ✗ | ✓ | Raw storage streams; seek-based; no MSI database reconstruction or recursive CAB extraction |
 | AES Crypt | `.aes` | ✗ | ✓ | v0–v3 via aescrypt-rs; bounded buffers; authenticate before plaintext output |
-| IMG / IMA | `.img`, `.ima` | ✓ | ✓ | pass-through identity copy |
+| IMG / IMA | `.img`, `.ima` | copy | ✓ | ISO/UDF optical content; no FAT/NTFS/partitioned-disk support |
 | BIN | `.bin` | copy | ✓ | ISO/UDF optical content; cooked and raw Mode 1/2 Form 1; no audio/CUE/partitioned disks |
 | UU / UUE | `.uu`, `.uue` | ✓ | ✓ | text encoding/decoding |
 | XXE | `.xxe` | ✓ | ✓ | text encoding/decoding |
@@ -495,7 +495,7 @@ Most format limitations are documented in the Format Support table above. Key de
 - **ISZ**: Single-stream compression wrapper around ISO data. `list` shows a synthetic entry rather than individual files.
 - **AES `.enc`**: AES-256-GCM-SIV encryption with Argon2id key derivation. Opening an archive authenticates it, including `list` and `test`. Buffered processing remains; streaming AES containers are rejected until fully supported.
 - **BIN**: CLI extracts ISO/UDF optical files from 2048-byte cooked or 2352-byte Mode 1/Mode 2 Form 1 images. Audio/CUE/mixed tracks and partitioned disk filesystems are unsupported. Core copy helpers and creation retain explicit identity-copy behavior.
-- **IMG**: Identity copy until its filesystem reader is selected.
+- **IMG/IMA**: Uses the same optical filesystem reader as BIN; FAT, NTFS and partitioned disks remain unsupported. Explicit stdin copy helpers retain identity behavior.
 - **UU / UUE / XXE**: Legacy text-encoding formats. Both decode (list/decompress/test) and encode (compress) are supported.
 - **RAR**: Read-only by licensing limitation. Decryption is supported via password flags.
 

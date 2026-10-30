@@ -30,7 +30,7 @@
 | DAA 1.0 | 待复核 | |
 | DEB | 待复核 | |
 | EGG | 部分实现 | 单卷非 solid 未加密 Store/Deflate/BZip2/LZMA 流式提取，逐块 CRC32/长度校验；LZMA 字典内存上限 256 MiB。使用 unegg 0.2.1 解析索引，绕开其整块 LZMA 缓冲路径。AZO/solid/分卷/加密暂缓；4 方法合成结构与损坏 CRC 测试通过，真实 EGG 样本互操作待补 |
-| IMG / IMA | 待复核 | 现有透传不算镜像提取 |
+| IMG / IMA | 已实现光盘内容读取 | 与 BIN 复用 cooked/raw 光盘 reader，实际提取 ISO/UDF 文件，非光盘数据拒绝。FAT12/16/32、NTFS、分区盘、稀疏磁盘/多轨待补，不能宣称通用 IMG 支持；旧 core/CLI stdin copy API 保留显式透传 |
 | ISZ | 待复核 | |
 | LZ / Lzip | 待复核 | |
 | LZMA | 待复核 | |
