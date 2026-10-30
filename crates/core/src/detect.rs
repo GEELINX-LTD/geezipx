@@ -217,6 +217,7 @@ const EXTENSION_MAP: &[(&str, ArchiveFormat)] = &[
     (".img", ArchiveFormat::Img),
     (".ima", ArchiveFormat::Img),
     (".enc", ArchiveFormat::Aes),
+    (".aes", ArchiveFormat::Aes),
     (".bin", ArchiveFormat::Bin),
     (".isz", ArchiveFormat::Isz),
     (".uu", ArchiveFormat::Uu),
@@ -251,6 +252,9 @@ const EXTENSION_MAP: &[(&str, ArchiveFormat)] = &[
 /// extension-only because GeeZipX routes it through an optional parser
 /// integration rather than a shallow first-bytes recognizer.
 pub fn detect_format(data: &[u8]) -> Option<ArchiveFormat> {
+    if data.starts_with(b"AES") && data.get(3).is_some_and(|version| *version <= 3) {
+        return Some(ArchiveFormat::Aes);
+    }
     if data.starts_with(b"ALZ\x01") {
         return Some(ArchiveFormat::Alz);
     }

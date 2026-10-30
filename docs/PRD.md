@@ -75,6 +75,7 @@ GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开�
 | UU (.uu/.uue) | 读写 | 自实现编解码器 |
 | XXE (.xxe) | 读写 | 自实现编解码器 |
 | AES (.enc) | 读写 | AES-256-GCM-SIV + Argon2id；仅验证后的非流式容器 |
+| AES Crypt (.aes) | 只读 | v0–v3，认证后输出明文；有界缓冲、非 seek 输入暂存密文到磁盘 |
 | IMG (.img/.ima) | 透传 | 原始磁盘镜像 |
 | BIN (.bin) | 透传 | 原始二进制 |
 | RAR (.rar) | 只读 | UnRAR 许可限制 |

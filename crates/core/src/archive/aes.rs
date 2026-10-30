@@ -12,7 +12,7 @@
 //! Only non-stream containers are accepted: enc_file's AES stream framing does
 //! not authenticate the final-frame flag, so it cannot detect truncation.
 
-use std::io::{Read, Write};
+use std::io::{Read, Seek, SeekFrom, Write};
 
 use base64::Engine as _;
 use ciborium::Value;
@@ -200,7 +200,28 @@ pub fn aes_encrypt<R: Read, W: Write>(
     Ok(encrypted.len() as u64)
 }
 
+/// Decrypt an AES Crypt v0–v3 file with authentication before plaintext release.
+/// Input is read twice using bounded buffers; no full-file allocation is made.
+pub fn aescrypt_decrypt<R: Read + Seek, W: Write>(
+    reader: R,
+    writer: W,
+    password: &str,
+) -> GeeZipResult<u64> {
+    aescrypt_rs::decrypt_verified(reader, writer, password)
+        .map(|outcome| outcome.plaintext_len)
+        .map_err(|e| {
+            GeeZipError::format(
+                format!("AES Crypt decryption failed: {e}"),
+                ArchiveFormat::Aes,
+            )
+        })
+}
+
 /// Decrypt data from `reader` to `writer`.
+///
+/// AES Crypt is authenticated using a seekable temporary ciphertext file, so
+/// non-seekable sources also use bounded memory and release no invalid plaintext.
+/// The legacy `.enc` format still requires whole-container allocation.
 ///
 /// `password` is required — returns an error if empty.
 /// Uses [`enc_file::decrypt_bytes`] which reads all data into memory
@@ -221,8 +242,19 @@ pub fn aes_decrypt<R: Read, W: Write>(
         });
     }
 
+    let mut prefix = Vec::with_capacity(3);
+    reader.take(3).read_to_end(&mut prefix)?;
+    let is_aescrypt = prefix == b"AES";
+    let mut input = std::io::Cursor::new(prefix).chain(reader);
+    if is_aescrypt {
+        let mut staged =
+            tempfile::tempfile().map_err(|e| GeeZipError::io(e, "staging AES Crypt ciphertext"))?;
+        std::io::copy(&mut input, &mut staged)?;
+        staged.seek(SeekFrom::Start(0))?;
+        return aescrypt_decrypt(staged, &mut writer, password);
+    }
     let mut data = Vec::new();
-    reader
+    input
         .read_to_end(&mut data)
         .map_err(|e| GeeZipError::io(e, "reading input for AES decryption"))?;
 
@@ -259,6 +291,31 @@ mod tests {
     use super::*;
     use std::io::Cursor;
     use std::sync::OnceLock;
+
+    #[test]
+    fn aescrypt_v3_authenticates_before_writing() {
+        let mut encrypted = Vec::new();
+        aescrypt_rs::encrypt(
+            Cursor::new(b"AES Crypt interoperability"),
+            &mut encrypted,
+            "test password",
+            1,
+        )
+        .unwrap();
+        let mut output = Vec::new();
+        assert_eq!(
+            aes_decrypt(&mut Cursor::new(&encrypted), &mut output, "test password").unwrap(),
+            26
+        );
+        assert_eq!(output, b"AES Crypt interoperability");
+        let last = encrypted.len() - 1;
+        encrypted[last] ^= 1;
+        for password in ["test password", "incorrect"] {
+            let mut output = Vec::new();
+            assert!(aes_decrypt(&mut Cursor::new(&encrypted), &mut output, password).is_err());
+            assert!(output.is_empty());
+        }
+    }
 
     const FIXTURE_PASSWORD: &str = "AES compatibility 密码 🔑";
     const FIXTURE_PLAINTEXT: &[u8] = b"authenticated non-stream fixture";

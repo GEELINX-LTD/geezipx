@@ -124,6 +124,14 @@ pub fn parse_sfx_target(s: &str) -> anyhow::Result<geezipx_core::sfx::SfxTarget>
 /// Resolve the compress output format from an optional `--format` flag and the
 /// output file extension.  Defaults to `Zip`.
 pub fn resolve_format(cli_format: Option<&str>, output: &Path) -> Result<ArchiveFormat> {
+    if output
+        .extension()
+        .is_some_and(|s| s.eq_ignore_ascii_case("aes"))
+    {
+        anyhow::bail!(
+            "AES Crypt creation is not supported; use .enc for the legacy encrypted container"
+        );
+    }
     if cli_format.is_some_and(|s| s.eq_ignore_ascii_case("pma"))
         || (cli_format.is_none()
             && output
@@ -677,7 +685,13 @@ pub fn aes_output_filename(archive: &Path) -> PathBuf {
         .file_name()
         .map(|s| s.to_string_lossy().to_string())
         .unwrap_or_else(|| "output".to_string());
-    let stripped = name.strip_suffix(".enc").unwrap_or(&name);
+    let stripped = if name.to_ascii_lowercase().ends_with(".enc")
+        || name.to_ascii_lowercase().ends_with(".aes")
+    {
+        &name[..name.len() - 4]
+    } else {
+        &name
+    };
     PathBuf::from(stripped)
 }
 

@@ -164,6 +164,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "aescrypt-rs"
+version = "0.2.0-rc.18"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4fe31f531ee2ba90327f1ca624f1fb4bce4afa7f1df736c8116a987dcd0fe143"
+dependencies = [
+ "aes",
+ "hmac",
+ "pbkdf2",
+ "secure-gate",
+ "sha2 0.11.0",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "ahash"
 version = "0.8.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -390,7 +404,7 @@ dependencies = [
  "enumflags2",
  "futures-channel",
  "futures-util",
- "rand",
+ "rand 0.9.5",
  "raw-window-handle",
  "serde",
  "serde_repr",
@@ -670,6 +684,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "base16ct"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fd307490d624467aa6f74b0eabb77633d1f758a7b25f12bceb0b22e08d9726f6"
+
+[[package]]
+name = "base32ct"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e27957ac55e90ce032f6736755cd74cea202e97e19f22e8ba2d0bc0413f99ec9"
+
+[[package]]
 name = "base64"
 version = "0.21.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -686,6 +712,12 @@ name = "base64ct"
 version = "1.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2af50177e190e07a26ab74f8b1efbfe2ef87da2116221318cb1c2e82baf7de06"
+
+[[package]]
+name = "bech32"
+version = "0.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "efbd3e1070bbdf4cd88a75264e18e8a26f7cb5c6949eadf0ceb85fb159cf08f8"
 
 [[package]]
 name = "bit-set"
@@ -2826,6 +2858,7 @@ dependencies = [
 name = "geezipx-core"
 version = "0.7.4"
 dependencies = [
+ "aescrypt-rs",
  "ar",
  "asar",
  "base64 0.22.1",
@@ -3251,7 +3284,7 @@ dependencies = [
  "crc",
  "hadris-io",
  "planck-noalloc",
- "rand",
+ "rand 0.9.5",
  "zerocopy",
 ]
 
@@ -5489,6 +5522,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "rand"
+version = "0.10.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "65c9fb96cbc91e3478eaae79a69fcd3f1ae4ad052e471fe6732fff548984b4af"
+dependencies = [
+ "getrandom 0.4.3",
+ "rand_core 0.10.1",
+]
+
+[[package]]
 name = "rand_chacha"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5917,6 +5960,21 @@ version = "0.10.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e891af845473308773346dc847b2c23ee78fe442e0472ac50e22a18a93d3ae5a"
 dependencies = [
+ "zeroize",
+]
+
+[[package]]
+name = "secure-gate"
+version = "0.9.0-rc.17"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0eb6dee38c7f22d2ed83355f29744042e44fa3b18da4a16da222d1d0523b02b5"
+dependencies = [
+ "base16ct",
+ "base32ct",
+ "base64ct",
+ "bech32",
+ "rand 0.10.3",
+ "subtle",
  "zeroize",
 ]
 
@@ -9170,9 +9228,9 @@ dependencies = [
 
 [[package]]
 name = "zeroize"
-version = "1.9.0"
+version = "1.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e13c156562582aa81c60cb29407084cdb54c4164760106ab78e6c5b0858cf64e"
+checksum = "e13084392c5e4bc371903e2935a5eaeed24905a7511356b883835e18a78f6879"
 dependencies = [
  "zeroize_derive",
 ]
