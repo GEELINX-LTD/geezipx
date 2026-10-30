@@ -1,6 +1,6 @@
 use super::*;
 
-const LIFETIME: Duration = Duration::from_secs(5);
+const LIFETIME: Duration = Duration::from_secs(2);
 const AREA_ID: &str = "notice-toast";
 
 pub(super) struct Notice {

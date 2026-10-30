@@ -662,21 +662,21 @@ fn notices_expire_automatically_and_stationary_hover_restarts_the_full_timeout()
     app.notice = Some(Notice::new("已完成", false));
     timed_notice_frame(&mut app, &context, 0.0, vec![]);
     timed_notice_frame(&mut app, &context, 0.1, vec![]);
-    timed_notice_frame(&mut app, &context, 4.9, vec![]);
+    timed_notice_frame(&mut app, &context, 1.9, vec![]);
     assert!(app.notice.is_some());
-    timed_notice_frame(&mut app, &context, 5.1, vec![]);
+    timed_notice_frame(&mut app, &context, 2.1, vec![]);
     assert!(app.notice.is_none(), "notice did not expire while idle");
 
     app.notice = Some(Notice::new("新的提示", true));
-    timed_notice_frame(&mut app, &context, 6.0, vec![]);
+    timed_notice_frame(&mut app, &context, 3.0, vec![]);
     let position = notice_rect(&context).center();
     timed_notice_frame(
         &mut app,
         &context,
-        10.5,
+        4.5,
         vec![egui::Event::PointerMoved(position)],
     );
-    timed_notice_frame(&mut app, &context, 15.6, vec![]);
+    timed_notice_frame(&mut app, &context, 9.6, vec![]);
     assert!(
         app.notice.is_some(),
         "stationary hover failed to reset the timer"
@@ -684,12 +684,12 @@ fn notices_expire_automatically_and_stationary_hover_restarts_the_full_timeout()
     timed_notice_frame(
         &mut app,
         &context,
-        20.5,
+        14.5,
         vec![egui::Event::PointerMoved(egui::pos2(100.0, 100.0))],
     );
-    timed_notice_frame(&mut app, &context, 25.4, vec![]);
+    timed_notice_frame(&mut app, &context, 16.4, vec![]);
     assert!(app.notice.is_some(), "notice expired too soon after hover");
-    timed_notice_frame(&mut app, &context, 25.6, vec![]);
+    timed_notice_frame(&mut app, &context, 16.6, vec![]);
     assert!(app.notice.is_none(), "notice did not expire after leaving");
 }
 
