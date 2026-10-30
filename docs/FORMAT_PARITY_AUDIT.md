@@ -35,7 +35,7 @@
 | LZ / Lzip | 待复核 | |
 | LZMA | 待复核 | |
 | PMA | 已实现读取 | 升级 delharc 0.8，启用 pm0/pm1/pm2；复用 LHA 流式读取与 CRC16 校验；独立 PM1/PM2 样本及 CRC32 验证通过；拒绝以 PMA 名义创建 LZH |
-| RAR / RAR5 | 待复核 | |
+| RAR / RAR5 | 已优化顺序校验并修复空文件计数 | 新增直接 visitor，CLI test/顺序访问一次打开、保留 solid 状态，避免逐项重扫；修复两种 extract_all 空文件未计数。RAR4/RAR5 solid/Unicode 等5个独立 unrar fixture 与 bsdtar 提取逐文件SHA256一致；新增可移植 Store/空文件回归。unrar 0.5 writer callback 未公开，仍整项 Vec（大单项/取消延迟债务）；后续需安全 ReadToWriter upstream API，不能直接把 native extract_to 用于通用流以避免链接/路径语义变化；分卷/密码仍受库支持范围限制 |
 | TLZ | 已实现读取 | `.tlz` / `.tar.lzma` / `.tar.lz` 支持 LZMA Alone 与 Lzip 两种外层，逐项访问单次流式解码，截断回归通过；不支持创建 |
 | UDF | 已优化读取内存 | 移除 fs::read 全镜像；独立 64KiB 缓冲文件句柄导航目录/extent，目录元数据缓存，保留 ICB/分区/范围校验，8GiB 稀疏镜像小文件提取回归。仍仅覆盖当前 hadris 读取支持的 2048-byte 单物理分区/常规文件和短/长/embedded allocations；metadata/VAT/多分区、创建整包缓冲及逐项目录导航为后续债务 |
 | WIM | 待复核 | |
