@@ -624,7 +624,7 @@ pub fn create_writer(
                 "'{format}' is a single-stream compression format; use 'compress' directly, not an archive writer"
             )
         }
-        ArchiveFormat::TarXz => Ok(Box::new(TarXzWriter::new_with_options(file, options))),
+        ArchiveFormat::TarXz => Ok(Box::new(TarXzWriter::try_new_with_options(file, options)?)),
         _ => anyhow::bail!("unsupported format for writing: {format}"),
     }
 }

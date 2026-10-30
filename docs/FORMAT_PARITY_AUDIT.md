@@ -16,7 +16,7 @@
 | LZH / LHA / lh7 | 待复核 | |
 | ISO / Joliet | 待复核 | |
 | GZ | 待复核 | |
-| XZ / TXZ | 待复核 | |
+| XZ / TXZ | 已优化 | `--jobs` 接入 liblzma MtStreamBuilder；默认单线程；TAR.XZ 各读取路径统一多流解码；无效选项返回错误 |
 | ACE | 待复核 | |
 | AES | 待复核 | `.enc` 不等于 AES Crypt |
 | ALZ | 待复核 | |

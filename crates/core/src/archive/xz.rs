@@ -43,13 +43,9 @@ pub fn xz_compress_with_level<R: Read, W: Write>(
 
 /// Compress data from `reader` into `writer` using XZ with full options.
 ///
-/// Currently only `options.level` is applied; `options.jobs` is accepted
-/// but ignored because the `xz2` crate does not expose a stable
-/// multi-threaded XZ encoder API in its current version.
-///
-/// TODO: Revisit when `xz2` gets an `XzEncoder::new_with_options` or
-/// equivalent multithread API, or when we migrate to a more featureful
-/// xz binding (`liblzma` / `lzma-sys`).
+/// Compress using liblzma's bounded block-parallel encoder when `jobs > 1`.
+/// The default stays single-threaded; each worker owns a codec dictionary and
+/// block buffers, so callers should choose jobs/level to fit their memory budget.
 ///
 /// Returns the number of bytes read from the source (uncompressed size).
 pub fn xz_compress_with_options<R: Read, W: Write>(
@@ -57,8 +53,14 @@ pub fn xz_compress_with_options<R: Read, W: Write>(
     writer: W,
     options: CompressOptions,
 ) -> GeeZipResult<u64> {
-    // TODO: apply options.effective_jobs() when xz2 supports multithread.
-    xz_compress_with_level(reader, writer, options.level)
+    let stream = encoder_stream(&options)?;
+    let mut encoder = xz2::write::XzEncoder::new_stream(writer, stream);
+    let bytes = std::io::copy(reader, &mut encoder)
+        .map_err(|e| GeeZipError::io(e, "xz compression failed"))?;
+    encoder
+        .finish()
+        .map_err(|e| GeeZipError::io(e, "xz compression finalisation failed"))?;
+    Ok(bytes)
 }
 
 /// Compress data from `reader` into `writer` using XZ with the default level.
@@ -76,6 +78,21 @@ pub fn xz_decompress<R: Read, W: Write>(reader: &mut R, writer: &mut W) -> GeeZi
     let bytes = std::io::copy(&mut decoder, writer)
         .map_err(|e| GeeZipError::io(e, "xz decompression failed"))?;
     Ok(bytes)
+}
+
+pub(crate) fn encoder_stream(options: &CompressOptions) -> GeeZipResult<xz2::stream::Stream> {
+    let level = options.level.unwrap_or(6);
+    let jobs = options.effective_jobs().clamp(1, 256) as u32;
+    let result = if jobs == 1 {
+        xz2::stream::Stream::new_easy_encoder(level, xz2::stream::Check::Crc64)
+    } else {
+        xz2::stream::MtStreamBuilder::new()
+            .threads(jobs)
+            .preset(level)
+            .check(xz2::stream::Check::Crc64)
+            .encoder()
+    };
+    result.map_err(|e| GeeZipError::io(e.into(), "xz encoder init failed"))
 }
 
 // ---------------------------------------------------------------------------
@@ -155,6 +172,25 @@ mod tests {
     // ---------------------------------------------------------------
     // XZ tests
     // ---------------------------------------------------------------
+
+    #[test]
+    fn xz_parallel_and_invalid_options() {
+        let data = b"parallel blocks ".repeat(8192);
+        let mut compressed = Vec::new();
+        let options = CompressOptions::default()
+            .with_jobs(Some(2))
+            .with_level(Some(1));
+        xz_compress_with_options(&mut data.as_slice(), &mut compressed, options).unwrap();
+        let mut output = Vec::new();
+        xz_decompress(&mut compressed.as_slice(), &mut output).unwrap();
+        assert_eq!(output, data);
+        assert!(xz_compress_with_options(
+            &mut &b"x"[..],
+            &mut Vec::new(),
+            CompressOptions::default().with_level(Some(10))
+        )
+        .is_err());
+    }
 
     #[test]
     fn xz_roundtrip() {

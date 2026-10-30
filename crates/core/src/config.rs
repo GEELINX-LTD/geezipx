@@ -12,7 +12,7 @@
 ///   format's default level".  The valid range is format-dependent:
 ///   - gzip/tar.gz/xz/tar.xz: 0..=9
 ///   - zstd/tar.zst: 0..=22
-///   - zip/tar: ignored
+///   - zip/zipx: 0..=9; tar: ignored
 ///
 /// * `jobs` — optional number of worker threads.
 ///   - `None` / `Some(1)`: single-threaded (default, safe for all formats)
@@ -20,6 +20,7 @@
 ///   - `Some(2..=256)`: explicit thread count
 ///
 ///   Formats that act on `jobs`:
+///   - **xz / tar.xz**: liblzma block-parallel encoder; dictionary/block memory per worker
 ///   - **zstd / tar.zst**: native zstd multi-thread encoder
 ///   - **tar.gz**: pigz-style parallel gzip via `gzp` (when jobs > 1)
 ///
