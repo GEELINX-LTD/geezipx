@@ -507,7 +507,7 @@ crates/gui-tauri/
 
 原生端 `engine` 只编排 core 的 reader/writer、进度、来源收集和安全输出。压缩通过同目录临时归档提交；解压复用 core `ExtractionDir`，预先拒绝危险名称与输入归档别名覆盖。格式清单以 `engine/formats.rs` 为准，RAR 默认启用，ZPAQ 可选且默认关闭以避开原生 C++ LTO 兼容性问题。
 
-原生端 `export` 复用 `engine::extract` 在后台将选区准备到 `TempDir`，只发布去重后的所选根路径；准备结果与归档/选区快照绑定。`app/interaction.rs` 管理内容坐标框选、拖出准备和系统拖放生命周期，`app/native_drag.rs` 在 Windows/macOS 调用 `drag`，Linux 的 X11 后端通过 `x11rb` 提供 Xdnd URI 选择数据，使用 `x11-dl` 释放 winit 的隐式鼠标抓取。原生 Wayland 拖出尚未接入。系统拖放采用复制语义，暂存目录保留至退出以兼容接收方异步读取。文件行交互 ID 由归档路径/条目路径组成，不依赖虚拟列表可见行序号；成功/失败提示复用底部状态栏，不改变列表起点。
+原生端 `export::DeferredExport` 按归档/选区快照生成描述信息，不读取归档或创建暂存文件；只有系统确认放置、接收方请求内容后，才通过 `engine::extract` 准备一次并缓存结果。`app/interaction.rs` 管理内容坐标框选和拖放生命周期；`app/native_drag/windows.rs` 实现 OLE `IDataObject`、Unicode `FILEGROUPDESCRIPTORW`、`FILECONTENTS` 和 `IStream`，仅在 `IDropSource::QueryContinueDrag` 确认释放后提供内容；macOS 后端使用 `NSFilePromiseProvider` 与串行后台队列；Linux X11 后端在 `XdndDrop` 后响应 URI 请求。原生 Wayland 暂不支持。复制语义和暂存生命周期允许接收方异步读取。目录双击按稳定条目 ID 配对点击，Windows 使用系统双击间隔；导航快捷键方向键由 Painter 绘制。底部提示不改变列表起点。
 
 独立 `gui-egui.yml` 覆盖 Linux x86_64、Windows x86_64、macOS arm64 的检查、测试、release 编译与裸可执行文件 artifacts；Windows 使用 `crates/gui-egui/windows/installer.nsi` 额外打包按用户安装的 NSIS，安装后验证 EXE 校验和、许可证、提交标识、快捷方式和卸载清理。独立安装目录与卸载注册项允许和 Tauri 并存；当前不接入正式 Release、系统右键菜单或文件关联。使用说明、完整格式范围与已知限制见 [EGUI_GUI.md](EGUI_GUI.md)。
 

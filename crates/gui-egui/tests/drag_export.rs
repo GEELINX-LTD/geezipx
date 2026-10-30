@@ -1,7 +1,7 @@
 use geezipx_core::{config::CompressOptions, detect::ArchiveFormat};
 use geezipx_egui::{
     engine::{self, CompressRequest},
-    export::{self, ExportKey},
+    export::{self, DeferredExport, ExportKey},
     job::{Control, CANCELLED},
 };
 use std::{collections::BTreeSet, fs};
@@ -53,6 +53,82 @@ fn drag_export_contains_only_selected_roots_and_keeps_unicode_and_empty_folders(
         !directory.exists(),
         "staged files leaked after the owner was dropped"
     );
+}
+
+#[test]
+fn deferred_drag_reads_nothing_until_drop_and_materializes_only_once() {
+    let temp = tempfile::tempdir().unwrap();
+    let source = temp.path().join("资料");
+    fs::create_dir_all(source.join("空目录")).unwrap();
+    fs::write(source.join("说明.txt"), "松手之后才读取").unwrap();
+    let archive = temp.path().join("deferred.zip");
+    engine::compress(
+        CompressRequest {
+            sources: vec![source],
+            output: archive.clone(),
+            format: ArchiveFormat::Zip,
+            options: CompressOptions::default(),
+            replace: false,
+        },
+        &Control::default(),
+    )
+    .unwrap();
+    let loaded = engine::list(archive.clone(), None, &Control::default()).unwrap();
+    let control = Control::default();
+    let export = DeferredExport::new(
+        ExportKey {
+            archive: archive.clone(),
+            selection: BTreeSet::from(["资料".into(), "资料/说明.txt".into()]),
+        },
+        &loaded.entries,
+        None,
+        control.clone(),
+    )
+    .unwrap();
+    assert_eq!(
+        export
+            .items
+            .iter()
+            .filter(|item| !item.name.contains('/'))
+            .count(),
+        1
+    );
+    assert!(export
+        .items
+        .iter()
+        .any(|item| item.name == "资料/空目录" && item.is_dir));
+    let hidden = archive.with_extension("hidden");
+    fs::rename(&archive, &hidden).unwrap();
+    assert!(
+        export.paths().is_err(),
+        "data was read before the mouse was released"
+    );
+    assert!(
+        control.snapshot().stage.is_empty(),
+        "hover opened the archive"
+    );
+    fs::rename(&hidden, &archive).unwrap();
+    export.confirm_drop();
+    let paths = export.paths().unwrap();
+    assert_eq!(
+        fs::read_to_string(paths[0].join("说明.txt")).unwrap(),
+        "松手之后才读取"
+    );
+    fs::remove_file(archive).unwrap();
+    assert_eq!(
+        export.paths().unwrap(),
+        paths,
+        "a second content request reopened the archive"
+    );
+    let target = temp.path().join("destination/renamed");
+    export.write_promised_root("资料", &target).unwrap();
+    assert_eq!(
+        fs::read_to_string(target.join("说明.txt")).unwrap(),
+        "松手之后才读取"
+    );
+    assert!(target.join("空目录").is_dir());
+    drop(export);
+    assert!(!paths[0].exists());
 }
 
 #[test]

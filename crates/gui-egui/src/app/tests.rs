@@ -23,6 +23,7 @@ fn archive() -> Archive {
 fn context() -> egui::Context {
     let context = egui::Context::default();
     theme::fonts(&context);
+    interaction::configure_pointer(&context);
     theme::apply(&context, false);
     context
 }
@@ -603,7 +604,7 @@ fn rectangle_selection_from_blank_space_and_ctrl_toggle_work_with_real_pointer_e
     }
 }
 #[test]
-fn dragging_a_selected_row_preserves_the_group_and_starts_only_preparation() {
+fn dragging_a_selected_row_starts_metadata_only_without_reading_the_archive() {
     let context = context();
     let mut app = App::empty(Preferences::default());
     app.archive = Some(archive());
@@ -621,12 +622,139 @@ fn dragging_a_selected_row_preserves_the_group_and_starts_only_preparation() {
         egui::Modifiers::NONE,
     );
     assert_eq!(app.archive.as_ref().unwrap().browser.selection.len(), 3);
-    assert!(app
-        .active
+    assert!(
+        app.active.is_none(),
+        "dragging started archive I/O before drop"
+    );
+    let pending = app
+        .export
+        .pending
         .as_ref()
-        .is_some_and(|active| active.kind == Kind::Export));
-    assert!(app.export.requested);
+        .expect("native drag was not scheduled");
+    assert!(!pending.is_dropped());
+    assert!(pending.control.snapshot().stage.is_empty());
     assert!(app.marquee.is_none());
-    app.active.as_ref().unwrap().job.control.cancel();
-    finish_job(&mut app, &context);
+}
+
+#[test]
+fn successive_double_clicks_enter_nested_directories_even_after_egui_triple_clicks() {
+    let context = context();
+    let mut app = App::empty(Preferences::default());
+    app.archive = Some(archive());
+    for path in ["项目", "项目/目录"] {
+        for _ in 0..2 {
+            draw(&mut app, &context, [1000.0, 680.0]);
+        }
+        let position = row_rect(&context, path).left_center() + egui::vec2(65.0, 0.0);
+        for _ in 0..2 {
+            pointer_frame(
+                &mut app,
+                &context,
+                position,
+                Some(true),
+                egui::Modifiers::NONE,
+            );
+            pointer_frame(
+                &mut app,
+                &context,
+                position,
+                Some(false),
+                egui::Modifiers::NONE,
+            );
+        }
+        assert_eq!(app.archive.as_ref().unwrap().browser.directory, path);
+    }
+    key(
+        &mut app,
+        &context,
+        egui::Key::Backspace,
+        egui::Modifiers::NONE,
+    );
+    for _ in 0..2 {
+        draw(&mut app, &context, [1000.0, 680.0]);
+    }
+    let position = row_rect(&context, "项目/目录").left_center() + egui::vec2(65.0, 0.0);
+    pointer_frame(
+        &mut app,
+        &context,
+        position,
+        Some(true),
+        egui::Modifiers::NONE,
+    );
+    pointer_frame(
+        &mut app,
+        &context,
+        position,
+        Some(false),
+        egui::Modifiers::NONE,
+    );
+    assert_eq!(
+        app.archive.as_ref().unwrap().browser.directory,
+        "项目",
+        "one click reopened a folder after returning"
+    );
+    pointer_frame(
+        &mut app,
+        &context,
+        position,
+        Some(true),
+        egui::Modifiers::NONE,
+    );
+    pointer_frame(
+        &mut app,
+        &context,
+        position,
+        Some(false),
+        egui::Modifiers::NONE,
+    );
+    assert_eq!(app.archive.as_ref().unwrap().browser.directory, "项目/目录");
+}
+
+#[test]
+fn folder_double_click_accepts_system_interval_above_egui_default() {
+    let context = context();
+    context.options_mut(|o| o.input_options.max_double_click_delay = 0.5);
+    let mut app = App::empty(Preferences::default());
+    app.archive = Some(archive());
+    for _ in 0..2 {
+        draw(&mut app, &context, [1000.0, 680.0]);
+    }
+    let position = row_rect(&context, "项目").left_center() + egui::vec2(65.0, 0.0);
+    pointer_frame(
+        &mut app,
+        &context,
+        position,
+        Some(true),
+        egui::Modifiers::NONE,
+    );
+    pointer_frame(
+        &mut app,
+        &context,
+        position,
+        Some(false),
+        egui::Modifiers::NONE,
+    );
+    let time = context.input(|i| i.time) + 0.32;
+    let _ = context.run(
+        egui::RawInput {
+            time: Some(time),
+            ..Default::default()
+        },
+        |context| app.render(context),
+    );
+    pointer_frame(
+        &mut app,
+        &context,
+        position,
+        Some(true),
+        egui::Modifiers::NONE,
+    );
+    pointer_frame(
+        &mut app,
+        &context,
+        position,
+        Some(false),
+        egui::Modifiers::NONE,
+    );
+    assert_eq!(app.archive.as_ref().unwrap().browser.directory, "项目");
 }

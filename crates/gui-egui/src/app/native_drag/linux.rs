@@ -1,7 +1,8 @@
 //! Xdnd copy source for eframe's X11 window. No GTK window or event loop is needed.
+use geezipx_egui::export::DeferredExport;
 use raw_window_handle::{HasDisplayHandle, RawDisplayHandle};
 use std::{
-    path::PathBuf,
+    sync::Arc,
     time::{Duration, Instant},
 };
 use x11rb::{
@@ -29,13 +30,13 @@ struct Source {
     root: Window,
     window: Window,
     atoms: Atoms,
-    uris: Vec<u8>,
+    export: Arc<DeferredExport>,
     escape: Option<u8>,
 }
 
 pub(super) fn start(
     frame: &eframe::Frame,
-    paths: Vec<PathBuf>,
+    export: Arc<DeferredExport>,
     finished: impl Fn(std::result::Result<bool, String>) + Send + 'static,
     cancel: std::sync::Arc<std::sync::atomic::AtomicBool>,
 ) -> std::result::Result<(), String> {
@@ -46,7 +47,7 @@ pub(super) fn start(
                 .into(),
         );
     };
-    let source = Source::new(paths).map_err(|e| e.to_string())?;
+    let source = Source::new(export).map_err(|e| e.to_string())?;
     let xlib = x11_dl::xlib::Xlib::open().map_err(|e| e.to_string())?;
     let display_ptr = display.display.ok_or("X11 显示连接不可用")?;
     // SAFETY: Frame lends the live Xlib display and this runs on its UI thread.
@@ -67,13 +68,7 @@ pub(super) fn start(
 }
 
 impl Source {
-    fn new(paths: Vec<PathBuf>) -> Result<Self> {
-        let mut uris = String::new();
-        for path in paths {
-            let uri = url::Url::from_file_path(&path).map_err(|()| "invalid drag path")?;
-            uris.push_str(uri.as_str());
-            uris.push_str("\r\n");
-        }
+    fn new(export: Arc<DeferredExport>) -> Result<Self> {
         let (conn, screen) = x11rb::connect(None)?;
         let root = conn.setup().roots[screen].root;
         let window = conn.generate_id()?;
@@ -108,7 +103,7 @@ impl Source {
             root,
             window,
             atoms,
-            uris: uris.into_bytes(),
+            export,
             escape,
         })
     }
@@ -179,13 +174,19 @@ impl Source {
         };
         let supported = if request.selection != self.atoms.XdndSelection {
             false
-        } else if request.target == self.atoms.URI_LIST {
+        } else if request.target == self.atoms.URI_LIST && self.export.is_dropped() {
+            let mut uris = String::new();
+            for path in self.export.paths()? {
+                let uri = url::Url::from_file_path(&path).map_err(|()| "invalid drag path")?;
+                uris.push_str(uri.as_str());
+                uris.push_str("\r\n");
+            }
             self.conn.change_property8(
                 PropMode::REPLACE,
                 request.requestor,
                 property,
                 self.atoms.URI_LIST,
-                &self.uris,
+                uris.as_bytes(),
             )?;
             true
         } else if request.target == self.atoms.TARGETS {
@@ -318,6 +319,7 @@ impl Source {
                 }
                 if !down {
                     if target != NONE && accepted {
+                        self.export.confirm_drop();
                         self.send(
                             target,
                             self.atoms.XdndDrop,

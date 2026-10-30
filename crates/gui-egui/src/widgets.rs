@@ -424,7 +424,7 @@ pub fn button(ui: &mut Ui, text: &str, icon: Icon, primary: bool, width: f32) ->
     response.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
-pub fn icon_button(ui: &mut Ui, icon: Icon, label: &str) -> Response {
+fn icon_control(ui: &mut Ui, icon: Icon, label: &str) -> Response {
     let p = theme::palette(ui);
     let (rect, response) = ui.allocate_exact_size(Vec2::splat(32.0), Sense::click());
     accessible(&response, label, None);
@@ -442,9 +442,22 @@ pub fn icon_button(ui: &mut Ui, icon: Icon, label: &str) -> Response {
         },
     );
     focus(ui, &response);
-    response
-        .on_hover_text(label)
-        .on_hover_cursor(egui::CursorIcon::PointingHand)
+    response.on_hover_cursor(egui::CursorIcon::PointingHand)
+}
+
+pub fn icon_button(ui: &mut Ui, icon: Icon, label: &str) -> Response {
+    icon_control(ui, icon, label).on_hover_text(label)
+}
+
+pub fn navigation_button(ui: &mut Ui, icon: Icon, label: &str, extra: bool) -> Response {
+    icon_control(ui, icon, label).on_hover_ui(|ui| {
+        ui.horizontal(|ui| {
+            ui.label(label);
+            ui.monospace(if extra { "Backspace / Alt +" } else { "Alt +" });
+            let (rect, _) = ui.allocate_exact_size(Vec2::splat(16.0), Sense::hover());
+            paint_icon(ui.painter(), rect, icon, theme::palette(ui).text);
+        });
+    })
 }
 
 pub fn nav(ui: &mut Ui, label: &str, icon: Icon, selected: bool, detail: &str) -> Response {

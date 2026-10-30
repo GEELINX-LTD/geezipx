@@ -35,7 +35,6 @@ enum Kind {
     Extract,
     Verify,
     Preview,
-    Export,
     Dialog,
 }
 impl Kind {
@@ -46,7 +45,6 @@ impl Kind {
             Self::Extract => "解压文件",
             Self::Verify => "完整性测试",
             Self::Preview => "文本预览",
-            Self::Export => "准备拖出文件",
             Self::Dialog => "选择文件",
         }
     }
@@ -66,7 +64,6 @@ enum Outcome {
     Archive(Box<Archive>),
     Done(Summary),
     Preview(Preview),
-    Export(Box<geezipx_egui::export::PreparedExport>),
     Paths(Dialog, Vec<PathBuf>),
 }
 struct Active {
@@ -171,11 +168,13 @@ pub struct App {
     column_widths: [f32; 3],
     list_offset: f32,
     marquee: Option<interaction::Marquee>,
+    row_activation: interaction::RowActivation,
     export: interaction::ExportState,
 }
 impl App {
     pub fn new(cc: &eframe::CreationContext<'_>, paths: Vec<PathBuf>) -> Self {
         theme::fonts(&cc.egui_ctx);
+        interaction::configure_pointer(&cc.egui_ctx);
         let preferences = cc
             .storage
             .and_then(|s| eframe::get_value(s, "native-preferences"))
@@ -212,6 +211,7 @@ impl App {
             column_widths: [110.0, 110.0, 90.0],
             list_offset: 0.0,
             marquee: None,
+            row_activation: interaction::RowActivation::default(),
             export: interaction::ExportState::default(),
         }
     }
@@ -380,7 +380,8 @@ impl App {
                 )));
                 self.archive = Some(*archive);
                 self.marquee = None;
-                self.export.ready = None;
+                self.export.pending = None;
+                self.row_activation.reset();
                 self.retry_path = None;
                 self.opening_path = None;
                 self.read_password.clear();
@@ -399,13 +400,6 @@ impl App {
                         self.open_output(path.clone());
                     }
                 }
-            }
-            Ok(Outcome::Export(ready)) => {
-                if !context.input(|i| i.pointer.primary_down()) {
-                    self.export.requested = false;
-                    self.notice = Some(("所选文件已准备好，可再次拖出。".into(), false));
-                }
-                self.export.ready = Some(*ready);
             }
             Ok(Outcome::Preview(preview)) => self.preview = Some(preview),
             Ok(Outcome::Paths(_, _)) if self.close_when_finished => {}
@@ -579,7 +573,7 @@ impl App {
         }
         if context.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape)) {
             self.marquee = None;
-            self.export.requested = false;
+            self.export.pending = None;
             if let Some(archive) = &mut self.archive {
                 if !archive.browser.query.is_empty() {
                     archive.browser.query.clear();
@@ -828,6 +822,9 @@ impl App {
                         if let Some(cancel) = &self.export.cancel {
                             cancel.store(true, std::sync::atomic::Ordering::Relaxed);
                         }
+                        if let Some(export) = self.export.retained.last() {
+                            export.control.cancel();
+                        }
                         if let Some(active) = &self.active {
                             active.job.control.cancel();
                         }
@@ -869,15 +866,7 @@ impl eframe::App for App {
                 .filter_map(|file| file.path.clone())
                 .collect::<Vec<_>>()
         });
-        if !drops.is_empty()
-            && self.export.receiver.is_none()
-            && !drops.iter().any(|path| {
-                self.export
-                    .retained
-                    .iter()
-                    .any(|export| export.paths.contains(path))
-            })
-        {
+        if !drops.is_empty() && self.export.receiver.is_none() && self.export.pending.is_none() {
             self.accept_paths(context, drops);
         }
         self.render(context);

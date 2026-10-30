@@ -30,18 +30,17 @@ impl App {
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 4.0;
             ui.add_enabled_ui(browser.can_back(), |ui| {
-                if widgets::icon_button(ui, Icon::ArrowLeft, "返回 · Alt ←").clicked() {
+                if widgets::navigation_button(ui, Icon::ArrowLeft, "返回", false).clicked() {
                     browser.back();
                 }
             });
             ui.add_enabled_ui(browser.can_forward(), |ui| {
-                if widgets::icon_button(ui, Icon::ArrowRight, "前进 · Alt →").clicked() {
+                if widgets::navigation_button(ui, Icon::ArrowRight, "前进", false).clicked() {
                     browser.forward();
                 }
             });
             ui.add_enabled_ui(!browser.directory.is_empty(), |ui| {
-                if widgets::icon_button(ui, Icon::ArrowUp, "上一级 · Backspace / Alt ↑").clicked()
-                {
+                if widgets::navigation_button(ui, Icon::ArrowUp, "上一级", true).clicked() {
                     browser.parent();
                 }
             });
@@ -267,6 +266,17 @@ impl App {
                             );
                             if response.clicked() {
                                 let modifiers = ui.input(|i| i.modifiers);
+                                if !modifiers.any()
+                                    && response.interact_pointer_pos().is_some_and(|pos| {
+                                        self.row_activation.click(context, response.id, pos)
+                                    })
+                                {
+                                    if row.is_dir {
+                                        navigate = Some(row.path.clone());
+                                    } else if !busy {
+                                        preview = row.entry_index;
+                                    }
+                                }
                                 browser.select(
                                     index,
                                     modifiers.shift,
@@ -275,6 +285,7 @@ impl App {
                                 list.request_focus();
                             }
                             if response.drag_started_by(egui::PointerButton::Primary) {
+                                self.row_activation.reset();
                                 let origin = ui.input(|i| i.pointer.press_origin());
                                 let from_name = origin.is_some_and(|pos| {
                                     pos.x < response.rect.left() + columns.edges[1]
@@ -293,13 +304,6 @@ impl App {
                                     start_marquee = origin;
                                 }
                                 list.request_focus();
-                            }
-                            if response.double_clicked_by(egui::PointerButton::Primary) {
-                                if row.is_dir {
-                                    navigate = Some(row.path.clone());
-                                } else if !busy {
-                                    preview = row.entry_index;
-                                }
                             }
                             if response.secondary_clicked() {
                                 if !browser.selection.contains(&row.path) {

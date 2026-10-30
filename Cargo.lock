@@ -2858,9 +2858,12 @@ dependencies = [
 name = "geezipx-egui"
 version = "0.7.4"
 dependencies = [
- "drag",
+ "block2 0.6.2",
  "eframe",
  "geezipx-core",
+ "objc2 0.6.4",
+ "objc2-app-kit 0.3.2",
+ "objc2-foundation 0.3.2",
  "open",
  "raw-window-handle",
  "rfd",
@@ -2868,6 +2871,8 @@ dependencies = [
  "serde",
  "tempfile",
  "url",
+ "windows 0.61.3",
+ "windows-core 0.61.2",
  "x11-dl",
  "x11rb",
 ]
