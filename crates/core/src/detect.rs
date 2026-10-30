@@ -196,6 +196,7 @@ const EXTENSION_MAP: &[(&str, ArchiveFormat)] = &[
     (".xpi", ArchiveFormat::Zip),
     (".tar", ArchiveFormat::Tar),
     (".gz", ArchiveFormat::Gzip),
+    (".bz", ArchiveFormat::Bzip2),
     (".bz2", ArchiveFormat::Bzip2),
     (".br", ArchiveFormat::Brotli),
     (".lz4", ArchiveFormat::Lz4),

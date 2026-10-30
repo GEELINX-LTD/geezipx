@@ -66,7 +66,7 @@ pub fn parse_format(s: &str) -> Result<ArchiveFormat> {
         "tar.bz2" | "tbz" | "tbz2" => Ok(ArchiveFormat::TarBz2),
         "tar.br" => Ok(ArchiveFormat::TarBr),
         "gz" | "gzip" => Ok(ArchiveFormat::Gzip),
-        "bz2" | "bzip2" => Ok(ArchiveFormat::Bzip2),
+        "bz" | "bz2" | "bzip2" => Ok(ArchiveFormat::Bzip2),
         "br" | "brotli" => Ok(ArchiveFormat::Brotli),
         "lz4" => Ok(ArchiveFormat::Lz4),
         "tar.lz4" => Ok(ArchiveFormat::TarLz4),
@@ -729,7 +729,15 @@ pub fn bzip2_output_filename(archive: &Path) -> PathBuf {
         .file_name()
         .map(|s| s.to_string_lossy().to_string())
         .unwrap_or_else(|| "output".to_string());
-    let stripped = name.strip_suffix(".bz2").unwrap_or(&name);
+    let lower = name.to_ascii_lowercase();
+    let suffix_len = if lower.ends_with(".bz2") {
+        4
+    } else if lower.ends_with(".bz") {
+        3
+    } else {
+        0
+    };
+    let stripped = &name[..name.len() - suffix_len];
     PathBuf::from(stripped)
 }
 

@@ -24,7 +24,7 @@
 | BH | 待复核 | |
 | BIN | 待复核 | 现有透传不算镜像提取 |
 | BR | 待复核 | |
-| BZ / BZ2 / TBZ / TBZ2 | 待复核 | |
+| BZ / BZ2 / TBZ / TBZ2 | 已复核并修复 | BZIP2 多成员流式读取/CRC 已具备；增加 `.bz`/`--format bz` 别名与大小写输出名处理，修复独立编码 API 非法等级 panic。`.bz` 仅指 BZIP2 容器，旧 BZIP/BZ0 算法未实现；TAR.BZ2 顺序 visitor 已具备，共享提取/校验路径尚需接入；旧 infallible TAR writer 构造器仍要求调用者校验等级 |
 | CAB | 待复核 | |
 | 化合物 / MSI | 已实现容器流提取 | cfb 0.15；识别 CFB magic/.msi/.msp/.mst/.cfb/.ole；目录/mini-stream/普通流使用 Read+Seek 按需复制，元数据驻内存。提取原始 OLE/MSI streams，不解释 MSI 数据库 File 表，不自动展开内嵌 CAB |
 | DAA 1.0 | 待复核 | |
