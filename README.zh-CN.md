@@ -69,11 +69,11 @@
 | BIN | `.bin` | ✓ | ✓ | 透传身份复制 |
 | UU / UUE | `.uu`, `.uue` | ✓ | ✓ | 文本编码/解码 |
 | XXE | `.xxe` | ✓ | ✓ | 文本编码/解码 |
-| Z (Unix Compress) | `.Z` | ✗ | ✗ | 当前构建未导出该模块 |
+| Z (Unix Compress) | `.Z` | ✗ | ✗ | 仅识别格式，尚未实现操作支持 |
 | ARJ | `.arj` | ✓ | ✗ | 通过 unarc-rs 只读 |
 | ACE | `.ace` | ✓ | ✗ | 通过 unarc-rs 只读 |
 | ARC | `.arc` | ✓ | ✗ | 通过 unarc-rs 只读 |
-| ALZ | `.alz` | ✗ | ✗ | 当前构建尚未启用该模块 |
+| ALZ | `.alz` | ✗ | ✗ | 仅识别格式，尚未实现操作支持 |
 
 > **ZIPX 说明**：`.zipx` 作为 ZIP 兼容别名支持。不实现 WinZip 专有压缩方法。
 > **WIM 写入**：WIM 写入器存储未压缩数据。如需压缩写入请使用 wimlib。
@@ -84,14 +84,23 @@
 ## 项目状态
 
 第一阶段（CLI MVP）已经**全部完成并进入成熟阶段**。所有支持格式均已实现对应子命令。`completions` 子命令也已完成。crates.io 上已发布 `geezipx` 和 `geezipx-core` 包。
-第二阶段（桌面 GUI via Tauri）**是当前开发重心**。GUI 已包含归档浏览器、拖拽、进度显示、选择性提取、文本/十六进制预览、侧边栏导航、密码输入、任务取消、多标签浏览、主页、设置面板、Toast 通知和 Windows 右键菜单等能力。详见 [`docs/GUI_MVP_PLAN.md`](docs/GUI_MVP_PLAN.md)。
+第二阶段（桌面 GUI）**是当前开发重心**。Tauri 桌面端和独立的 **GeeZipX Native**（egui/eframe）共用 Rust core。Tauri 的功能和格式范围见 [GUI 指南](docs/GUI_MVP_PLAN.md)，原生端的独立设计、构建和能力范围见 [原生端指南](docs/EGUI_GUI.md)。
 
 | 阶段 | 主题 | 状态 |
 |------|------|------|
 | 1 | CLI MVP | **已完成** -- crates.io 上已发布 `geezipx`（v0.7.4）与 `geezipx-core` |
 | 2 | 桌面 GUI (Tauri) | **开发中** -- v0.7.4 已包含归档浏览器、拖拽、进度显示、选择性提取、文本/十六进制预览、侧边栏导航、设置面板、Toast 通知、Windows 右键菜单 |
+| 2 | 桌面 GUI (egui) | **未发布** -- 独立原生应用；使用 `cargo run -p geezipx-egui` 启动，独立三平台构建工作流 |
 
-详见 [`docs/GUI_MVP_PLAN.md`](docs/GUI_MVP_PLAN.md) 了解详细规划和剩余任务。
+### 原生 GUI（egui）
+
+```sh
+cargo run -p geezipx-egui
+cargo run -p geezipx-egui -- /path/to/archive.zip
+cargo build -p geezipx-egui --release --locked
+```
+
+原生端使用 Rust、egui/eframe 与 OpenGL，提供系统文件选择器和内嵌中文字体，无需 Node.js、Tauri 或 WebView。`cargo build` 默认只构建 core/CLI，桌面端需显式选择包。当前产物为独立可执行文件，安装器和文件关联尚未接入；尚无与 Tauri 的同机性能对照测量。
 
 ---
 
@@ -366,61 +375,24 @@ geezipx completions fish > ~/.config/fish/completions/geezipx.fish
 
 ```text
 geezipx/
-├── AGENTS.md               # AI 代理协作指南
-├── CHANGELOG.md            # 发布变更日志
-├── Cargo.toml              # Workspace 根定义
 ├── crates/
-│   ├── core/
-│   │   └── src/
-│   │       ├── archive/    # 各类归档/容器实现
-│   │       ├── config.rs   # 压缩选项（level/jobs/password）
-│   │       ├── detect.rs   # 格式检测（魔数字节 + 扩展名）
-│   │       ├── error.rs    # 统一错误类型（GeeZipError）
-│   │       ├── io.rs       # ProgressReader / ProgressWriter / ProgressEvent
-│   │       └── test.rs     # 归档完整性辅助逻辑
-│   ├── cli/
-│   │   ├── src/
-│   │   │   ├── commands/   # compress / decompress / list / test / completions
-│   │   │   ├── render/     # 终端进度与输出渲染
-│   │   │   └── signal.rs   # Ctrl+C 取消处理
-│   │   └── tests/          # CLI 集成测试与流式 smoke 测试
-│   ├── gui-tauri/
-│   │   ├── src/
-│   │   │   ├── bridge.ts   # 前端与 Tauri 的桥接类型/辅助函数
-│   │   │   ├── main.ts     # 当前 Tauri 前端主逻辑（TypeScript/Vite）
-│   │   │   ├── style.css   # GUI 样式
-│   │   │   └── i18n/       # 国际化 (en.json, zh-CN.json)
-│   │   └── src-tauri/
-│   │       ├── src/
-│   │       │   ├── commands/
-│   │       │   ├── lib.rs
-│   │       │   └── state.rs
-│   │       └── tauri.conf.json
-│   └── sfx-stub/           # 自解压 stub 二进制（Linux/macOS/Windows）
-├── docs/                   # 产品与架构文档
-├── scripts/                # 构建、CI、benchmark、互操作脚本
-└── .github/workflows/      # CI、审计、覆盖率、benchmark、release 工作流
+│   ├── core/               # 共享归档引擎、格式检测、安全 I/O 与进度
+│   ├── cli/                # 命令、终端输出与集成测试
+│   ├── gui-tauri/          # Svelte 5 前端与 Tauri Rust 桥接
+│   ├── gui-egui/           # 独立 egui/eframe 原生桌面端
+│   ├── sfx-stub/           # 自解压 ZIP 可执行程序
+│   └── vendor/             # 本地修补的原生依赖
+├── docs/                   # 产品范围、架构与桌面端指南
+├── scripts/                # 构建、基准、互操作与发布脚本
+└── .github/workflows/      # CI、审计、桌面构建与发布
 ```
 
-### 架构
+CLI 与两个桌面端单向依赖共享 Rust core。格式逻辑由 core 实现，前端负责交互、参数映射和进度展示；两个桌面端互相独立。
 
-GeeZipX 采用分层 workspace 架构：
-
-```text
-┌─────────────┐  ┌─────────────────┐
-│  cli (bin)  │  │  gui-tauri       │  ← 前端层（CLI / Tauri GUI）
-└──────┬──────┘  └────────┬─────────┘
-       │                  │
-       └────────┬─────────┘
-                │ 依赖
-        ┌───────▼──────────┐
-        │  core (lib)       │  ← 核心引擎：归档/压缩逻辑
-        │  ─ 纯数据流       │     - 不承载终端/UI 逻辑
-        │  ─ 可复用 API     │     - 被 CLI 与 GUI 共同复用
-        └──────────────────┘
-```
-
-核心库通过统一的 `ArchiveReader` / `ArchiveWriter` trait 以及单流 helper 处理格式逻辑。CLI 和 Tauri GUI 只负责参数映射、用户交互与进度展示，不重复实现压缩/解压逻辑。
+- [产品范围与格式支持](docs/PRD.md)
+- [技术架构与实现限制](docs/TECH_ARCHITECTURE.md)
+- [Tauri 桌面端指南](docs/GUI_MVP_PLAN.md) / [原生桌面端指南](docs/EGUI_GUI.md)
+- [发布验收清单](docs/RELEASE_CHECKLIST.md)
 
 ---
 
@@ -487,11 +459,11 @@ SFX 功能需启用 `sfx` feature（CLI 默认包含），且所选目标必须�
 ### 构建与测试
 
 ```sh
-# 构建所有 workspace crate
+# 构建 core 与 CLI（默认 workspace 成员）
 cargo build
 
-# 运行全部测试
-cargo test --workspace --all-features
+# 运行不需要 Tauri 桌面依赖的 workspace 测试
+cargo test --workspace --exclude geezipx-gui --all-features
 
 # Release 构建
 cargo build --release
@@ -499,8 +471,8 @@ cargo build --release
 # 检查代码格式化
 cargo fmt --all --check
 
-# 运行 clippy（严格模式）
-cargo clippy --workspace --all-targets --all-features -- -D warnings
+# 运行 clippy（严格模式，不含 Tauri）
+cargo clippy --workspace --exclude geezipx-gui --all-targets --all-features -- -D warnings
 
 # 生成文档
 cargo doc --no-deps
@@ -532,9 +504,9 @@ GEEZIPX_INTEROP_STRESS=1 bash scripts/check-interop.sh
 ```sh
 # 提交前质量门禁
 cargo fmt --all --check && \
-cargo clippy --workspace --all-targets --all-features -- -D warnings && \
-cargo test --workspace --all-features && \
-cargo build --release --workspace
+cargo clippy --workspace --exclude geezipx-gui --all-targets --all-features -- -D warnings && \
+cargo test --workspace --exclude geezipx-gui --all-features && \
+cargo build --release --workspace --exclude geezipx-gui
 ```
 
 ### Release 产物预检
@@ -545,46 +517,9 @@ cargo build --release --workspace
 
 ## 路线图
 
-### 第一阶段（CLI MVP）— 已完成并成熟 ✓
+CLI 已进入成熟阶段。当前重点是 Tauri 桌面端与独立 egui 桌面端、格式适配，以及下一版的原生桌面验收。具体范围和待办分别见 [Tauri 指南](docs/GUI_MVP_PLAN.md)、[原生端指南](docs/EGUI_GUI.md) 和 [发布验收清单](docs/RELEASE_CHECKLIST.md)。
 
-所有 CLI 核心能力和格式支持均已完备。详见格式支持表格。
-
-- 1,000+ 测试（单元 + 集成 + 互操作 + 流式 smoke）
-- 三平台 CI（Linux/macOS/Windows）
-- crates.io 发布：`geezipx`（CLI）和 `geezipx-core`
-- cargo-deny 安全审计
-- Criterion 基准测试（advisory，无硬门禁）
-
-### 第二阶段（桌面 GUI via Tauri）— 当前开发重心（v0.7.4）
-
-- [x] Tauri v2 项目骨架 + TypeScript/Vite 前端
-- [x] Core 引擎桥接（Tauri commands）
-- [x] 归档浏览器 + 文件关联（范围见 [GUI 格式支持](docs/GUI_MVP_PLAN.md#31-支持的格式)）
-- [x] 选择性提取
-- [x] 内联预览（文本 + 十六进制）
-- [x] 拖入应用与拖出条目
-- [x] 侧边栏导航与最近路径 chips
-- [x] 加密归档密码输入（ZIP AES-256、7z、RAR）
-- [x] 实时进度显示（速度 + 剩余时间）
-- [x] 取消安全的任务执行
-- [x] 多标签归档浏览
-- [x] 主页（最近归档 + 快捷操作）
-- [x] 设置面板（语言、输出目录、覆盖策略、主题等）
-- [x] 任务完成与错误通知（Toast）
-- [x] Windows 右键菜单集成
-- [x] GUI bundle CI：`gui-windows.yml` + `release.yml`（.AppImage/.dmg/.exe (NSIS 安装器)）
-- [x] v0.7.4 已发布三平台 GUI bundle
-- [x] 窗口状态持久化
-- [ ] 下一版候选包构建与原生桌面验收
-
-详见 [`docs/GUI_MVP_PLAN.md`](docs/GUI_MVP_PLAN.md) 了解详细规划，候选构建与验收步骤见 [`docs/RELEASE_CHECKLIST.md`](docs/RELEASE_CHECKLIST.md)。
-
-### 第三阶段（未来）
-
-- [ ] 平台原生安装渠道（Homebrew、winget、APT）
-- **格式扩展** — 由用户需求与社区反馈驱动
-- 进一步 GUI 打磨与平台集成
-
+后续分发渠道包括 Homebrew、winget 和 APT；格式扩展由用户需求与社区反馈驱动。
 
 ---
 
@@ -600,8 +535,8 @@ GeeZipX 遵循 [XDG 基础目录规范](https://specifications.freedesktop.org/b
 
 提交 PR 前请确认：
 
-1. 全部测试通过：`cargo test --workspace --all-features`
-2. Clippy 零警告：`cargo clippy --workspace --all-targets --all-features -- -D warnings`
+1. 测试通过：`cargo test --workspace --exclude geezipx-gui --all-features`
+2. Clippy 零警告：`cargo clippy --workspace --exclude geezipx-gui --all-targets --all-features -- -D warnings`
 3. 代码格式正确：`cargo fmt --all --check`
 4. 如果变更影响公共 API 或 CLI 行为，同步更新文档
 

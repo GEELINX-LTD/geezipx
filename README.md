@@ -69,11 +69,11 @@
 | BIN | `.bin` | ✓ | ✓ | pass-through identity copy |
 | UU / UUE | `.uu`, `.uue` | ✓ | ✓ | text encoding/decoding |
 | XXE | `.xxe` | ✓ | ✓ | text encoding/decoding |
-| Z (Unix Compress) | `.Z` | ✗ | ✗ | Module is not registered in current builds |
+| Z (Unix Compress) | `.Z` | ✗ | ✗ | Format detection only; operations are not implemented |
 | ARJ | `.arj` | ✓ | ✗ | read-only via unarc-rs |
 | ACE | `.ace` | ✓ | ✗ | read-only via unarc-rs |
 | ARC | `.arc` | ✓ | ✗ | read-only via unarc-rs |
-| ALZ | `.alz` | ✗ | ✗ | Module is not enabled in current builds |
+| ALZ | `.alz` | ✗ | ✗ | Format detection only; operations are not implemented |
 
 > **ZIPX note**: `.zipx` is supported as a ZIP-compatible container/extension alias. GeeZipX does not implement WinZip-specific advanced compression methods or the full ZIPX method matrix.
 > **WIM write**: The WIM writer stores data uncompressed. For compressed write, use wimlib or other tools.
@@ -90,7 +90,6 @@ Phase 2 (Desktop GUIs) is **the active development focus**. Two independent fron
 |-------|-------|--------|
 | 1 | CLI MVP | **Complete** -- crates.io releases `geezipx` (v0.7.4) and `geezipx-core` are available |
 | 2 | Desktop GUI (Tauri) | **In development** -- v0.7.4 includes archive browsing, drag/drop, progress reporting, selective extraction, text/hex preview, sidebar navigation, settings panel, Toast notifications, and Windows right-click context-menu integration |
-
 | 2 | Desktop GUI (egui) | **Unreleased** -- independent native app; build with `cargo run -p geezipx-egui`; standalone three-platform build workflow |
 
 See [`docs/GUI_MVP_PLAN.md`](docs/GUI_MVP_PLAN.md) and [`docs/EGUI_GUI.md`](docs/EGUI_GUI.md) for each frontend's features and remaining work.
@@ -389,60 +388,24 @@ After installing, restart your shell or source the file for tab-completion on su
 
 ```text
 geezipx/
-├── AGENTS.md               # AI agent collaboration guide
-├── CHANGELOG.md            # Release changelog
-├── Cargo.toml              # Workspace root
 ├── crates/
-│   ├── core/
-│   │   └── src/
-│   │       ├── archive/    # Archive/container implementations
-│   │       ├── config.rs   # Compression options (level/jobs/password)
-│   │       ├── detect.rs   # Format detection (magic bytes + extension)
-│   │       ├── error.rs    # Unified error types (GeeZipError)
-│   │       ├── io.rs       # ProgressReader / ProgressWriter / ProgressEvent
-│   │       └── sfx.rs      # Self-extracting archive (SFX) creation
-│   ├── cli/
-│   │   ├── src/
-│   │   │   ├── commands/   # compress / decompress / list / test / completions
-│   │   │   ├── render/     # Terminal progress + output rendering
-│   │   │   └── signal.rs   # Ctrl+C cancellation token
-│   │   └── tests/          # CLI integration + streaming smoke tests
-│   └── gui-tauri/
-│       ├── src/
-│       │   ├── bridge.ts   # Frontend ↔ Tauri bridge types/helpers
-│       │   ├── main.ts     # Current Tauri frontend logic (TypeScript/Vite)
-│       │   ├── style.css   # GUI styling
-│       │   └── i18n/       # Internationalization (en.json, zh-CN.json)
-│       └── src-tauri/
-│           ├── src/
-│           │   ├── commands/
-│           │   ├── lib.rs
-│           │   └── state.rs
-│           └── tauri.conf.json
-├── docs/                   # Product and architecture documentation
-├── scripts/                # Build, CI, benchmark, and interop helpers
-└── .github/workflows/      # CI, audit, coverage, benchmark, and release workflows
+│   ├── core/               # Shared archive engine, detection, safe I/O and progress
+│   ├── cli/                # Commands, terminal output and integration tests
+│   ├── gui-tauri/          # Svelte 5 frontend and Tauri Rust bridge
+│   ├── gui-egui/           # Independent egui/eframe native desktop app
+│   ├── sfx-stub/           # Self-extracting ZIP executable
+│   └── vendor/             # Patched native dependencies
+├── docs/                   # Product scope, architecture and desktop guides
+├── scripts/                # Build, benchmark, interop and release helpers
+└── .github/workflows/      # CI, audit, desktop builds and releases
 ```
 
-### Architecture
+The CLI and both desktop frontends depend on the shared Rust core. Archive logic lives in core; frontends handle interaction, parameter mapping and progress. The desktop apps are independent of each other.
 
-GeeZipX follows a layered workspace architecture:
-
-```text
-┌─────────────┐  ┌─────────────────┐
-│  cli (bin)  │  │  gui-tauri       │  ← Frontend layers (CLI / Tauri GUI)
-└──────┬──────┘  └────────┬─────────┘
-       │                  │
-       └────────┬─────────┘
-                │ depends on
-        ┌───────▼──────────┐
-        │  core (lib)       │  ← Core engine: archive/compression logic
-        │  ─ pure data flow │     - no terminal/UI behavior
-        │  ─ reusable API   │     - shared by CLI and GUI
-        └──────────────────┘
-```
-
-The core library owns the archive-format logic via unified `ArchiveReader` / `ArchiveWriter` traits plus single-stream helpers. The CLI and Tauri GUI only handle user interaction, parameter mapping, and progress presentation.
+- [Product scope and format support](docs/PRD.md)
+- [Architecture and implementation limits](docs/TECH_ARCHITECTURE.md)
+- [Tauri desktop guide](docs/GUI_MVP_PLAN.md) / [Native desktop guide](docs/EGUI_GUI.md)
+- [Release acceptance checklist](docs/RELEASE_CHECKLIST.md)
 
 ---
 
@@ -456,11 +419,11 @@ The core library owns the archive-format logic via unified `ArchiveReader` / `Ar
 ### Build & Test
 
 ```sh
-# Build all workspace crates
+# Build core and CLI (default workspace members)
 cargo build
 
-# Run all tests (unit + integration)
-cargo test --workspace --all-features
+# Run workspace tests without the Tauri desktop dependencies
+cargo test --workspace --exclude geezipx-gui --all-features
 
 # Release build
 cargo build --release
@@ -468,8 +431,8 @@ cargo build --release
 # Check formatting
 cargo fmt --all --check
 
-# Run clippy (strict mode)
-cargo clippy --workspace --all-targets --all-features -- -D warnings
+# Run clippy (strict mode, without Tauri)
+cargo clippy --workspace --exclude geezipx-gui --all-targets --all-features -- -D warnings
 
 # Generate documentation
 cargo doc --no-deps
@@ -562,9 +525,9 @@ Code coverage is tracked via [cargo-tarpaulin](https://github.com/xd009642/tarpa
 ```sh
 # Full quality gate (run before committing)
 cargo fmt --all --check && \
-cargo clippy --workspace --all-targets --all-features -- -D warnings && \
-cargo test --workspace --all-features && \
-cargo build --release --workspace
+cargo clippy --workspace --exclude geezipx-gui --all-targets --all-features -- -D warnings && \
+cargo test --workspace --exclude geezipx-gui --all-features && \
+cargo build --release --workspace --exclude geezipx-gui
 ```
 
 ### Release Artifact Dry-Run
@@ -581,46 +544,9 @@ and the combined `SHA256SUMS` file.
 
 ## Roadmap
 
-### Phase 1 (CLI MVP) — Complete and Mature ✓
+The CLI is mature. Current work focuses on the Tauri desktop app and the independent egui app, their format adapters, and native desktop acceptance for the next release. See the [Tauri guide](docs/GUI_MVP_PLAN.md), [native guide](docs/EGUI_GUI.md), and [release checklist](docs/RELEASE_CHECKLIST.md).
 
-All core CLI features and format support are complete. See the Format Support table above for the full read/write matrix.
-
-- 1,000+ tests (unit + integration + interop + streaming smoke)
-- 3-platform CI (Linux/macOS/Windows)
-- crates.io releases: `geezipx` (CLI) and `geezipx-core`
-- `cargo-deny` security audit
-- Criterion benchmarks (advisory, no hard gate)
-
-### Phase 2 (Desktop GUI via Tauri) — Current Development (v0.7.4)
-
-- [x] Tauri v2 project skeleton + TypeScript/Vite frontend
-- [x] Core engine bridge via Tauri commands
-- [x] Archive browser with file associations for the [supported GUI formats](docs/GUI_MVP_PLAN.md#31-支持的格式)
-- [x] Selective extraction from archives
-- [x] In-app text/hex preview
-- [x] Drag & drop into the app
-- [x] Drag-out archive entries to the filesystem
-- [x] Sidebar navigation and recent-path chips
-- [x] Password prompts for encrypted archives (ZIP AES-256, 7z, RAR)
-- [x] Live progress display with speed and remaining time
-- [x] Cancel-safe task execution
-- [x] Multi-tab archive browsing
-- [x] Home page with recent archives and quick actions
-- [x] Settings panel (language, output directory, overwrite strategy, theme, etc.)
-- [x] Toast notifications for task completion and errors
-- [x] Windows right-click context-menu integration
-- [x] GUI bundle CI: standalone `gui-windows.yml` + `release.yml` for `.AppImage`, `.dmg`, `.exe (NSIS installer)`
-- [x] Published three-platform GUI bundles in v0.7.4
-- [x] Window state persistence
-- [ ] Candidate build and native desktop acceptance for the next release
-
-See [`docs/GUI_MVP_PLAN.md`](docs/GUI_MVP_PLAN.md) for detailed planning and [`docs/RELEASE_CHECKLIST.md`](docs/RELEASE_CHECKLIST.md) for the next release's build and acceptance steps.
-
-### Phase 3 (Future)
-
-- [ ] Platform-native installers (Homebrew, winget, APT)
-- **Format expansion** — driven by user requests and community feedback
-- Further GUI polish and platform integration
+Future distribution channels include Homebrew, winget and APT. Format expansion follows user requests and community feedback.
 
 ---
 
@@ -636,8 +562,8 @@ Contributions are welcome! Please read [AGENTS.md](AGENTS.md) for development co
 
 Before submitting a PR:
 
-1. Ensure all tests pass: `cargo test --workspace --all-features`
-2. Run clippy with no warnings: `cargo clippy --workspace --all-targets --all-features -- -D warnings`
+1. Ensure tests pass: `cargo test --workspace --exclude geezipx-gui --all-features`
+2. Run clippy with no warnings: `cargo clippy --workspace --exclude geezipx-gui --all-targets --all-features -- -D warnings`
 3. Check formatting: `cargo fmt --all --check`
 4. Update documentation if your change affects the public API or CLI behavior
 

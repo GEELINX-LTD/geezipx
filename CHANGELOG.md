@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Repository cleanup**: Remove unregistered ALZ/Unix Compress adapter sources, unused mobile icons and vendored Cargo download metadata. Stop tracking generated Tauri schemas; consolidate completed plans, review notes and duplicated configuration examples into current documentation.
 - **Workspace defaults**: Default Cargo commands select core and CLI only. Select `geezipx-egui` or `geezipx-gui` explicitly to build a desktop frontend.
 - **Release verification**: Manual builds default to `dry_run: true`. Verify all three CLI archives and the required AppImage, deb, DMG and NSIS bundles, generate individual and combined SHA256 checksums, and retain verified artifacts and a workflow summary for candidate testing.
 - **Windows GUI — Migrate registry access to `windows-registry` 0.6.1**: Replaced all `reg.exe` subprocess calls in `shell_menu.rs` and `associations.rs` with the Microsoft [`windows-registry`](https://crates.io/crates/windows-registry) safe in-process API. Registry operations now use structured `windows_result::HRESULT` error codes (with `ERROR_FILE_NOT_FOUND` detection) instead of locale-dependent stderr text from `reg.exe`. All registry paths are HKCU-relative (`Software\Classes\...`). `CommandExt` / `ExitStatusExt` / `CREATE_NO_WINDOW` imports removed from the Windows platform modules. The `SHChangeNotify` FFI and NSIS installer registry paths are unchanged.

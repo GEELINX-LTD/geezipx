@@ -60,7 +60,6 @@ GeeZipX 是一个使用 Rust 开发的跨平台压缩/解压缩工具。
 
 - `docs/PRD.md`：产品需求文档。
 - `docs/TECH_ARCHITECTURE.md`：技术架构文档。
-- `docs/PHASE1_CLI_TASKS.md`：第一阶段 CLI MVP 任务拆分。
 - `docs/GUI_MVP_PLAN.md`：Tauri 桌面 GUI MVP 规划和任务拆分。
 - `docs/EGUI_GUI.md`：独立 egui 原生桌面端的运行、能力范围、架构和限制。
 
@@ -114,7 +113,7 @@ GUI 不应成为 core 或 CLI 的前置依赖。
 
 压缩/解压缩逻辑必须放在 core 层。
 
-CLI 和后续 Tauri GUI 只负责：
+CLI 和两个 GUI 只负责：
 
 - 参数解析；
 - 用户交互；
@@ -183,13 +182,13 @@ CLI 和后续 Tauri GUI 只负责：
 - ARJ（只读，unarc-rs 适配器）；
 - ACE（只读，unarc-rs 适配器）；
 - ARC（只读，unarc-rs 适配器）；
-- ALZ（只读适配模块待接入，当前构建未启用）；
-- Z / Unix Compress（只读适配模块待导出，当前构建不可用）；
 - UU / UUE（读写，自实现编解码器）；
 - XXE（读写，自实现编解码器）；
 - IMG（透传，identity pass-through，扩展名 .img/.ima）；
 - BIN（透传，identity pass-through，扩展名 .bin）；
 - AES 加密容器（.enc，AES-256-GCM-SIV + Argon2id）；
+
+ALZ 与 Z / Unix Compress 仅保留格式识别，尚未实现操作支持。
 
 CLI 已支持 `compress --split-size` 分卷创建。后续格式扩展由实际需求驱动，当前优先补齐 GUI 桥接与已知兼容性限制；core/CLI 已支持不代表 GUI 已接入，详见 `docs/GUI_MVP_PLAN.md` §3.1。
 
@@ -279,7 +278,7 @@ cargo test --workspace --exclude geezipx-gui --all-features
 
 - 产品范围变化：更新 `docs/PRD.md`。
 - 架构、模块或依赖变化：更新 `docs/TECH_ARCHITECTURE.md`。
-- 第一阶段任务状态或拆分变化：更新 `docs/PHASE1_CLI_TASKS.md`。
+- 发布验证与剩余验收项：更新 `docs/RELEASE_CHECKLIST.md`。
 - 新增命令或参数：更新 CLI 使用说明或 README。
 
 文档应保持具体、可执行，避免空泛描述。
@@ -468,7 +467,7 @@ PR 描述应包含：
    - CLI 实现；
    - 测试；
    - CI / 发布；
-   - 后续 Tauri GUI。
+   - 桌面 GUI（Tauri / egui）。
 3. 如果需求不明确，应先提出具体澄清问题。
 
 ### 修改代码时

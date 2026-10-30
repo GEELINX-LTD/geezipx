@@ -34,9 +34,12 @@ geezipx/
 │   │   └── tests/            # 原生端实际文件操作回归
 │   └── gui-tauri/
 │       ├── src/
-│       │   ├── bridge.ts
-│       │   ├── main.ts
-│       │   └── style.css
+│       │   ├── App.svelte     # 主窗口布局
+│       │   ├── pages/         # 压缩、解压、设置等页面
+│       │   ├── stores/        # 归档、任务与设置状态
+│       │   ├── bridge.ts      # Tauri API
+│       │   ├── main.ts        # 窗口入口
+│       │   └── app.css        # 全局样式
 │       └── src-tauri/
 │           ├── src/
 │           │   ├── commands/
@@ -53,18 +56,9 @@ geezipx/
 CLI、Tauri GUI 和 egui GUI 分别是独立前端，都单向依赖 core；两个 GUI 互不依赖。原生 egui 使用 eframe/Glow 直接绘制，不经过 WebView 或 Tauri IPC。根目录默认 Cargo 成员为 core/CLI，桌面端必须显式选择包。
 
 ```text
-┌─────────────┐  ┌─────────────────┐
-│  cli (bin)  │  │  gui-tauri       │  ← 前端层：终端 UI / Tauri GUI
-└──────┬──────┘  └────────┬─────────┘
-       │                  │
-       └────────┬─────────┘
-                │ depends on
-        ┌───────▼──────────┐
-        │  core (lib)       │  ← 核心引擎：归档/压缩/检测/错误/进度
-        │  ─ 无终端依赖     │
-        │  ─ 无 Tauri 依赖  │
-        │  ─ 可被多前端复用 │
-        └──────────────────┘
+CLI ──────────┐
+Tauri GUI ────┼──→ core（归档、压缩、检测、错误、进度与安全 I/O）
+egui GUI ─────┘
 ```
 
 设计目标：
@@ -74,7 +68,7 @@ CLI、Tauri GUI 和 egui GUI 分别是独立前端，都单向依赖 core；两�
 - Tauri GUI 负责图形交互、任务管理、事件桥接；
 - egui GUI 负责独立的原生交互、共享进度快照与后台任务；不实现压缩编解码；
 - RAR 在当前版本中保持只读语义（UnRAR 许可限制）。WIM 支持无压缩写入与 XPRESS 读取；LZX 保留实验实现，但尚未通过 wimlib 样本互操作验证，LZMS 返回不支持错误。ISZ 为块压缩 ISO 包装，使用单流引擎读写。
-- ARJ/ACE/ARC/ALZ/Z 写入经评估永久排除（见 PRD §5.2）；UU/UUE/XXE 编码写入为 P1 待做项。
+- ARJ/ACE/ARC/ALZ/Z 写入经评估永久排除（见 PRD §5.2）；ALZ/Z 仅保留格式识别，尚未实现操作支持；UU/UUE/XXE 已支持编码与解码。
 - DEB、CAB、ASAR、CPIO（newc/odc）、LZH/LHA（lh0-lh7）、7z（含高级方法选择）、ISO、ZPAQ、UDF、AES、IMG、BIN 均已实现完整读写。
 
 ## 2. 模块设计
@@ -146,10 +140,10 @@ pub trait ArchiveWriter: Send {
 | `archive::deb` | DEB 读写（ar 容器 + control.tar.gz + data.tar.*） |
 | `archive::cab` | CAB 读写（`compress` / `list` / `extract` / `test`；reader 基于 `cab` crate，writer 基于 `cab` crate 实现 MSZIP 压缩写入） |
 | `archive::cpio` | CPIO 读写（`compress` / `list` / `extract` / `test`；reader/writer 基于 `cpio-archive` crate，MVP 支持 `newc` / `odc`，不创建宿主 symlink/device/FIFO/socket） |
-| `archive::lzh` | LZH/LHA 读写（`compress` / `list` / `extract` / `test`）；reader 基于 `delharc`，writer 为项目内实现（store-only level-0：文件 `-lh0-`，目录 `-lhd-`）|
+| `archive::lzh` | LZH/LHA 读写；reader 基于 `delharc`，writer 使用 `oxiarc-lzhuf` 支持 lh0 存储与 lh4-lh7 压缩，CLI 级别 0-4 映射到这些方法 |
 | `archive::iso` | ISO 读写（`compress` / `list` / `extract` / `test`）；reader 基于 `isomage`（ISO9660/Rock Ridge/Joliet），writer 基于 `hadris-iso`（ISO 9660 Level 1） |
 | `archive::zpaq` | ZPAQ 读写（`compress` / `list` / `extract` / `test`）；writer 基于 `zpaq_rs::archive_from_entries`，压缩级别 1-5；不含增量 journaling/dedup |
-| `archive::seven_zip` | 7z 读写（`list` / `extract` / `test` / `compress`）；当前 writer 为基础 MVP（默认 non-solid LZMA2，支持 AES-256 密码写入） |
+| `archive::seven_zip` | 7z 读写；默认 non-solid LZMA2，支持多方法选择、solid 模式与 AES-256 密码写入 |
 | `archive::rar` | RAR 只读（`list` / `extract` / `test`，feature-gated） |
 | `archive::wim` | WIM 无压缩写入（文件数据暂存临时磁盘，64 KiB 读入并增量 SHA-1）；XPRESS 读取，LZX 兼容性待修复，LZMS 未实现；默认第一映像；feature-gated |
 | `archive::isz` | ISZ — 块压缩 ISO 包装，单流引擎实现（读/写）；不实现 `ArchiveReader`/`ArchiveWriter` trait |
@@ -330,12 +324,12 @@ CLI 当前子命令为：
 | `zstd` 0.14.3+ | zstd / tar.zst，多线程支持 `zstdmt` |
 | `cab` 0.6 | CAB 读写支持（单卷 cabinet 浏览、提取、验证、MSZIP 压缩创建） |
 | `asar` 0.3 | ASAR 读写支持（Electron 归档，JSON header + 内容写入） |
-| `ar` 0.9 | ar 归档只读支持（DEB 包解析） |
-| `delharc` 0.6 | LZH/LHA 只读 reader 支持（writer 为项目内实现，store-only level-0） |
+| `ar` 0.9 | ar 归档读写（DEB 包解析与创建） |
+| `delharc` 0.6 / `oxiarc-lzhuf` 0.3 | LZH/LHA 读取及 lh0、lh4-lh7 写入 |
 | `isomage` 2.1 | ISO 读取（ISO9660 / Rock Ridge / Joliet 解析与流式读取）；`hadris-iso` 1.1 提供 ISO 9660 Level 1 写入 |
 | `cpio-archive` 0.10 | CPIO 读写支持（`newc` / `odc` 读写；MPL-2.0，作为未修改 Cargo 依赖使用） |
 | `zpaq_rs` 1.0 | ZPAQ 读写支持（writer 基于 `archive_from_entries`，压缩级别 1-5；optional, default-enabled；需 Rust 1.85+ 与 C++17 编译器） |
-| `sevenz-rust2` 0.21 | 7z 读写支持（当前 writer 走默认 non-solid LZMA2，可选 AES-256 密码写入） |
+| `sevenz-rust2` 0.21 | 7z 读写，支持方法选择、solid 模式和 AES-256 密码写入 |
 | `lzxd` 0.2 | WIM LZX 解压（pull 依赖） |
 | `xpress-huffman` 0.1 | WIM XPRESS 解压（pull 依赖） |
 | `sha1` 0.10 | WIM 资源 SHA-1 增量摘要；仅用于格式完整性 |
@@ -424,7 +418,8 @@ Reader/File → ProgressReader → Decoder/ArchiveReader → ProgressWriter → 
 - `deny.yml`：`cargo-deny` 安全审计；
 - `coverage.yml`：覆盖率观测（informational-only）；
 - `bench.yml`：基准基线 / 手动 benchmark；
-- `gui-windows.yml`：独立 Windows GUI 手动构建工作流；
+- `gui-windows.yml`：独立 Tauri Windows GUI 手动构建工作流；
+- `gui-egui.yml`：独立 egui 三平台检查、测试与可执行文件构建；
 - `release.yml`：CLI + GUI bundles 发布构建工作流。
 
 安全依赖基线：ZIP 在 workspace 中统一为 9.1.3+，`unarc-rs` 升至 0.8，消除旧 ZIP 的传递依赖；Zstandard 升至 0.14.3+，同时更新 `zstd-safe` / `zstd-sys`。GUI 的 Tokio 最低版本为 1.53.3，`Cargo.lock` 同步更新 `ctutils` 等传递依赖。Audit 继续执行 `deny.toml` 的安全公告、许可证、来源和依赖规则，`advisories.ignore` 保持为空。
@@ -444,9 +439,13 @@ Reader/File → ProgressReader → Decoder/ArchiveReader → ProgressWriter → 
 ```text
 crates/gui-tauri/
 ├── src/
+│   ├── App.svelte
+│   ├── QuickExtract.svelte
+│   ├── pages/
+│   ├── stores/
 │   ├── bridge.ts
 │   ├── main.ts
-│   └── style.css
+│   └── app.css
 └── src-tauri/
     ├── src/
     │   ├── commands/
@@ -475,7 +474,7 @@ crates/gui-tauri/
 - 进度通过 `task:progress` 事件推送。主窗口启动交接采用 `LaunchAction` / `LaunchRequest` 进程内队列：`dispatch_resolved_action` 在检查或创建主窗口前入队，热启动只发送 `launch-requests-pending` 唤醒；前端注册通知与进度监听后调用 `get_launch_requests`，按请求 ID 去重并在处理或显示错误后调用 `acknowledge_launch_request`。快照读取不清空数据，确认仅影响调用窗口的对应请求；查询失败仍处理查询期间已收到的唤醒。队列不跨进程退出持久化。
 - `list_archive_stream` — 流式归档条目列表（通过 Tauri IPC Channel 分批推送，500 条/块）；
 - 右键“解压缩到当前文件夹”由 `dispatch_resolved_action` 在冷/热启动统一路由到 `extract-here-*` 独立进度窗口，`src/main.ts` 根据窗口 URL 挂载 `QuickExtract.svelte`；`main` 使用 `create: false`，仅普通动作按需创建。启动动作按窗口标签暂存，`get_shell_action` 只消费调用窗口的动作；进度继续用显式任务 UUID 隔离，独立窗口具备密码提示、取消及失败确认。窗口状态插件仅持久化主窗口几何，前端挂载后再显示对应窗口。快捷窗口 capability 同时授予 `core:window:allow-close` 和 `core:window:allow-destroy`：注册 `onCloseRequested` 后，Tauri 在未阻止关闭时会通过 `destroy` 完成销毁；运行中关闭仍先取消本窗口的任务，等待执行结束后关闭。
-- 前端当前以 `src/main.ts` 为主，包含最近路径 chips、归档浏览器、任务状态管理；
+- 前端由 `src/main.ts` 挂载 `App.svelte` 或 `QuickExtract.svelte`，页面组件位于 `pages/`，归档、任务与设置状态由 `stores/` 管理；
 - 归档浏览器每层只显示直接子项；对旧 ZIP 的 `\` 分隔符在目录索引和选择匹配时按 `/` 处理，文件预览/读取继续保留原始条目名称，避免破坏旧包的精确查找。
 - 选择性提取、条目预览、拖出归档条目等 GUI 专属交互都建立在 core 的只读/提取能力之上；
 - 前端已内置 i18n 支持（`en.json` / `zh-CN.json` 双语），由 `i18n/index.ts` 管理语言切换；
@@ -494,8 +493,8 @@ crates/gui-tauri/
 | 下一候选版尚未完成三平台发布演练 | 新变更仍可能暴露平台编译或打包问题 | 按候选提交运行 release dry-run，并核对 artifacts、SHA256 与原生验收记录 |
 | 大文件压缩进度依赖预扫描总量 | 首次开始任务前会有扫描延迟 | UI 上明确扫描阶段 |
 | Windows 长路径/符号链接差异 | 个别归档场景行为与 Unix 不完全一致 | 持续测试 + 文档限制说明 |
-| RAR / ARJ / ACE / ARC / ALZ / Z 仍为只读 | GUI 不能创建这些格式 | 在产品文档中明确范围（PRD §5.2 永久排除） |
-|| WIM / ISZ writer 为标准模式外的实现 | WIM 为无压缩写入、ISZ 为单流引擎（非 ArchiveWriter trait） | 在文档中明确能力边界 |
+| RAR / ARJ / ACE / ARC 只读，ALZ / Z 尚未实现操作支持 | GUI 不能创建这些格式，且桥接范围小于 core/CLI | 以 PRD 和各 GUI 格式表分别说明范围 |
+| WIM / ISZ writer 为标准模式外的实现 | WIM 为无压缩写入、ISZ 为单流引擎（非 ArchiveWriter trait） | 在文档中明确能力边界 |
 | LZH/LHA writer 为缓冲写入（lh0-lh7 压缩均支持） | 不支持加密、多卷、extended header；单个 entry payload 会缓冲 | 在产品文档中明确限制范围 |
 | Windows COM DelegateExecute 右键菜单仍需完整原生验收 | 已通过原生编译和 NSIS 构建，Explorer 选区传递、升级与卸载仍需实机确认 | 按 `docs/RELEASE_CHECKLIST.md` 记录候选提交与逐项验收结果 |
 ## 9. 独立 egui 原生 GUI
@@ -508,129 +507,17 @@ crates/gui-tauri/
 
 独立 `gui-egui.yml` 覆盖 Linux x86_64、Windows x86_64、macOS arm64 的检查、测试、release 编译与裸可执行文件 artifacts；当前不接入正式 Release、系统右键菜单或文件关联。使用说明、完整格式范围与已知限制见 [EGUI_GUI.md](EGUI_GUI.md)。
 
-## 附录：Cargo Workspace 配置
+## 10. 当前实现限制
 
-```toml
-# /geezipx/Cargo.toml
-[workspace]
-resolver = "2"
-members = ["crates/core", "crates/cli", "crates/gui-tauri/src-tauri"]
+| 项目 | 当前边界与后续验证 |
+|------|--------------------|
+| 原生桌面与安装 | 编译、单元测试和 Wine 注册表测试不能替代 Explorer、NSIS、Finder、Launch Services 实测；按 [发布验收清单](RELEASE_CHECKLIST.md) 记录候选提交与结果 |
+| WIM | 无压缩写入与 XPRESS 读取可用；LZX 的独立 wimlib 样本尚未通过，LZMS、分割 SWM 与第一映像以外提取未实现 |
+| 内存预算 | AES、ISZ 写入、UDF 映像读写、UU/XXE 和部分第三方适配器仍整体缓冲；WIM 文件内容暂存磁盘，但 metadata/目录信息驻内存；不能保证所有格式低于固定内存上限 |
+| AES 容器 | 支持经过验证的非流式容器；拒绝存在认证漏洞的 streaming schema 和超出 KDF 策略的外部容器；流式 AES 仍需认证 framing 设计 |
+| 系统关联恢复 | 多键注册尚无完整回滚；Linux 旧 handler 备份仅会话内有效，desktop ID 查找未完整遵循 XDG；安装关联表仍宽于 GUI 实际能力 |
+| 组事务与持久性 | 多文件提取按条目发布，多卷不能整组原子提交；普通失败会清理，不保证强杀、断电或所有文件系统语义下的完整回滚 |
+| 格式范围 | ALZ/Z 仅识别格式，未实现操作支持；两个 GUI 的适配清单分别维护，均不等同于 core/CLI 全部能力 |
+| 桌面性能与可访问性 | 尚无 Tauri/egui 同机耗时和 RSS 对照基准；仍需超大归档、键盘焦点与原生拖放实测 |
 
-[workspace.package]
-version = "0.7.4"
-edition = "2021"
-license = "MIT"
-repository = "https://github.com/GEELINX-LTD/geezipx"
-rust-version = "1.96"
-
-[workspace.dependencies]
-geezipx-core = { version = "0.7.4", path = "crates/core", default-features = false }
-zip = { version = "9.1.3", default-features = false }
-```
-
-```toml
-# /geezipx/crates/core/Cargo.toml
-[package]
-name = "geezipx-core"
-version.workspace = true
-edition.workspace = true
-rust-version.workspace = true
-license.workspace = true
-repository.workspace = true
-description = "Compression/decompression core engine for GeeZipX"
-readme = "../../README.md"
-keywords = ["compression", "decompression", "archive", "zip", "gzip"]
-categories = ["compression"]
-
-[dependencies]
-thiserror = "2"
-log = "0.4"
-zip = { workspace = true, features = ["deflate", "aes-crypto"] }
-tar = "0.4"
-flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
-xz2 = { version = "0.1", features = ["static"] }
-zstd = { version = "0.14.3", features = ["zstdmt"] }
-sevenz-rust2 = { version = "0.21", default-features = false, features = ["aes256", "bzip2", "ppmd", "deflate"] }
-lzxd = "0.2"
-xpress-huffman = "0.1"
-# Optional: RAR read-only (feature-gated, requires C++ compiler)
-unrar = { version = "0.5.8", optional = true }
-# Optional: ZPAQ read-write (feature-gated, requires Rust 1.85+ and a C++17 compiler)
-zpaq_rs = { version = "1.0", optional = true }
-
-[features]
-rar = ["dep:unrar"]
-zpaq = ["dep:zpaq_rs"]
-sfx = []
-wim = []
-default = ["rar", "zpaq", "wim"]
-
-[dev-dependencies]
-tempfile = "3"
-criterion = { version = "0.5", features = ["html_reports"] }
-sevenz-rust2 = { version = "0.21", default-features = false, features = ["compress", "util", "aes256", "bzip2", "ppmd", "deflate"] }
-
-[lib]
-name = "geezipx_core"
-path = "src/lib.rs"
-
-[[bench]]
-name = "gzip_throughput"
-harness = false
-
-[[bench]]
-name = "archive_throughput"
-harness = false
-```
-
-```toml
-# /geezipx/crates/cli/Cargo.toml
-[package]
-name = "geezipx"
-version.workspace = true
-edition.workspace = true
-rust-version.workspace = true
-license.workspace = true
-repository.workspace = true
-description = "GeeZipX CLI — high-performance compression/decompression tool"
-readme = "../../README.md"
-keywords = ["compression", "decompression", "archive", "cli", "zip"]
-categories = ["command-line-utilities", "compression"]
-
-[dependencies]
-geezipx-core.workspace = true
-anyhow = "1"
-clap = { version = "4", features = ["derive"] }
-clap_complete = "4"
-comfy-table = "7"
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-indicatif = "0.17"
-ctrlc = "3"
-glob = "0.3"
-
-[features]
-rar = ["geezipx-core/rar"]
-zpaq = ["geezipx-core/zpaq"]
-sfx = ["geezipx-core/sfx"]
-wim = ["geezipx-core/wim"]
-default = ["rar", "zpaq", "sfx"]
-
-[dev-dependencies]
-assert_cmd = "2"
-predicates = "3"
-tempfile = "3"
-sevenz-rust2 = { version = "0.21", default-features = false, features = ["compress", "util", "aes256", "bzip2", "ppmd", "deflate"] }
-
-[[bin]]
-name = "geezipx"
-path = "src/main.rs"
-```
-
-> 注意：以上 `Cargo.toml` 版本号仅作示例，需以 crates.io 上的实际最新稳定版本为准。
-
-## 7. 实验性组件
-
-### 7.1 Windows Shell 右键菜单（历史）
-
-旧版 `crates/shell-extension/`（IExplorerCommand COM DLL + 稀疏 MSIX 包标识）PoC 已归档移除。当前 Windows 右键菜单统一使用运行时 HKCU 静态 verb + DelegateExecute COM LocalServer32（详见 §8），无需 MSIX/package identity，不涉及 IExplorerCommand。
+Cargo workspace 成员、feature 与依赖版本以根目录及各 crate 的 `Cargo.toml`、`Cargo.lock` 为准；本文不复制完整配置。

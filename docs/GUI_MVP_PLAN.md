@@ -57,28 +57,16 @@
 - 主窗口启动动作按窗口保存在进程内存队列，冷启动、单实例转发和 macOS 打开事件共用交接路径。前端先订阅 `launch-requests-pending` 与任务进度，再通过 `get_launch_requests` 读取快照；处理或显示错误后按 ID 调用 `acknowledge_launch_request`。重复通知不会重放同一挂载中已经处理的请求，查询失败仍处理期间收到的通知；销毁后不消费迟到结果。队列不提供进程退出后的持久恢复。
 - 文件预览最多保留 512 KiB；超限提取终止，取消与超限独立处理。前端缓存当前目录的派生列表，避免选择变化时重复扫描；后端单次选择只构建一次路径集合；仍需针对目标桌面的超大归档做交互验收。
 
-完整问题、回归证据与后续限制见 [代码复查报告](CODE_REVIEW.md)。
+当前能力限制集中见 [技术架构](TECH_ARCHITECTURE.md#10-当前实现限制)，候选构建与原生桌面验证见 [发布验收清单](RELEASE_CHECKLIST.md)。
 
 ## 4. 架构边界
 
 ```text
-┌─────────────────────────────────────┐
-│      Tauri Frontend (TypeScript/Vite)  │
-│  - 文件选择 / 拖拽 / 浏览 / 预览       │
-│  - 任务状态与进度面板                 │
-└──────────────┬──────────────────────┘
-               │ invoke / event
-┌──────────────▼──────────────────────┐
-│    Tauri Rust Backend (thin bridge) │
-│  compress / extract / list / test   │
-│  preview / cancel / drag helpers    │
-└──────────────┬──────────────────────┘
-               │ reuse core APIs
-┌──────────────▼──────────────────────┐
-│         geezipx-core 引擎库          │
-│  archive/*  detect.rs  error.rs     │
-│  config.rs  io.rs  test.rs          │
-└─────────────────────────────────────┘
+Svelte 5 / Vite 前端（选择、浏览、预览与任务状态）
+        │ invoke / event / Channel
+Tauri Rust 后端（参数映射、任务生命周期与进度桥接）
+        │ 复用 core API
+Rust core（archive / detect / config / error / io / test）
 ```
 
 **约束**：GUI 依赖 core，反向不允许。后端只做参数映射、任务生命周期、进度桥接与数据整形，不处理压缩逻辑。
@@ -86,7 +74,8 @@
 ## 5. Core API 复用策略
 
 | Core 模块 | GUI 复用方式 |
-| `io::{ProgressReader, Writer, Callback, Event}` | 进度计数与取消检查；后端转 Tauri 事件 |
+|-----------|--------------|
+| `io::{ProgressReader, ProgressWriter, ProgressCallback, ProgressEvent}` | 进度计数与取消检查；后端转 Tauri 事件 |
 | `detect::*` | 自动识别拖入文件与归档类型 |
 | `config::CompressOptions` | 统一传递 level、jobs、password 等 |
 | `error::GeeZipError` | 后端转用户可读字符串 |
@@ -98,6 +87,7 @@
 入口 `crates/gui-tauri/src-tauri/src/lib.rs`，核心命令：
 
 | 命令 | 类型 | 参数 |
+|------|------|------|
 | `compress_archive` | `async -> Result<...>` | 压缩参数 + 进度回调 |
 | `extract_archive` / `extract_entries` | `async -> Result<...>` | 路径 + 覆盖 + 密码 |
 | `list_archive` | `async -> Result<Vec<EntryInfo>>` | 路径 + 密码 |
@@ -130,6 +120,7 @@ GUI 提取使用 `overwrite: bool` 参数，关闭时跳过已有文件并返回
 ## 9. 平台原生打包
 
 | 平台 | bundle | 状态 |
+|------|--------|------|
 | macOS | `.dmg` | v0.7.4 已发布；下一候选版需重新构建和验收 |
 | Linux | `.AppImage` / `.deb` | v0.7.4 已发布；下一候选版需重新构建和验收 |
 | Windows | `.exe (NSIS 安装器)` | v0.7.4 已发布；`gui-windows.yml` 可手动构建候选测试包 |
@@ -226,6 +217,7 @@ crates/gui-tauri/src/
 ### 11.2 标签页
 
 | 标签页 | 设置项 |
+|--------|--------|
 | **通用** | locale（`'en' \| 'zh-CN'`）、默认输出目录、覆盖策略、完成后行为 |
 | **压缩** | 默认格式、压缩级别、递归 |
 | **外观** | 主题（`system \| light \| dark`），即时 `data-theme` 切换 |

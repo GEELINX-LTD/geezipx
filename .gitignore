@@ -11,7 +11,7 @@ coverage/
 
 .playwright-mcp/
 
-# Windows modern context menu PoC — never commit private keys or PFX
+# Local signing material
 *.pfx
 *.p12
 *.PFX
@@ -19,5 +19,3 @@ coverage/
 *.cer
 *.CER
 **/BEGIN PRIVATE KEY
-crates/shell-extension/package/AppxManifest.xml
-scripts/windows-modern-menu/*.ps1.orig
