@@ -20,7 +20,7 @@ The Release workflow runs this script and uploads the verified files as
 
 ## check-format-candidate.py
 
-Runs 35 checks against an already-built native CLI, plus a native SFX check
+Runs 38 checks against an already-built native CLI, plus a native SFX check
 with `--sfx`, using Python 3.12 and only its standard library. It uses offline
 fixtures with recorded provenance and
 checks real subprocess exit codes, JSON listing/verification, extracted content,
@@ -39,7 +39,7 @@ extracted file hashes. CI uploads separate reports with each platform's CLI
 artifact; the first error fails the step and leaves a partial failure report.
 
 Coverage includes ZIP/XZ method 95, 7z, TAR/TGZ, LZH/lh7, ISO, GZIP/XZ, real
-EGG/PMA/Unix Compress/Lzip/ISZ/AES Crypt fixtures, TLZ, cooked IMG/BIN views,
+EGG/PMA/Unix Compress/Lzip/ISZ/AES Crypt fixtures, UU/UUE/XXE, TLZ, cooked IMG/BIN views,
 synthetic ALZ/CFB regressions and native SFX. Synthetic containers are not
 independent interoperability evidence; MSI database extraction and unsupported
 format variants are outside this check. These small cases are correctness

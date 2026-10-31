@@ -141,6 +141,7 @@ def main():
                 ("zip", "zip"), ("zipx", "zipx"), ("7z", "7z"),
                 ("tar", "tar"), ("tgz", "tgz"), ("lzh", "lzh"),
                 ("iso", "iso"), ("gz", "gzip"), ("xz", "xz"),
+                ("uu", "uu"), ("uue", "uue"), ("xxe", "xxe"),
             ]:
                 archive = work / ("压缩样本." + extension)
                 options = ["--level", "9"] if format_name == "lzh" else []
