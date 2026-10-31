@@ -18,7 +18,7 @@
 
 独立互操作包括 ZIPX/ZIP 与 7-Zip、`.Z` 与 ncompress、PMA 独立语料、ACE/ARJ 真实样本、RAR4/RAR5 与 bsdtar、WIM XPRESS 与 wimlib；详细范围在对应行记录。第二轮已补真实EGG、UltraISO ISZ、AES Crypt v0–v3独立验证；第三轮已完成x86-64三平台原生CLI与SFX验收，见[专项验收](FORMAT_PARITY_ACCEPTANCE.md)。
 
-性能改进集中在消除整包驻内存和重复解码；未建立新的统一吞吐基线。ISO/UDF创建的整包缓冲已分别在第四/五轮移除；ASAR/LZH/ZPAQ创建与部分第三方读取API的剩余性能债务保留具体原因和后续路线。
+性能改进集中在消除整包驻内存和重复解码；未建立新的统一吞吐基线。ISO/UDF创建的整包缓冲已分别在第四/五轮移除，ASAR创建已改磁盘暂存并按Electron语义生成/校验SHA-256；LZH/ZPAQ创建与部分第三方读取API的剩余性能债务保留具体原因和后续路线。
 
 ## 第二轮：新实现专项验收
 
@@ -95,7 +95,7 @@
 | XXE | 已优化 | 复用有界逐行编解码器，CLI 不再整文件驻内存；截断回归测试通过 |
 | CPIO（额外既有格式） | 已优化创建内存并修复长度截断 | newc/odc 创建最多保留1MiB项数据，超过后磁盘暂存，头部长度超过32-bit返回错误而非截断；odc 使用 reader API 避免重新读为 Vec。3MiB生成流/有界读取双格式回归及既有CLI/特殊文件/路径/往返测试通过。读取/校验原为流式，但整包提取逐项重扫仍有I/O债务；bin/crc变体暂未接入 |
 | ARC / PAK（额外既有格式） | 已修复列表、密码和 CRC 元数据 | 列表显式 skip payload，支持 XOR 密码并在打开底层解码器前传入；CRC16 不再误标为 CRC32。带伪 header 的双文件/密码/损坏 CRC 回归及 CLI 加密 list/test/extract 通过；unarc 返回整项 Vec 和逐项重扫仍为债务 |
-| ASAR | 已优化读取 | 原为每项 `fs::read` 整包且重建索引；现在只缓存 JSON 索引，seek + take 流式读 payload，保留 unpacked/符号链接路径校验；512 MiB 稀疏档与截断/恶意索引回归通过。索引上限 64 MiB；创建端仍缓存全部项，待改磁盘暂存 |
+| ASAR | 已优化读写 | 读取缓存64MiB内JSON索引，seek + take流式读payload，并验证可选全文件/分块SHA-256；保留unpacked/符号链接路径检查。创建以64KiB缓冲暂存匿名文件，索引预算64MiB，载荷按顺序输出；Electron官方工具双向互操作/校验信息一致。512MiB创建RSS约1.51GiB→8.1MiB，取消/失败保护通过，细节见专项验收第六轮 |
 | ZSTD | 已复核并修复溢出 | libzstd 流式、多帧读取、可选多线程编码；新增0..22等级验证，阻止u32MAX转换成负fast等级，jobs转u32不再静默截断。现有多线程/截断/级别/往返及新增溢出回归通过。创建默认不启用可选内容校验和，输入无checksum时不能保证检测所有位翻转；字典/worker占用依设置变化 |
 | NSIS | 暂缓：安装器载荷parser未实现 | 7-Zip NSIS handler 可作参考；需区分NSIS2/3、Unicode字符串/指令表、solid/non-solid及修改版Deflate/BZip2/LZMA，现有ZIP SFX探测不覆盖。下一步用makensis生成6 codec/solid组合基线并实现单次顺序解码/安全路径映射；不执行安装器代替提取 |
 | LZ4 | 已复核 | lz4_flex FrameEncoder/Decoder 固定块缓冲/流式，无按文件体积Vec；现有往返/空流/无效数据测试通过。创建默认无内容校验和，依赖输入frame可选checksum（启用时库验证）；CLI level/jobs未映射LZ4，保留当前fast编码行为，后续若引入HC应单独测吞吐/内存；skippable frame/legacy LZ4专项互操作待补 |

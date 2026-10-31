@@ -487,7 +487,7 @@ SFX notes:
 Most format limitations are documented in the Format Support table above. Key details:
 
 - **WIM**: The writer stores data **uncompressed** (CompressionType::None), spooling file bytes to temporary disk with incremental SHA-1. XPRESS reads are supported; LZX interoperability with wimlib samples remains unresolved and LZMS decoding is not implemented. For compressed output, use wimlib or other tools.
-- **ASAR / CAB / DEB write**: All three formats now support writing. ASAR and CAB create single-volume archives; DEB writes `data.tar*` payload with a `debian-binary` + stubbed `control.tar.gz`.
+- **ASAR / CAB / DEB write**: All three formats now support writing. ASAR and CAB create single-volume archives; ASAR stages payloads on disk with bounded buffers and index limits, emits Electron-compatible SHA-256 integrity metadata, and verifies optional integrity during extraction/testing. DEB writes `data.tar*` payload with a `debian-binary` + stubbed `control.tar.gz`.
 - **LZH/LHA write**: The writer supports lh0 (store) through lh7 compression via `oxiarc-lzhuf`. CLI level 0 → lh0, 1 → lh4, 2 → lh5, 3 → lh6, 4+ → lh7. Single entries >4 GiB and extended-header metadata are not supported.
 - **ISO write**: Writer emits ISO 9660 Level 1 volumes with Joliet Level 3 and Rock Ridge records. File contents and the seekable image use anonymous temporary files with fixed buffers; memory scales with entry metadata. Temporary storage needs approximately the input plus image size; a memory-backed temp directory consumes system memory. POSIX attributes use creator defaults. UDF-only writing is handled by the separate `udf` format.
 - **CPIO write**: Supports `newc` and `odc` variants. Does not create symlinks, devices, FIFOs, or sockets on extraction.

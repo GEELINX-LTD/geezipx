@@ -141,7 +141,7 @@ pub trait ArchiveWriter: Send {
 | `archive::zstd` | ZSTD/ZST 单流压缩/解压 helper |
 | `archive::xz` | XZ/LZMA 单流压缩/解压 helper |
 | `archive::lz` | LZ（Lzip）压缩使用 `lzma-rust2`；读取由严格成员封装+liblzma LZMA decoder实现，校验头/CRC/长度并设256MiB解码预算 |
-| `archive::asar` | ASAR 读写；读取仅缓存有上限的 JSON 索引并按需 seek payload；创建仍缓冲整包 |
+| `archive::asar` | ASAR读写；读取缓存有上限的JSON索引并按需seek payload，流式验证可选SHA-256全文件/分块integrity；创建将输入暂存磁盘，按Electron校验语义生成索引并有界顺序输出 |
 | `archive::deb` | DEB 读写（ar 容器 + control.tar.gz + data.tar.*） |
 | `archive::cab` | CAB 读写（`compress` / `list` / `extract` / `test`；reader 基于 `cab` crate，writer 基于 `cab` crate 实现 MSZIP 压缩写入） |
 | `archive::cpio` | CPIO 读写（`compress` / `list` / `extract` / `test`；reader/writer 基于 `cpio-archive` crate，MVP 支持 `newc` / `odc`，不创建宿主 symlink/device/FIFO/socket） |
@@ -530,7 +530,7 @@ crates/gui-tauri/
 |------|--------------------|
 | 原生桌面与安装 | 编译、单元测试和 Wine 注册表测试不能替代 Explorer、NSIS、Finder、Launch Services 实测；按 [发布验收清单](RELEASE_CHECKLIST.md) 记录候选提交与结果 |
 | WIM | 无压缩写入与 XPRESS 读取可用；LZX 的独立 wimlib 样本尚未通过，LZMS、分割 SWM 与第一映像以外提取未实现 |
-| 内存预算 | ISO/UDF/ISZ、CAB、DEB、CPIO 创建改用有界块/磁盘暂存；ISO/UDF临时空间约输入+镜像，RAM随元数据增长，tmpfs会占系统内存；UDF读取使用64KiB seek缓冲，UU/XXE CLI逐行处理。ASAR/LZH/ZPAQ 创建、旧 `.enc`、部分第三方 reader 仍有整包/整项缓冲；WIM metadata/目录驻内存，不能保证所有格式低于固定上限 |
+| 内存预算 | ISO/UDF/ISZ、CAB、DEB、CPIO 创建改用有界块/磁盘暂存；ISO/UDF临时空间约输入+镜像，RAM随元数据增长，tmpfs会占系统内存；UDF读取使用64KiB seek缓冲，UU/XXE CLI逐行处理。ASAR创建为有界暂存/顺序输出并设64MiB索引预算；LZH/ZPAQ 创建、旧 `.enc`、部分第三方 reader 仍有整包/整项缓冲；WIM metadata/目录驻内存，不能保证所有格式低于固定上限 |
 | UDF支持库配置 | core/CLI使用同步std/read/write，独立27项单测及package通过；额外async/write组合与上游1.2.1同样因生成类型/时间方法冲突失败，待分离共享描述符和I/O绑定；workspace all-features不代表该被排除库的async组合已支持 |
 | AES 容器 | `.enc` 支持经验证的非流式容器，拒绝不安全 schema 和超额 KDF；`.aes` 用 AES Crypt v0–v3 双遍认证后解密，非seek输入暂存密文。两者格式不兼容，创建 `.aes` 不会回退生成 `.enc` |
 | 新读取预算 | EGG累计索引64MiB；CFB打开前FAT估算64MiB（不含目录等总开销）；Lzip/LZMA Alone/TLZ解码256MiB。超过当前预算明确拒绝，并非所有合法大字典/容器均可读；可配置预算和其它累计元数据计费待补。互操作证据见[专项验收](FORMAT_PARITY_ACCEPTANCE.md) |

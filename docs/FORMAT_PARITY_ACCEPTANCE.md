@@ -270,3 +270,26 @@ gh run download 41172820828 --dir candidate-6bc8f88
 chmod +x candidate-6bc8f88/geezipx-linux-x86_64/geezipx
 GITHUB_SHA=6bc8f88cc04dc12cff96ffbe779d78cdc60a685d GEEZIPX_CANDIDATE_FEATURES=--all-features python3 scripts/check-format-candidate.py --binary candidate-6bc8f88/geezipx-linux-x86_64/geezipx --sfx --report downloaded-linux-6bc8f88-report.json
 ```
+
+## 第六轮：ASAR → LZH → ZPAQ → PEA → NSIS
+
+按格式依次完成实现/性能复查与独立提交，最终候选统一执行三平台原生验收。当前先记录各项本地证据。
+
+### ASAR：磁盘暂存创建与流式 integrity
+
+- 创建改为64KiB读写缓冲、匿名文件暂存和仅包含元数据的树；按原文生成全文件与4MiB分块SHA-256，空文件/整块末尾空哈希与Electron一致。JSON与累计索引预算64MiB；临时空间约为原文大小，目录/校验块元数据仍随项数和文件长度增长。tmpfs会占系统内存。
+- Electron官方`@electron/asar 3.4.1`双向创建/提取通过。Unicode（中文、重音、emoji）、空文件、空目录、恰好4MiB边界的整文件/分块integrity逐项一致；64/512MiB内容SHA-256与原文相同。
+- 读取/`test`流式验证可选全文件/分块integrity，保留无integrity的旧包兼容，接受Electron末尾空块和Rust省略空块两种表示；拒绝错误块表和损坏载荷。CLI损坏test和强制覆盖提取均失败且已有文件不变。校验值来自归档本身，仅能检测不一致，不构成来源认证。
+- 实际CLI输入暂存/输出阶段SIGINT均退出130，已有归档保持不变，无临时文件残留；单元回归含短Read、拒绝大请求的生成流、输入失败回滚、路径/重复冲突、输出失败、可选integrity与边界哈希。
+- workspace fmt、全目标/全feature Clippy `-D warnings`、测试1153通过/9忽略及release构建通过。三平台结果在本轮最终候选生成后记录。
+
+Linux Rust1.96 release，`TMPDIR=/root/.cache/geezipx-format-followup/asar/tmp`位于`ext2/ext3`真实磁盘。以相同64/512MiB新建稀疏输入、热页缓存、单次`/usr/bin/time -f '%M %e'`诊断内存，不是统一吞吐基线。基线为第五轮UDF代码，二进制SHA-256 `4cd3939e41d93bcc7dd1a4d82eaab3367679628ff87acf19b6101c21d206ab79`；本轮本地二进制 `e3538f928492e281ca15c6fed52997648ddfcbde33ccaecfe27f212352ffc6aa`。
+
+| 实现 | 输入 / MiB | ASAR字节数 | 峰值RSS / KiB | 单次墙钟 / 秒 |
+|---|---:|---:|---:|---:|
+| 基线 | 64 | 67110152 | 204068 | 0.52 |
+| 本轮 | 64 | 67110216 | 8072 | 0.50 |
+| 基线 | 512 | 536879704 | 1580328 | 4.06 |
+| 本轮 | 512 | 536879772 | 8288 | 3.96 |
+
+512MiB输入峰值RSS约1.51GiB→8.1MiB；索引略增来自Electron兼容的末尾空块校验值。新路径增加暂存磁盘I/O，不据此承诺其它介质或输入的吞吐提升。
