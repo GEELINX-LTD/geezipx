@@ -4,16 +4,43 @@ use super::{ArchiveReader, Entry};
 use crate::detect::ArchiveFormat;
 use crate::error::{GeeZipError, GeeZipResult};
 use std::fs::File;
-use std::io::Write;
+use std::io::{Read, Seek, Write};
 use std::path::Path;
+
+// cfb builds a u32 FAT entry for every physical sector, including sparse
+// padding. Check that cost before the dependency allocates its metadata.
+const MAX_FAT_BYTES: u64 = 64 * 1024 * 1024;
 
 pub struct CompoundReader {
     inner: cfb::CompoundFile<File>,
 }
 impl CompoundReader {
     pub fn open(path: &Path) -> GeeZipResult<Self> {
+        let mut file = File::open(path)?;
+        let mut header = [0; 32];
+        file.read_exact(&mut header)?;
+        let sector_shift = u16::from_le_bytes([header[30], header[31]]);
+        if !matches!(sector_shift, 9 | 12) {
+            return Err(GeeZipError::format(
+                "invalid CFB sector size",
+                ArchiveFormat::Compound,
+            ));
+        }
+        let sectors = file
+            .metadata()?
+            .len()
+            .div_ceil(1u64 << sector_shift)
+            .saturating_sub(1);
+        if sectors > MAX_FAT_BYTES / 4 {
+            return Err(GeeZipError::format(
+                "CFB FAT metadata exceeds 64 MiB budget",
+                ArchiveFormat::Compound,
+            ));
+        }
+        file.rewind()?;
         Ok(Self {
-            inner: cfb::open(path).map_err(|e| GeeZipError::io(e, "opening compound storage"))?,
+            inner: cfb::CompoundFile::open(file)
+                .map_err(|e| GeeZipError::io(e, "opening compound storage"))?,
         })
     }
 }
@@ -63,6 +90,26 @@ impl ArchiveReader for CompoundReader {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    #[cfg(unix)] // set_len creates sparse extents here; Windows needs FSCTL_SET_SPARSE.
+    fn sparse_containers_exceeding_fat_budget_are_rejected() {
+        for (version, shift) in [(cfb::Version::V3, 9), (cfb::Version::V4, 12)] {
+            let file = tempfile::NamedTempFile::new().unwrap();
+            let mut compound =
+                cfb::CompoundFile::create_with_version(version, file.reopen().unwrap()).unwrap();
+            compound.flush().unwrap();
+            drop(compound);
+            // No payload allocation: opening must reject before the dependency
+            // fills its in-memory FAT up to the sparse file's sector count.
+            let sectors = MAX_FAT_BYTES / 4 + 1;
+            file.as_file().set_len((sectors + 1) << shift).unwrap();
+            let error = CompoundReader::open(file.path())
+                .err()
+                .expect("FAT budget must precede allocation");
+            assert!(error.to_string().contains("budget"), "{error}");
+        }
+    }
+
     #[test]
     fn nested_streams_and_ministream_extract() {
         let file = tempfile::NamedTempFile::new().unwrap();

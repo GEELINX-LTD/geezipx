@@ -122,7 +122,7 @@ pub trait ArchiveWriter: Send {
 | 模块 | 当前职责 |
 |------|----------|
 | `archive::zip` | ZIP/ZIPX 读写，Deflate/XZ(method95) 创建与 AES-256；启用多种标准 ZIP codec；统一写入路径分隔符 |
-| `archive::compound` | CFB/MSI/OLE 原始 streams 的 Read+Seek 提取，不解释 MSI 数据库 |
+| `archive::compound` | CFB/MSI/OLE 原始 streams 的 Read+Seek 提取；打开前验证64MiB FAT估算预算，目录等仍由库驻内存；不解释 MSI 数据库 |
 | `archive::egg` | 单卷非 solid 未加密 EGG 的 Store/Deflate/BZip2/LZMA 流式块与 CRC 校验 |
 | `archive::aes` | 旧 `.enc` 缓冲认证容器及 `.aes` AES Crypt v0–v3 双遍认证解密 |
 | `archive::disk_image` | cooked 2048/raw 2352 单轨扇区视图，IMG/BIN 复用 ISO/UDF reader |
