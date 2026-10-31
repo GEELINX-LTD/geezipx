@@ -6,7 +6,7 @@ GeeZipX Native 是与 Tauri 桌面端并行的独立 Rust 应用，包名和可�
 
 ## 运行和构建
 
-需要 Rust stable（workspace MSRV 为 1.96）。
+需要 Rust 1.99（workspace MSRV）；根目录 `rust-toolchain.toml` 与 CI 统一使用 1.99.0，包含 rustfmt 和 Clippy。
 
 ```sh
 # 开发运行

@@ -2,7 +2,7 @@
 
 ## 1. 架构概览
 
-GeeZipX 采用 Rust Cargo Workspace 分层架构，核心引擎库与前端（CLI / GUI）解耦，当前仓库实际结构如下：
+GeeZipX 采用 Rust Cargo Workspace 分层架构，核心引擎库与前端（CLI / GUI）解耦。workspace MSRV 为 Rust 1.99，根目录 `rust-toolchain.toml` 和各 CI/发布工作流固定使用 Rust 1.99.0，包含 rustfmt 与 Clippy，保持本地与远端检查一致。当前仓库实际结构如下：
 
 ```text
 geezipx/

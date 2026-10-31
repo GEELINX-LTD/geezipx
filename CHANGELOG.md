@@ -25,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Rust toolchain**: Raise the workspace MSRV to 1.99 and pin local, CI and release builds to Rust 1.99.0 with rustfmt and Clippy. Use the standard `rust-toolchain.toml` filename so rustup selects the project toolchain automatically.
 - **Core/CLI — Bounded I/O**: Bound 7z solid accumulation and spill large entries to disk; connect XZ/TAR.XZ worker settings to liblzma; stage ASAR creation on disk, cache indexes without reading complete payloads, and verify optional Electron SHA-256 integrity metadata; use seek-based UDF reads and bounded-block ISZ creation/reading. Stage CAB, DEB and CPIO creation on disk instead of buffering complete inputs; stage LZH entries with continuous dictionary/bitstream encoding and ZPAQ archives with a shared solid model. Stream CLI UU/XXE processing line by line. Shared extraction and verification use direct sequential visitors where available, preserving solid state and avoiding repeated decoding of TAR, LHA/PMA, DEB and RAR entries. Remaining buffering and rescanning debts are listed per format in the audit.
 - **Core/CLI — Format reporting**: Remove obsolete permanent exclusions and distinguish container subsets, optional features, unsupported variants and the independent GUI capability lists. Synchronize CLI format, password, worker and solid-block help with the implementation.
 

@@ -26,7 +26,7 @@ jobs:
       - name: Setup Rust toolchain
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
-          toolchain: stable
+          toolchain: "1.99.0"
           cache: true
 
       - name: Use static CRT on Windows

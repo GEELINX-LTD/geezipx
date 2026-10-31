@@ -207,7 +207,7 @@ Core/CLI 以用户给定的 Bandizip 清单为对齐目标，逐项实现/性能
 
 ### Rust 约定
 
-- 使用稳定版 Rust。
+- 使用稳定版 Rust 1.99；workspace MSRV 为 1.99，`rust-toolchain.toml` 与 CI 固定使用 1.99.0（含 rustfmt、Clippy）。
 - 公共 API 应有清晰错误类型。
 - 优先使用显式类型和可读性强的结构。
 - 避免不必要的 `unsafe`。

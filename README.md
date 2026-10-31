@@ -173,7 +173,7 @@ sudo mv geezipx /usr/local/bin/
 
 ### Prerequisites
 
-- [Rust](https://rustup.rs/) stable toolchain (see `.rust-toolchain.toml`)
+- [Rust](https://rustup.rs/) 1.99.0 toolchain (workspace MSRV: 1.99; configured in `rust-toolchain.toml`)
 
 ---
 

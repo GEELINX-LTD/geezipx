@@ -14,6 +14,8 @@ Win11 一级菜单的实验 [PR #33](https://github.com/GEELINX-LTD/geezipx/pull
 
 ## 2. 本地质量检查
 
+当前候选使用 Rust 1.99.0（workspace MSRV 为 1.99）；先在仓库根目录确认 `rustc --version` 与 `cargo clippy --version`，确保标准 `rust-toolchain.toml` 已生效并与 CI 一致。
+
 本轮启动交接修复已通过以下检查；若候选代码继续变化，按影响范围重新验证：
 
 - [x] `cargo fmt --all --check`
