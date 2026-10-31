@@ -100,6 +100,8 @@ pub enum ArchiveFormat {
     Compound,
     /// EGG (non-solid, unencrypted, read-only).
     Egg,
+    /// PEA 1.x, single-volume unencrypted Store/Deflate (read-only).
+    Pea,
     /// Unknown or unrecognised format.
     Unknown,
 }
@@ -149,6 +151,7 @@ impl fmt::Display for ArchiveFormat {
             ArchiveFormat::Isz => write!(f, "isz"),
             ArchiveFormat::Compound => write!(f, "compound"),
             ArchiveFormat::Egg => write!(f, "egg"),
+            ArchiveFormat::Pea => write!(f, "pea"),
             ArchiveFormat::Unknown => write!(f, "unknown"),
         }
     }
@@ -182,6 +185,7 @@ pub const MAGIC_CAB: &[u8] = b"MSCF";
 /// Map of well-known single extensions to their archive format.
 const EXTENSION_MAP: &[(&str, ArchiveFormat)] = &[
     (".egg", ArchiveFormat::Egg),
+    (".pea", ArchiveFormat::Pea),
     (".msi", ArchiveFormat::Compound),
     (".msp", ArchiveFormat::Compound),
     (".mst", ArchiveFormat::Compound),
@@ -265,6 +269,9 @@ const EXTENSION_MAP: &[(&str, ArchiveFormat)] = &[
 /// extension-only because GeeZipX routes it through an optional parser
 /// integration rather than a shallow first-bytes recognizer.
 pub fn detect_format(data: &[u8]) -> Option<ArchiveFormat> {
+    if data.starts_with(&[0xea, 1]) && data.get(10..16) == Some(&b"\0\0POD\0"[..]) {
+        return Some(ArchiveFormat::Pea);
+    }
     if data.starts_with(b"EGGA") {
         return Some(ArchiveFormat::Egg);
     }
@@ -405,19 +412,27 @@ pub fn detect_seekable_format<R: std::io::Read + std::io::Seek>(
 }
 
 /// Number of bytes needed for magic-byte detection of all supported formats.
-pub const MAGIC_DETECT_SIZE: usize = 8;
+pub const MAGIC_DETECT_SIZE: usize = 16;
 
 /// Read up to `MAGIC_DETECT_SIZE` bytes from a reader for detection.
 ///
 /// **Note:** this function **consumes** the bytes from the reader; it
 /// does NOT peek or un-read them.  If the data needs to be re-read after
 /// detection, the caller is responsible for buffering appropriately.
-/// If the reader returns fewer than `size` bytes, the buffer is returned
-/// as-is.
+/// If the reader reaches EOF before `size` bytes, the shorter buffer is returned.
+/// Short reads and interruptions are retried until the prefix is full or EOF.
 pub fn read_magic_bytes<R: std::io::Read>(reader: &mut R) -> std::io::Result<Vec<u8>> {
     let mut buf = vec![0u8; MAGIC_DETECT_SIZE];
-    let n = reader.read(&mut buf)?;
-    buf.truncate(n);
+    let mut filled = 0;
+    while filled < buf.len() {
+        match reader.read(&mut buf[filled..]) {
+            Ok(0) => break,
+            Ok(count) => filled += count,
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(error) => return Err(error),
+        }
+    }
+    buf.truncate(filled);
     Ok(buf)
 }
 
@@ -427,6 +442,56 @@ pub fn read_magic_bytes<R: std::io::Read>(reader: &mut R) -> std::io::Result<Vec
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn pea_magic_extension_and_display() {
+        let native = include_bytes!("../tests/fixtures/pea/noalgo-pcompress2.pea");
+        assert_eq!(
+            super::detect_format(native),
+            Some(super::ArchiveFormat::Pea)
+        );
+        for length in 0..16 {
+            assert_eq!(super::detect_format(&native[..length]), None);
+        }
+        assert_eq!(
+            super::detect_from_extension(std::path::Path::new("NATIVE.PEA")),
+            Some(super::ArchiveFormat::Pea)
+        );
+        assert_eq!(super::ArchiveFormat::Pea.to_string(), "pea");
+    }
+    #[test]
+    fn pea_seekable_detection_handles_short_reads_and_restores_position() {
+        use std::io::{self, Cursor, Read, Seek, SeekFrom};
+        struct Short {
+            inner: Cursor<Vec<u8>>,
+            interrupt: bool,
+        }
+        impl Read for Short {
+            fn read(&mut self, bytes: &mut [u8]) -> io::Result<usize> {
+                if self.interrupt {
+                    self.interrupt = false;
+                    return Err(io::ErrorKind::Interrupted.into());
+                }
+                let count = bytes.len().min(3);
+                self.inner.read(&mut bytes[..count])
+            }
+        }
+        impl Seek for Short {
+            fn seek(&mut self, position: SeekFrom) -> io::Result<u64> {
+                self.inner.seek(position)
+            }
+        }
+        let native = include_bytes!("../tests/fixtures/pea/noalgo-pcompress2.pea");
+        let mut reader = Short {
+            inner: Cursor::new(native.to_vec()),
+            interrupt: true,
+        };
+        reader.seek(SeekFrom::Start(7)).unwrap();
+        assert_eq!(
+            super::detect_seekable_format(&mut reader).unwrap(),
+            Some(super::ArchiveFormat::Pea)
+        );
+        assert_eq!(reader.stream_position().unwrap(), 7);
+    }
     #[test]
     fn seekable_detection_validates_zip_sfx_and_restores_position() {
         use std::io::{Cursor, Write};

@@ -82,6 +82,7 @@ pub fn parse_format(s: &str) -> Result<ArchiveFormat> {
         "ace" => Ok(ArchiveFormat::Ace),
         "arc" => Ok(ArchiveFormat::Arc),
         "egg" => Ok(ArchiveFormat::Egg),
+        "pea" => Ok(ArchiveFormat::Pea),
         "msi" | "compound" | "cfb" | "ole" => Ok(ArchiveFormat::Compound),
         "alz" => Ok(ArchiveFormat::Alz),
         "z" => Ok(ArchiveFormat::Z),
@@ -99,7 +100,7 @@ pub fn parse_format(s: &str) -> Result<ArchiveFormat> {
         "uu" | "uue" => Ok(ArchiveFormat::Uu),
         "xxe" => Ok(ArchiveFormat::Xxe),
         other => Err(anyhow::anyhow!(
-            "unsupported format '{other}'; expected: zip, zipx, jar, war, apk, ipa, xpi, tar, tar.gz, tgz, tar.bz2, tbz, tbz2, tar.br, gz, gzip, bz, bz2, bzip2, br, brotli, lz4, tar.lz4, zst, zstd, tar.zst, tzst, tar.xz, txz, tar.lzma, tar.lz, tlz, xz, lzma, lz, 7z, rar, cab, asar, deb, lzh, lha, pma, iso, udf, cpio, zpaq, zpq, wim, swm, uu, uue, xxe, isz, img, ima, bin, aes, enc, arj, ace, arc, alz, z, egg, msi, compound, cfb, ole"
+            "unsupported format '{other}'; expected: zip, zipx, jar, war, apk, ipa, xpi, tar, tar.gz, tgz, tar.bz2, tbz, tbz2, tar.br, gz, gzip, bz, bz2, bzip2, br, brotli, lz4, tar.lz4, zst, zstd, tar.zst, tzst, tar.xz, txz, tar.lzma, tar.lz, tlz, xz, lzma, lz, 7z, rar, cab, asar, deb, lzh, lha, pma, iso, udf, cpio, zpaq, zpq, wim, swm, uu, uue, xxe, isz, img, ima, bin, aes, enc, arj, ace, arc, alz, z, egg, pea, msi, compound, cfb, ole"
         )),
     }
 }
@@ -514,6 +515,7 @@ pub fn open_reader(
             Box::new(reader)
         },
         ArchiveFormat::Egg => Box::new(geezipx_core::archive::egg::EggReader::open(path)?),
+        ArchiveFormat::Pea => Box::new(pea_reader(file)?),
         ArchiveFormat::Compound => Box::new(geezipx_core::archive::compound::CompoundReader::open(path)?),
         ArchiveFormat::Alz => Box::new(geezipx_core::archive::alz::AlzReader::open(path, password.map(str::to_owned))?),
         ArchiveFormat::Z => anyhow::bail!("Unix compress is a single stream; use decompress or test"),
@@ -569,7 +571,14 @@ pub fn open_reader(
     })
 }
 
+mod input;
 mod output;
+
+pub fn pea_reader(file: fs::File) -> Result<geezipx_core::archive::pea::PeaReader> {
+    Ok(geezipx_core::archive::pea::PeaReader::new(
+        input::CancellableInput(file),
+    )?)
+}
 
 /// Create an archive writer with the given compression options.
 pub fn create_writer(

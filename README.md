@@ -48,18 +48,18 @@
 | GZIP / TAR.GZ | `.gz`, `.gzip`, `.tar.gz`, `.tgz` | ✓ | ✓ | level 0-9; tar.gz uses gzp parallel engine |
 | BZIP2 / TAR.BZ2 | `.bz2`, `.bzip2`, `.tar.bz2`, `.tbz`, `.tbz2` | ✓ | ✓ | level 0-9 |
 | Brotli / TAR.BR | `.br`, `.brotli`, `.tar.br` | ✓ | ✓ | level 0-11 |
-| LZ4 / TAR.LZ4 | `.lz4`, `.tar.lz4` | ✓ | ✓ | level 0 only (store) |
+| LZ4 / TAR.LZ4 | `.lz4`, `.tar.lz4` | ✓ | ✓ | Frame format; fast compressor; level/jobs not mapped |
 | ZSTD / TAR.ZST | `.zst`, `.zstd`, `.tar.zst`, `.tzst` | ✓ | ✓ | level 0-22; native zstdmt multi-thread |
 | XZ / TAR.XZ | `.xz`, `.tar.xz`, `.txz` | ✓ | ✓ | level 0-9 |
 | LZMA | `.lzma` | ✓ | ✓ | level 0-9 |
 | LZ / Lzip | `.lz` | ✓ | ✓ | LZMA container with CRC-32 |
-| PMA | `.pma` | ✗ | ✓ | PMarc pm0/pm1/pm2, streaming and CRC16 verification |
-| TLZ | `.tlz`, `.tar.lzma`, `.tar.lz` | ✗ | ✓ | TAR wrapped in LZMA Alone or lzip; streaming |
+| PMA | `.pma` | ✓ | ✗ | PMarc pm0/pm1/pm2, streaming and CRC16 verification |
+| TLZ | `.tlz`, `.tar.lzma`, `.tar.lz` | ✓ | ✗ | TAR wrapped in LZMA Alone or lzip; streaming |
 | 7Z | `.7z` | ✓ | ✓ | AES-256 encrypt; solid mode; LZMA2/LZMA/BZIP2/PPMD/DEFLATE |
 | ISO 9660 | `.iso` | ✓ | ✓ | Level 1 + Joliet/Rock Ridge; disk-backed creation |
 | UDF | `.udf` | ✓ | ✓ | UDF 1.02 creation with CS0 Unicode; disk-backed, bounded file-data buffers |
-| ZPAQ | `.zpaq`, `.zpq` | ✓ | Partial | streaming segments; journal listing only; models 1–3, levels 4/5 use model 3 |
-| LZH / LHA | `.lzh`, `.lha` | ✓ | ✓ | lh0/lh4–lh7 write (level 0-4); bounded staging; CRC-16 verify |
+| ZPAQ | `.zpaq`, `.zpq` | Partial | ✓ | streaming segments; journal listing only; models 1–3, levels 4/5 use model 3 |
+| LZH / LHA | `.lzh`, `.lha` | ✓ | ✓ | lh0/lh4–lh7 write (levels 0–9; 4+ uses lh7); bounded staging; CRC-16 verify |
 | CPIO | `.cpio` | ✓ | ✓ | newc/odc |
 | ASAR | `.asar` | ✓ | ✓ | Electron archive; no encrypt |
 | CAB | `.cab` | ✓ | ✓ | single-volume only; no encrypt |
@@ -68,18 +68,19 @@
 | ISZ | `.isz` | ✓ | ✓ | block-bounded ISO wrapper; lists/extracts ISO files; `decompress --stdout` restores padded ISO; no encryption/segments |
 | RAR | `.rar` | ✓ | ✗ | read-only (licensing limitation); decryption supported |
 | AES encrypted | `.enc` | ✓ | ✓ | AES-256-GCM-SIV + Argon2id; authenticated container; buffered processing |
-| EGG | `.egg` | ✗ | Partial | Single-volume, non-solid, unencrypted Store/Deflate/BZip2/LZMA; streaming block CRC checks |
-| Compound / MSI | `.msi`, `.msp`, `.mst`, `.cfb`, `.ole` | ✗ | ✓ | Raw storage streams; seek-based; no MSI database reconstruction or recursive CAB extraction |
-| AES Crypt | `.aes` | ✗ | ✓ | v0–v3 via aescrypt-rs; bounded buffers; authenticate before plaintext output |
-| IMG / IMA | `.img`, `.ima` | copy | ✓ | ISO/UDF optical content; no FAT/NTFS/partitioned-disk support |
-| BIN | `.bin` | copy | ✓ | ISO/UDF optical content; cooked and raw Mode 1/2 Form 1; no audio/CUE/partitioned disks |
+| EGG | `.egg` | Partial | ✗ | Single-volume, non-solid, unencrypted Store/Deflate/BZip2/LZMA; streaming block CRC checks |
+| PEA | `.pea` | Partial | ✗ | Single unencrypted volume/stream, Store/Deflate (PCOMPRESS0–3), object/stream/volume checksums; UTF-8/ASCII names |
+| Compound / MSI | `.msi`, `.msp`, `.mst`, `.cfb`, `.ole` | ✓ | ✗ | Raw storage streams; seek-based; no MSI database reconstruction or recursive CAB extraction |
+| AES Crypt | `.aes` | ✓ | ✗ | v0–v3 via aescrypt-rs; bounded buffers; authenticate before plaintext output |
+| IMG / IMA | `.img`, `.ima` | ✓ | copy | ISO/UDF optical content; no FAT/NTFS/partitioned-disk support |
+| BIN | `.bin` | ✓ | copy | ISO/UDF optical content; cooked and raw Mode 1/2 Form 1; no audio/CUE/partitioned disks |
 | UU / UUE | `.uu`, `.uue` | ✓ | ✓ | text encoding/decoding |
 | XXE | `.xxe` | ✓ | ✓ | text encoding/decoding |
-| Z (Unix Compress) | `.Z` | ✗ | ✓ | Streaming LZW decoder (9–16 bit); no format checksum |
+| Z (Unix Compress) | `.Z` | ✓ | ✗ | Streaming LZW decoder (9–16 bit); no format checksum |
 | ARJ | `.arj` | ✓ | ✗ | read-only via unarc-rs |
 | ACE | `.ace` | ✓ | ✗ | read-only via unarc-rs |
 | ARC | `.arc` | ✓ | ✗ | read-only via unarc-rs |
-| ALZ | `.alz` | ✗ | Partial | Single-volume Store/Deflate, CRC and ZipCrypto; modified BZip2 and splits deferred |
+| ALZ | `.alz` | Partial | ✗ | Single-volume Store/Deflate, CRC and ZipCrypto; modified BZip2 and splits deferred |
 
 > **ZIPX note**: `-f zipx` or a `.zipx` output selects streaming XZ compression (ZIP method 95), with level 0-9 and optional AES-256. ZIPX reading supports the enabled ZIP codecs; proprietary JPEG/WavPack methods remain unsupported. ZIP and ZIPX use codec-managed dictionaries and do not buffer whole input files.
 > **WIM write**: The WIM writer stores data uncompressed. For compressed write, use wimlib or other tools.
@@ -300,7 +301,7 @@ geezipx compress <inputs...> -o <output> [options]
 | Option | Description |
 |--------|-------------|
 | `-o`, `--output` | Output file path (required unless `--stdout` is used) |
-| `-f`, `--format` | Format: `zip`, `zipx`, `jar`, `war`, `apk`, `ipa`, `xpi`, `tar`, `tar.gz`, `tgz`, `tar.bz2`, `tbz`, `tbz2`, `tar.br`, `tar.lz4`, `tar.zst`, `tzst`, `tar.xz`, `txz`, `gz`, `gzip`, `bz2`, `bzip2`, `br`, `brotli`, `lz4`, `zst`, `zstd`, `xz`, `lzma`, `lz`, `7z`, `rar` (read-only), `cab`, `asar`, `deb`, `lzh`, `lha`, `iso`, `udf`, `cpio`, `zpaq`, `zpq`, `wim`, `swm`, `uu`, `uue`, `xxe`, `isz`, `aes`, `img`, `ima`, `bin` (inferred from extension if omitted, defaults to zip) |
+| `-f`, `--format` | Format: `zip`, `zipx`, `jar`, `war`, `apk`, `ipa`, `xpi`, `tar`, `tar.gz`, `tgz`, `tar.bz2`, `tbz`, `tbz2`, `tar.br`, `tar.lz4`, `tar.zst`, `tzst`, `tar.xz`, `txz`, `gz`, `gzip`, `bz2`, `bzip2`, `br`, `brotli`, `lz4`, `zst`, `zstd`, `xz`, `lzma`, `lz`, `7z`, `rar` (read-only), `pea` (read-only), `cab`, `asar`, `deb`, `lzh`, `lha`, `iso`, `udf`, `cpio`, `zpaq`, `zpq`, `wim`, `swm`, `uu`, `uue`, `xxe`, `isz`, `aes`, `img`, `ima`, `bin` (inferred from extension if omitted, defaults to zip) |
 | `-r`, `--recursive` | Recursively add directories |
 | `-L`, `--level` | Compression level: 0-9 (zip/zipx/gzip/bzip2/tar.gz/tar.bz2/xz/lzma/tar.xz); 0-11 (brotli/tar.br); 0-22 (zstd/zst/tar.zst/tzst); 0-4 (LZH: 0=lh0, 1=lh4, 2=lh5, 3=lh6, 4+=lh7); lz4/tar.lz4 accept `0` or omitted only |
 | `-j`, `--jobs` | Worker threads: 1 (default, single-threaded), 0 (auto), or N. Effective for tar.gz (gzp), xz/tar.xz (liblzma block parallelism), and zstd/tar.zst (zstdmt); XZ memory grows with jobs and dictionary size |
@@ -498,9 +499,10 @@ Most format limitations are documented in the Format Support table above. Key de
 - **BIN**: CLI extracts ISO/UDF optical files from 2048-byte cooked or 2352-byte Mode 1/Mode 2 Form 1 images. Audio/CUE/mixed tracks and partitioned disk filesystems are unsupported. Core copy helpers and creation retain explicit identity-copy behavior.
 - **IMG/IMA**: Uses the same optical filesystem reader as BIN; FAT, NTFS and partitioned disks remain unsupported. Explicit stdin copy helpers retain identity behavior.
 - **UU / UUE / XXE**: Legacy text-encoding formats. Both decode (list/decompress/test) and encode (compress) are supported.
+- **PEA**: Reads one unencrypted stream/volume using Store or block Deflate (PCOMPRESS0–3). Verifies declared object, stream and volume checksums, with bounded 64 KiB buffers and a 64 MiB metadata budget. Opening verifies the archive before exposing entries; extraction seeks to indexed records. UTF-8/ASCII names are supported. Encryption/HMAC, split volumes, ECC and legacy ANSI code pages are unsupported; stored dates and attributes are not restored. NOALGO omits the corresponding integrity check. Both GUIs still require a separate adapter.
 - **RAR**: Read-only by licensing limitation. Decryption is supported via password flags.
 
-The complete core/CLI pass against the Bandizip format list, including performance debt and deferred work, is recorded in [FORMAT_PARITY_AUDIT.md](docs/FORMAT_PARITY_AUDIT.md). BH, DAA 1.0, PEA and NSIS extraction remain unimplemented. ALZ, EGG, optical disk images, WIM and executable SFX have the subset limits recorded there; a matching extension alone does not imply full compatibility. The follow-up [parser and interoperability acceptance report](docs/FORMAT_PARITY_ACCEPTANCE.md) records real EGG, UltraISO ISZ and AES Crypt samples, independent tool comparisons, resource budgets and remaining cases.
+The complete core/CLI pass against the Bandizip format list, including performance debt and deferred work, is recorded in [FORMAT_PARITY_AUDIT.md](docs/FORMAT_PARITY_AUDIT.md). BH, DAA 1.0 and NSIS extraction remain unimplemented. ALZ, EGG, PEA, optical disk images, WIM and executable SFX have the subset limits recorded there; a matching extension alone does not imply full compatibility. The follow-up [parser and interoperability acceptance report](docs/FORMAT_PARITY_ACCEPTANCE.md) records real EGG, UltraISO ISZ and AES Crypt samples, independent tool comparisons, resource budgets and remaining cases.
 
 ### Benchmarks
 

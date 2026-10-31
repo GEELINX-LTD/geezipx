@@ -534,9 +534,10 @@ crates/gui-tauri/
 | UDF支持库配置 | core/CLI使用同步std/read/write，独立27项单测及package通过；额外async/write组合与上游1.2.1同样因生成类型/时间方法冲突失败，待分离共享描述符和I/O绑定；workspace all-features不代表该被排除库的async组合已支持 |
 | AES 容器 | `.enc` 支持经验证的非流式容器，拒绝不安全 schema 和超额 KDF；`.aes` 用 AES Crypt v0–v3 双遍认证后解密，非seek输入暂存密文。两者格式不兼容，创建 `.aes` 不会回退生成 `.enc` |
 | 新读取预算 | EGG累计索引64MiB；CFB打开前FAT估算64MiB（不含目录等总开销）；Lzip/LZMA Alone/TLZ解码256MiB。超过当前预算明确拒绝，并非所有合法大字典/容器均可读；可配置预算和其它累计元数据计费待补。互操作证据见[专项验收](FORMAT_PARITY_ACCEPTANCE.md) |
+| PEA读取 | `archive/pea.rs`及子模块实现单卷/单流未加密Store/块Deflate；Read+Seek、64KiB缓冲、64MiB元数据计费预算，打开时顺序验证后建立索引，提取按对象seek并复核。使用adler2、crc32fast及RustCrypto校验实现，不运行Pea工具；文件名支持UTF-8/ASCII，两个GUI未接入 |
 | 系统关联恢复 | 多键注册尚无完整回滚；Linux 旧 handler 备份仅会话内有效，desktop ID 查找未完整遵循 XDG；安装关联表仍宽于 GUI 实际能力 |
 | 组事务与持久性 | 多文件提取按条目发布，多卷不能整组原子提交；普通失败会清理，不保证强杀、断电或所有文件系统语义下的完整回滚 |
-| 格式范围 | ALZ/EGG 部分只读；Z/PMA/TLZ/AES Crypt/Compound 已接入；BH/DAA1.0/PEA/NSIS 暂缓。逐项证据、性能债务及后续方案见 [格式审查](FORMAT_PARITY_AUDIT.md)；两个 GUI 的清单分别维护，均不等同于 core/CLI |
+| 格式范围 | ALZ/EGG/PEA部分只读；Z/PMA/TLZ/AES Crypt/Compound 已接入；BH/DAA1.0/NSIS 暂缓。逐项证据、性能债务及后续方案见 [格式审查](FORMAT_PARITY_AUDIT.md)；两个 GUI 的清单分别维护，均不等同于 core/CLI |
 | 桌面性能与可访问性 | 尚无 Tauri/egui 同机耗时和 RSS 对照基准；仍需超大归档、键盘焦点与原生拖放实测 |
 
 Cargo workspace 成员、feature 与依赖版本以根目录及各 crate 的 `Cargo.toml`、`Cargo.lock` 为准；本文不复制完整配置。

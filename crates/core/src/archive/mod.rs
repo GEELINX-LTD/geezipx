@@ -35,6 +35,7 @@ pub mod isz;
 pub mod lz;
 pub mod lz4;
 pub mod lzh;
+pub mod pea;
 #[cfg(feature = "rar")]
 pub mod rar;
 pub mod seven_zip;

@@ -333,3 +333,20 @@ Linux Rust1.96 release，暂存位于真实`ext2/ext3`磁盘；同一64/512MiB�
 512MiB峰值RSS约1.01GiB→8.5MiB，归档增加29字节来自长度注释和SHA-1。该诊断用例墙钟增加约1.8%，包含暂存与校验成本；不据单次结果推广吞吐结论。
 
 **真实journal兼容缺口**：另用原生zpaq7.15新建32字节单文件journal归档，原生工具提取与原文一致，GeeZipX可列出`input.txt`但提取报`entry 'input.txt' not found in archive`。真实包、原文、SHA-256和复现命令保留在`crates/core/tests/fixtures/zpaq/`。当前仅流式分段包可提取，journal逻辑文件的fragment/index重建未接入；读取仍会整包载入、整项缓冲和逐项重复解码。后续需journal-aware写入回调或带最新版本/去重语义的fragment reader，并接入共享安全输出；直接调用native extract写最终路径会绕过该边界。本轮记录为未完成兼容范围。
+
+### PEA：单卷未加密读取与三层校验
+
+- 新增core/CLI `.pea`魔数/扩展名识别、list/test/decompress。实现单卷、单流、未加密PCOMPRESS0 Store和PCOMPRESS1–3块Deflate；每块检查zlib结束、编码/解码长度及末块长度，拒绝尾随字节和未覆盖的触发器。对象、流、卷分别按声明校验；支持13类普通校验和NOALGO，CRC64使用非反射CRC64/WE并按PEA布局存储。NOALGO不提供对应完整性保证。
+- 使用Read+Seek、64KiB缓冲、64MiB累计元数据计费预算及路径深度上限。打开时单次顺序核验全包并建立对象范围索引，CLI test直接使用已验证统计，避免再次逐项重扫。提取seek到对象并复核元数据与校验，经共享安全输出处理路径和失败保护；不保留整包或整项载荷Vec，不运行Pea程序提取。
+- 官方PeaZip11.4.0 Linux GTK2 x86-64捆绑的未修改Pea程序生成19份语料，覆盖所有普通校验、混合三层算法、Store/三个Deflate等级、空文件/目录、Unicode、多块和原样尾块。原文与提取SHA-256一致，release CLI逐份test也全部通过。生成器SHA-256、源数据、命令和语料SHA256SUMS见[fixture说明](../crates/core/tests/fixtures/pea/README.md)。
+- 新增12项core回归、2项检测回归、4项CLI回归：CRC32样本的所有proper-prefix截断、损坏校验、错误zlib边界、未支持头部/加密标志、路径穿越/重复/文件祖先/链接、元数据预算、短Read/Interrupted、取消、索引元数据变化、输出失败，以及已有目标保护。检测前缀由8增至16字节以容纳PEA标志，短Read/Interrupted累计读取并保持seek探测后的原位置。
+- workspace fmt、全目标/全feature Clippy `-D warnings`、全量测试与release构建通过。实际512MiB提取在0.05秒后发送SIGINT，退出130，已有目标保持不变。两个GUI未接入；加密/HMAC、ECC、分卷、旧ANSI代码页、日期/属性恢复未实现；多历史版本尚无完整兼容承诺。CLI归档文件读取需要seek，现有`--stdin`支持范围仍限流格式/TAR。
+
+Linux Rust1.96 release，原生Pea创建CRC32/PCOMPRESS2单文件包；64/512MiB源为稀疏零填充文件，提取内容SHA-256与原文一致。单次`/usr/bin/time -f '%e %M'`观测峰值RSS与墙钟，不作为通用吞吐基线。CLI二进制SHA-256：`5be981e960b038d0fff56bf5f5c321439a205ae4e51fa8682998bd2c21277964`。
+
+| 原文 / MiB | PEA字节数 | list RSS / KiB | test RSS / KiB | 提取 RSS / KiB | list / 秒 | test / 秒 | 提取 / 秒 |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| 64 | 66848 | 8488 | 8448 | 9016 | <0.01 | <0.01 | 0.02 |
+| 512 | 534113 | 8480 | 8492 | 8888 | 0.05 | 0.05 | 0.20 |
+
+载荷增长8倍时，此单项用例的峰值RSS保持约8–9MiB；元数据仍随条目数量增长。三平台原生结果在本轮五项完成后的最终候选中统一记录。

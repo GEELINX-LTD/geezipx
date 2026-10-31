@@ -95,6 +95,17 @@ fn run_verify(archive: &Path, json: bool, password: Option<String>) -> Result<()
                 crc32_verified: false,
             }
         }
+        ArchiveFormat::Pea => {
+            let reader = common::pea_reader(fs::File::open(archive)?)
+                .with_context(|| format!("verifying '{}'", archive.display()))?;
+            let (entry_count, bytes_read) = reader.verified_stats();
+            TestReport {
+                format,
+                entry_count,
+                bytes_read,
+                crc32_verified: false,
+            }
+        }
         ArchiveFormat::Cpio => verify_cpio_archive(archive)
             .with_context(|| format!("verifying '{}'", archive.display()))?,
         ArchiveFormat::Zip

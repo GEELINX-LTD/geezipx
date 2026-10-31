@@ -6,7 +6,7 @@
 
 ## 第一轮结论与验证（截至 `3a886ae`）
 
-用户清单中的创建与提取项已逐个完成一轮排查；有变化的实现、性能修复及暂缓分析分别提交。创建清单中的 ZIPX/XZ 已补齐，SFX 仍要求对应目标 stub；其它指定创建方法已核对。BH、DAA 1.0、PEA、NSIS 提取本轮暂缓，ALZ/EGG、MSI、光盘映像、WIM、SFX 和 ZIPX 的子集限制见逐项表；本轮完成不代表与 Bandizip 全变体兼容。
+用户清单中的创建与提取项已逐个完成一轮排查；有变化的实现、性能修复及暂缓分析分别提交。创建清单中的 ZIPX/XZ 已补齐，SFX 仍要求对应目标 stub；其它指定创建方法已核对。BH、DAA 1.0、NSIS 提取本轮暂缓，PEA 已新增单卷未加密读取子集；ALZ/EGG、MSI、光盘映像、WIM、SFX 和 ZIPX 的子集限制见逐项表；本轮完成不代表与 Bandizip 全变体兼容。
 
 最终 Linux 本地检查：
 
@@ -90,7 +90,7 @@
 | WIM | 已复核，LZX/LZMS暂缓 | 资源按chunk范围解码、<=512KiB工作块、SHA1核验，37专项测试通过；独立 wimlib XPRESS两文件490003B通过。wimlib LZX样本仍复现 `encountered empty decode tree`，需核对 lzxd 的 LZXD头/状态与WIM变体差异，已修正模块能力说明；需WIM-specific LZX及E8处理/独立XPRESS-LZX-LZMS语料，不把内部roundtrip当互操作。LZMS、SWM、第一映像以外提取未实现；创建仅无压缩；元数据仍整体驻内存 |
 | Z / Unix Compress | 已实现读取 | 流式 LZW，9–16 位有界字典；修复 `.Z` 大小写检测并加入魔数；ncompress 10/12/16 位共 15 例互操作通过；格式无校验和，不能保证发现所有截断 |
 | ZPAQ | 创建已优化，读取仍有债务 | 使用维护支持库的named Read+Write接口，原文磁盘暂存、64KiB I/O、64MiB元数据预算，一个solid块跨文件保留模型；内置1–3，兼容4/5映射3，修复旧4/5运行时报错。新包写段SHA-1，路径读取修复原先读到校验和却未核对的问题；FFI末次写失败/析构、短Read/Interrupted、取消与输入长度有回归。读取仍整包fs::read并缓冲成员、批量操作重复解码；真实zpaq7.15 journal可列出input.txt但提取报not found，样本已保留。需journal-aware回调或fragment/index重建，不能以native extract绕过共享安全输出 |
-| PEA | 暂缓：容器/认证未实现 | 已查到 public-domain PEA1.6 规范，非“无开放规范”；Store/Deflate、对象/流/卷多层校验及AES/Twofish/Serpent认证模式需分别接入，不能以现有Deflate/AES代替。下一步先单卷未加密Store/Deflate+校验，独立PEA语料核验，再设计认证后输出 |
+| PEA | 已接入单卷未加密子集 | PCOMPRESS0 Store、PCOMPRESS1–3块Deflate；13类校验及NOALGO覆盖对象/流/卷，64KiB缓冲和64MiB元数据预算，打开时顺序验证后建立索引。官方PeaZip11.4工具生成19份语料，原文哈希、截断/损坏/路径/取消/输出失败验证通过；仅UTF-8/ASCII名称，加密/HMAC、ECC、分卷、旧ANSI及属性恢复未实现，两个GUI未接入；详见专项验收第六轮 |
 | UU / UUE | 已优化 | CLI 编解码改为逐行流式，固定 45 字节输入块，最大 1024 字节行；保留需要返回 Vec 的兼容 API；校验截断和终止符 |
 | XXE | 已优化 | 复用有界逐行编解码器，CLI 不再整文件驻内存；截断回归测试通过 |
 | CPIO（额外既有格式） | 已优化创建内存并修复长度截断 | newc/odc 创建最多保留1MiB项数据，超过后磁盘暂存，头部长度超过32-bit返回错误而非截断；odc 使用 reader API 避免重新读为 Vec。3MiB生成流/有界读取双格式回归及既有CLI/特殊文件/路径/往返测试通过。读取/校验原为流式，但整包提取逐项重扫仍有I/O债务；bin/crc变体暂未接入 |
@@ -123,8 +123,8 @@
 ### PEA / Pack Encrypt Authenticate
 
 - [官方 PEA 1.6 格式说明](https://peazip.github.io/pea-file-format.html)声明规范为 public domain，压缩为 PCOMPRESS0 Store、PCOMPRESS1–3 Deflate；不能再以“格式封闭/没有 Rust 库”为永久排除原因。
-- 其对象、流、卷层级分别携带可选校验/认证，支持多种 hash、AES/Twofish/Serpent EAX/HMAC 以及多卷；本项目尚无这套容器 parser、独立 PEA 生成语料或认证流边界实现。现有 `.enc`/`.aes`/Deflate codec 都不足以替代。
-- 后续先限定单卷未加密 Store/Deflate，获取官方 Pea 可执行程序生成的空文件/目录/Unicode/多项/损坏校验语料，验证长度与所有声明的检查层。内存采用固定块，索引上限明确；对认证加密先验证再发布（必要时仅暂存密文），不能将未验证明文交给调用方。其它加密和多卷逐项扩展。
+- 对象、流、卷层级的普通校验已接入；`crates/core/src/archive/pea.rs`使用Read+Seek和有界缓冲，先完整顺序核验、再发布索引，提取重读索引对象并复核。13类校验及NOALGO、Store/三个Deflate等级、多块及原样尾块由官方Pea工具生成的19份独立语料覆盖，来源与SHA-256见[fixture说明](../crates/core/tests/fixtures/pea/README.md)。NOALGO没有对应完整性保证。
+- 加密/HMAC、AES/Twofish/Serpent EAX、ECC、多卷、旧ANSI代码页和日期/属性恢复仍未接入。加密后续必须先认证再发布明文；现有`.enc`/`.aes`不能替代PEA容器或认证边界。其余能力逐项补充独立语料和资源预算，不按扩展名声称完整兼容。
 
 ### NSIS 安装器
 
