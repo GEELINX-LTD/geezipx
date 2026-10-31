@@ -3,27 +3,29 @@
 //! Reading uses `hadris_udf::UdfFs` for directory listing, with manual file
 //! extraction because `hadris-udf` does not expose a public file-reading API.
 //!
-//! Writing produces UDF 2.01 images via `hadris_udf::write::UdfWriter`.
-//! Entries are buffered in memory during `add_entry_from_reader` and written
-//! in a single pass when `finish()` is called. The current writer API requires
-//! buffered input; UDF itself does not require whole-image buffering.
+//! Writing uses disk-backed sources and a seekable image temporary file; payload
+//! RAM stays bounded while directory metadata scales with entry count.
 
 use std::collections::HashSet;
 use std::fmt;
 use std::fs;
-use std::io::{BufReader, Cursor, Read, Seek, SeekFrom, Write};
+#[cfg(test)]
+use std::io::Cursor;
+use std::io::{BufReader, Read, Seek, SeekFrom, Write};
 use std::path::Path;
 // use std::sync::Arc;
 
 use hadris_udf::dir::UdfDirEntry;
-use hadris_udf::write::{SimpleDir, SimpleFile, UdfWriteOptions, UdfWriter as HadrisUdfWriter};
 use hadris_udf::UdfFs;
 
-use crate::archive::{is_entry_path_dangerous, ArchiveReader, ArchiveWriter, Entry};
+mod writer;
+pub use writer::UdfWriter;
+
+use crate::archive::{is_entry_path_dangerous, ArchiveReader, Entry};
 use crate::detect::ArchiveFormat;
 use crate::error::{GeeZipError, GeeZipResult};
 
-/// Maximum single file size for UDF (no practical limit).
+/// Current per-file creation limit (split into valid 30-bit UDF extents).
 const UDF_MAX_ENTRY_SIZE: u64 = 4 * 1024 * 1024 * 1024; // 4 GiB per file
 
 // ============================================================================
@@ -48,7 +50,9 @@ fn validate_udf_entry_path(path: &Path) -> GeeZipResult<String> {
         ));
     }
 
-    if is_entry_path_dangerous(Path::new(normalized)) {
+    if is_entry_path_dangerous(Path::new(normalized))
+        || normalized.split('/').any(|component| component == "..")
+    {
         return Err(GeeZipError::format(
             format!("invalid UDF entry path: {raw}"),
             ArchiveFormat::Udf,
@@ -453,181 +457,6 @@ impl ArchiveReader for UdfReader {
 }
 
 // ============================================================================
-// Writer
-// ============================================================================
-
-/// UDF disc image writer.
-///
-/// Entries are buffered in memory during `add_entry_from_reader` calls and
-/// written in a single pass when `finish()` is called.
-pub struct UdfWriter<W: Write + Send> {
-    inner: Option<W>,
-    entries: Vec<BufferedUdfEntry>,
-    format: ArchiveFormat,
-}
-
-#[derive(Clone)]
-struct BufferedUdfEntry {
-    path: String,
-    data: Vec<u8>,
-    is_dir: bool,
-}
-
-impl<W: Write + Send> fmt::Debug for UdfWriter<W> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("UdfWriter")
-            .field("format", &self.format)
-            .finish_non_exhaustive()
-    }
-}
-
-impl<W: Write + Send> UdfWriter<W> {
-    /// Create a new UDF writer targeting the given output.
-    pub fn new(writer: W) -> Self {
-        Self {
-            inner: Some(writer),
-            entries: Vec::new(),
-            format: ArchiveFormat::Udf,
-        }
-    }
-} // impl UdfWriter
-
-/// Build a `SimpleDir` tree from buffered entries.
-fn build_simple_dir_from_entries(entries: &[BufferedUdfEntry]) -> GeeZipResult<SimpleDir> {
-    let mut root = SimpleDir::new("");
-
-    for entry in entries {
-        if entry.is_dir {
-            continue;
-        }
-
-        let mut components = entry.path.rsplitn(2, '/');
-        let name = components.next().unwrap_or(&entry.path);
-        let parent = components.next().unwrap_or("");
-        ensure_simple_dir(&mut root, parent).add_file(SimpleFile::new(name, entry.data.clone()));
-    }
-
-    // Add empty directories
-    for entry in entries {
-        if !entry.is_dir {
-            continue;
-        }
-
-        ensure_simple_dir(&mut root, &entry.path);
-    }
-
-    Ok(root)
-}
-
-fn ensure_simple_dir<'a>(mut dir: &'a mut SimpleDir, path: &str) -> &'a mut SimpleDir {
-    for segment in path.split('/').filter(|s| !s.is_empty() && *s != ".") {
-        let index = match dir.subdirs.iter().position(|child| child.name == segment) {
-            Some(index) => index,
-            None => {
-                dir.add_dir(SimpleDir::new(segment));
-                dir.subdirs.len() - 1
-            }
-        };
-        dir = &mut dir.subdirs[index];
-    }
-    dir
-}
-
-impl<W: Write + Send> ArchiveWriter for UdfWriter<W> {
-    fn format(&self) -> ArchiveFormat {
-        self.format
-    }
-
-    fn add_entry_from_reader(&mut self, path: &Path, reader: &mut dyn Read) -> GeeZipResult<()> {
-        let udf_path = validate_udf_entry_path(path)?;
-
-        let mut data = Vec::with_capacity(65536);
-        let mut chunk = [0u8; 65536];
-        loop {
-            let n = reader.read(&mut chunk).map_err(|e| {
-                GeeZipError::io(e, format!("reading data for UDF entry '{udf_path}'"))
-            })?;
-            if n == 0 {
-                break;
-            }
-            if data.len() as u64 + n as u64 > UDF_MAX_ENTRY_SIZE {
-                return Err(GeeZipError::format(
-                    format!("UDF entry '{}' exceeds size limit", udf_path),
-                    ArchiveFormat::Udf,
-                ));
-            }
-            data.extend_from_slice(&chunk[..n]);
-        }
-
-        self.entries.push(BufferedUdfEntry {
-            path: udf_path,
-            data,
-            is_dir: false,
-        });
-        Ok(())
-    }
-
-    fn add_directory(&mut self, path: &Path) -> GeeZipResult<()> {
-        let udf_path = validate_udf_entry_path(path)?;
-        self.entries.push(BufferedUdfEntry {
-            path: udf_path,
-            data: Vec::new(),
-            is_dir: true,
-        });
-        Ok(())
-    }
-
-    fn finish(self: Box<Self>) -> GeeZipResult<u64> {
-        let this = *self;
-        let UdfWriter {
-            inner,
-            entries,
-            format: _,
-        } = this;
-
-        let mut writer = inner.ok_or_else(|| {
-            GeeZipError::format("UDF writer already finalised", ArchiveFormat::Udf)
-        })?;
-
-        if entries.is_empty() {
-            return Err(GeeZipError::format(
-                "cannot create an empty UDF image",
-                ArchiveFormat::Udf,
-            ));
-        }
-
-        let root = build_simple_dir_from_entries(&entries)?;
-
-        let options = UdfWriteOptions {
-            volume_id: "GEEZIPX".to_string(),
-            ..Default::default()
-        };
-
-        // The formatter seeks between metadata and file extents. Its final
-        // cursor position can precede the last directory, so use its reported
-        // sector count and a growable buffer rather than truncating at position().
-        let mut cursor = Cursor::new(Vec::new());
-        let sectors = HadrisUdfWriter::format(&mut cursor, &root, options).map_err(|err| {
-            GeeZipError::format(format!("formatting UDF image: {err}"), ArchiveFormat::Udf)
-        })?;
-        let written = u64::from(sectors) * 2048;
-        let length = usize::try_from(written)
-            .map_err(|e| convert_udf_error(e, "UDF image exceeds address space"))?;
-        let mut udf_data = cursor.into_inner();
-        udf_data.resize(length, 0);
-
-        writer
-            .write_all(&udf_data)
-            .map_err(|e| GeeZipError::io(e, "writing UDF image"))?;
-        writer
-            .flush()
-            .map_err(|e| GeeZipError::io(e, "flushing UDF image"))?;
-
-        Ok(written)
-    }
-}
-
-// ============================================================================
 // Error conversion
 // ============================================================================
 
@@ -642,6 +471,8 @@ fn convert_udf_error(err: impl std::fmt::Display, context: impl Into<String>) ->
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::archive::ArchiveWriter;
+    use hadris_udf::write::{SimpleDir, SimpleFile, UdfWriteOptions, UdfWriter as HadrisUdfWriter};
     // use std::path::PathBuf;
 
     /// Build a minimal valid UDF image for testing.

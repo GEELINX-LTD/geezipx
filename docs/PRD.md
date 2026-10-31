@@ -69,7 +69,7 @@ GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开�
 | WIM (.wim/.swm) | 读写（有限制） | 无压缩写入、XPRESS 读取；LZX 兼容性待修复，LZMS 未实现 |
 | DEB (.deb) | 读写 | ar 容器 + control.tar.gz + data.tar.* |
 | ASAR (.asar) | 读写 | Electron 归档 |
-| UDF (.udf) | 读写 | Universal Disk Format |
+| UDF (.udf) | 读写 | UDF 1.02创建，CS0 Unicode名称；输入/镜像磁盘暂存和有界缓冲，单项创建上限4GiB；读取保留旧版UTF-8命名兼容 |
 | ISZ (.isz) | 读写 | 2MiB 有界块/磁盘暂存创建；单块缓存 seek 直接提取 ISO 文件；--stdout 还原 ISO，暂不支持加密/分卷 |
 | SFX (.exe) | 按构建目标提供 | 自解压 ZIP；缺少或为空的目标 stub 明确报错 |
 | UU (.uu/.uue) | 读写 | 自实现编解码器 |
@@ -155,7 +155,7 @@ TTY 下默认显示进度条（文件名、处理大小、百分比、速度、E
 | 错误信息质量 | 用户无需查手册即可理解 | 人工审查 |
 | 代码覆盖率 | 信息性观测指标，不设硬门禁 | cargo-tarpaulin / grcov |
 
-内存目标适用于已实现流式处理的路径，不代表全部格式的现状保证。ISO创建对输入及镜像使用有界缓冲/磁盘暂存（临时空间约输入+镜像大小，tmpfs会占系统内存），ISZ 使用有界块/磁盘暂存，UDF 读取采用 seek/64KiB 缓冲，UU/XXE CLI 逐行处理；UDF/ASAR/LZH/ZPAQ 创建、旧 `.enc` 和部分第三方适配器仍有整体缓冲。WIM 文件内容暂存磁盘、metadata 驻内存。性能与兼容性债务详见 [格式对齐审查](FORMAT_PARITY_AUDIT.md) 和 [当前实现限制](TECH_ARCHITECTURE.md#10-当前实现限制)。
+内存目标适用于已实现流式处理的路径，不代表全部格式的现状保证。ISO/UDF创建对输入及镜像使用有界缓冲/磁盘暂存（临时空间约输入+镜像大小，tmpfs会占系统内存，目录元数据仍随项数增长），ISZ 使用有界块/磁盘暂存，UDF 读取采用 seek/64KiB 缓冲，UU/XXE CLI 逐行处理；ASAR/LZH/ZPAQ 创建、旧 `.enc` 和部分第三方适配器仍有整体缓冲。WIM 文件内容暂存磁盘、metadata 驻内存。性能与兼容性债务详见 [格式对齐审查](FORMAT_PARITY_AUDIT.md) 和 [当前实现限制](TECH_ARCHITECTURE.md#10-当前实现限制)。
 
 文件输出在编码或校验成功后才发布；失败与取消保留已有目标。多文件提取按条目发布，后续条目失败不会回滚此前成功的文件；多卷发布也不构成整组原子事务。
 

@@ -113,7 +113,8 @@ def main():
         source = work / "源文件.txt"
         source.write_bytes(payload)
 
-        def extract(label, archive, *, password=None, expected=None, crc=None, digest=None):
+        def extract(label, archive, *, password=None, expected=None, crc=None, digest=None,
+                    expected_manifest=None, empty_directories=()):
             options = ["--password", password] if password is not None else []
             test = json.loads(cli("test", archive, "--json", *options))
             if test.get("ok") is not True:
@@ -133,6 +134,12 @@ def main():
                     raise AssertionError((label, actual, crc))
             if digest is not None and (len(files) != 1 or sha256(files[0]) != digest):
                 raise AssertionError(f"{label}: extracted digest differs")
+            if expected_manifest is not None and manifest(output) != expected_manifest:
+                raise AssertionError(f"{label}: extracted file tree differs")
+            for directory in empty_directories:
+                path = output / directory
+                if not path.is_dir() or any(path.iterdir()):
+                    raise AssertionError(f"{label}: missing or nonempty directory {directory}")
             record(label, output)
             return output
 
@@ -140,7 +147,7 @@ def main():
             for extension, format_name in [
                 ("zip", "zip"), ("zipx", "zipx"), ("7z", "7z"),
                 ("tar", "tar"), ("tgz", "tgz"), ("lzh", "lzh"),
-                ("iso", "iso"), ("gz", "gzip"), ("xz", "xz"),
+                ("iso", "iso"), ("udf", "udf"), ("gz", "gzip"), ("xz", "xz"),
                 ("uu", "uu"), ("uue", "uue"), ("xxe", "xxe"),
             ]:
                 archive = work / ("压缩样本." + extension)
@@ -151,6 +158,20 @@ def main():
                         if any(entry.compress_type != 95 for entry in zipped.infolist()):
                             raise AssertionError("ZIPX did not use XZ method 95")
                 extract("roundtrip-" + extension, archive, expected=payload)
+
+            udf_tree = work / "udf-tree"
+            (udf_tree / "中文" / "empty").mkdir(parents=True)
+            (udf_tree / "only-empty").mkdir()
+            for index in range(20):
+                name = f"{index:02}-" + "长" * 64 + ".txt"
+                (udf_tree / "中文" / name).write_bytes(payload if index % 2 else b"")
+            (udf_tree / "中文" / "😊-café.txt").write_bytes(payload)
+            archive = work / "多目录.udf"
+            cli("compress", udf_tree, "--recursive", "-o", archive, "-f", "udf", "--no-progress")
+            extract("roundtrip-udf-tree", archive,
+                    expected_manifest={f"{udf_tree.name}/{name}": value
+                                       for name, value in manifest(udf_tree).items()},
+                    empty_directories=["udf-tree/中文/empty", "udf-tree/only-empty"])
 
             for name, expected in [
                 ("lzma5.egg", [(0, 0), (95, 0x6A94D1BC), (2060, 0xB54CCAB2), (4096, 0x1BB92DFC), (3150, 0x7A553A9D)]),

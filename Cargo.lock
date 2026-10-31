@@ -2887,8 +2887,8 @@ dependencies = [
  "encoding_rs",
  "flate2",
  "geezipx-iso",
+ "geezipx-udf",
  "gzp",
- "hadris-udf",
  "isomage",
  "log",
  "lz4_flex",
@@ -2973,7 +2973,7 @@ dependencies = [
  "hadris-io",
  "hadris-macros",
  "hadris-part",
- "spin 0.10.0",
+ "spin 0.10.1",
  "thiserror 2.0.18",
  "tracing",
 ]
@@ -2985,6 +2985,19 @@ dependencies = [
  "cap-std",
  "tempfile",
  "zip",
+]
+
+[[package]]
+name = "geezipx-udf"
+version = "0.1.0"
+dependencies = [
+ "bitflags 2.13.0",
+ "bytemuck",
+ "hadris-common",
+ "hadris-io",
+ "hadris-macros",
+ "spin 0.10.1",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -3346,21 +3359,6 @@ dependencies = [
  "endian-num",
  "hadris-io",
  "hadris-macros",
-]
-
-[[package]]
-name = "hadris-udf"
-version = "1.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "42c5877bdc31ad9aee4cfc9a232608a4ba73708dc12539d280e7b30c45154e13"
-dependencies = [
- "bitflags 2.13.0",
- "bytemuck",
- "hadris-common",
- "hadris-io",
- "hadris-macros",
- "spin 0.10.0",
- "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -6505,9 +6503,9 @@ dependencies = [
 
 [[package]]
 name = "spin"
-version = "0.10.0"
+version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d5fe4ccb98d9c292d56fec89a5e07da7fc4cf0dc11e156b41793132775d3e591"
+checksum = "023a211cb3138dbc438680b32560ad89f699977624c9f8dbb95a47d5b4c07dd3"
 dependencies = [
  "lock_api",
 ]

@@ -57,7 +57,7 @@
 | TLZ | `.tlz`, `.tar.lzma`, `.tar.lz` | ✗ | ✓ | TAR wrapped in LZMA Alone or lzip; streaming |
 | 7Z | `.7z` | ✓ | ✓ | AES-256 encrypt; solid mode; LZMA2/LZMA/BZIP2/PPMD/DEFLATE |
 | ISO 9660 | `.iso` | ✓ | ✓ | Level 1 + Joliet/Rock Ridge; disk-backed creation |
-| UDF | `.udf` | ✓ | ✓ | UDF 2.01 write; non-streaming by format |
+| UDF | `.udf` | ✓ | ✓ | UDF 1.02 creation with CS0 Unicode; disk-backed, bounded file-data buffers |
 | ZPAQ | `.zpaq`, `.zpq` | ✓ | ✓ | level 1-5; requires C++17 compiler |
 | LZH / LHA | `.lzh`, `.lha` | ✓ | ✓ | lh0-lh7 write (level 0-4); CRC-16 verify |
 | CPIO | `.cpio` | ✓ | ✓ | newc/odc |
@@ -492,6 +492,7 @@ Most format limitations are documented in the Format Support table above. Key de
 - **ISO write**: Writer emits ISO 9660 Level 1 volumes with Joliet Level 3 and Rock Ridge records. File contents and the seekable image use anonymous temporary files with fixed buffers; memory scales with entry metadata. Temporary storage needs approximately the input plus image size; a memory-backed temp directory consumes system memory. POSIX attributes use creator defaults. UDF-only writing is handled by the separate `udf` format.
 - **CPIO write**: Supports `newc` and `odc` variants. Does not create symlinks, devices, FIFOs, or sockets on extraction.
 - **ZPAQ write**: Supports level 1-5. Creation buffers all inputs and compressed output; each path-addressed extraction also reads the whole archive and buffers the decoded entry. Archive-aware streaming requires an upstream API change.
+- **UDF write**: UDF 1.02 volumes use disk-backed input ranges and a seekable temporary image, then stream to the output with 64 KiB buffers. Memory scales with directory metadata; temporary storage needs approximately the input plus image size, and a memory-backed temp directory consumes system memory. The current per-file creation limit is 4 GiB. CS0 Unicode names are limited to 255 encoded bytes; existing GeeZipX images with the legacy UTF-8 filename encoding remain readable.
 - **ISZ**: Block-compressed ISO wrapper. CLI lists/extracts files inside the ISO through a seekable block cache; `decompress --stdout` restores the sector-padded ISO. Encryption and split ISZ remain unsupported.
 - **AES `.enc`**: AES-256-GCM-SIV encryption with Argon2id key derivation. Opening an archive authenticates it, including `list` and `test`. Buffered processing remains; streaming AES containers are rejected until fully supported.
 - **BIN**: CLI extracts ISO/UDF optical files from 2048-byte cooked or 2352-byte Mode 1/Mode 2 Form 1 images. Audio/CUE/mixed tracks and partitioned disk filesystems are unsupported. Core copy helpers and creation retain explicit identity-copy behavior.

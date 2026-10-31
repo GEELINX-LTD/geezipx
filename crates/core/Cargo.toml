@@ -51,7 +51,7 @@ sha1 = "0.10"
 tempfile = "3"
 isomage = "2.1"
 hadris-iso = { package = "geezipx-iso", version = "0.1.0", path = "../vendor/hadris-iso", features = ["joliet"] }
-hadris-udf = { version = "1.2", default-features = false, features = ["read", "write", "std"] }
+hadris-udf = { package = "geezipx-udf", version = "0.1.0", path = "../vendor/hadris-udf", default-features = false, features = ["read", "write", "std"] }
 lzxd = "0.2"
 xpress-huffman = "0.1"
 sevenz-rust2 = { version = "0.21", default-features = false, features = ["compress", "aes256", "bzip2", "ppmd", "deflate"] }
