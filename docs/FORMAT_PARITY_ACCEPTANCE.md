@@ -55,3 +55,9 @@
 复查复现旧Lzip依赖将空输入、残缺成员头、底层读取错误和尾随垃圾当作正常EOF；声明字典可在未验证预算时触发超大分配。新回归在修复前失败。现使用严格Lzip v1 framing与已有liblzma decoder，保持单遍流式、64KiB输入缓冲，要求完整EOS、CRC32、原始长度和成员长度，并验证后续每一成员头。无新增依赖或整输入缓冲。Alone和TLZ复用同一256MiB解码内存预算；合法但更大字典明确拒绝，后续如需放宽应提供可配置预算。
 
 GNU Lzip1.25独立生成levels0/6/9，各262182字节明文以及拼接成员均与GeeZipX CLI输出逐字节一致；损坏尾部返回失败。保留403字节GNU fixture、来源和哈希于`crates/core/tests/fixtures/lzip/`。回归另含全部截断前缀、短Read/Interrupted、CRC、超大字典、失败后的重复读取；TLZ修复1字节短Read误识别外层。v0历史Lzip不在当前声明范围。
+
+## IMG / BIN 光盘视图
+
+回归复现两处问题：单次Read不足24字节时把raw CD误判为cooked；只验证第一扇区模式、后续混合模式/损坏同步头仍按同一偏移提取。现用read_exact取得探测前缀，每个被读取的raw扇区验证同步、模式及Mode2子头，直接seek到扇区中部也校验。缓存当前已验证扇区，使用已有BufReader相对定位；不缓存全盘或为每次短Read重复检查。
+
+专项用例覆盖1字节Read、逐扇区和直接seek的坏头/混合模式，以及cooked、Mode1、Mode2 Form1的文件提取。未加入raw CD EDC/ECC验证；不支持的音轨、混合布局和CUE仍明确拒绝，不能宣称任意IMG/BIN文件系统支持。

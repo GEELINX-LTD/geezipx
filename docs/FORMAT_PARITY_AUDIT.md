@@ -56,7 +56,7 @@
 | DAA 1.0 | 暂缓：无已验证适配器/语料 | 可参考 GPL-2.0 daa2iso，但本项目 MIT，未直接移植；尚无独立 DAA1.0 chunk/损坏/密码/分卷语料验证。后续独立规范实现或隔离转换器需先定依赖/许可策略；必须有界块索引+缓存，转换 ISO 后再提供内容视图，不能仅识别 DAA 算支持 |
 | DEB | 已优化创建内存及顺序提取 | 创建从整包原文/TAR/压缩载荷 Vec 改为磁盘暂存/64KiB 缓冲，控制信息仅小 Vec；读取 gzip/xz/zstd/bzip2/lzma/plain TAR 复用单次顺序 visitor，整包不再逐项重复解压并验证 codec trailer。现有6 codec/路径/空目录回归与新增 TAR 终止符之后 gzip CRC 损坏回归通过。创建仍经原文/TAR/压缩暂存多遍磁盘I/O，后续可将 TAR builder 直接连到编码器；只提取 data.tar 内容，不解释控制信息 |
 | EGG | 部分实现 | 单卷非 solid 未加密 Store/Deflate/BZip2/LZMA 流式提取，逐块 CRC32/长度及流结束校验；LZMA 字典内存上限 256 MiB。自有 seek 索引解析设置64 MiB累计元数据预算及路径父引用检查，unegg仅复用类型/名称编码；真实7份独立样本验收通过，含无EOS LZMA和POSIX元数据。AZO/solid/分卷/加密暂缓 |
-| IMG / IMA | 已实现光盘内容读取 | 与 BIN 复用 cooked/raw 光盘 reader，实际提取 ISO/UDF 文件，非光盘数据拒绝。FAT12/16/32、NTFS、分区盘、稀疏磁盘/多轨待补，不能宣称通用 IMG 支持；旧 core/CLI stdin copy API 保留显式透传 |
+| IMG / IMA | 已实现光盘内容读取 | 与 BIN 复用 cooked/raw 光盘 reader，实际提取 ISO/UDF 文件，非光盘数据拒绝。修复短Read探测并逐个验证被读取的raw扇区头/模式，缓存当前扇区且保持流式；不含EDC/ECC。FAT12/16/32、NTFS、分区盘、稀疏磁盘/多轨待补，不能宣称通用 IMG 支持；旧 core/CLI stdin copy API 保留显式透传 |
 | ISZ | 已修复兼容性并优化内存/提取 | 按公开规范将 block_size 改为字节并接受 48-byte 头，兼容旧 GeeZipX 64-byte/sector 字段；创建使用 2MiB 输入块/磁盘暂存载荷和索引，Store/Zlib/Zero 自选。新增 Read+Seek 单块缓存（解压块/index 各最大64MiB），CLI list/decompress 直接提取 ISO 内文件，--stdout 仍还原 ISO，test 校验全部块。加密/分卷/非3-byte pointers 暂缓；真实 UltraISO 样本互操作待补；规范 https://forum.imgburn.com/topic/14260-isz-images-supporting/ |
 | LZ / Lzip | 已完善严格解码与等级校验 | 写入仍用lzma-rust2，读取改为严格Lzip v1成员封装+已有liblzma，拒绝空输入/残缺头/错误IO/尾随垃圾；CRC32、数据/成员长度检查；256MiB解码内存上限和64KiB输入缓冲；GNU Lzip1.25多等级/拼接成员通过并保留fixture。0..9等级错误返回，level0仍为压缩；编码字典随等级分配，单流jobs暂不生效 |
 | LZMA | 已复核并修复共享 API | liblzma Alone 编解码均流式，等级0仍压缩；补充 LZMA/XZ非法等级回归，并修复共享 XZ简化API对非法等级panic。现有 LZMA 空流/截断/级别/往返测试通过。Alone无原生CRC，无法保证检测全部位翻转；解码目前内存limit不限，后续应新增可配置memlimit而非悄然拒绝合法大字典；字典占用与文件体积无关 |

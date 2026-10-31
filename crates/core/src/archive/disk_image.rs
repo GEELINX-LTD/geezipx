@@ -39,6 +39,25 @@ impl ArchiveReader for DiskImageReader {
     }
 }
 
+const CD_SYNC: [u8; 12] = [0, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 0];
+
+fn sector_offset(header: &[u8; 24]) -> io::Result<u64> {
+    if header[..12] != CD_SYNC {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "invalid CD sector sync",
+        ));
+    }
+    match header[15] {
+        1 => Ok(16),
+        2 if header[16..20] == header[20..24] && header[18] & 0x20 == 0 => Ok(24),
+        _ => Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "unsupported CD sector mode",
+        )),
+    }
+}
+
 struct Sectors<R> {
     inner: R,
     pos: u64,
@@ -46,26 +65,18 @@ struct Sectors<R> {
     stride: u64,
     offset: u64,
     physical_pos: u64,
+    validated_sector: Option<u64>,
 }
 impl<R: Read + Seek> Sectors<R> {
     fn new(mut inner: R) -> io::Result<Self> {
         let physical_len = inner.seek(SeekFrom::End(0))?;
         inner.seek(SeekFrom::Start(0))?;
         let mut header = [0; 24];
-        let read = inner.read(&mut header)?;
-        let raw =
-            read == 24 && header[..12] == [0, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 0];
+        let read = physical_len.min(header.len() as u64) as usize;
+        inner.read_exact(&mut header[..read])?;
+        let raw = read == 24 && header[..12] == CD_SYNC;
         let (stride, offset) = if raw {
-            let offset = match header[15] {
-                1 => 16,
-                2 if header[16..20] == header[20..24] && header[18] & 0x20 == 0 => 24,
-                _ => {
-                    return Err(io::Error::new(
-                        io::ErrorKind::Unsupported,
-                        "unsupported CD sector mode",
-                    ))
-                }
-            };
+            let offset = sector_offset(&header)?;
             if !physical_len.is_multiple_of(2352) {
                 return Err(io::Error::new(
                     io::ErrorKind::UnexpectedEof,
@@ -89,7 +100,17 @@ impl<R: Read + Seek> Sectors<R> {
             stride,
             offset,
             physical_pos: 0,
+            validated_sector: None,
         })
+    }
+    fn seek_physical(&mut self, position: u64) -> io::Result<()> {
+        let delta = i64::try_from(position as i128 - self.physical_pos as i128)
+            .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "image seek overflow"))?;
+        if delta != 0 {
+            self.inner.seek_relative(delta)?;
+        }
+        self.physical_pos = position;
+        Ok(())
     }
 }
 impl<R: Read + Seek> Read for Sectors<R> {
@@ -97,13 +118,22 @@ impl<R: Read + Seek> Read for Sectors<R> {
         if self.pos >= self.len || buf.is_empty() {
             return Ok(0);
         }
-        let physical = (self.pos / 2048) * self.stride + self.offset + self.pos % 2048;
-        let delta = i64::try_from(physical as i128 - self.physical_pos as i128)
-            .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "image seek overflow"))?;
-        if delta != 0 {
-            self.inner.seek_relative(delta)?;
+        let sector = self.pos / 2048;
+        if self.stride == 2352 && self.validated_sector != Some(sector) {
+            self.seek_physical(sector * self.stride)?;
+            let mut header = [0; 24];
+            self.inner.read_exact(&mut header)?;
+            self.physical_pos += 24;
+            if sector_offset(&header)? != self.offset {
+                return Err(io::Error::new(
+                    io::ErrorKind::Unsupported,
+                    "mixed CD sector modes",
+                ));
+            }
+            self.validated_sector = Some(sector);
         }
-        self.physical_pos = physical;
+        let physical = sector * self.stride + self.offset + self.pos % 2048;
+        self.seek_physical(physical)?;
         let remaining = if self.stride == 2048 {
             self.len - self.pos
         } else {
@@ -178,6 +208,42 @@ mod tests {
             assert_eq!(out, b"image contents");
         }
     }
+    #[test]
+    fn raw_sectors_handle_short_reads_and_validate_each_header() {
+        struct ShortReads(std::io::Cursor<Vec<u8>>);
+        impl Read for ShortReads {
+            fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+                let n = buf.len().min(1);
+                self.0.read(&mut buf[..n])
+            }
+        }
+        impl Seek for ShortReads {
+            fn seek(&mut self, pos: SeekFrom) -> io::Result<u64> {
+                self.0.seek(pos)
+            }
+        }
+        let mut block = [0; 2352];
+        block[..12].copy_from_slice(&[0, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 0]);
+        block[15] = 1;
+        block[16..2064].fill(0x5a);
+        let mut data = block.to_vec();
+        data.extend(block);
+        let mut view = Sectors::new(ShortReads(std::io::Cursor::new(data.clone()))).unwrap();
+        let mut output = Vec::new();
+        view.read_to_end(&mut output).unwrap();
+        assert_eq!(output, vec![0x5a; 4096]);
+
+        for (position, value) in [(2352, 1), (2352 + 15, 2)] {
+            let mut invalid = data.clone();
+            invalid[position] = value;
+            let mut view = Sectors::new(std::io::Cursor::new(invalid)).unwrap();
+            assert!(view.read_to_end(&mut Vec::new()).is_err());
+            // A direct seek must validate the target sector as well.
+            view.seek(SeekFrom::Start(2049)).unwrap();
+            assert!(view.read(&mut [0; 1]).is_err());
+        }
+    }
+
     #[test]
     fn random_bytes_are_not_reported_as_extractable_images() {
         let file = tempfile::NamedTempFile::new().unwrap();
