@@ -53,6 +53,12 @@
 
 独立支持库`geezipx-udf`需在授权发布core前先发布。额外async/write组合检查与上游一样失败，已记录类型分层改造路线；core/CLI使用同步配置，不将该组合计为通过。
 
+## 第六轮：ASAR/LZH/ZPAQ 创建与 PEA/NSIS 读取
+
+依次完成ASAR、LZH、ZPAQ创建改造及PEA、NSIS只读子集，独立提交并保留原生工具语料。512MiB专项样本的创建峰值RSS分别由约1.51GiB降至8.1MiB、532MiB降至8.8MiB、1.01GiB降至8.5MiB；新增磁盘暂存，元数据和模型内存仍随其预算增长，单次实测不构成通用吞吐结论。PEA由官方Pea生成19份语料，NSIS由makensis生成7种Store/Deflate/BZip2/LZMA变体并以7-Zip独立提取核对。PEA加密/ECC/分卷、NSIS旧版/动态结果、ZPAQ journal提取和读取缓冲及macOS ZPAQ限制仍保留，两个GUI未接入新增格式。
+
+统一候选`76b65a60fa9478f2661256369968ee275d245501`的[CI 41201756766](https://github.com/GEELINX-LTD/geezipx/actions/runs/41201756766)与[Audit 41201760473](https://github.com/GEELINX-LTD/geezipx/actions/runs/41201760473)均成功。三平台最小/基础/扩展feature测试及Clippy通过，原生CLI/SFX验收Linux/Windows各77项、macOS73项；六份二进制/报告已下载，完整源码SHA、实际x86-64架构、二进制哈希与报告匹配，三平台共有73项内容哈希一致。下载LinuxCLI复跑77项通过。额外修复独立LZH新依赖解析和WIM损坏用例的偶发无修改，后者4096次重复通过；详细测试数、产物链接、SHA-256和测量范围见[第六轮专项验收](FORMAT_PARITY_ACCEPTANCE.md#三平台最终候选与产物复核)。CLI仍显示0.7.4，按源码SHA识别候选，产物保留7天。
+
 ## 逐项记录
 
 | 项目（含别名） | 本轮结果 | 验证/限制 |

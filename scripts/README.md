@@ -21,7 +21,7 @@ The Release workflow runs this script and uploads the verified files as
 ## check-format-candidate.py
 
 Runs 76 checks with all CLI features, plus a native SFX check with `--sfx`
-(77 total). Builds without ZPAQ run 71 checks with SFX. Use Python 3.12 and
+(77 total). Builds without ZPAQ run 73 checks with SFX. Use Python 3.12 and
 only its standard library. It uses offline
 fixtures with recorded provenance and
 checks real subprocess exit codes, JSON listing/verification, extracted content,

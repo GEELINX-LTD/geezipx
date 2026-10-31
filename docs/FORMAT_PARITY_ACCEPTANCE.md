@@ -100,7 +100,7 @@ GNU Lzip1.25独立生成levels0/6/9，各262182字节明文以及拼接成员均
 
 本轮性能措施是有界流式I/O、固定缓冲、在分配前检查字典/FAT/索引预算、按扇区缓存和避免重复解码。未建立统一性能基线，不宣称速度提升百分比或总进程内存硬上限。
 
-后续应分别处理：ALZ与CFB等累计元数据预算；现有整项/整包缓冲的创建和第三方读取路径；EGG加密/solid/分卷/AZO、ISZ加密/分段/真实BZip2及其它未覆盖变体。PEA、NSIS、DAA、BH的新增实现仍按总表中的独立任务推进。
+后续应分别处理：ALZ与CFB等累计元数据预算；现有整项/整包缓冲的创建和第三方读取路径；EGG加密/solid/分卷/AZO、ISZ加密/分段/真实BZip2及其它未覆盖变体。当时待补的PEA和NSIS已在第六轮接入明确子集；DAA/BH仍按总表中的独立任务推进。
 
 ## 第三轮：三平台原生候选验收
 
@@ -273,7 +273,7 @@ GITHUB_SHA=6bc8f88cc04dc12cff96ffbe779d78cdc60a685d GEEZIPX_CANDIDATE_FEATURES=-
 
 ## 第六轮：ASAR → LZH → ZPAQ → PEA → NSIS
 
-按格式依次完成实现/性能复查与独立提交，最终候选统一执行三平台原生验收。当前先记录各项本地证据。
+按格式依次完成实现/性能复查与独立提交，统一候选已完成三平台原生验收。以下记录各项本地证据与最终产物复核结果。
 
 ### ASAR：磁盘暂存创建与流式 integrity
 
@@ -281,7 +281,7 @@ GITHUB_SHA=6bc8f88cc04dc12cff96ffbe779d78cdc60a685d GEEZIPX_CANDIDATE_FEATURES=-
 - Electron官方`@electron/asar 3.4.1`双向创建/提取通过。Unicode（中文、重音、emoji）、空文件、空目录、恰好4MiB边界的整文件/分块integrity逐项一致；64/512MiB内容SHA-256与原文相同。
 - 读取/`test`流式验证可选全文件/分块integrity，保留无integrity的旧包兼容，接受Electron末尾空块和Rust省略空块两种表示；拒绝错误块表和损坏载荷。CLI损坏test和强制覆盖提取均失败且已有文件不变。校验值来自归档本身，仅能检测不一致，不构成来源认证。
 - 实际CLI输入暂存/输出阶段SIGINT均退出130，已有归档保持不变，无临时文件残留；单元回归含短Read、拒绝大请求的生成流、输入失败回滚、路径/重复冲突、输出失败、可选integrity与边界哈希。
-- workspace fmt、全目标/全feature Clippy `-D warnings`、测试1153通过/9忽略及release构建通过。三平台结果在本轮最终候选生成后记录。
+- workspace fmt、全目标/全feature Clippy `-D warnings`、测试1153通过/9忽略及release构建通过。三平台固定提交结果见本节末。
 
 Linux Rust1.96 release，`TMPDIR=/root/.cache/geezipx-format-followup/asar/tmp`位于`ext2/ext3`真实磁盘。以相同64/512MiB新建稀疏输入、热页缓存、单次`/usr/bin/time -f '%M %e'`诊断内存，不是统一吞吐基线。基线为第五轮UDF代码，二进制SHA-256 `4cd3939e41d93bcc7dd1a4d82eaab3367679628ff87acf19b6101c21d206ab79`；本轮本地二进制 `e3538f928492e281ca15c6fed52997648ddfcbde33ccaecfe27f212352ffc6aa`。
 
@@ -299,7 +299,7 @@ Linux Rust1.96 release，`TMPDIR=/root/.cache/geezipx-format-followup/asar/tmp`�
 - 创建端移除原文Vec和压缩结果Vec，按项使用匿名文件及64KiB缓冲。维护库`geezipx-lzhuf 0.1.0`派生自`oxiarc-lzhuf 0.3.5`并保留Apache-2.0许可；`LzhEncoder::encode_reader`使用256KiB输入窗口、持久LZSS字典、连续MSB位流和有界Huffman命令队列，直到最终结束才补齐位。不会在任意输入边界刷新Huffman头部。
 - 支持lh0/lh4/lh5/lh6/lh7创建；保持u32单项大小、原始CRC16和压缩不缩小则回退lh0。源失败尚未写该项归档；暂存后压缩阶段轮询输出取消，CLI实际SIGINT可及时失败且已有归档不变。临时磁盘需当前成员原文+候选压缩结果，另有CLI归档临时文件；tmpfs消耗系统RAM。
 - 7-Zip对64/512MiB lh7包及8MiB高熵/重复混合数据的lh0/lh4–lh7真实方法包提取通过，内容SHA-256一致；CLI test验证CRC。补充短Read/Interrupted、跨块字典和非字节对齐位流、长重复压缩效率、源失败、输入后取消及损坏CRC回归；候选脚本加入多块、存储回退和强制覆盖时CRC失败保护。
-- 本地workspace fmt、Clippy全部目标/feature且`-D warnings`、测试1158通过/9忽略、release构建通过；独立支持库89测试、格式和package verification通过。支持库独立版本/path依赖，正式core发布前需先发布该支持库。三平台候选安排在本轮各格式处理完毕后统一执行。
+- 本地workspace fmt、Clippy全部目标/feature且`-D warnings`、测试1158通过/9忽略、release构建通过；独立支持库89测试、格式和package verification通过。支持库独立版本/path依赖，正式core发布前需先发布该支持库。三平台固定提交结果见本节末。
 
 Linux Rust1.96 release，临时文件位于真实`ext2/ext3`磁盘，源文件位于tmpfs；同一64/512MiB新建稀疏输入、热页缓存，单次`/usr/bin/time -f '%M %e'`作内存诊断。基线二进制与ASAR一节相同，本地本轮二进制SHA-256 `b5ae6751dc8ca519553c32f5444461d7e88cc5f7dd259b55a197da19a63e297a`。
 
@@ -319,9 +319,9 @@ Linux Rust1.96 release，临时文件位于真实`ext2/ext3`磁盘，源文件�
 - 新包记录长度注释和真实段SHA-1；路径读取修复原先仅读取checksum字段却不核对的缺陷。对已有无checksum分段包保留兼容。修复FFI末次flush和析构错误处理，短Read/Interrupted、源失败、长度不符、输出失败/取消均有回归。
 - 未修改的zpaq7.15 CLI独立提取64/512MiB输入及模型1–5的Unicode/嵌套目录、空文件、空目录，内容SHA-256一致；已知非空成员SHA-1损坏同时被两工具拒绝。core损坏test及强制覆盖提取失败且已有目标不变。工具二进制SHA-256：`6f8d6a7f4f1044b5709b020541f2fbea7bca5e90bb55d723585d580ac1a67824`。
 - 实际CLI暴露并修复暂存后取消漏接：ZPAQ factory接入`CancellableOutput`。新增Linux子进程集成回归，在32MiB匿名源完成暂存并开始压缩后发送SIGINT，及时非零退出且已有归档不变；独立512MiB实测同样通过。
-- 本地workspace fmt、全目标/全feature Clippy `-D warnings`、测试1167通过/9忽略及release构建通过；独立支持库24测试通过/1忽略，格式和package verification通过。三平台候选统一在本轮五项完成后执行。
+- 本地workspace fmt、全目标/全feature Clippy `-D warnings`、测试1167通过/9忽略及release构建通过；独立支持库24测试通过/1忽略，格式和package verification通过。三平台固定提交结果见本节末。
 
-Linux Rust1.96 release，暂存位于真实`ext2/ext3`磁盘；同一64/512MiB稀疏输入，单次`/usr/bin/time -f '%M %e'`作内存诊断。基线二进制与ASAR一节相同；本轮最终二进制SHA-256为`8f54fe42c38446a99bbff454898160cd9268651ab33a6832dff1a7b879356713`。
+Linux Rust1.96 release，暂存位于真实`ext2/ext3`磁盘；同一64/512MiB稀疏输入，单次`/usr/bin/time -f '%M %e'`作内存诊断。基线二进制与ASAR一节相同；ZPAQ改造阶段的本地二进制SHA-256为`8f54fe42c38446a99bbff454898160cd9268651ab33a6832dff1a7b879356713`。
 
 | 实现 | 输入 / MiB | ZPAQ字节数 | 峰值RSS / KiB | 单次墙钟 / 秒 |
 |---|---:|---:|---:|---:|
@@ -349,7 +349,7 @@ Linux Rust1.96 release，原生Pea创建CRC32/PCOMPRESS2单文件包；64/512MiB
 | 64 | 66848 | 8488 | 8448 | 9016 | <0.01 | <0.01 | 0.02 |
 | 512 | 534113 | 8480 | 8492 | 8888 | 0.05 | 0.05 | 0.20 |
 
-载荷增长8倍时，此单项用例的峰值RSS保持约8–9MiB；元数据仍随条目数量增长。三平台原生结果在本轮五项完成后的最终候选中统一记录。
+载荷增长8倍时，此单项用例的峰值RSS保持约8–9MiB；元数据仍随条目数量增长。三平台固定提交结果见本节末。
 
 ### NSIS：现代 Unicode 安装器的有界静态读取
 
@@ -371,4 +371,36 @@ Linux Rust1.96 release，原生makensis创建8MiB字典的LZMA-solid单文件包
 
 ### 本轮本地收尾检查
 
-workspace fmt、全部目标/feature Clippy且`-D warnings`、完整workspace测试1197通过/9忽略、最小core/CLI测试1067通过/4忽略及cargo-deny通过。重建host release SFX stub与CLI后，扩展候选脚本的77项实际CLI/SFX验收通过；包含19份PEA、7份NSIS和三项创建优化的内容/损坏保护。ZPAQ支持库24通过/1忽略、LZH支持库89通过、NSIS支持库354通过；忽略项不计为通过。三平台固定提交结果将在候选完成后追加。
+workspace fmt、全部目标/feature Clippy且`-D warnings`、完整workspace测试1197通过/9忽略、最小core/CLI测试1067通过/4忽略及cargo-deny通过。重建host release SFX stub与CLI后，扩展候选脚本的77项实际CLI/SFX验收通过；包含19份PEA、7份NSIS和三项创建优化的内容/损坏保护。ZPAQ支持库24通过/1忽略、LZH支持库89通过、NSIS支持库354通过；忽略项不计为通过。最终原生结果如下。
+
+### 三平台最终候选与产物复核
+
+统一验收源码为`76b65a60fa9478f2661256369968ee275d245501`，[CI 41201756766](https://github.com/GEELINX-LTD/geezipx/actions/runs/41201756766)及[Audit 41201760473](https://github.com/GEELINX-LTD/geezipx/actions/runs/41201760473)全部成功。ASAR、LZH、ZPAQ、PEA、NSIS实现依次提交为`2fa8134`、`51e21a0`、`98bfb63`、`45e2114`、`8a0d471`；本轮未抬升正式版本或发布crate。
+
+远端使用Rust1.99.1。下表测试数为“通过 / 忽略”，三个feature配置分别执行，忽略项不计为通过；CLI列为实际执行的离线格式/SFX验收。
+
+| 原生系统 / x86-64 | 最小core/CLI | 基础core/CLI | 扩展workspace | 实际CLI/SFX |
+|---|---:|---:|---:|---:|
+| Ubuntu24.04.5 LTS | 1067 / 4 | 1136 / 9 | 1197 / 9 | 77 |
+| Windows Server2025 / 10.0.26100 | 1059 / 4 | 1127 / 9 | 1188 / 9 | 77 |
+| macOS15.7.9 / 24G830 / Intel | 1067 / 4 | 1077 / 9 | 1175 / 9 | 73 |
+
+最小配置为`--no-default-features`。Linux/Windows基础使用默认feature，扩展workspace及候选CLI使用`--all-features`；macOS基础使用`--no-default-features -F rar,sfx`，扩展workspace及候选CLI为`--no-default-features -F rar,wim,sfx`，沿用ZPAQ限制。macOS少4项ZPAQ创建/校验检查，其余73项名称、结果及提取文件名/长度/SHA-256在三平台完全一致；Linux与Windows全部77项一致。三平台各自重建并嵌入目标SFX stub，实际新建并执行SFX。
+
+原生验收还修复两处阻碍：`e6f1e01`适配独立LZH库新解析到的`oxiarc-core 0.3.6`非穷尽状态枚举，并同步最低版本与workspace锁；`76b65a6`修复旧WIM损坏用例用固定字节覆盖时间戳时偶然没有改变原文的问题，改为读取后翻转位，保留生产完整性检查。旧用例在第412次重复时复现，修复后连续4096次通过；随后workspace fmt/Clippy/全feature与默认配置测试重新通过。独立LZH89项/package验证通过，NSIS354项及ZPAQ24项通过/1忽略亦纳入LinuxCI。
+
+| CLI候选产物 | 二进制字节数 | 可执行文件SHA-256 |
+|---|---:|---|
+| [geezipx-linux-x86_64](https://github.com/GEELINX-LTD/geezipx/actions/runs/41201756766/artifacts/13043102865) | 18617392 | `faa2a5f2ffaea6546dc8ade946ad37edb476f6f498ad20ea59ec37be52cfc835` |
+| [geezipx-windows-x86_64](https://github.com/GEELINX-LTD/geezipx/actions/runs/41201756766/artifacts/13042429516) | 14168064 | `8ee499db0ee0cf217499920a1e88336c13aec85e634bef3b7d3a4affc25901f8` |
+| [geezipx-macos-x86_64](https://github.com/GEELINX-LTD/geezipx/actions/runs/41201756766/artifacts/13042689337) | 16714368 | `11af749d088e6987f2b1eb35610f52119d148470efb27c78a067071c7b6e351c` |
+
+对应的[Linux报告](https://github.com/GEELINX-LTD/geezipx/actions/runs/41201756766/artifacts/13042963194)、[Windows报告](https://github.com/GEELINX-LTD/geezipx/actions/runs/41201756766/artifacts/13043370206)、[macOS报告](https://github.com/GEELINX-LTD/geezipx/actions/runs/41201756766/artifacts/13042719300)均包含`candidate-report.json`。六份artifact已下载，逐一核对完整源码SHA、feature参数、ELF64/PE32+/Mach-O64实际x86-64机器头，二进制SHA-256与各自报告一致。三份报告还与本地同源码release基线逐项比较；下载后的LinuxCLI再次执行全部77项（含新建SFX），结果与CI一致。
+
+CLI仍显示`geezipx 0.7.4`，以源码SHA识别候选，Actions产物保留7天。此轮范围为core/CLI，不计为两个GUI、其它CPU架构或完整PEA/NSIS变体验收。PEA加密/ECC/分卷、NSIS旧版/动态安装结果、ZPAQ journal文件重建与读取缓冲等限制仍见各节。有效期内可在仓库根目录复核下载的Linux包：
+
+```bash
+gh run download 41201756766 --repo GEELINX-LTD/geezipx --pattern 'geezipx-*-x86_64*' --dir candidate-76b65a6
+chmod +x candidate-76b65a6/geezipx-linux-x86_64/geezipx
+GITHUB_SHA=76b65a60fa9478f2661256369968ee275d245501 GEEZIPX_CANDIDATE_FEATURES=--all-features python3 scripts/check-format-candidate.py --binary candidate-76b65a6/geezipx-linux-x86_64/geezipx --sfx --report downloaded-linux-76b65a6-report.json
+```
