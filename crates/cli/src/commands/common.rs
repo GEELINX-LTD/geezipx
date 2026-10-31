@@ -569,6 +569,8 @@ pub fn open_reader(
     })
 }
 
+mod output;
+
 /// Create an archive writer with the given compression options.
 pub fn create_writer(
     file: fs::File,
@@ -630,7 +632,10 @@ pub fn create_writer(
                 Some(_) => LzhCompressionMethod::Lh7,
                 None => LzhCompressionMethod::default(),
             };
-            Ok(Box::new(LzhWriter::new(file, method)))
+            Ok(Box::new(LzhWriter::new(
+                output::CancellableOutput(file),
+                method,
+            )))
         }
         ArchiveFormat::Iso => Ok(Box::new(IsoWriter::new(file))),
         ArchiveFormat::Udf => Ok(Box::new(UdfWriter::new(file))),

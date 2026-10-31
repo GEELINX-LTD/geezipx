@@ -2887,6 +2887,7 @@ dependencies = [
  "encoding_rs",
  "flate2",
  "geezipx-iso",
+ "geezipx-lzhuf",
  "geezipx-udf",
  "gzp",
  "isomage",
@@ -2894,7 +2895,6 @@ dependencies = [
  "lz4_flex",
  "lzma-rust2 0.16.5",
  "lzxd",
- "oxiarc-lzhuf",
  "secrecy",
  "serde",
  "serde_json",
@@ -2979,6 +2979,13 @@ dependencies = [
  "spin 0.10.1",
  "thiserror 2.0.18",
  "tracing",
+]
+
+[[package]]
+name = "geezipx-lzhuf"
+version = "0.1.0"
+dependencies = [
+ "oxiarc-core",
 ]
 
 [[package]]
@@ -5031,15 +5038,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "789e87ca465eb1c75efbbc758c18e41055be0033dcbf1d6048e10e073ab5cd7c"
 dependencies = [
  "thiserror 2.0.18",
-]
-
-[[package]]
-name = "oxiarc-lzhuf"
-version = "0.3.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3e5ca331e5de9042b0eb4d24f96d1efecca76cef2c949d24e3add29d6286aab4"
-dependencies = [
- "oxiarc-core",
 ]
 
 [[package]]

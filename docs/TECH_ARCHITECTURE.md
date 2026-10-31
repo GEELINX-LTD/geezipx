@@ -145,7 +145,7 @@ pub trait ArchiveWriter: Send {
 | `archive::deb` | DEB 读写（ar 容器 + control.tar.gz + data.tar.*） |
 | `archive::cab` | CAB 读写（`compress` / `list` / `extract` / `test`；reader 基于 `cab` crate，writer 基于 `cab` crate 实现 MSZIP 压缩写入） |
 | `archive::cpio` | CPIO 读写（`compress` / `list` / `extract` / `test`；reader/writer 基于 `cpio-archive` crate，MVP 支持 `newc` / `odc`，不创建宿主 symlink/device/FIFO/socket） |
-| `archive::lzh` | LZH/LHA 读写；reader 基于 `delharc`，writer 使用 `oxiarc-lzhuf` 支持 lh0 存储与 lh4-lh7 压缩，CLI 级别 0-4 映射到这些方法 |
+| `archive::lzh` | LZH/LHA读写；reader基于`delharc`，writer使用维护的`geezipx-lzhuf`（依赖别名`oxiarc-lzhuf`）支持lh0/lh4–lh7；64KiB缓冲暂存原文与压缩结果，连续字典/位流编码，按项输出并保留CRC16/存储回退 |
 | `archive::iso` | ISO 读写（`compress` / `list` / `extract` / `test`）；reader 基于 `isomage`（ISO9660/Rock Ridge/Joliet），writer 基于 MIT `geezipx-iso` fork（上游hadris-iso 1.2.1，Level 1/Joliet/Rock Ridge）；`iso::writer`以单个匿名文件暂存输入，再以64KiB缓冲格式化/输出临时镜像 |
 | `archive::udf` | UDF reader采用64KiB seek缓冲；`udf::writer`将输入暂存为单个匿名文件，`geezipx-udf` FileSource按区间读取并格式化可seek临时镜像，最后以64KiB缓冲输出；默认UDF1.02、CS0 Unicode、单项创建上限4GiB，目录元数据驻内存 |
 | `archive::zpaq` | ZPAQ 读写（`compress` / `list` / `extract` / `test`）；writer 基于 `zpaq_rs::archive_from_entries`，压缩级别 1-5；不含增量 journaling/dedup |
@@ -331,7 +331,7 @@ CLI 当前子命令为：
 | `cab` 0.6 | CAB 读写支持（单卷 cabinet 浏览、提取、验证、MSZIP 压缩创建） |
 | `asar` 0.3 | ASAR 读写支持（Electron 归档，JSON header + 内容写入） |
 | `ar` 0.9 | ar 归档读写（DEB 包解析与创建） |
-| `delharc` 0.8 / `oxiarc-lzhuf` 0.3 | LZH/LHA/PMA 读取及 lh0、lh4-lh7 写入 |
+| `delharc` 0.8 / `geezipx-lzhuf` 0.1 | LZH/LHA/PMA读取及lh0/lh4–lh7写入；支持库派生自oxiarc-lzhuf0.3.5，独立版本+path依赖，持续位流/字典的有界Read编码，需在core发布前独立发布 |
 | `isomage` 2.1 | ISO9660 / Rock Ridge / Joliet seek 读取 |
 | `geezipx-iso` 0.1.0 | `crates/vendor/hadris-iso`中的MIT fork，上游hadris-iso 1.2.1；保留`hadris_iso`库名/依赖别名，增加FileSource文件区间输入、实文件补零、目录记录不跨扇区及向前SUSP续接布局；独立可发布包，发布core前先发布该依赖，不依赖仅本地生效的patch |
 | `geezipx-udf` 0.1.0 | `crates/vendor/hadris-udf`中的MIT fork，上游hadris-udf 1.2.1；保留`hadris_udf`库名/依赖别名，FileSource区间避免文件数据clone，目录与父FID精确布局、多段短AD、CS0和LVID计数/CRC；显式版本+path，发布core前先发布该依赖。旧UTF-8文件名仅按旧producer/空charset标记兼容，标准CS0/8按Latin-1解码 |
@@ -506,7 +506,7 @@ crates/gui-tauri/
 | Windows 长路径/符号链接差异 | 个别归档场景行为与 Unix 不完全一致 | 持续测试 + 文档限制说明 |
 | RAR / ARJ / ACE / ARC / Z 只读，ALZ 部分只读 | GUI 不能创建这些格式，且桥接范围小于 core/CLI | 以 PRD 和各 GUI 格式表分别说明范围 |
 | WIM / ISZ writer 为标准模式外的实现 | WIM 为无压缩写入、ISZ 为单流引擎（非 ArchiveWriter trait） | 在文档中明确能力边界 |
-| LZH/LHA writer 为缓冲写入（lh0-lh7 压缩均支持） | 不支持加密、多卷、extended header；单个 entry payload 会缓冲 | 在产品文档中明确限制范围 |
+| LZH/LHA writer按项磁盘暂存 | 创建支持lh0/lh4–lh7，有界输入/编码缓冲；临时磁盘需要当前成员原文及候选压缩结果，不支持>4GiB成员、加密、多卷与extended header | 连续字典/位流避免任意分块独立编码；7-Zip互操作、输入后取消和CRC失败保护回归；限制见专项记录 |
 | Windows COM DelegateExecute 右键菜单仍需完整原生验收 | 已通过原生编译和 NSIS 构建，Explorer 选区传递、升级与卸载仍需实机确认 | 按 `docs/RELEASE_CHECKLIST.md` 记录候选提交与逐项验收结果 |
 ## 9. 独立 egui 原生 GUI
 
@@ -530,7 +530,7 @@ crates/gui-tauri/
 |------|--------------------|
 | 原生桌面与安装 | 编译、单元测试和 Wine 注册表测试不能替代 Explorer、NSIS、Finder、Launch Services 实测；按 [发布验收清单](RELEASE_CHECKLIST.md) 记录候选提交与结果 |
 | WIM | 无压缩写入与 XPRESS 读取可用；LZX 的独立 wimlib 样本尚未通过，LZMS、分割 SWM 与第一映像以外提取未实现 |
-| 内存预算 | ISO/UDF/ISZ、CAB、DEB、CPIO 创建改用有界块/磁盘暂存；ISO/UDF临时空间约输入+镜像，RAM随元数据增长，tmpfs会占系统内存；UDF读取使用64KiB seek缓冲，UU/XXE CLI逐行处理。ASAR创建为有界暂存/顺序输出并设64MiB索引预算；LZH/ZPAQ 创建、旧 `.enc`、部分第三方 reader 仍有整包/整项缓冲；WIM metadata/目录驻内存，不能保证所有格式低于固定上限 |
+| 内存预算 | ISO/UDF/ISZ、CAB、DEB、CPIO 创建改用有界块/磁盘暂存；ISO/UDF临时空间约输入+镜像，RAM随元数据增长，tmpfs会占系统内存；UDF读取使用64KiB seek缓冲，UU/XXE CLI逐行处理。ASAR创建为有界暂存/顺序输出并设64MiB索引预算，LZH创建为按项暂存/有界连续编码；ZPAQ创建、旧 `.enc`、部分第三方 reader 仍有整包/整项缓冲；WIM metadata/目录驻内存，不能保证所有格式低于固定上限 |
 | UDF支持库配置 | core/CLI使用同步std/read/write，独立27项单测及package通过；额外async/write组合与上游1.2.1同样因生成类型/时间方法冲突失败，待分离共享描述符和I/O绑定；workspace all-features不代表该被排除库的async组合已支持 |
 | AES 容器 | `.enc` 支持经验证的非流式容器，拒绝不安全 schema 和超额 KDF；`.aes` 用 AES Crypt v0–v3 双遍认证后解密，非seek输入暂存密文。两者格式不兼容，创建 `.aes` 不会回退生成 `.enc` |
 | 新读取预算 | EGG累计索引64MiB；CFB打开前FAT估算64MiB（不含目录等总开销）；Lzip/LZMA Alone/TLZ解码256MiB。超过当前预算明确拒绝，并非所有合法大字典/容器均可读；可配置预算和其它累计元数据计费待补。互操作证据见[专项验收](FORMAT_PARITY_ACCEPTANCE.md) |

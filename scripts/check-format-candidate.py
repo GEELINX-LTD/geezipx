@@ -159,6 +159,41 @@ def main():
                             raise AssertionError("ZIPX did not use XZ method 95")
                 extract("roundtrip-" + extension, archive, expected=payload)
 
+            # Cross both bounded input chunks and non-byte-aligned Huffman blocks.
+            noise = b"".join(hashlib.sha256(i.to_bytes(4, "little")).digest() for i in range(8192))
+            block_payload = noise + noise[-2048:] * 256 + b"tail" * 17
+            block_source = work / "blocks.bin"
+            block_source.write_bytes(block_payload)
+            archive = work / "blocks.lzh"
+            cli("compress", block_source, "-o", archive, "-f", "lzh", "--level", "9", "--no-progress")
+            if archive.read_bytes()[2:7] != b"-lh7-":
+                raise AssertionError("LZH multiblock case unexpectedly fell back to store")
+            extract("lzh-multiblock", archive, expected=block_payload)
+            broken = bytearray(archive.read_bytes())
+            header_end = broken[0] + 2
+            broken[header_end - 2] ^= 1
+            broken[1] = sum(broken[2:header_end]) & 255
+            bad = work / "bad-crc.lzh"
+            bad.write_bytes(broken)
+            protected = work / "lzh-protected"
+            protected.mkdir()
+            existing = protected / block_source.name
+            existing.write_bytes(b"existing destination")
+            response = subprocess.run([str(binary), "decompress", str(bad), "-o", str(protected),
+                                       "--force", "--no-progress"], capture_output=True, timeout=120)
+            if response.returncode == 0 or b"CRC" not in response.stderr:
+                raise AssertionError("LZH CRC failure was not propagated")
+            if existing.read_bytes() != b"existing destination":
+                raise AssertionError("LZH late CRC failure replaced the destination")
+            record("lzh-crc-target-protection")
+            tiny = work / "tiny.bin"
+            tiny.write_bytes(b"no repetition")
+            stored = work / "fallback.lzh"
+            cli("compress", tiny, "-o", stored, "-f", "lzh", "--level", "9", "--no-progress")
+            if stored.read_bytes()[2:7] != b"-lh0-":
+                raise AssertionError("LZH store fallback changed")
+            extract("lzh-store-fallback", stored, expected=tiny.read_bytes())
+
             udf_tree = work / "udf-tree"
             (udf_tree / "中文" / "empty").mkdir(parents=True)
             (udf_tree / "only-empty").mkdir()

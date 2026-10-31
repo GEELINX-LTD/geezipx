@@ -293,3 +293,21 @@ Linux Rust1.96 release，`TMPDIR=/root/.cache/geezipx-format-followup/asar/tmp`�
 | 本轮 | 512 | 536879772 | 8288 | 3.96 |
 
 512MiB输入峰值RSS约1.51GiB→8.1MiB；索引略增来自Electron兼容的末尾空块校验值。新路径增加暂存磁盘I/O，不据此承诺其它介质或输入的吞吐提升。
+
+### LZH：按项暂存与持续字典/位流编码
+
+- 创建端移除原文Vec和压缩结果Vec，按项使用匿名文件及64KiB缓冲。维护库`geezipx-lzhuf 0.1.0`派生自`oxiarc-lzhuf 0.3.5`并保留Apache-2.0许可；`LzhEncoder::encode_reader`使用256KiB输入窗口、持久LZSS字典、连续MSB位流和有界Huffman命令队列，直到最终结束才补齐位。不会在任意输入边界刷新Huffman头部。
+- 支持lh0/lh4/lh5/lh6/lh7创建；保持u32单项大小、原始CRC16和压缩不缩小则回退lh0。源失败尚未写该项归档；暂存后压缩阶段轮询输出取消，CLI实际SIGINT可及时失败且已有归档不变。临时磁盘需当前成员原文+候选压缩结果，另有CLI归档临时文件；tmpfs消耗系统RAM。
+- 7-Zip对64/512MiB lh7包及8MiB高熵/重复混合数据的lh0/lh4–lh7真实方法包提取通过，内容SHA-256一致；CLI test验证CRC。补充短Read/Interrupted、跨块字典和非字节对齐位流、长重复压缩效率、源失败、输入后取消及损坏CRC回归；候选脚本加入多块、存储回退和强制覆盖时CRC失败保护。
+- 本地workspace fmt、Clippy全部目标/feature且`-D warnings`、测试1158通过/9忽略、release构建通过；独立支持库89测试、格式和package verification通过。支持库独立版本/path依赖，正式core发布前需先发布该支持库。三平台候选安排在本轮各格式处理完毕后统一执行。
+
+Linux Rust1.96 release，临时文件位于真实`ext2/ext3`磁盘，源文件位于tmpfs；同一64/512MiB新建稀疏输入、热页缓存，单次`/usr/bin/time -f '%M %e'`作内存诊断。基线二进制与ASAR一节相同，本地本轮二进制SHA-256 `b5ae6751dc8ca519553c32f5444461d7e88cc5f7dd259b55a197da19a63e297a`。
+
+| 实现 | 输入 / MiB | LZH字节数 | 峰值RSS / KiB | 单次墙钟 / 秒 |
+|---|---:|---:|---:|---:|
+| 基线 | 64 | 35012 | 75660 | 0.50 |
+| 本轮 | 64 | 35014 | 8464 | 0.53 |
+| 基线 | 512 | 265145 | 545172 | 3.99 |
+| 本轮 | 512 | 265147 | 9040 | 4.17 |
+
+512MiB输入峰值RSS约532MiB→8.8MiB，归档仅增加2字节；诊断用例墙钟略增，不能据此推导吞吐回归或提升。分块匹配边界可以改变压缩字节表示；互操作与解压内容保持一致。

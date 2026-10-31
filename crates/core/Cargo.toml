@@ -41,7 +41,7 @@ zstd = { version = "0.14.3", features = ["zstdmt"] }
 asar = { version = "0.3", default-features = false, features = ["write"] }
 ar = "0.9"
 delharc = "0.8"
-oxiarc-lzhuf = "0.3"
+oxiarc-lzhuf = { package = "geezipx-lzhuf", version = "0.1.0", path = "../vendor/oxiarc-lzhuf" }
 enc_file = "0.6"
 # Validate private enc_file headers/armor before invoking its crypto APIs.
 base64 = "0.22"

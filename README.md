@@ -59,7 +59,7 @@
 | ISO 9660 | `.iso` | ✓ | ✓ | Level 1 + Joliet/Rock Ridge; disk-backed creation |
 | UDF | `.udf` | ✓ | ✓ | UDF 1.02 creation with CS0 Unicode; disk-backed, bounded file-data buffers |
 | ZPAQ | `.zpaq`, `.zpq` | ✓ | ✓ | level 1-5; requires C++17 compiler |
-| LZH / LHA | `.lzh`, `.lha` | ✓ | ✓ | lh0-lh7 write (level 0-4); CRC-16 verify |
+| LZH / LHA | `.lzh`, `.lha` | ✓ | ✓ | lh0/lh4–lh7 write (level 0-4); bounded staging; CRC-16 verify |
 | CPIO | `.cpio` | ✓ | ✓ | newc/odc |
 | ASAR | `.asar` | ✓ | ✓ | Electron archive; no encrypt |
 | CAB | `.cab` | ✓ | ✓ | single-volume only; no encrypt |
@@ -488,7 +488,7 @@ Most format limitations are documented in the Format Support table above. Key de
 
 - **WIM**: The writer stores data **uncompressed** (CompressionType::None), spooling file bytes to temporary disk with incremental SHA-1. XPRESS reads are supported; LZX interoperability with wimlib samples remains unresolved and LZMS decoding is not implemented. For compressed output, use wimlib or other tools.
 - **ASAR / CAB / DEB write**: All three formats now support writing. ASAR and CAB create single-volume archives; ASAR stages payloads on disk with bounded buffers and index limits, emits Electron-compatible SHA-256 integrity metadata, and verifies optional integrity during extraction/testing. DEB writes `data.tar*` payload with a `debian-binary` + stubbed `control.tar.gz`.
-- **LZH/LHA write**: The writer supports lh0 (store) through lh7 compression via `oxiarc-lzhuf`. CLI level 0 → lh0, 1 → lh4, 2 → lh5, 3 → lh6, 4+ → lh7. Single entries >4 GiB and extended-header metadata are not supported.
+- **LZH/LHA write**: Supports lh0 (store) and lh4–lh7 through the maintained `geezipx-lzhuf` support library. CLI level 0 → lh0, 1 → lh4, 2 → lh5, 3 → lh6, 4+ → lh7. Inputs and candidate compressed payloads use anonymous disk staging, bounded buffers and a continuous dictionary/bitstream; compression falls back to store when it does not shrink the entry. Temporary disk usage grows with the current input and compressed payload; tmpfs consumes system RAM. Single entries >4 GiB and extended-header metadata are not supported.
 - **ISO write**: Writer emits ISO 9660 Level 1 volumes with Joliet Level 3 and Rock Ridge records. File contents and the seekable image use anonymous temporary files with fixed buffers; memory scales with entry metadata. Temporary storage needs approximately the input plus image size; a memory-backed temp directory consumes system memory. POSIX attributes use creator defaults. UDF-only writing is handled by the separate `udf` format.
 - **CPIO write**: Supports `newc` and `odc` variants. Does not create symlinks, devices, FIFOs, or sockets on extraction.
 - **ZPAQ write**: Supports level 1-5. Creation buffers all inputs and compressed output; each path-addressed extraction also reads the whole archive and buffers the decoded entry. Archive-aware streaming requires an upstream API change.
