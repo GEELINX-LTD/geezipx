@@ -803,6 +803,12 @@ impl<R: std::io::Read> LzhStreamDecoder<R> {
                     // next iteration refills from the reader (or hits EOF).
                 }
                 DecompressStatus::BlockEnd => {}
+                _ => {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::Unsupported,
+                        "unsupported LZH decompression status",
+                    ));
+                }
             }
         }
     }

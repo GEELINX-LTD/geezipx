@@ -5086,9 +5086,9 @@ checksum = "d211803b9b6b570f68772237e415a029d5a50c65d382910b879fb19d3271f94d"
 
 [[package]]
 name = "oxiarc-core"
-version = "0.3.5"
+version = "0.3.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "789e87ca465eb1c75efbbc758c18e41055be0033dcbf1d6048e10e073ab5cd7c"
+checksum = "119a925483e4917b645fd77acef86859164e166faa4cce3353c1d7cecfd3665a"
 dependencies = [
  "thiserror 2.0.18",
 ]

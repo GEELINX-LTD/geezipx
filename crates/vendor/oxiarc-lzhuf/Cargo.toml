@@ -18,5 +18,5 @@ parallel = ["dep:rayon"]
 lha-oracle = ["parallel"]
 
 [dependencies]
-oxiarc-core = "0.3"
+oxiarc-core = "0.3.6"
 rayon = { version = "1.12.0", optional = true }

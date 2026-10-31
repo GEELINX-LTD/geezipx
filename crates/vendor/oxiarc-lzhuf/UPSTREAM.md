@@ -6,6 +6,8 @@ The package is named `geezipx-lzhuf`; its Rust library name and the application'
 
 Local change: `LzhEncoder::encode_reader` consumes bounded input blocks through one continuous MSB bit writer and one persistent LZSS dictionary. It preserves canonical lh4–lh7 block framing, pads only once at EOF, and reuses the upstream block/Huffman implementations. It does not claim resumable lh1 or repair upstream slice-based `Compressor`/`StreamingLzhEncoder` APIs; GeeZipX uses the new reader API exclusively.
 
+The support package requires `oxiarc-core >= 0.3.6` within the 0.3 series. Its streaming decoder returns an explicit unsupported-state error for future non-exhaustive `DecompressStatus` variants; the workspace lock and an independent fresh package resolution exercise the same API boundary.
+
 Validate independently of the application workspace:
 
 ```bash
