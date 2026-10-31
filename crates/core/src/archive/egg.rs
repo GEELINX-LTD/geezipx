@@ -3,26 +3,37 @@
 use super::{ArchiveReader, Entry};
 use crate::detect::ArchiveFormat;
 use crate::error::{GeeZipError, GeeZipResult};
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::{Cursor, Read, Seek, SeekFrom, Write};
 use std::path::Path;
-use unegg::archive::{CompressionMethod, EggArchive};
+use unegg::archive::{CompressionMethod, EggFileEntry};
+
+mod index;
 
 fn error(message: impl std::fmt::Display) -> GeeZipError {
     GeeZipError::format(format!("EGG: {message}"), ArchiveFormat::Egg)
 }
 pub struct EggReader {
-    inner: EggArchive<File>,
+    reader: File,
+    entries: Vec<EggFileEntry>,
+    index: HashMap<String, usize>,
 }
 impl EggReader {
     pub fn open(path: &Path) -> GeeZipResult<Self> {
-        let inner = EggArchive::open(File::open(path)?).map_err(error)?;
-        if inner.is_solid || inner.split_info.is_some() || inner.is_encrypted {
-            return Err(error(
-                "solid, split and encrypted archives are not supported",
-            ));
+        let mut reader = File::open(path)?;
+        let entries = index::parse(&mut reader)?;
+        let mut index = HashMap::new();
+        for (i, entry) in entries.iter().enumerate() {
+            if index.insert(entry.file_name.clone(), i).is_some() {
+                return Err(error("duplicate filename"));
+            }
         }
-        Ok(Self { inner })
+        Ok(Self {
+            reader,
+            entries,
+            index,
+        })
     }
 }
 struct CheckedWriter<'a> {
@@ -49,8 +60,7 @@ impl ArchiveReader for EggReader {
         ArchiveFormat::Egg
     }
     fn entries(&mut self) -> GeeZipResult<Vec<Entry>> {
-        self.inner
-            .entries
+        self.entries
             .iter()
             .map(|e| {
                 let compressed_size = e
@@ -72,14 +82,13 @@ impl ArchiveReader for EggReader {
             .collect()
     }
     fn extract(&mut self, entry: &Entry, writer: &mut dyn Write) -> GeeZipResult<u64> {
-        let e = self
-            .inner
-            .entries
-            .iter()
-            .find(|e| e.file_name == entry.path)
+        let &i = self
+            .index
+            .get(&entry.path)
             .ok_or_else(|| GeeZipError::EntryNotFound {
                 name: entry.path.clone(),
             })?;
+        let e = &self.entries[i];
         if e.is_directory() {
             return Ok(0);
         }
@@ -94,8 +103,8 @@ impl ArchiveReader for EggReader {
             return Err(error("file/block size mismatch"));
         }
         for block in &e.blocks {
-            self.inner.reader.seek(SeekFrom::Start(block.data_pos))?;
-            let input = (&mut self.inner.reader).take(u64::from(block.compressed_size));
+            self.reader.seek(SeekFrom::Start(block.data_pos))?;
+            let mut input = (&mut self.reader).take(u64::from(block.compressed_size));
             let mut output = CheckedWriter {
                 writer,
                 remaining: u64::from(block.uncompressed_size),
@@ -103,33 +112,37 @@ impl ArchiveReader for EggReader {
             };
             match block.compression_method {
                 CompressionMethod::Store => {
-                    std::io::copy(&mut input.take(u64::MAX), &mut output)?;
+                    std::io::copy(&mut input, &mut output)?;
                 }
                 CompressionMethod::Deflate => {
-                    std::io::copy(&mut flate2::read::DeflateDecoder::new(input), &mut output)?;
+                    deflate_exact(&mut input, &mut output, u64::from(block.compressed_size))?;
                 }
                 CompressionMethod::Bzip2 => {
-                    std::io::copy(&mut bzip2::read::BzDecoder::new(input), &mut output)?;
+                    let mut decoder = bzip2::read::BzDecoder::new(&mut input);
+                    std::io::copy(&mut decoder, &mut output)?;
+                    if decoder.total_in() != u64::from(block.compressed_size) {
+                        return Err(error("trailing data in BZip2 block"));
+                    }
                 }
                 CompressionMethod::Lzma => {
                     if block.compressed_size < 9 {
                         return Err(error("short LZMA header"));
                     }
-                    let mut input = input;
                     let mut egg_header = [0; 9];
                     input.read_exact(&mut egg_header)?;
                     let mut header = [0; 13];
                     header[..5].copy_from_slice(&egg_header[4..]);
-                    header[5..].fill(0xff);
+                    header[5..].copy_from_slice(&u64::from(block.uncompressed_size).to_le_bytes());
                     let stream =
                         xz2::stream::Stream::new_lzma_decoder(256 * 1024 * 1024).map_err(error)?;
-                    std::io::copy(
-                        &mut xz2::read::XzDecoder::new_stream(
-                            Cursor::new(header).chain(input),
-                            stream,
-                        ),
-                        &mut output,
-                    )?;
+                    let mut decoder = xz2::read::XzDecoder::new_stream(
+                        Cursor::new(header).chain(&mut input),
+                        stream,
+                    );
+                    std::io::copy(&mut decoder, &mut output)?;
+                    if decoder.total_in() != u64::from(block.compressed_size) + 4 {
+                        return Err(error("trailing data in LZMA block"));
+                    }
                 }
                 method => return Err(error(format!("unsupported method {method}"))),
             }
@@ -140,6 +153,47 @@ impl ArchiveReader for EggReader {
         Ok(expected)
     }
 }
+fn deflate_exact(
+    input: &mut dyn Read,
+    output: &mut dyn Write,
+    compressed_size: u64,
+) -> GeeZipResult<()> {
+    use flate2::{Decompress, FlushDecompress, Status};
+    let mut decoder = Decompress::new(false);
+    let mut packed = [0; 32 * 1024];
+    let mut unpacked = [0; 32 * 1024];
+    let mut buffered = 0;
+    let mut offset = 0;
+    loop {
+        if offset == buffered {
+            buffered = input.read(&mut packed)?;
+            offset = 0;
+        }
+        let before_in = decoder.total_in();
+        let before_out = decoder.total_out();
+        let status = decoder
+            .decompress(
+                &packed[offset..buffered],
+                &mut unpacked,
+                FlushDecompress::None,
+            )
+            .map_err(error)?;
+        let consumed = (decoder.total_in() - before_in) as usize;
+        let produced = (decoder.total_out() - before_out) as usize;
+        offset += consumed;
+        output.write_all(&unpacked[..produced])?;
+        if status == Status::StreamEnd {
+            if decoder.total_in() != compressed_size {
+                return Err(error("trailing data in Deflate block"));
+            }
+            return Ok(());
+        }
+        if consumed == 0 && produced == 0 {
+            return Err(error("incomplete Deflate block"));
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -168,6 +222,94 @@ mod tests {
         out
     }
     #[test]
+    fn real_lzma_posix_and_blockless_empty_samples() {
+        for (bytes, expected) in [
+            (
+                include_bytes!("../../tests/fixtures/egg/lzma5.egg").as_slice(),
+                vec![
+                    (0, 0),
+                    (95, 0x6a94d1bc),
+                    (2060, 0xb54ccab2),
+                    (4096, 0x1bb92dfc),
+                    (3150, 0x7a553a9d),
+                ],
+            ),
+            (
+                include_bytes!("../../tests/fixtures/egg/posix.egg").as_slice(),
+                vec![(54, 0x96e10d03), (25, 0x6c7b95e7), (19, 0xb3010a13)],
+            ),
+            (
+                include_bytes!("../../tests/fixtures/egg/empty_noblock.egg").as_slice(),
+                vec![(0, 0)],
+            ),
+        ] {
+            let temp = tempfile::NamedTempFile::new().unwrap();
+            std::fs::write(temp.path(), bytes).unwrap();
+            let mut reader = EggReader::open(temp.path()).unwrap();
+            let entries = reader.entries().unwrap();
+            assert_eq!(entries.len(), expected.len());
+            for (entry, &(size, crc)) in entries.iter().zip(&expected) {
+                let mut output = Vec::new();
+                assert_eq!(reader.extract(entry, &mut output).unwrap(), size);
+                assert_eq!(output.len() as u64, size);
+                assert_eq!(crc32fast::hash(&output), crc);
+            }
+        }
+    }
+
+    #[test]
+    fn reject_nonfinal_deflate_trailing_data_and_truncated_index() {
+        let data = b"EGG strict boundaries";
+        let mut packed = vec![0];
+        packed.extend((data.len() as u16).to_le_bytes());
+        packed.extend((!(data.len() as u16)).to_le_bytes());
+        packed.extend(data);
+        for trailing in [false, true] {
+            if trailing {
+                packed[0] = 1;
+                packed.extend(b"junk");
+            }
+            let temp = tempfile::NamedTempFile::new().unwrap();
+            std::fs::write(temp.path(), archive(1, data, &packed)).unwrap();
+            let mut reader = EggReader::open(temp.path()).unwrap();
+            let entry = reader.entries().unwrap().remove(0);
+            assert!(reader.extract(&entry, &mut std::io::sink()).is_err());
+        }
+        let valid = archive(0, data, data);
+        let temp = tempfile::NamedTempFile::new().unwrap();
+        for length in 0..valid.len() {
+            std::fs::write(temp.path(), &valid[..length]).unwrap();
+            assert!(EggReader::open(temp.path()).is_err(), "accepted {length}");
+        }
+        // Filename extra-field claims 4 GiB from a tiny archive.
+        let mut oversized = valid;
+        oversized[38] = 1;
+        oversized.splice(39..41, u32::MAX.to_le_bytes());
+        std::fs::write(temp.path(), oversized).unwrap();
+        assert!(EggReader::open(temp.path()).is_err());
+    }
+
+    #[test]
+    fn relative_names_require_existing_acyclic_unique_ids() {
+        let mut bytes = archive(0, b"x", b"x");
+        bytes[38] = 0x10; // relative path, parent ID precedes name
+        bytes[39..41].copy_from_slice(&12u16.to_le_bytes());
+        bytes.splice(41..41, 99u32.to_le_bytes());
+        let temp = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(temp.path(), &bytes).unwrap();
+        assert!(EggReader::open(temp.path()).is_err()); // missing parent
+        bytes[41..45].copy_from_slice(&1u32.to_le_bytes());
+        std::fs::write(temp.path(), &bytes).unwrap();
+        assert!(EggReader::open(temp.path()).is_err()); // self-cycle
+
+        let normal = archive(0, b"x", b"x");
+        let mut duplicate = normal[..normal.len() - 4].to_vec();
+        duplicate.extend_from_slice(&normal[18..]);
+        std::fs::write(temp.path(), &duplicate).unwrap();
+        assert!(EggReader::open(temp.path()).is_err()); // duplicate ID
+    }
+
+    #[test]
     fn store_deflate_bzip_lzma_and_crc() {
         let data = b"EGG payload".repeat(1024);
         let mut deflate =
@@ -175,11 +317,15 @@ mod tests {
         deflate.write_all(&data).unwrap();
         let mut bzip = bzip2::write::BzEncoder::new(Vec::new(), bzip2::Compression::default());
         bzip.write_all(&data).unwrap();
-        let mut lzma = Vec::new();
-        crate::archive::xz::lzma_compress(&mut data.as_slice(), &mut lzma).unwrap();
+        let options = lzma_rust2::LzmaOptions::with_preset(6);
+        let mut encoder =
+            lzma_rust2::LzmaWriter::new_no_header(Vec::new(), &options, false).unwrap();
+        encoder.write_all(&data).unwrap();
+        let lzma = encoder.finish().unwrap();
         let mut egg_lzma = vec![0; 4];
-        egg_lzma.extend(&lzma[..5]);
-        egg_lzma.extend(&lzma[13..]);
+        egg_lzma.push(0x5d);
+        egg_lzma.extend(options.dict_size.to_le_bytes());
+        egg_lzma.extend(lzma);
         for (method, packed) in [
             (0, data.clone()),
             (1, deflate.finish().unwrap()),

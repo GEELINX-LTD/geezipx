@@ -24,6 +24,8 @@
 
 - ALZ：复现旧实现接受缺少 BFINAL/流结束标记的 Deflate（原始长度与 CRC 均匹配，CLI `test` 错误返回成功）。改用固定 32 KiB 输入/输出缓冲，要求 `StreamEnd` 且精确消耗声明的压缩区间；写入前限制原始长度，打开时校验 payload 范围。新增非 final 块、尾随垃圾、输出越界回归；专项测试与 core Clippy 通过。没有通过忽略 CRC 或扩大缓冲绕过损坏检测。
 
+- EGG：真实 `alkegi/unegg` CC0 样本暴露 LZMA 无 EOS 块被误判截断，已使用块的已知原始长度解码；独立 Store/Deflate/BZip2/LZMA/混合方法、Android POSIX 元数据、无块空文件共 7 份样本通过。新增 64 MiB 累计索引预算、范围和父引用校验，拒绝重复 ID/名称、循环/缺失父项、截断及尾随压缩数据；四项回归与 core Clippy 通过。保留 3 份最小真实样本及来源/许可；验收详情见 [专项验收](FORMAT_PARITY_ACCEPTANCE.md)。
+
 ## 逐项记录
 
 | 项目（含别名） | 本轮结果 | 验证/限制 |
@@ -49,7 +51,7 @@
 | 化合物 / MSI | 已实现容器流提取 | cfb 0.15；识别 CFB magic/.msi/.msp/.mst/.cfb/.ole；目录/mini-stream/普通流使用 Read+Seek 按需复制，元数据驻内存。提取原始 OLE/MSI streams，不解释 MSI 数据库 File 表，不自动展开内嵌 CAB |
 | DAA 1.0 | 暂缓：无已验证适配器/语料 | 可参考 GPL-2.0 daa2iso，但本项目 MIT，未直接移植；尚无独立 DAA1.0 chunk/损坏/密码/分卷语料验证。后续独立规范实现或隔离转换器需先定依赖/许可策略；必须有界块索引+缓存，转换 ISO 后再提供内容视图，不能仅识别 DAA 算支持 |
 | DEB | 已优化创建内存及顺序提取 | 创建从整包原文/TAR/压缩载荷 Vec 改为磁盘暂存/64KiB 缓冲，控制信息仅小 Vec；读取 gzip/xz/zstd/bzip2/lzma/plain TAR 复用单次顺序 visitor，整包不再逐项重复解压并验证 codec trailer。现有6 codec/路径/空目录回归与新增 TAR 终止符之后 gzip CRC 损坏回归通过。创建仍经原文/TAR/压缩暂存多遍磁盘I/O，后续可将 TAR builder 直接连到编码器；只提取 data.tar 内容，不解释控制信息 |
-| EGG | 部分实现 | 单卷非 solid 未加密 Store/Deflate/BZip2/LZMA 流式提取，逐块 CRC32/长度校验；LZMA 字典内存上限 256 MiB。使用 unegg 0.2.1 解析索引，绕开其整块 LZMA 缓冲路径。AZO/solid/分卷/加密暂缓；4 方法合成结构与损坏 CRC 测试通过，真实 EGG 样本互操作待补 |
+| EGG | 部分实现 | 单卷非 solid 未加密 Store/Deflate/BZip2/LZMA 流式提取，逐块 CRC32/长度及流结束校验；LZMA 字典内存上限 256 MiB。自有 seek 索引解析设置64 MiB累计元数据预算及路径父引用检查，unegg仅复用类型/名称编码；真实7份独立样本验收通过，含无EOS LZMA和POSIX元数据。AZO/solid/分卷/加密暂缓 |
 | IMG / IMA | 已实现光盘内容读取 | 与 BIN 复用 cooked/raw 光盘 reader，实际提取 ISO/UDF 文件，非光盘数据拒绝。FAT12/16/32、NTFS、分区盘、稀疏磁盘/多轨待补，不能宣称通用 IMG 支持；旧 core/CLI stdin copy API 保留显式透传 |
 | ISZ | 已修复兼容性并优化内存/提取 | 按公开规范将 block_size 改为字节并接受 48-byte 头，兼容旧 GeeZipX 64-byte/sector 字段；创建使用 2MiB 输入块/磁盘暂存载荷和索引，Store/Zlib/Zero 自选。新增 Read+Seek 单块缓存（解压块/index 各最大64MiB），CLI list/decompress 直接提取 ISO 内文件，--stdout 仍还原 ISO，test 校验全部块。加密/分卷/非3-byte pointers 暂缓；真实 UltraISO 样本互操作待补；规范 https://forum.imgburn.com/topic/14260-isz-images-supporting/ |
 | LZ / Lzip | 已复核并修复等级校验 | lzma-rust2 LzipReader/Writer 流式处理、CRC32与成员长度检查；新增0..9等级错误返回，避免preset静默裁剪/溢出；修正文档level0仍为压缩。新增真正CRC损坏回归，现有多级别/往返/空流测试通过。编码字典随等级分配；单流jobs暂不生效 |
