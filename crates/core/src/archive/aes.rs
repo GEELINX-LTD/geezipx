@@ -202,6 +202,9 @@ pub fn aes_encrypt<R: Read, W: Write>(
 
 /// Decrypt an AES Crypt v0–v3 file with authentication before plaintext release.
 /// Input is read twice using bounded buffers; no full-file allocation is made.
+/// The seekable source must remain unchanged during both passes. Legacy v0–v2
+/// authenticate ciphertext but leave the final block's length outside the MAC;
+/// use v3 when exact plaintext length authentication is required.
 pub fn aescrypt_decrypt<R: Read + Seek, W: Write>(
     reader: R,
     writer: W,
@@ -291,6 +294,84 @@ mod tests {
     use super::*;
     use std::io::Cursor;
     use std::sync::OnceLock;
+
+    #[test]
+    fn official_compatible_legacy_vectors_and_auth_failure() {
+        let cases: &[(&[u8], &[u8])] = &[
+            (
+                include_bytes!("../../tests/fixtures/aescrypt/v0-0.aes"),
+                b"",
+            ),
+            (
+                include_bytes!("../../tests/fixtures/aescrypt/v0-16.aes"),
+                b"0123456789ABCDEF",
+            ),
+            (
+                include_bytes!("../../tests/fixtures/aescrypt/v0-17.aes"),
+                b"0123456789ABCDEF0",
+            ),
+            (
+                include_bytes!("../../tests/fixtures/aescrypt/v1-0.aes"),
+                b"",
+            ),
+            (
+                include_bytes!("../../tests/fixtures/aescrypt/v1-16.aes"),
+                b"0123456789ABCDEF",
+            ),
+            (
+                include_bytes!("../../tests/fixtures/aescrypt/v1-17.aes"),
+                b"0123456789ABCDEF0",
+            ),
+            (
+                include_bytes!("../../tests/fixtures/aescrypt/v2-0.aes"),
+                b"",
+            ),
+            (
+                include_bytes!("../../tests/fixtures/aescrypt/v2-16.aes"),
+                b"0123456789ABCDEF",
+            ),
+            (
+                include_bytes!("../../tests/fixtures/aescrypt/v2-17.aes"),
+                b"0123456789ABCDEF0",
+            ),
+        ];
+        struct ShortReads<'a>(&'a [u8]);
+        impl Read for ShortReads<'_> {
+            fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+                let n = buf.len().min(1);
+                self.0.read(&mut buf[..n])
+            }
+        }
+        for &(bytes, expected) in cases {
+            let mut output = Vec::new();
+            assert_eq!(
+                aes_decrypt(&mut ShortReads(bytes), &mut output, "Hello").unwrap(),
+                expected.len() as u64
+            );
+            assert_eq!(output, expected);
+            for (input, password) in [(bytes, "wrong"), (&bytes[..bytes.len() - 1], "Hello")] {
+                let mut untouched = b"existing output".to_vec();
+                assert!(aescrypt_decrypt(Cursor::new(input), &mut untouched, password).is_err());
+                assert_eq!(untouched, b"existing output");
+            }
+            let mut corrupt = bytes.to_vec();
+            *corrupt.last_mut().unwrap() ^= 1;
+            let mut untouched = b"existing output".to_vec();
+            assert!(aescrypt_decrypt(Cursor::new(corrupt), &mut untouched, "Hello").is_err());
+            assert_eq!(untouched, b"existing output");
+        }
+    }
+
+    #[test]
+    fn official_aescrypt_v3_unicode_password() {
+        let bytes = include_bytes!("../../tests/fixtures/aescrypt/official-v3.aes");
+        let mut output = Vec::new();
+        assert_eq!(
+            aes_decrypt(&mut bytes.as_slice(), &mut output, "Unicode 密码 🔑").unwrap(),
+            30
+        );
+        assert_eq!(output, b"Official AES Crypt v3 fixture\n");
+    }
 
     #[test]
     fn aescrypt_v3_authenticates_before_writing() {

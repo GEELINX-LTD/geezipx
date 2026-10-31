@@ -16,7 +16,7 @@
 - `cargo test -p geezipx-core -p geezipx --no-default-features --locked`：998 通过、4 忽略、0 失败。
 - `cargo deny check advisories bans licenses sources` 通过；重复依赖等警告按现有策略报告。
 
-独立互操作包括 ZIPX/ZIP 与 7-Zip、`.Z` 与 ncompress、PMA 独立语料、ACE/ARJ 真实样本、RAR4/RAR5 与 bsdtar、WIM XPRESS 与 wimlib；详细范围在对应行记录。真实 EGG、UltraISO ISZ、AES Crypt v0–v2 独立样本及 Windows/macOS 原生验收仍待补，不能用合成结构或 Linux 测试替代。
+独立互操作包括 ZIPX/ZIP 与 7-Zip、`.Z` 与 ncompress、PMA 独立语料、ACE/ARJ 真实样本、RAR4/RAR5 与 bsdtar、WIM XPRESS 与 wimlib；详细范围在对应行记录。第二轮已补真实EGG、UltraISO ISZ、AES Crypt v0–v3独立验证，见[专项验收](FORMAT_PARITY_ACCEPTANCE.md)。Windows/macOS原生验收仍待补，不能用Linux/Wine测试替代。
 
 性能改进集中在消除整包驻内存和重复解码；未建立新的统一吞吐基线。ISO/UDF/ASAR/LZH/ZPAQ 创建与部分第三方读取 API 等性能债务已保留具体原因和后续路线。
 
@@ -27,6 +27,8 @@
 - EGG：真实 `alkegi/unegg` CC0 样本暴露 LZMA 无 EOS 块被误判截断，已使用块的已知原始长度解码；独立 Store/Deflate/BZip2/LZMA/混合方法、Android POSIX 元数据、无块空文件共 7 份样本通过。新增 64 MiB 累计索引预算、范围和父引用校验，拒绝重复 ID/名称、循环/缺失父项、截断及尾随压缩数据；四项回归与 core Clippy 通过。保留 3 份最小真实样本及来源/许可；验收详情见 [专项验收](FORMAT_PARITY_ACCEPTANCE.md)。
 
 - ISZ：官方 UltraISO9.7.6.3829生成的真实zlib ISZ通过；还原ISO与官方结果逐字节一致并通过7-Zip校验，已保留自有内容fixture。修复“非final/缺Adler32但输出长度匹配”的zlib误接受；流式和seek视图共用StreamEnd/精确输入长度验证。详见[专项验收](FORMAT_PARITY_ACCEPTANCE.md)。
+
+- AES Crypt：官方Linux CLI4.7.0与GeeZipX CLI逐字节比对63份v0–v2向量通过；官方新建v3含中文密码通过。保留9份旧版边界向量和v3 fixture，回归涵盖短Read、错误密码、截断和MAC损坏不写目标；补seek双遍源不可变约定及旧格式长度不认证的限制。
 
 ## 逐项记录
 
@@ -42,7 +44,7 @@
 | GZ | 已复核并修复 | 多成员解码与每成员 trailer/CRC 校验已具备；修复非法压缩等级在编码前返回结构化错误。独立 GZ 的 jobs 当前不生效（TAR.GZ 已支持并行），后续需保持非 static writer API 兼容 |
 | XZ / TXZ | 已优化 | `--jobs` 接入 liblzma MtStreamBuilder；默认单线程；TAR.XZ 各读取路径统一多流解码；无效选项返回错误 |
 | ACE | 已修复列表、CRC、密码与 solid 前驱处理 | 列表显式跳过 payload，修复有效档报错；ACE CRC 元数据转为标准 CRC32；CLI 接受并在打开底层解码器前传递密码（补充 Blowfish 密码向量回归，避免 unified setter 仅更新 options 导致丢失）；单项提取先解码 solid 前驱以恢复字典，传播跳过错误。ACE v1/v2 真实样本 CLI test 通过。unarc-rs 0.8 解码 API 仍返回整项 Vec，逐项重新打开带来重复扫描，流式 writer API 需上游改造；不能将 read_to 包装误报为流式 |
-| AES | 已接入 AES Crypt 读取 | aescrypt-rs 0.2.0-rc.18（锁定版本）支持 v0–v3；`.aes`/AES magic 路由，双遍验证后释放明文；通用非 seek API 将密文暂存磁盘，64 KiB 级缓冲。v3 内部测试通过；v0–v2 兼容由依赖实现，长度字节不受认证是原格式限制；原 `.enc` 仍非流式，拒绝以 `.aes` 创建旧容器 |
+| AES | 已接入 AES Crypt 读取 | aescrypt-rs 0.2.0-rc.18（锁定版本）支持 v0–v3；`.aes`/AES magic 路由，双遍验证后释放明文；通用非 seek API 将密文暂存磁盘，64 KiB 级缓冲。v0–v2全部63向量与官方4.7.0交叉比对，官方v3/中文密码通过；长度字节不受认证是旧格式限制，seek双遍源须不可变；原 `.enc` 仍非流式，拒绝以 `.aes` 创建旧容器 |
 | ALZ | 部分实现 | 新增单卷 Store/Deflate 流式提取、CRC/长度校验、ZipCrypto 密码；索引缓存避免逐项重扫。修改版 BZip2 库需要整压缩项缓冲、method 3 以及分卷暂缓；路径需 UTF-8 |
 | ARJ | 已修复列表与密码 | 列表显式 skip payload 并传播错误；CLI 在打开解码器前传递密码（Garble/GOST 由依赖处理），Garble 正确/缺失/错误密码回归覆盖 setter 未更新 backend 的缺陷；真实 method0–4 样本 CLI test 通过，损坏 CRC 样本失败符合预期；unarc-rs 返回整项 Vec 和逐项重复扫描仍为性能债务，分卷需 volume provider 尚未接入 |
 | BH | 暂缓：规范及独立语料不足 | BlakHole/ZipTV 专有容器，未找到足以验证 header/codec/CRC 的可用解析器与独立样本；不能用ZIP别名替代。后续先补来源可追溯的 Store/压缩/损坏/Unicode 档及规范，按索引+有界Read实现，见下方阻碍记录 |
