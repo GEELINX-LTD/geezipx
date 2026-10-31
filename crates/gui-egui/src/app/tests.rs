@@ -96,6 +96,98 @@ fn click_text(app: &mut App, context: &egui::Context, label: &str) {
     pointer_frame(app, context, position, Some(false), egui::Modifiers::NONE);
 }
 
+fn mesh_alpha_at(primitives: &[egui::ClippedPrimitive], point: egui::Pos2) -> f32 {
+    let cross = |a: egui::Vec2, b: egui::Vec2| a.x * b.y - a.y * b.x;
+    let mut alpha = 0.0_f32;
+    for primitive in primitives {
+        if !primitive.clip_rect.contains(point) {
+            continue;
+        }
+        let egui::epaint::Primitive::Mesh(mesh) = &primitive.primitive else {
+            continue;
+        };
+        for triangle in mesh.indices.chunks_exact(3) {
+            let [a, b, c] =
+                [triangle[0], triangle[1], triangle[2]].map(|index| mesh.vertices[index as usize]);
+            let area = cross(b.pos - a.pos, c.pos - a.pos);
+            if area.abs() <= f32::EPSILON {
+                continue;
+            }
+            let weights = [
+                cross(b.pos - point, c.pos - point) / area,
+                cross(c.pos - point, a.pos - point) / area,
+                cross(a.pos - point, b.pos - point) / area,
+            ];
+            if weights.iter().all(|weight| *weight >= 0.0) {
+                alpha = alpha.max(
+                    (weights[0] * f32::from(a.color.a())
+                        + weights[1] * f32::from(b.color.a())
+                        + weights[2] * f32::from(c.color.a()))
+                        / 255.0,
+                );
+            }
+        }
+    }
+    alpha
+}
+
+#[test]
+fn window_corners_stay_transparent_with_dialogs_and_fill_when_expanded() {
+    for dark in [false, true] {
+        for size in [[1000.0, 680.0], [760.0, 480.0]] {
+            for (maximized, fullscreen) in [(false, false), (true, false), (false, true)] {
+                for dialog in [None, Some("about"), Some("create")] {
+                    let context = context();
+                    theme::apply(&context, dark);
+                    let mut app = App::empty(Preferences {
+                        dark,
+                        ..Default::default()
+                    });
+                    app.about = dialog == Some("about");
+                    app.create_open = dialog == Some("create");
+                    let mut output = None;
+                    for _ in 0..3 {
+                        let mut input = egui::RawInput {
+                            screen_rect: Some(egui::Rect::from_min_size(
+                                egui::Pos2::ZERO,
+                                size.into(),
+                            )),
+                            ..Default::default()
+                        };
+                        let viewport = input.viewports.get_mut(&egui::ViewportId::ROOT).unwrap();
+                        viewport.maximized = Some(maximized);
+                        viewport.fullscreen = Some(fullscreen);
+                        output = Some(context.run(input, |context| app.render(context)));
+                    }
+                    let output = output.unwrap();
+                    let meshes = context.tessellate(output.shapes, output.pixels_per_point);
+                    for x in [0.5, size[0] - 0.5] {
+                        for y in [0.5, size[1] - 0.5] {
+                            let alpha = mesh_alpha_at(&meshes, egui::pos2(x, y));
+                            assert!(
+                                if maximized || fullscreen { alpha > 0.99 } else { alpha < 0.01 },
+                                "corner {x},{y}, alpha={alpha}, dark={dark}, size={size:?}, maximized={maximized}, fullscreen={fullscreen}, dialog={dialog:?}"
+                            );
+                        }
+                    }
+                    for position in [
+                        egui::pos2(size[0] / 2.0, 2.0),
+                        egui::pos2(size[0] / 2.0, size[1] - 2.0),
+                        egui::pos2(2.0, size[1] / 2.0),
+                        egui::pos2(size[0] - 2.0, size[1] / 2.0),
+                    ] {
+                        assert!(mesh_alpha_at(&meshes, position) > 0.99);
+                    }
+                    assert_eq!(
+                        eframe::App::clear_color(&app, &context.style().visuals),
+                        [0.0; 4]
+                    );
+                }
+            }
+        }
+    }
+}
+
 #[test]
 fn custom_close_keeps_task_confirmation_and_works_with_a_dialog_open() {
     for busy in [false, true] {

@@ -8,7 +8,12 @@ impl App {
         let busy = self.busy();
         let had_popup = egui::Popup::is_any_open(context);
         let mut cancel = false;
-        let response = theme::modal(context, "create-archive").show(context, |ui| {
+        let response = theme::modal(
+            context,
+            "create-archive",
+            self.window_frame.corner_radius(context),
+        )
+        .show(context, |ui| {
             ui.set_width(560.0_f32.min(context.content_rect().width() - 80.0));
             ui.horizontal(|ui| {
                 let (rect, _) =

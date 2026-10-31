@@ -3,11 +3,21 @@ use super::*;
 impl App {
     pub(super) fn status_bar(&mut self, parent: &mut egui::Ui) -> egui::Rect {
         let controls_enabled = !self.modal_open();
+        let radius = self
+            .window_frame
+            .corner_radius(parent.ctx())
+            .saturating_sub(1);
         egui::TopBottomPanel::bottom("task-status")
             .min_height(44.0)
             .frame(
                 egui::Frame::new()
                     .fill(theme::colors(self.preferences.dark).canvas)
+                    .corner_radius(egui::CornerRadius {
+                        nw: 0,
+                        ne: 0,
+                        sw: radius,
+                        se: radius,
+                    })
                     .inner_margin(egui::Margin::symmetric(14, 7)),
             )
             .show_inside(parent, |ui| {
@@ -149,7 +159,12 @@ impl App {
             return;
         }
         let mut open_output = None;
-        let response = theme::modal(context, "task-history").show(context, |ui| {
+        let response = theme::modal(
+            context,
+            "task-history",
+            self.window_frame.corner_radius(context),
+        )
+        .show(context, |ui| {
             ui.set_width(580.0_f32.min(context.content_rect().width() - 80.0));
             ui.horizontal(|ui| {
                 ui.heading("任务记录");

@@ -10,6 +10,7 @@ mod tests;
 pub const MIN_INNER_SIZE: [f32; 2] = [760.0, 480.0];
 pub const TITLE_HEIGHT: f32 = 32.0;
 const BORDER: f32 = 1.0;
+const RADIUS: u8 = 12;
 const EDGE: f32 = 5.0;
 const CORNER: f32 = 14.0;
 const BUTTON_WIDTH: f32 = 34.0;
@@ -41,6 +42,14 @@ impl WindowFrame {
             0
         } else {
             BORDER as i8
+        }
+    }
+
+    pub fn corner_radius(&self, context: &egui::Context) -> u8 {
+        if self.expanded(context) {
+            0
+        } else {
+            RADIUS
         }
     }
 
@@ -83,7 +92,17 @@ impl WindowFrame {
                 ui.set_min_size(header.size());
                 ui.set_max_size(header.size());
                 ui.set_clip_rect(header);
-                ui.painter().rect_filled(header, 0, p.canvas);
+                let radius = self.corner_radius(context).saturating_sub(inset as u8);
+                ui.painter().rect_filled(
+                    header,
+                    egui::CornerRadius {
+                        nw: radius,
+                        ne: radius,
+                        sw: 0,
+                        se: 0,
+                    },
+                    p.canvas,
+                );
                 ui.painter().hline(
                     header.x_range(),
                     header.bottom() - 0.5,
@@ -208,7 +227,7 @@ impl WindowFrame {
                 ))
                 .rect_stroke(
                     screen.shrink(0.5),
-                    0,
+                    self.corner_radius(context),
                     Stroke::new(BORDER, p.border),
                     egui::StrokeKind::Inside,
                 );

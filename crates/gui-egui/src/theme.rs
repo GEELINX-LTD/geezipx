@@ -118,8 +118,17 @@ pub fn apply(context: &egui::Context, dark: bool) {
     context.set_style(style);
 }
 
-pub fn modal(context: &egui::Context, id: &str) -> egui::Modal {
-    egui::Modal::new(egui::Id::new(id)).frame(egui::Frame::popup(&context.style()).inner_margin(16))
+pub fn modal(context: &egui::Context, id: &str, corner_radius: u8) -> egui::Modal {
+    let modal = egui::Modal::new(egui::Id::new(id))
+        .frame(egui::Frame::popup(&context.style()).inner_margin(16))
+        .backdrop_color(Color32::TRANSPARENT);
+    // egui's default rectangular backdrop would fill the transparent window corners.
+    context.layer_painter(modal.area.layer()).rect_filled(
+        context.content_rect(),
+        corner_radius,
+        Color32::from_black_alpha(100),
+    );
+    modal
 }
 
 pub fn primary(ui: &mut egui::Ui, text: &str) -> egui::Response {

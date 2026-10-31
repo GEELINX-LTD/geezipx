@@ -721,7 +721,7 @@ impl App {
         self.tasks_window(context);
         self.settings_window(context);
         if self.about {
-            let response = theme::modal(context, "about").show(context, |ui| {
+            let response = theme::modal(context, "about", self.window_frame.corner_radius(context)).show(context, |ui| {
                 ui.set_width(460.0_f32.min(context.content_rect().width() - 64.0));
                 ui.horizontal(|ui| {
                     theme::logo(ui, 34.0);
@@ -748,23 +748,27 @@ impl App {
             }
         }
         if let Some(unlock) = &mut self.unlock {
-            let response = theme::modal(context, "unlock").show(context, |ui| {
-                ui.set_width(360.0);
-                ui.heading("使用密码打开归档");
-                ui.label(
-                    unlock
-                        .path
-                        .file_name()
-                        .unwrap_or_default()
-                        .to_string_lossy(),
+            let response =
+                theme::modal(context, "unlock", self.window_frame.corner_radius(context)).show(
+                    context,
+                    |ui| {
+                        ui.set_width(360.0);
+                        ui.heading("使用密码打开归档");
+                        ui.label(
+                            unlock
+                                .path
+                                .file_name()
+                                .unwrap_or_default()
+                                .to_string_lossy(),
+                        );
+                        ui.add(
+                            widgets::text_edit(&mut unlock.password)
+                                .password(true)
+                                .hint_text("归档密码"),
+                        );
+                        theme::primary(ui, "重新打开").clicked()
+                    },
                 );
-                ui.add(
-                    widgets::text_edit(&mut unlock.password)
-                        .password(true)
-                        .hint_text("归档密码"),
-                );
-                theme::primary(ui, "重新打开").clicked()
-            });
             if response.inner {
                 if let Some(unlock) = self.unlock.take() {
                     self.open_archive(context, unlock.path, Some(unlock.password));
@@ -774,31 +778,40 @@ impl App {
             }
         }
         if let Some(preview) = &mut self.preview {
-            let response = theme::modal(context, "preview").show(context, |ui| {
-                ui.set_width(640.0_f32.min(context.content_rect().width() - 80.0));
-                ui.horizontal(|ui| {
-                    ui.label(RichText::new(&preview.name).strong());
-                });
-                if preview.truncated {
-                    theme::caption(ui, "仅显示前 512 KiB；完整内容请解压后查看。");
-                }
-                egui::ScrollArea::both()
-                    .max_height((context.content_rect().height() - 200.0).max(120.0))
-                    .show(ui, |ui| {
-                        ui.add(
-                            egui::TextEdit::multiline(&mut preview.text.as_str())
-                                .code_editor()
-                                .desired_width(f32::INFINITY),
-                        );
-                    });
-                ui.button("关闭").clicked()
-            });
+            let response =
+                theme::modal(context, "preview", self.window_frame.corner_radius(context)).show(
+                    context,
+                    |ui| {
+                        ui.set_width(640.0_f32.min(context.content_rect().width() - 80.0));
+                        ui.horizontal(|ui| {
+                            ui.label(RichText::new(&preview.name).strong());
+                        });
+                        if preview.truncated {
+                            theme::caption(ui, "仅显示前 512 KiB；完整内容请解压后查看。");
+                        }
+                        egui::ScrollArea::both()
+                            .max_height((context.content_rect().height() - 200.0).max(120.0))
+                            .show(ui, |ui| {
+                                ui.add(
+                                    egui::TextEdit::multiline(&mut preview.text.as_str())
+                                        .code_editor()
+                                        .desired_width(f32::INFINITY),
+                                );
+                            });
+                        ui.button("关闭").clicked()
+                    },
+                );
             if response.inner || response.should_close() {
                 self.preview = None;
             }
         }
         if self.close_prompt {
-            theme::modal(context, "close-confirmation").show(context, |ui| {
+            theme::modal(
+                context,
+                "close-confirmation",
+                self.window_frame.corner_radius(context),
+            )
+            .show(context, |ui| {
                 ui.set_width(380.0);
                 ui.heading("任务仍在进行");
                 ui.label("关闭前会安全取消任务并清理临时文件。已经解压完成的文件会保留。");
@@ -838,6 +851,7 @@ impl App {
             .frame(
                 egui::Frame::new()
                     .fill(theme::colors(self.preferences.dark).canvas)
+                    .corner_radius(self.window_frame.corner_radius(context))
                     .inner_margin(margin),
             )
             .show(context, |ui| {
@@ -873,6 +887,10 @@ impl App {
     }
 }
 impl eframe::App for App {
+    fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
+        [0.0; 4]
+    }
+
     fn update(&mut self, context: &egui::Context, frame: &mut eframe::Frame) {
         self.poll_native_drag(context);
         self.poll(context);

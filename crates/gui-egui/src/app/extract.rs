@@ -90,7 +90,12 @@ impl App {
         let mut cancel = false;
         let mut browse = false;
         let mut start = false;
-        let response = theme::modal(context, "extract-archive").show(context, |ui| {
+        let response = theme::modal(
+            context,
+            "extract-archive",
+            self.window_frame.corner_radius(context),
+        )
+        .show(context, |ui| {
             ui.set_width(510.0_f32.min(context.content_rect().width() - 80.0));
             ui.horizontal(|ui| {
                 let (rect, _) =

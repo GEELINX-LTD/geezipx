@@ -34,7 +34,12 @@ impl App {
         }
         let popup_was_open = egui::Popup::is_any_open(context);
         let mut selected = self.preferences.font.clone();
-        let response = theme::modal(context, "settings").show(context, |ui| {
+        let response = theme::modal(
+            context,
+            "settings",
+            self.window_frame.corner_radius(context),
+        )
+        .show(context, |ui| {
             ui.set_width(440.0_f32.min(context.content_rect().width() - 64.0));
             ui.heading("设置");
             theme::caption(
