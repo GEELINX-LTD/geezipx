@@ -150,13 +150,19 @@ pub fn lzma_compress<R: Read, W: Write>(reader: &mut R, writer: W) -> GeeZipResu
     lzma_compress_with_level(reader, writer, None)
 }
 
-/// Decompress LZMA-compressed data from `reader` into `writer`.
-///
-/// Returns the number of bytes written to the output (decompressed size).
-pub fn lzma_decompress<R: Read, W: Write>(reader: &mut R, writer: &mut W) -> GeeZipResult<u64> {
-    let stream = xz2::stream::Stream::new_lzma_decoder(u64::MAX)
+/// Maximum decoder memory for untrusted LZMA Alone/Lzip streams (256 MiB).
+pub(crate) const LZMA_MEMORY_LIMIT: u64 = 256 * 1024 * 1024;
+
+pub(crate) fn lzma_decoder<R: Read>(reader: R) -> GeeZipResult<xz2::read::XzDecoder<R>> {
+    let stream = xz2::stream::Stream::new_lzma_decoder(LZMA_MEMORY_LIMIT)
         .map_err(|e| GeeZipError::io(e.into(), "lzma decompression init failed"))?;
-    let mut decoder = xz2::read::XzDecoder::new_stream(reader, stream);
+    Ok(xz2::read::XzDecoder::new_stream(reader, stream))
+}
+
+/// Decompress LZMA-compressed data with at most 256 MiB of decoder memory.
+/// Returns the number of bytes written to the output.
+pub fn lzma_decompress<R: Read, W: Write>(reader: &mut R, writer: &mut W) -> GeeZipResult<u64> {
+    let mut decoder = lzma_decoder(reader)?;
     let bytes = std::io::copy(&mut decoder, writer)
         .map_err(|e| GeeZipError::io(e, "lzma decompression failed"))?;
     Ok(bytes)

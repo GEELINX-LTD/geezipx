@@ -140,7 +140,7 @@ pub trait ArchiveWriter: Send {
 | `archive::lz4` | LZ4 单流压缩/解压 helper（frame only） |
 | `archive::zstd` | ZSTD/ZST 单流压缩/解压 helper |
 | `archive::xz` | XZ/LZMA 单流压缩/解压 helper |
-| `archive::lz` | LZ（Lzip）单流压缩/解压 helper（通过 `lzma-rust2` lzip feature） |
+| `archive::lz` | LZ（Lzip）压缩使用 `lzma-rust2`；读取由严格成员封装+liblzma LZMA decoder实现，校验头/CRC/长度并设256MiB解码预算 |
 | `archive::asar` | ASAR 读写；读取仅缓存有上限的 JSON 索引并按需 seek payload；创建仍缓冲整包 |
 | `archive::deb` | DEB 读写（ar 容器 + control.tar.gz + data.tar.*） |
 | `archive::cab` | CAB 读写（`compress` / `list` / `extract` / `test`；reader 基于 `cab` crate，writer 基于 `cab` crate 实现 MSZIP 压缩写入） |

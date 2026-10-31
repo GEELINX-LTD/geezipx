@@ -1,6 +1,6 @@
 //! Read TAR wrapped in LZMA Alone or lzip (`.tlz`, `.tar.lzma`, `.tar.lz`).
 //! Codec detection uses a bounded lookahead; entry payloads are never buffered.
-use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Write};
+use std::io::{Cursor, Read, Seek, SeekFrom, Write};
 
 use super::{ArchiveReader, Entry, EntryVisitor};
 use crate::{
@@ -9,14 +9,14 @@ use crate::{
 };
 
 /// Decode either TLZ convention, selecting lzip by its unambiguous magic.
-pub fn decoder<'a, R: Read + 'a>(reader: R) -> GeeZipResult<Box<dyn Read + 'a>> {
-    let mut reader = BufReader::new(reader);
-    if reader.fill_buf()?.starts_with(b"LZIP") {
-        Ok(Box::new(lzma_rust2::LzipReader::new(reader)))
+pub fn decoder<'a, R: Read + 'a>(mut reader: R) -> GeeZipResult<Box<dyn Read + 'a>> {
+    let mut prefix = [0; 4];
+    reader.read_exact(&mut prefix)?;
+    let source = Cursor::new(prefix).chain(reader);
+    if prefix == *b"LZIP" {
+        Ok(Box::new(super::lz::LzipReader::new(source)))
     } else {
-        let stream = xz2::stream::Stream::new_lzma_decoder(u64::MAX)
-            .map_err(|e| GeeZipError::io(e.into(), "initializing TAR.LZMA decoder"))?;
-        Ok(Box::new(xz2::read::XzDecoder::new_stream(reader, stream)))
+        Ok(Box::new(super::xz::lzma_decoder(source)?))
     }
 }
 
@@ -84,6 +84,17 @@ mod tests {
     use super::*;
     use std::{io::Cursor, path::Path};
     #[test]
+    fn tlz_rejects_oversized_lzma_dictionary_before_output() {
+        let mut header = vec![0x5d];
+        header.extend((1u32 << 30).to_le_bytes());
+        header.extend(u64::MAX.to_le_bytes());
+        header.extend([0; 32]);
+        let mut output = Vec::new();
+        assert!(std::io::copy(&mut decoder(header.as_slice()).unwrap(), &mut output).is_err());
+        assert!(output.is_empty());
+    }
+
+    #[test]
     fn both_tlz_conventions_and_corruption() {
         let data = b"streaming tar payload".repeat(10000);
         let mut tar = TarWriter::new(Vec::new());
@@ -101,6 +112,19 @@ mod tests {
             } else {
                 super::super::xz::lzma_compress(&mut tar.as_slice(), &mut compressed).unwrap();
             }
+            struct ShortReads<'a>(&'a [u8]);
+            impl Read for ShortReads<'_> {
+                fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+                    let n = buf.len().min(1);
+                    self.0.read(&mut buf[..n])
+                }
+            }
+            let mut unwrapped = Vec::new();
+            decoder(ShortReads(&compressed))
+                .unwrap()
+                .read_to_end(&mut unwrapped)
+                .unwrap();
+            assert_eq!(unwrapped, tar);
             let mut reader = TarLzReader::new(Cursor::new(&compressed));
             let entries = reader.entries().unwrap();
             assert_eq!(entries.len(), 1);
