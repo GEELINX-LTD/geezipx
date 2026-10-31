@@ -18,7 +18,7 @@
 
 独立互操作包括 ZIPX/ZIP 与 7-Zip、`.Z` 与 ncompress、PMA 独立语料、ACE/ARJ 真实样本、RAR4/RAR5 与 bsdtar、WIM XPRESS 与 wimlib；详细范围在对应行记录。第二轮已补真实EGG、UltraISO ISZ、AES Crypt v0–v3独立验证；第三轮已完成x86-64三平台原生CLI与SFX验收，见[专项验收](FORMAT_PARITY_ACCEPTANCE.md)。
 
-性能改进集中在消除整包驻内存和重复解码；未建立新的统一吞吐基线。ISO创建的整包缓冲已在第四轮移除；UDF/ASAR/LZH/ZPAQ创建与部分第三方读取API的剩余性能债务保留具体原因和后续路线。
+性能改进集中在消除整包驻内存和重复解码；未建立新的统一吞吐基线。ISO/UDF创建的整包缓冲已分别在第四/五轮移除；ASAR/LZH/ZPAQ创建与部分第三方读取API的剩余性能债务保留具体原因和后续路线。
 
 ## 第二轮：新实现专项验收
 
@@ -44,6 +44,14 @@
 同时修复实文件补零、目录记录跨扇区、SUSP CE向后指向/跨扇区及目录在内容之后的问题；7-Zip与bsdtar独立提取内容一致，后者保留多扇区长名集合的完整Rock Ridge名称。64MiB输入峰值RSS从205936KiB降至8520KiB，512MiB输入为8500KiB；暂存使用真实磁盘，空间约为原文加镜像，元数据仍随项数增长。Linux门禁1141通过/9忽略，支持库130项单测和独立package验证通过。实测范围、取消/回滚和原生候选证据见[第四轮专项验收](FORMAT_PARITY_ACCEPTANCE.md#第四轮iso-创建内存与兼容性修复)。
 
 同一源码的[CI 41166748855](https://github.com/GEELINX-LTD/geezipx/actions/runs/41166748855)与[Audit 41166752086](https://github.com/GEELINX-LTD/geezipx/actions/runs/41166752086)全部成功。三平台各feature矩阵/Clippy与实际CLI/SFX每平台39项通过，六份产物/报告已下载，源码SHA、架构及可执行文件哈希匹配；提取内容跨平台一致，Linux下载包复跑39项通过。macOS沿用RAR/WIM/SFX与Intel runner范围，不包含ZPAQ；具体数量/产物摘要见上述专项记录。
+
+## 第五轮：UDF 创建性能与互操作
+
+实现提交`6bc8f88cc04dc12cff96ffbe779d78cdc60a685d`移除原文/建树clone/整镜像Vec，采用单输入暂存文件、FileSource区间、可seek镜像暂存和64KiB有界输出。默认仍为UDF1.02，保留既有单项4GiB创建上限。修复FID精确布局/父项、CS0 Unicode、跨1GiB多段短AD、LVID计数/CRC和卷末锚点；标准CS0/8按Latin-1解码，旧UTF-8只按旧producer/空charset标记兼容。
+
+64MiB输入峰值RSS由205124KiB降至8224KiB，512MiB由1581096KiB降至7968KiB；磁盘临时空间约为输入+镜像，目录元数据仍增长。7-Zip与udfinfo验证64/512MiB、43文件Unicode/多扇区树；实际1GiB+17字节多extent文件提取哈希一致。genisoimage独立UDF视图与旧版GeeZipX镜像保留为回归fixture。取消阶段退出130并保护原目标。Linux workspace1148通过/9忽略、支持库同步27项单测和package验证通过；互操作/实测/原生验收见[第五轮专项验收](FORMAT_PARITY_ACCEPTANCE.md#第五轮udf-创建内存与互操作)。
+
+独立支持库`geezipx-udf`需在授权发布core前先发布。额外async/write组合检查与上游一样失败，已记录类型分层改造路线；core/CLI使用同步配置，不将该组合计为通过。
 
 ## 逐项记录
 
@@ -78,7 +86,7 @@
 | PMA | 已实现读取 | 升级 delharc 0.8，启用 pm0/pm1/pm2；复用 LHA 流式读取与 CRC16 校验；独立 PM1/PM2 样本及 CRC32 验证通过；拒绝以 PMA 名义创建 LZH |
 | RAR / RAR5 | 已优化顺序校验并修复空文件计数 | 新增直接 visitor，CLI test/顺序访问一次打开、保留 solid 状态，避免逐项重扫；修复两种 extract_all 空文件未计数。RAR4/RAR5 solid/Unicode 等5个独立 unrar fixture 与 bsdtar 提取逐文件SHA256一致；新增可移植 Store/空文件回归。unrar 0.5 writer callback 未公开，仍整项 Vec（大单项/取消延迟债务）；后续需安全 ReadToWriter upstream API，不能直接把 native extract_to 用于通用流以避免链接/路径语义变化；分卷/密码仍受库支持范围限制 |
 | TLZ | 已实现读取并补资源边界 | `.tlz` / `.tar.lzma` / `.tar.lz` 支持 LZMA Alone 与 Lzip 两种外层，逐项访问单次流式解码；复用严格Lzip reader，Alone/Lzip解码预算256MiB。修复短Read误识别外层，截断/拼接/超大字典回归通过；不支持创建 |
-| UDF | 已优化读取内存 | 移除 fs::read 全镜像；独立 64KiB 缓冲文件句柄导航目录/extent，目录元数据缓存，保留 ICB/分区/范围校验，8GiB 稀疏镜像小文件提取回归。仍仅覆盖当前 hadris 读取支持的 2048-byte 单物理分区/常规文件和短/长/embedded allocations；metadata/VAT/多分区、创建整包缓冲及逐项目录导航为后续债务 |
+| UDF | 已优化读写内存并修复创建互操作 | 读取64KiB seek缓冲，缓存目录元数据，保留ICB/分区/范围校验和8GiB稀疏镜像回归。创建改为磁盘暂存/FileSource/有界输出，UDF1.02、单项4GiB；精确FID/多段短AD、CS0、LVID和尾锚点修复，独立7-Zip/genisoimage/udfinfo通过，64/512MiB峰值RSS约8MiB。支持库同步配置已验证，async/write继承冲突暂缓；metadata/VAT/多分区及逐项目录导航仍为债务，详见[专项验收](FORMAT_PARITY_ACCEPTANCE.md#第五轮udf-创建内存与互操作) |
 | WIM | 已复核，LZX/LZMS暂缓 | 资源按chunk范围解码、<=512KiB工作块、SHA1核验，37专项测试通过；独立 wimlib XPRESS两文件490003B通过。wimlib LZX样本仍复现 `encountered empty decode tree`，需核对 lzxd 的 LZXD头/状态与WIM变体差异，已修正模块能力说明；需WIM-specific LZX及E8处理/独立XPRESS-LZX-LZMS语料，不把内部roundtrip当互操作。LZMS、SWM、第一映像以外提取未实现；创建仅无压缩；元数据仍整体驻内存 |
 | Z / Unix Compress | 已实现读取 | 流式 LZW，9–16 位有界字典；修复 `.Z` 大小写检测并加入魔数；ncompress 10/12/16 位共 15 例互操作通过；格式无校验和，不能保证发现所有截断 |
 | ZPAQ | 已复核，流式改造暂缓 | 11专项测试通过；确认 zpaq_rs1.0.4 每次按路径提取都 fs::read 整包且返回整项Vec，创建同时驻留所有原文/压缩档，CLI整包逐项重复扫描。公共 decompress_stream 不暴露路径/日志最新版本选择，不能直接替换；下一步上游增加 archive-aware Read+Write/visitor，再实现磁盘暂存创建及一次顺序提取。当前UTF8路径/等级>5裁剪、非流式大包均为债务；不使用绕过共享路径校验的 native extract 命令替代 |

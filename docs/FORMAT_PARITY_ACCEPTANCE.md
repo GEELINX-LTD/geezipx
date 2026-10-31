@@ -207,3 +207,66 @@ gh run download 41166748855 --dir candidate-418cd01
 chmod +x candidate-418cd01/geezipx-linux-x86_64/geezipx
 GITHUB_SHA=418cd013ee0fd5038bae4095653b2a27edac8513 GEEZIPX_CANDIDATE_FEATURES=--all-features python3 scripts/check-format-candidate.py --binary candidate-418cd01/geezipx-linux-x86_64/geezipx --sfx --report downloaded-linux-418cd01-report.json
 ```
+
+## 第五轮：UDF 创建内存与互操作
+
+实现提交`6bc8f88cc04dc12cff96ffbe779d78cdc60a685d`。移除原文Vec、树中内容clone、整镜像Cursor三份随载荷增长的分配，保留任意`Read`输入和顺序`Write`输出API。
+
+- 输入以64KiB缓冲暂存到单个匿名文件，树仅保存`FileSource`共享句柄/区间及元数据。可seek镜像使用第二个临时文件，按格式化器返回扇区数设置实际长度，最后以有界缓冲顺序输出。
+- 独立MIT支持库`geezipx-udf 0.1.0`保留`hadris_udf`依赖/库别名，上游1.2.1清单、作者与许可保留；显式版本+path，授权发布core前须先发布所需支持库版本。
+- 按实际CS0编码长度分配目录FID，校正父FID信息长度和所在块地址，逐条写目录而非整目录缓冲。标准CS0/8按Latin-1读取，CS0/16按UTF-16BE读取，支持中文、重音及补充平面字符。超过255编码字节的名称在读取载荷前拒绝。
+- 单文件数据拆为30-bit、按扇区对齐的多个短分配描述符，修复跨1GiB后把长度高位当作extent类型的问题；保持既有单项4GiB创建上限。布局算术检查溢出。
+- 写入完整字符集、正确UDF revision、真实文件/目录计数及对应LVID CRC，补卷末锚点。默认仍为UDF1.02；同时纠正文档中旧的“2.01 write”描述。
+- 旧版GeeZipX错误地将UTF-8放在CS0/8中。兼容解码只在旧`*hadris-udf` producer/空字符集标记下启用，避免将标准Latin-1中恰好也是合法UTF-8的字节误读。
+
+### 内存、时间与临时空间
+
+Linux、Rust1.96 release CLI，`TMPDIR`显式放在真实磁盘的`/root/.cache/geezipx-udf-validation/tmp`，`stat -f`为`ext2/ext3`；未使用本机`/tmp`的tmpfs。相同输入、相同命令以`/usr/bin/time -f '%M %e'`记录单次峰值RSS/墙钟。输入为64/512MiB稀疏文件，首部为固定ASCII标记、末字节为`Z`；测试前刚生成，属于热页缓存内存诊断。
+
+基线是ISO优化后的`b1a9a2b`（与`418cd01`应用源码相同），可执行文件SHA-256为`6270d2a90339a66b2e9d842d0d0cd74fc5ba324c345e34cd564725b6d6e0298a`；本轮本地可执行文件为`4cd3939e41d93bcc7dd1a4d82eaab3367679628ff87acf19b6101c21d206ab79`。
+
+| 实现 | 输入 / MiB | UDF实际字节 | 峰值RSS / KiB | 单次墙钟 / 秒 |
+|---|---:|---:|---:|---:|
+| 基线 | 64 | 67670016 | 205124 | 0.06 |
+| 本轮 | 64 | 67672064 | 8224 | 0.08 |
+| 基线 | 512 | 537432064 | 1581096 | 0.57 |
+| 本轮 | 512 | 537434112 | 7968 | 0.60 |
+
+512MiB输入下峰值RSS由约1.51GiB降至7.8MiB；64MiB输入下约200.3MiB降至8.0MiB。镜像比旧版增加2048字节，用于末尾锚点。这里没有证明吞吐提升或全部输入的固定RSS上限：新路径增加暂存磁盘I/O，目录元数据仍随项数增长，临时空间约为输入加镜像，tmpfs会占系统内存。
+
+### 本地验证和独立样本
+
+- workspace fmt、Clippy全目标/全feature且`-D warnings`通过；workspace测试1148通过、9忽略、0失败。独立支持库fmt、同步读写配置27项单测及`cargo package --features write`默认验证通过；未发布任何crate。
+- 新增7项core回归覆盖拒绝大Read请求的生成流、精确镜像长度/非seek输出、Unicode和多扇区目录、失败读回滚、路径/重复项、源截断、输出失败及格式化阶段取消。候选脚本补UDF往返和复杂目录树，实际CLI/SFX本地41项通过。
+- 7-Zip独立`test`/提取64MiB、512MiB、43文件复杂目录树通过，提取后SHA-256逐项一致；覆盖中文、重音、emoji、长名、空文件、空目录。`udfinfo`识别1.02、关闭完整性状态、两个锚点和准确43文件/5目录。
+- 1GiB+17字节的实际文件跨30-bit extent边界，7-Zip和CLI分别校验/提取通过，长度和SHA-256均与原文一致；不是仅计算布局的模拟测试。
+- genisoimage1.1.11独立生成的ISO/UDF混合镜像由`UdfReader`读取，中文、`café.txt`及CS0/8歧义名`Â©.txt`内容正确。另保留旧候选实际生成的中文命名镜像，确认兼容旧UTF-8编码。两个压缩fixture、生成命令、原文/镜像哈希见`crates/core/tests/fixtures/udf/README.md`。
+- 实际CLI分别在输入暂存和镜像格式化阶段触发SIGINT，均退出130，已有目标字节保持不变，无临时文件泄漏；非法名称退出1并保护已有目标。
+
+独立库额外执行`--all-features`检查失败，原因是继承的同步/异步生成类型及`UdfTimestamp::now`冲突；未经修改的上游1.2.1同样复现。core/CLI仅使用已验证的同步配置，workspace all-features不启用该库async功能。后续需分离共享描述符/时间类型与I/O绑定，逐个验证sync、async和合并组合；本轮将其明确保留为依赖技术债，不宣称完整async支持。读取的metadata/VAT/多分区范围、逐项目录导航债务也未在本轮扩展。
+
+### 本轮原生矩阵与产物追溯
+
+同一实现源码`6bc8f88cc04dc12cff96ffbe779d78cdc60a685d`的[CI 41172820828](https://github.com/GEELINX-LTD/geezipx/actions/runs/41172820828)与[Audit 41172824839](https://github.com/GEELINX-LTD/geezipx/actions/runs/41172824839)全部成功。各平台Clippy与最小/基础/扩展配置测试实际执行，候选CLI均重新构建并嵌入本机SFX stub，41项实际验收通过，新增UDF往返与复杂Unicode目录树。
+
+| 原生系统 / 架构 | 最小配置：通过 / 忽略 | 基础配置：通过 / 忽略 | 扩展工作区配置：通过 / 忽略 | 实际CLI/SFX验收 |
+|---|---:|---:|---:|---:|
+| Ubuntu / x86-64 | 1027 / 4 | 1087 / 9 | 1148 / 9 | 41 / 41 |
+| Windows / x86-64 | 1019 / 4 | 1079 / 9 | 1140 / 9 | 41 / 41 |
+| macOS / Intel x86-64 | 1027 / 4 | 1037 / 9 | 1135 / 9 | 41 / 41 |
+
+最小配置关闭默认feature；Linux/Windows基础配置使用默认feature、扩展与CLI使用all-features。macOS基础配置为RAR/SFX，扩展及CLI为RAR/WIM/SFX，不含ZPAQ。忽略项不计通过，未验证架构和GUI不在本轮范围。
+
+| 本轮CLI产物 | 字节数 | 可执行文件SHA-256 |
+|---|---:|---|
+| [geezipx-linux-x86_64](https://github.com/GEELINX-LTD/geezipx/actions/runs/41172820828/artifacts/13032152277) | 18197624 | `c52098477806ec176cfb98163919a9212b6939d311cd1985b4487affc4d1e65e` |
+| [geezipx-windows-x86_64](https://github.com/GEELINX-LTD/geezipx/actions/runs/41172820828/artifacts/13032337050) | 13963776 | `9c53487b012eb0f304b561cc9b9f7a5ec8f3211db0372ae15d22d0f2033c06ef` |
+| [geezipx-macos-x86_64](https://github.com/GEELINX-LTD/geezipx/actions/runs/41172820828/artifacts/13032446939) | 16483592 | `8cca0ae71fd6ae32969869db647b4982e85484806029887278a68b543886e313` |
+
+三份二进制和三份`-acceptance`报告已下载，逐一核对完整源码SHA、feature参数、实际ELF64/PE/Mach-O64机器类型及二进制哈希。三平台41项名称、提取文件名/长度/SHA-256完全一致；下载的Linux二进制再次执行全部41项（含新建SFX）通过，报告与CI一致。CLI仍显示0.7.4，以源码SHA区分候选，Actions产物保留7天。Linux下载ZIP也已核对GitHub artifact digest。
+
+```bash
+gh run download 41172820828 --dir candidate-6bc8f88
+chmod +x candidate-6bc8f88/geezipx-linux-x86_64/geezipx
+GITHUB_SHA=6bc8f88cc04dc12cff96ffbe779d78cdc60a685d GEEZIPX_CANDIDATE_FEATURES=--all-features python3 scripts/check-format-candidate.py --binary candidate-6bc8f88/geezipx-linux-x86_64/geezipx --sfx --report downloaded-linux-6bc8f88-report.json
+```
