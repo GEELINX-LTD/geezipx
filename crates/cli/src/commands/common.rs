@@ -651,7 +651,10 @@ pub fn create_writer(
         ArchiveFormat::Cpio => Ok(Box::new(CpioWriter::new(file))),
         #[cfg(feature = "zpaq")]
         ArchiveFormat::Zpaq => {
-            let writer = geezipx_core::archive::zpaq::ZpaqWriter::new(file, options.level);
+            let writer = geezipx_core::archive::zpaq::ZpaqWriter::new(
+                output::CancellableOutput(file),
+                options.level,
+            );
             Ok(Box::new(writer))
         }
 

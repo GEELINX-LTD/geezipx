@@ -40,6 +40,8 @@ jobs:
           components: rustfmt
           cache: true
       - run: cargo fmt --all --check
+      - name: Check maintained ZPAQ support library formatting
+        run: cargo fmt --manifest-path crates/vendor/zpaq-rs/Cargo.toml --check
       - name: Check maintained LZH support library formatting
         run: cargo fmt --manifest-path crates/vendor/oxiarc-lzhuf/Cargo.toml --check
 
@@ -121,6 +123,9 @@ jobs:
           cargo build -p geezipx-sfx-stub --release
           mkdir -p crates/core/stubs/${{ matrix.stub_target }}
           cp target/release/${{ matrix.stub_binary }} crates/core/stubs/${{ matrix.stub_target }}/${{ matrix.stub_binary }}
+      - name: Test maintained ZPAQ support library
+        if: runner.os == 'Linux'
+        run: cargo test --manifest-path crates/vendor/zpaq-rs/Cargo.toml
       - name: Test maintained LZH support library
         if: runner.os == 'Linux'
         run: cargo test --manifest-path crates/vendor/oxiarc-lzhuf/Cargo.toml --lib

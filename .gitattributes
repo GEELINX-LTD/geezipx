@@ -1,0 +1,4 @@
+# Keep third-party ZPAQ sources and notices byte-for-byte where unmodified.
+crates/vendor/zpaq-rs/zpaq/** -whitespace
+crates/vendor/zpaq-rs/LICENSE -whitespace
+crates/vendor/zpaq-rs/zpaq_rs_ffi.cpp -whitespace

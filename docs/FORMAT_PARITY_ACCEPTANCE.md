@@ -311,3 +311,25 @@ Linux Rust1.96 release，临时文件位于真实`ext2/ext3`磁盘，源文件�
 | 本轮 | 512 | 265147 | 9040 | 4.17 |
 
 512MiB输入峰值RSS约532MiB→8.8MiB，归档仅增加2字节；诊断用例墙钟略增，不能据此推导吞吐回归或提升。分块匹配边界可以改变压缩字节表示；互操作与解压内容保持一致。
+
+### ZPAQ：磁盘暂存、共享solid模型与段校验
+
+- 维护`geezipx-zpaq 0.1.0`支持库（派生自`zpaq_rs 1.0.4`，保留CC0许可），新增named Read+Write接口。core创建原文存入匿名文件，使用64KiB有界I/O、64MiB累计元数据预算、单个solid压缩块跨成员保留模型；输出直接写入调用方，不保留整包原文/压缩结果Vec。GNU编译器使用fat LTO对象以兼容Rust LLD。正式发布core前需先发布该独立支持库。
+- 内置模型1–3可用；兼容级别4/5映射到模型3，修复原实现4/5的运行错误。这不等于原生zpaq CLI的预处理方法4/5。元数据随成员数量增长，模型内存随所选模型变化；磁盘暂存需约原文大小，另有CLI输出临时文件，tmpfs仍使用系统RAM。
+- 新包记录长度注释和真实段SHA-1；路径读取修复原先仅读取checksum字段却不核对的缺陷。对已有无checksum分段包保留兼容。修复FFI末次flush和析构错误处理，短Read/Interrupted、源失败、长度不符、输出失败/取消均有回归。
+- 未修改的zpaq7.15 CLI独立提取64/512MiB输入及模型1–5的Unicode/嵌套目录、空文件、空目录，内容SHA-256一致；已知非空成员SHA-1损坏同时被两工具拒绝。core损坏test及强制覆盖提取失败且已有目标不变。工具二进制SHA-256：`6f8d6a7f4f1044b5709b020541f2fbea7bca5e90bb55d723585d580ac1a67824`。
+- 实际CLI暴露并修复暂存后取消漏接：ZPAQ factory接入`CancellableOutput`。新增Linux子进程集成回归，在32MiB匿名源完成暂存并开始压缩后发送SIGINT，及时非零退出且已有归档不变；独立512MiB实测同样通过。
+- 本地workspace fmt、全目标/全feature Clippy `-D warnings`、测试1167通过/9忽略及release构建通过；独立支持库24测试通过/1忽略，格式和package verification通过。三平台候选统一在本轮五项完成后执行。
+
+Linux Rust1.96 release，暂存位于真实`ext2/ext3`磁盘；同一64/512MiB稀疏输入，单次`/usr/bin/time -f '%M %e'`作内存诊断。基线二进制与ASAR一节相同；本轮最终二进制SHA-256为`8f54fe42c38446a99bbff454898160cd9268651ab33a6832dff1a7b879356713`。
+
+| 实现 | 输入 / MiB | ZPAQ字节数 | 峰值RSS / KiB | 单次墙钟 / 秒 |
+|---|---:|---:|---:|---:|
+| 基线 | 64 | 4171 | 139368 | 11.36 |
+| 本轮 | 64 | 4199 | 8616 | 11.46 |
+| 基线 | 512 | 32616 | 1056692 | 90.42 |
+| 本轮 | 512 | 32645 | 8688 | 92.03 |
+
+512MiB峰值RSS约1.01GiB→8.5MiB，归档增加29字节来自长度注释和SHA-1。该诊断用例墙钟增加约1.8%，包含暂存与校验成本；不据单次结果推广吞吐结论。
+
+**真实journal兼容缺口**：另用原生zpaq7.15新建32字节单文件journal归档，原生工具提取与原文一致，GeeZipX可列出`input.txt`但提取报`entry 'input.txt' not found in archive`。真实包、原文、SHA-256和复现命令保留在`crates/core/tests/fixtures/zpaq/`。当前仅流式分段包可提取，journal逻辑文件的fragment/index重建未接入；读取仍会整包载入、整项缓冲和逐项重复解码。后续需journal-aware写入回调或带最新版本/去重语义的fragment reader，并接入共享安全输出；直接调用native extract写最终路径会绕过该边界。本轮记录为未完成兼容范围。

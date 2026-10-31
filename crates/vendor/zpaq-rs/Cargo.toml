@@ -1,0 +1,24 @@
+[package]
+name = "geezipx-zpaq"
+version = "0.1.0"
+edition = "2024"
+license = "CC0-1.0"
+description = "Maintained libzpaq bindings with bounded multi-file archive writing for GeeZipX"
+repository = "https://github.com/GEELINX-LTD/geezipx"
+authors = ["Noah Cashin <noahc959@icloud.com>"]
+build = "build.rs"
+include = ["src/**", "tests/**", "zpaq/**", "build.rs", "zpaq_rs_ffi.cpp", "LICENSE", "README.md", "UPSTREAM.md"]
+
+[features]
+default = []
+nojit = []
+
+[lib]
+name = "zpaq_rs"
+crate-type = ["rlib"]
+
+[dev-dependencies]
+hex = "0.4"
+
+[build-dependencies]
+cc = "1"

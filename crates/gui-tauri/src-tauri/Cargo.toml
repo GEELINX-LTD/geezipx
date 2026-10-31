@@ -49,7 +49,7 @@ windows = { version = "0.61", features = [
 windows-core = "0.61"
 
 [dev-dependencies]
-zpaq_rs = "1.0"
+zpaq_rs.workspace = true
 
 [lib]
 name = "geezipx_gui_lib"

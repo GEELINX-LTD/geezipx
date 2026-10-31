@@ -18,7 +18,7 @@
 
 独立互操作包括 ZIPX/ZIP 与 7-Zip、`.Z` 与 ncompress、PMA 独立语料、ACE/ARJ 真实样本、RAR4/RAR5 与 bsdtar、WIM XPRESS 与 wimlib；详细范围在对应行记录。第二轮已补真实EGG、UltraISO ISZ、AES Crypt v0–v3独立验证；第三轮已完成x86-64三平台原生CLI与SFX验收，见[专项验收](FORMAT_PARITY_ACCEPTANCE.md)。
 
-性能改进集中在消除整包驻内存和重复解码；未建立新的统一吞吐基线。ISO/UDF创建的整包缓冲已分别在第四/五轮移除，ASAR创建已改磁盘暂存并按Electron语义生成/校验SHA-256，LZH创建已改按项暂存与持续字典/位流编码；ZPAQ创建与部分第三方读取API的剩余性能债务保留具体原因和后续路线。
+性能改进集中在消除整包驻内存和重复解码；未建立新的统一吞吐基线。ISO/UDF创建的整包缓冲已分别在第四/五轮移除，ASAR创建已改磁盘暂存并按Electron语义生成/校验SHA-256，LZH创建已改按项暂存与持续字典/位流编码，ZPAQ创建已改按归档暂存与共享solid模型；部分第三方读取API的剩余性能债务保留具体原因和后续路线。
 
 ## 第二轮：新实现专项验收
 
@@ -89,7 +89,7 @@
 | UDF | 已优化读写内存并修复创建互操作 | 读取64KiB seek缓冲，缓存目录元数据，保留ICB/分区/范围校验和8GiB稀疏镜像回归。创建改为磁盘暂存/FileSource/有界输出，UDF1.02、单项4GiB；精确FID/多段短AD、CS0、LVID和尾锚点修复，独立7-Zip/genisoimage/udfinfo通过，64/512MiB峰值RSS约8MiB。支持库同步配置已验证，async/write继承冲突暂缓；metadata/VAT/多分区及逐项目录导航仍为债务，详见[专项验收](FORMAT_PARITY_ACCEPTANCE.md#第五轮udf-创建内存与互操作) |
 | WIM | 已复核，LZX/LZMS暂缓 | 资源按chunk范围解码、<=512KiB工作块、SHA1核验，37专项测试通过；独立 wimlib XPRESS两文件490003B通过。wimlib LZX样本仍复现 `encountered empty decode tree`，需核对 lzxd 的 LZXD头/状态与WIM变体差异，已修正模块能力说明；需WIM-specific LZX及E8处理/独立XPRESS-LZX-LZMS语料，不把内部roundtrip当互操作。LZMS、SWM、第一映像以外提取未实现；创建仅无压缩；元数据仍整体驻内存 |
 | Z / Unix Compress | 已实现读取 | 流式 LZW，9–16 位有界字典；修复 `.Z` 大小写检测并加入魔数；ncompress 10/12/16 位共 15 例互操作通过；格式无校验和，不能保证发现所有截断 |
-| ZPAQ | 已复核，流式改造暂缓 | 11专项测试通过；确认 zpaq_rs1.0.4 每次按路径提取都 fs::read 整包且返回整项Vec，创建同时驻留所有原文/压缩档，CLI整包逐项重复扫描。公共 decompress_stream 不暴露路径/日志最新版本选择，不能直接替换；下一步上游增加 archive-aware Read+Write/visitor，再实现磁盘暂存创建及一次顺序提取。当前UTF8路径/等级>5裁剪、非流式大包均为债务；不使用绕过共享路径校验的 native extract 命令替代 |
+| ZPAQ | 创建已优化，读取仍有债务 | 使用维护支持库的named Read+Write接口，原文磁盘暂存、64KiB I/O、64MiB元数据预算，一个solid块跨文件保留模型；内置1–3，兼容4/5映射3，修复旧4/5运行时报错。新包写段SHA-1，路径读取修复原先读到校验和却未核对的问题；FFI末次写失败/析构、短Read/Interrupted、取消与输入长度有回归。读取仍整包fs::read并缓冲成员、批量操作重复解码；真实zpaq7.15 journal可列出input.txt但提取报not found，样本已保留。需journal-aware回调或fragment/index重建，不能以native extract绕过共享安全输出 |
 | PEA | 暂缓：容器/认证未实现 | 已查到 public-domain PEA1.6 规范，非“无开放规范”；Store/Deflate、对象/流/卷多层校验及AES/Twofish/Serpent认证模式需分别接入，不能以现有Deflate/AES代替。下一步先单卷未加密Store/Deflate+校验，独立PEA语料核验，再设计认证后输出 |
 | UU / UUE | 已优化 | CLI 编解码改为逐行流式，固定 45 字节输入块，最大 1024 字节行；保留需要返回 Vec 的兼容 API；校验截断和终止符 |
 | XXE | 已优化 | 复用有界逐行编解码器，CLI 不再整文件驻内存；截断回归测试通过 |

@@ -65,7 +65,7 @@ GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开�
 | LZ (.lz) | 读写 | Lzip 格式 |
 | ISO (.iso) | 读写 | Level 1 + Joliet Level 3/Rock Ridge；有界缓冲/磁盘暂存创建，POSIX属性为写入器默认值 |
 | CPIO (.cpio) | 读写 | newc/odc |
-| ZPAQ (.zpaq/.zpq) | 读写 | 级别 1-5 |
+| ZPAQ (.zpaq/.zpq) | 部分读写 | 内置solid模型1–3，兼容级别4/5使用模型3；创建磁盘暂存/有界I/O，段SHA-1校验。流式分段包可提取；标准journal目前仅可列出逻辑文件，内容重建未接入 |
 | WIM (.wim/.swm) | 读写（有限制） | 无压缩写入、XPRESS 读取；LZX 兼容性待修复，LZMS 未实现 |
 | DEB (.deb) | 读写 | ar 容器 + control.tar.gz + data.tar.* |
 | ASAR (.asar) | 读写 | Electron 归档 |
@@ -155,7 +155,7 @@ TTY 下默认显示进度条（文件名、处理大小、百分比、速度、E
 | 错误信息质量 | 用户无需查手册即可理解 | 人工审查 |
 | 代码覆盖率 | 信息性观测指标，不设硬门禁 | cargo-tarpaulin / grcov |
 
-内存目标适用于已实现流式处理的路径，不代表全部格式的现状保证。ISO/UDF创建对输入及镜像使用有界缓冲/磁盘暂存（临时空间约输入+镜像大小，tmpfs会占系统内存，目录元数据仍随项数增长），ISZ 使用有界块/磁盘暂存，UDF 读取采用 seek/64KiB 缓冲，UU/XXE CLI 逐行处理；ASAR创建使用64KiB缓冲/磁盘暂存及有上限的JSON/校验索引；LZH/ZPAQ 创建、旧 `.enc` 和部分第三方适配器仍有整体缓冲。WIM 文件内容暂存磁盘、metadata 驻内存。性能与兼容性债务详见 [格式对齐审查](FORMAT_PARITY_AUDIT.md) 和 [当前实现限制](TECH_ARCHITECTURE.md#10-当前实现限制)。
+内存目标适用于已实现流式处理的路径，不代表全部格式的现状保证。ISO/UDF创建对输入及镜像使用有界缓冲/磁盘暂存（临时空间约输入+镜像大小，tmpfs会占系统内存，目录元数据仍随项数增长），ISZ 使用有界块/磁盘暂存，UDF 读取采用 seek/64KiB 缓冲，UU/XXE CLI 逐行处理；ASAR创建使用64KiB缓冲/磁盘暂存及有上限的JSON/校验索引；LZH创建按项暂存/有界编码，ZPAQ创建按归档暂存/共享solid模型并设元数据预算；旧 `.enc` 和部分第三方读取适配器仍有整体缓冲。WIM 文件内容暂存磁盘、metadata 驻内存。性能与兼容性债务详见 [格式对齐审查](FORMAT_PARITY_AUDIT.md) 和 [当前实现限制](TECH_ARCHITECTURE.md#10-当前实现限制)。
 
 文件输出在编码或校验成功后才发布；失败与取消保留已有目标。多文件提取按条目发布，后续条目失败不会回滚此前成功的文件；多卷发布也不构成整组原子事务。
 

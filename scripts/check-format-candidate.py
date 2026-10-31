@@ -194,6 +194,40 @@ def main():
                 raise AssertionError("LZH store fallback changed")
             extract("lzh-store-fallback", stored, expected=tiny.read_bytes())
 
+            enabled_features = report["features"].split(",")
+            if "zpaq" in enabled_features or "all" in enabled_features:
+                ztree = work / "zpaq-tree"
+                (ztree / "中文" / "empty-dir").mkdir(parents=True)
+                (ztree / "中文" / "first.txt").write_bytes(payload)
+                (ztree / "repeat.bin").write_bytes(payload)
+                (ztree / "empty.bin").write_bytes(b"")
+                archive = work / "solid.zpaq"
+                cli("compress", ztree, "--recursive", "-o", archive, "-f", "zpaq", "--level", "1", "--no-progress")
+                extract("zpaq-solid-tree", archive,
+                        expected_manifest={f"{ztree.name}/{name}": value for name, value in manifest(ztree).items()},
+                        empty_directories=["zpaq-tree/中文/empty-dir"])
+                damaged = bytearray(archive.read_bytes())
+                checksum_position = damaged.find(b"\xfd" + hashlib.sha1(payload).digest())
+                if checksum_position < 0:
+                    raise AssertionError("ZPAQ segment checksum is missing")
+                damaged[checksum_position + 1] ^= 1
+                archive.write_bytes(damaged)
+                cli("test", archive, "--json", success=False)
+                protected = work / "zpaq-protected"
+                (protected / "zpaq-tree" / "中文").mkdir(parents=True)
+                (protected / "zpaq-tree" / "中文" / "first.txt").write_bytes(b"existing destination")
+                before = manifest(protected)
+                cli("decompress", archive, "-o", protected, "--force", success=False)
+                if manifest(protected) != before:
+                    raise AssertionError("ZPAQ checksum failure changed destination")
+                record("zpaq-checksum-target-protection")
+                for level in [4, 5]:
+                    archive = work / f"level-{level}.zpaq"
+                    cli("compress", source, "-o", archive, "-f", "zpaq", "--level", str(level), "--no-progress")
+                    extract(f"zpaq-level-{level}", archive, expected=payload)
+            else:
+                report.setdefault("skipped", []).append("ZPAQ creation/integrity: feature disabled")
+
             udf_tree = work / "udf-tree"
             (udf_tree / "中文" / "empty").mkdir(parents=True)
             (udf_tree / "only-empty").mkdir()

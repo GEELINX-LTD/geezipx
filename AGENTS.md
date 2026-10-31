@@ -178,7 +178,7 @@ CLI 和两个 GUI 只负责：
 - ISO（读写，含 Joliet Unicode 文件名 + Rock Ridge POSIX 属性）；
 - UDF（读写，Universal Disk Format DVD/Blu-ray 文件系统）；
 - CPIO（读写，newc/odc）；
-- ZPAQ（读写）；
+- ZPAQ（创建与流式分段包读写；内置solid模型1–3，兼容级别4/5使用模型3；标准journal仅列出，内容重建待实现）；
 - WIM（无压缩读写，XPRESS 解压；LZX 互操作待修复，LZMS 与分割 SWM 未实现）；
 - ISZ（有界块创建/读取，CLI 可直接列出及提取 ISO 内文件；加密/分卷暂不支持）；
 - SFX（自解压 ZIP 读写；创建需要对应目标的非空嵌入式 stub）；
