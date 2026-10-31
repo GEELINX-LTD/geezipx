@@ -106,9 +106,8 @@ fn mesh_alpha_at(primitives: &[egui::ClippedPrimitive], point: egui::Pos2) -> f3
         let egui::epaint::Primitive::Mesh(mesh) = &primitive.primitive else {
             continue;
         };
-        for triangle in mesh.indices.chunks_exact(3) {
-            let [a, b, c] =
-                [triangle[0], triangle[1], triangle[2]].map(|index| mesh.vertices[index as usize]);
+        for triangle in mesh.triangles() {
+            let [a, b, c] = triangle.map(|index| mesh.vertices[index as usize]);
             let area = cross(b.pos - a.pos, c.pos - a.pos);
             if area.abs() <= f32::EPSILON {
                 continue;
