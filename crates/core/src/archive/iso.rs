@@ -4,10 +4,8 @@
 //! flows through GeeZipX's shared `ArchiveReader` interface so path traversal
 //! protection stays centralized in `ArchiveReader::extract_all`.
 //!
-//! Writing produces ISO 9660 Level 1 images via `hadris-iso`. Entries are
-//! buffered in memory during `add_entry_from_reader` and written in a single
-//! pass when `finish()` is called. This is a limitation of the current
-//! `hadris-iso` input API, not an inherent ISO format constraint.
+//! Writing stages file contents and the seekable image in anonymous temporary
+//! files with fixed buffers; final output accepts any `Write` implementation.
 //! Joliet (Unicode filenames) and Rock Ridge (POSIX attributes) are enabled.
 
 use std::fmt;
@@ -15,20 +13,14 @@ use std::io::{Read, Seek, SeekFrom, Write};
 
 use isomage::TreeNode;
 
-use crate::archive::{is_entry_path_dangerous, ArchiveReader, ArchiveWriter, CountWriter, Entry};
+#[cfg(test)]
+use crate::archive::ArchiveWriter;
+use crate::archive::{is_entry_path_dangerous, ArchiveReader, CountWriter, Entry};
 use crate::detect::ArchiveFormat;
 use crate::error::{GeeZipError, GeeZipResult};
 
-use std::sync::Arc;
-
-use hadris_iso::joliet::JolietLevel;
-use hadris_iso::read::PathSeparator;
-use hadris_iso::rrip::RripOptions;
-use hadris_iso::write::options::{BaseIsoLevel, CreationFeatures, FormatOptions};
-use hadris_iso::write::{File as HadrisFile, InputFiles, IsoImageWriter};
-
-/// Maximum single file size for ISO 9660 Level 1 (4 GiB).
-const ISO_MAX_ENTRY_SIZE: u64 = u32::MAX as u64;
+mod writer;
+pub use writer::IsoWriter;
 
 fn validate_iso_entry_path(path: &std::path::Path) -> GeeZipResult<String> {
     let raw = path.to_str().ok_or_else(|| {
@@ -105,268 +97,6 @@ impl IsoReader<std::io::Cursor<Vec<u8>>> {
 // ---------------------------------------------------------------------------
 // IsoWriter
 // ---------------------------------------------------------------------------
-
-/// ISO 9660 disc image writer.
-///
-/// Entries are buffered in memory during `add_entry_from_reader` calls and
-/// written in a single pass when `finish()` is called.
-pub struct IsoWriter<W: std::io::Write + Send> {
-    inner: Option<W>,
-    entries: Vec<BufferedIsoEntry>,
-    format: ArchiveFormat,
-}
-
-#[derive(Clone)]
-struct BufferedIsoEntry {
-    path: String,
-    data: Vec<u8>,
-    is_dir: bool,
-}
-
-impl<W: std::io::Write + Send> std::fmt::Debug for IsoWriter<W> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("IsoWriter")
-            .field("format", &self.format)
-            .finish_non_exhaustive()
-    }
-}
-
-/// Build a tree of `HadrisFile` entries from a flat list of buffered entries.
-///
-/// Missing intermediate directory nodes are automatically created so that
-/// deeply nested files (e.g. `a/b/c/f.txt`) are not silently dropped when
-/// only the leaf entries were registered.
-fn build_hadris_files(entries: &[BufferedIsoEntry]) -> GeeZipResult<Vec<HadrisFile>> {
-    use std::collections::HashSet;
-
-    // Collect all directory paths: explicit + synthetic (from file parent chains).
-    let mut dir_paths: HashSet<String> = HashSet::new();
-    for entry in entries {
-        if entry.is_dir {
-            dir_paths.insert(entry.path.clone());
-        }
-        let p = std::path::Path::new(&entry.path);
-        let mut current = p.parent();
-        while let Some(parent) = current {
-            if let Some(s) = parent.to_str() {
-                if s.is_empty() {
-                    break;
-                }
-                dir_paths.insert(s.to_string());
-                current = parent.parent();
-            } else {
-                break;
-            }
-        }
-    }
-
-    // Index entries by path for fast lookup.
-    let mut entry_by_path: std::collections::HashMap<&str, &BufferedIsoEntry> =
-        std::collections::HashMap::new();
-    for entry in entries {
-        entry_by_path.insert(&entry.path, entry);
-    }
-
-    /// Recursively build children for `prefix`.  Entries whose parent is
-    /// `prefix` become direct children.  Synthetic directories (paths in
-    /// `dir_paths` that have `prefix` as parent but have no explicit entry)
-    /// are also emitted as empty directories.
-    fn build_subtree(
-        entry_by_path: &std::collections::HashMap<&str, &BufferedIsoEntry>,
-        dir_paths: &HashSet<String>,
-        prefix: &str,
-    ) -> Vec<HadrisFile> {
-        let mut children: Vec<HadrisFile> = Vec::new();
-        let mut seen: HashSet<&str> = HashSet::new();
-
-        // 1) Entries whose parent is `prefix` (real entries).
-        for (path, entry) in entry_by_path {
-            let p = std::path::Path::new(path);
-            let parent = p.parent().and_then(|x| x.to_str()).unwrap_or("");
-            if parent != prefix {
-                continue;
-            }
-            let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
-            if name.is_empty() || seen.contains(name) {
-                continue;
-            }
-            seen.insert(name);
-
-            if entry.is_dir {
-                children.push(HadrisFile::Directory {
-                    name: Arc::new(name.to_string()),
-                    children: build_subtree(entry_by_path, dir_paths, path),
-                });
-            } else {
-                children.push(HadrisFile::File {
-                    name: Arc::new(name.to_string()),
-                    contents: entry.data.clone(),
-                });
-            }
-        }
-
-        // 2) Synthetic directories: paths in `dir_paths` whose parent is
-        //    `prefix` but that have no explicit entry.
-        for dir_path in dir_paths {
-            let p = std::path::Path::new(dir_path);
-            let parent = p.parent().and_then(|x| x.to_str()).unwrap_or("");
-            if parent != prefix {
-                continue;
-            }
-            let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
-            if name.is_empty() || seen.contains(name) {
-                continue;
-            }
-            seen.insert(name);
-
-            children.push(HadrisFile::Directory {
-                name: Arc::new(name.to_string()),
-                children: build_subtree(entry_by_path, dir_paths, dir_path),
-            });
-        }
-
-        children
-    }
-
-    Ok(build_subtree(&entry_by_path, &dir_paths, ""))
-}
-
-impl<W: std::io::Write + Send> IsoWriter<W> {
-    /// Create a new ISO writer targeting the given output.
-    pub fn new(writer: W) -> Self {
-        Self {
-            inner: Some(writer),
-            entries: Vec::new(),
-            format: ArchiveFormat::Iso,
-        }
-    }
-
-    /// Finalise the archive and return the inner writer alongside the bytes written.
-    pub fn finalize(mut self) -> GeeZipResult<(u64, W)> {
-        let mut writer = self.inner.take().ok_or_else(|| {
-            GeeZipError::format("ISO writer already finalised", ArchiveFormat::Iso)
-        })?;
-
-        if self.entries.is_empty() {
-            return Err(GeeZipError::format(
-                "cannot create an empty ISO image",
-                ArchiveFormat::Iso,
-            ));
-        }
-
-        let hadris_files = build_hadris_files(&self.entries)?;
-
-        let input_files = InputFiles {
-            path_separator: PathSeparator::ForwardSlash,
-            files: hadris_files,
-        };
-
-        let format_options = FormatOptions {
-            volume_name: "GEEZIPX".to_string(),
-            sector_size: 2048,
-            system_id: None,
-            volume_set_id: None,
-            publisher_id: None,
-            preparer_id: None,
-            application_id: None,
-            features: CreationFeatures {
-                filenames: BaseIsoLevel::Level1 {
-                    supports_lowercase: true,
-                    supports_rrip: true,
-                },
-                long_filenames: false,
-                joliet: Some(JolietLevel::Level3),
-                rock_ridge: Some(RripOptions::default()),
-                el_torito: None,
-                hybrid_boot: None,
-            },
-            path_separator: PathSeparator::ForwardSlash,
-            strict_charset: false,
-        };
-
-        // Write to a growable buffer so the underlying Vec can expand if the
-        // estimate is too low.  Pre-allocate a generous lower bound.
-        let total_data: usize = self.entries.iter().map(|e| e.data.len()).sum();
-        let estimate = total_data
-            .saturating_add(total_data / 8)
-            .saturating_add(65536 * 16)
-            .saturating_add(self.entries.len() * 512);
-        // Pre-allocate with a conservative upper bound.  ISO 9660 directory
-        // records are ~34-72 bytes each, plus path tables and descriptors.
-        let buf = vec![0u8; estimate];
-        let mut cursor = std::io::Cursor::new(buf);
-        IsoImageWriter::format_new(&mut cursor, input_files, format_options).map_err(|err| {
-            GeeZipError::format(format!("formatting ISO image: {err}"), ArchiveFormat::Iso)
-        })?;
-        let iso_data = cursor.into_inner();
-        let byte_count = iso_data.len() as u64;
-
-        writer
-            .write_all(&iso_data)
-            .map_err(|err| GeeZipError::io(err, "writing ISO image"))?;
-        writer
-            .flush()
-            .map_err(|err| GeeZipError::io(err, "flushing ISO image"))?;
-
-        Ok((byte_count, writer))
-    }
-}
-
-impl<W: std::io::Write + Send> ArchiveWriter for IsoWriter<W> {
-    fn format(&self) -> ArchiveFormat {
-        self.format
-    }
-
-    fn add_entry_from_reader(
-        &mut self,
-        path: &std::path::Path,
-        reader: &mut dyn std::io::Read,
-    ) -> GeeZipResult<()> {
-        let iso_path = validate_iso_entry_path(path)?;
-
-        // Pre-allocate with a 64 KiB base — most ISO entries are small enough
-        // to fit, and the Vec will grow geometrically for larger files anyway.
-        let mut data = Vec::with_capacity(65536);
-        let mut chunk = [0u8; 65536];
-        loop {
-            let n = reader.read(&mut chunk).map_err(|e| {
-                GeeZipError::io(e, format!("reading data for ISO entry '{iso_path}'"))
-            })?;
-            if n == 0 {
-                break;
-            }
-            if data.len() as u64 + n as u64 > ISO_MAX_ENTRY_SIZE {
-                return Err(GeeZipError::format(
-                    format!("ISO entry '{}' exceeds 4 GiB size limit", iso_path),
-                    ArchiveFormat::Iso,
-                ));
-            }
-            data.extend_from_slice(&chunk[..n]);
-        }
-
-        self.entries.push(BufferedIsoEntry {
-            path: iso_path,
-            data,
-            is_dir: false,
-        });
-        Ok(())
-    }
-
-    fn add_directory(&mut self, path: &std::path::Path) -> GeeZipResult<()> {
-        let iso_path = validate_iso_entry_path(path)?;
-        self.entries.push(BufferedIsoEntry {
-            path: iso_path,
-            data: Vec::new(),
-            is_dir: true,
-        });
-        Ok(())
-    }
-
-    fn finish(self: Box<Self>) -> GeeZipResult<u64> {
-        let (bytes, _writer) = (*self).finalize()?;
-        Ok(bytes)
-    }
-}
 
 fn convert_iso_io_error(err: std::io::Error, context: impl Into<String>) -> GeeZipError {
     match err.kind() {

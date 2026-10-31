@@ -1,6 +1,8 @@
 [workspace]
 resolver = "2"
 default-members = ["crates/core", "crates/cli"]
+# Maintained upstream fork; validate/package independently of the application workspace.
+exclude = ["crates/vendor/hadris-iso"]
 members = [
     "crates/core",
     "crates/cli",

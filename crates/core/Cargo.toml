@@ -50,7 +50,7 @@ secrecy = "0.10"
 sha1 = "0.10"
 tempfile = "3"
 isomage = "2.1"
-hadris-iso = { version = "1.1", features = ["joliet"] }
+hadris-iso = { package = "geezipx-iso", version = "0.1.0", path = "../vendor/hadris-iso", features = ["joliet"] }
 hadris-udf = { version = "1.2", default-features = false, features = ["read", "write", "std"] }
 lzxd = "0.2"
 xpress-huffman = "0.1"

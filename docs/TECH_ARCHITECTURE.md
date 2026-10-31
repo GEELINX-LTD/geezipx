@@ -146,7 +146,7 @@ pub trait ArchiveWriter: Send {
 | `archive::cab` | CAB 读写（`compress` / `list` / `extract` / `test`；reader 基于 `cab` crate，writer 基于 `cab` crate 实现 MSZIP 压缩写入） |
 | `archive::cpio` | CPIO 读写（`compress` / `list` / `extract` / `test`；reader/writer 基于 `cpio-archive` crate，MVP 支持 `newc` / `odc`，不创建宿主 symlink/device/FIFO/socket） |
 | `archive::lzh` | LZH/LHA 读写；reader 基于 `delharc`，writer 使用 `oxiarc-lzhuf` 支持 lh0 存储与 lh4-lh7 压缩，CLI 级别 0-4 映射到这些方法 |
-| `archive::iso` | ISO 读写（`compress` / `list` / `extract` / `test`）；reader 基于 `isomage`（ISO9660/Rock Ridge/Joliet），writer 基于 `hadris-iso`（ISO 9660 Level 1） |
+| `archive::iso` | ISO 读写（`compress` / `list` / `extract` / `test`）；reader 基于 `isomage`（ISO9660/Rock Ridge/Joliet），writer 基于 MIT `geezipx-iso` fork（上游hadris-iso 1.2.1，Level 1/Joliet/Rock Ridge）；`iso::writer`以单个匿名文件暂存输入，再以64KiB缓冲格式化/输出临时镜像 |
 | `archive::zpaq` | ZPAQ 读写（`compress` / `list` / `extract` / `test`）；writer 基于 `zpaq_rs::archive_from_entries`，压缩级别 1-5；不含增量 journaling/dedup |
 | `archive::seven_zip` | 7z 读写；默认 non-solid LZMA2，支持多方法选择、solid 模式与 AES-256 密码写入 |
 | `archive::rar` | RAR 只读（`list` / `extract` / `test`，feature-gated） |
@@ -331,7 +331,8 @@ CLI 当前子命令为：
 | `asar` 0.3 | ASAR 读写支持（Electron 归档，JSON header + 内容写入） |
 | `ar` 0.9 | ar 归档读写（DEB 包解析与创建） |
 | `delharc` 0.8 / `oxiarc-lzhuf` 0.3 | LZH/LHA/PMA 读取及 lh0、lh4-lh7 写入 |
-| `isomage` 2.1 | ISO9660 / Rock Ridge / Joliet seek 读取；`hadris-iso` 1.1+ 提供 Level 1 + Joliet Level 3 + Rock Ridge 写入 |
+| `isomage` 2.1 | ISO9660 / Rock Ridge / Joliet seek 读取 |
+| `geezipx-iso` 0.1.0 | `crates/vendor/hadris-iso`中的MIT fork，上游hadris-iso 1.2.1；保留`hadris_iso`库名/依赖别名，增加FileSource文件区间输入、实文件补零、目录记录不跨扇区及向前SUSP续接布局；独立可发布包，发布core前先发布该依赖，不依赖仅本地生效的patch |
 | `cpio-archive` 0.10 | CPIO 读写支持（`newc` / `odc` 读写；MPL-2.0，作为未修改 Cargo 依赖使用） |
 | `zpaq_rs` 1.0 | ZPAQ 读写支持（writer 基于 `archive_from_entries`，压缩级别 1-5；optional, default-enabled；需 Rust 1.85+ 与 C++17 编译器） |
 | `sevenz-rust2` 0.21 | 7z 读写，支持方法选择、solid 模式和 AES-256 密码写入 |
@@ -527,7 +528,7 @@ crates/gui-tauri/
 |------|--------------------|
 | 原生桌面与安装 | 编译、单元测试和 Wine 注册表测试不能替代 Explorer、NSIS、Finder、Launch Services 实测；按 [发布验收清单](RELEASE_CHECKLIST.md) 记录候选提交与结果 |
 | WIM | 无压缩写入与 XPRESS 读取可用；LZX 的独立 wimlib 样本尚未通过，LZMS、分割 SWM 与第一映像以外提取未实现 |
-| 内存预算 | ISZ、CAB、DEB、CPIO 创建改用有界块/磁盘暂存；UDF 读取使用64KiB seek缓冲，UU/XXE CLI逐行处理。ISO/UDF/ASAR/LZH/ZPAQ 创建、旧 `.enc`、部分第三方 reader 仍有整包/整项缓冲；WIM metadata/目录驻内存，不能保证所有格式低于固定上限 |
+| 内存预算 | ISO/ISZ、CAB、DEB、CPIO 创建改用有界块/磁盘暂存；ISO临时空间约输入+镜像，RAM随元数据增长，tmpfs会占系统内存；UDF 读取使用64KiB seek缓冲，UU/XXE CLI逐行处理。UDF/ASAR/LZH/ZPAQ 创建、旧 `.enc`、部分第三方 reader 仍有整包/整项缓冲；WIM metadata/目录驻内存，不能保证所有格式低于固定上限 |
 | AES 容器 | `.enc` 支持经验证的非流式容器，拒绝不安全 schema 和超额 KDF；`.aes` 用 AES Crypt v0–v3 双遍认证后解密，非seek输入暂存密文。两者格式不兼容，创建 `.aes` 不会回退生成 `.enc` |
 | 新读取预算 | EGG累计索引64MiB；CFB打开前FAT估算64MiB（不含目录等总开销）；Lzip/LZMA Alone/TLZ解码256MiB。超过当前预算明确拒绝，并非所有合法大字典/容器均可读；可配置预算和其它累计元数据计费待补。互操作证据见[专项验收](FORMAT_PARITY_ACCEPTANCE.md) |
 | 系统关联恢复 | 多键注册尚无完整回滚；Linux 旧 handler 备份仅会话内有效，desktop ID 查找未完整遵循 XDG；安装关联表仍宽于 GUI 实际能力 |

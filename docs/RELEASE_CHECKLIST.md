@@ -95,7 +95,7 @@ Win11 的传统菜单位于“显示更多选项”（Shift+F10）。构建成�
 在候选构建、原生验收及版本发布决定完成后执行：
 
 1. 统一 workspace、core 依赖版本、GUI `package.json` / lockfile、Tauri 配置与 `Cargo.lock`，把 CHANGELOG 的本轮内容归入正式版本及日期。
-2. 核对发布提交、必要检查和验收记录；需要 crates.io 发布时按 core → CLI 的依赖顺序执行。
+2. 核对发布提交、必要检查和验收记录；需要 crates.io 发布时先确认`geezipx-iso`所需版本已发布并可从registry解析（新版本先从`crates/vendor/hadris-iso/Cargo.toml`独立发布），再按 core → CLI 的依赖顺序执行。该支持库使用独立版本号；不能仅依赖本地path或workspace patch来验证发布可用性。
 3. 创建版本 tag，跟踪 release workflow，核对三平台产物和校验文件并验证下载。
 4. 将构建/验收记录与已知限制放入 release notes，更新规划中的正式版本。
 

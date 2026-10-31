@@ -2886,8 +2886,8 @@ dependencies = [
  "enc_file",
  "encoding_rs",
  "flate2",
+ "geezipx-iso",
  "gzp",
- "hadris-iso",
  "hadris-udf",
  "isomage",
  "log",
@@ -2960,6 +2960,22 @@ dependencies = [
  "windows-core 0.61.2",
  "windows-registry",
  "zpaq_rs",
+]
+
+[[package]]
+name = "geezipx-iso"
+version = "0.1.0"
+dependencies = [
+ "bitflags 2.13.0",
+ "bytemuck",
+ "chrono",
+ "hadris-common",
+ "hadris-io",
+ "hadris-macros",
+ "hadris-part",
+ "spin 0.10.0",
+ "thiserror 2.0.18",
+ "tracing",
 ]
 
 [[package]]
@@ -3309,24 +3325,6 @@ checksum = "ee996c28ddacd8bc6a9ad0fcb033fa1d50cfd37bbc101dcf711109139e750d2b"
 dependencies = [
  "bytemuck",
  "cfg-if",
-]
-
-[[package]]
-name = "hadris-iso"
-version = "1.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "59c193da4384689a5f4baed1ff6f36c9d1466eddac2aec74699c3f2bdec763b1"
-dependencies = [
- "bitflags 2.13.0",
- "bytemuck",
- "chrono",
- "hadris-common",
- "hadris-io",
- "hadris-macros",
- "hadris-part",
- "spin 0.10.0",
- "thiserror 2.0.18",
- "tracing",
 ]
 
 [[package]]
