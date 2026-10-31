@@ -18,7 +18,7 @@
 
 独立互操作包括 ZIPX/ZIP 与 7-Zip、`.Z` 与 ncompress、PMA 独立语料、ACE/ARJ 真实样本、RAR4/RAR5 与 bsdtar、WIM XPRESS 与 wimlib；详细范围在对应行记录。第二轮已补真实EGG、UltraISO ISZ、AES Crypt v0–v3独立验证；第三轮已完成x86-64三平台原生CLI与SFX验收，见[专项验收](FORMAT_PARITY_ACCEPTANCE.md)。
 
-性能改进集中在消除整包驻内存和重复解码；未建立新的统一吞吐基线。ISO/UDF/ASAR/LZH/ZPAQ 创建与部分第三方读取 API 等性能债务已保留具体原因和后续路线。
+性能改进集中在消除整包驻内存和重复解码；未建立新的统一吞吐基线。ISO创建的整包缓冲已在第四轮移除；UDF/ASAR/LZH/ZPAQ创建与部分第三方读取API的剩余性能债务保留具体原因和后续路线。
 
 ## 第二轮：新实现专项验收
 
@@ -37,6 +37,14 @@
 
 三份CLI与三份报告已下载，源码SHA、x86-64架构和各自可执行文件SHA-256均匹配；提取文件哈希跨平台一致。下载的Linux CLI复跑39项通过。远端Rust1.99新增Clippy检查促使文本解码器改为数组分块，并补UU/UUE/XXE候选往返。系统版本、feature配置、逐项数量、产物链接/哈希及ISO内存诊断见[专项验收](FORMAT_PARITY_ACCEPTANCE.md#第三轮三平台原生候选验收)。此处的CLI原生验收不代替GUI及其它架构验收。
 
+## 第四轮：ISO 创建性能与布局
+
+实现提交`418cd013ee0fd5038bae4095653b2a27edac8513`移除原文Vec/建树内容clone/估算输出Vec，以单输入暂存文件、FileSource区间和缓冲镜像文件完成创建；按实际镜像长度输出。独立MIT支持库`geezipx-iso`使用显式版本+path，发布core前须先发布所需支持库版本。
+
+同时修复实文件补零、目录记录跨扇区、SUSP CE向后指向/跨扇区及目录在内容之后的问题；7-Zip与bsdtar独立提取内容一致，后者保留多扇区长名集合的完整Rock Ridge名称。64MiB输入峰值RSS从205936KiB降至8520KiB，512MiB输入为8500KiB；暂存使用真实磁盘，空间约为原文加镜像，元数据仍随项数增长。Linux门禁1141通过/9忽略，支持库130项单测和独立package验证通过。实测范围、取消/回滚和原生候选证据见[第四轮专项验收](FORMAT_PARITY_ACCEPTANCE.md#第四轮iso-创建内存与兼容性修复)。
+
+同一源码的[CI 41166748855](https://github.com/GEELINX-LTD/geezipx/actions/runs/41166748855)与[Audit 41166752086](https://github.com/GEELINX-LTD/geezipx/actions/runs/41166752086)全部成功。三平台各feature矩阵/Clippy与实际CLI/SFX每平台39项通过，六份产物/报告已下载，源码SHA、架构及可执行文件哈希匹配；提取内容跨平台一致，Linux下载包复跑39项通过。macOS沿用RAR/WIM/SFX与Intel runner范围，不包含ZPAQ；具体数量/产物摘要见上述专项记录。
+
 ## 逐项记录
 
 | 项目（含别名） | 本轮结果 | 验证/限制 |
@@ -47,7 +55,7 @@
 | TAR | 已复核 | 读写流式；`visit_entries` 单次顺序扫描，整包提取/校验不再逐项重扫。保留随机单项提取从头扫描的 API；GNU/PAX 路径与危险路径由 tar crate/共享提取层处理；现有专项回归通过 |
 | TGZ / TAR.GZ | 已复核 | 已有 gzp 并行创建、多成员读取与单次顺序提取；访问流尾时 drain 以验证 gzip trailer；现有单/多线程、取消/损坏专项回归通过。单项 extract 提前返回不校验后续项，整包 test 才覆盖全流 |
 | LZH / LHA / lh7 | 已优化 | 新增顺序 visitor，整包提取/校验避免每项从头扫描，文件 EOF 前验证 CRC16；同样覆盖 PMA。lh7 编码和现有回归通过。创建端仍逐项缓冲原文和压缩结果，后续需流式编码器 |
-| ISO / Joliet | 已复核，创建性能债务暂缓 | Joliet Level 3 + Rock Ridge 已启用，读取缓存树并 seek 提取；现有 Unicode/嵌套/路径回归通过。hadris-iso 1.2.1 的 File::File 仅接受 Vec，当前创建整包驻内存且建树 clone；候选包64MiB输入的RSS及输出预分配诊断见[专项验收](FORMAT_PARITY_ACCEPTANCE.md#iso-创建性能观察)。下一步应为依赖增加可寻址数据源、调整输出路径或更换写入器，不能将整包缓冲归因于 ISO 格式本身 |
+| ISO / Joliet | 已优化创建内存并修复布局 | Joliet Level3 + Rock Ridge；读取缓存树并seek。创建改为磁盘暂存/64KiB级缓冲，FileSource区间避免内容clone，按实际长度输出；实文件补零、记录扇区边界、向前CE布局已修复，7-Zip/bsdtar独立验证。64/512MiB输入峰值RSS均约8.3MiB；目录元数据仍随项数增长，临时空间约原文+镜像，tmpfs会占系统RAM；详情见[专项验收](FORMAT_PARITY_ACCEPTANCE.md#第四轮iso-创建内存与兼容性修复) |
 | GZ | 已复核并修复 | 多成员解码与每成员 trailer/CRC 校验已具备；修复非法压缩等级在编码前返回结构化错误。独立 GZ 的 jobs 当前不生效（TAR.GZ 已支持并行），后续需保持非 static writer API 兼容 |
 | XZ / TXZ | 已优化 | `--jobs` 接入 liblzma MtStreamBuilder；默认单线程；TAR.XZ 各读取路径统一多流解码；无效选项返回错误 |
 | ACE | 已修复列表、CRC、密码与 solid 前驱处理 | 列表显式跳过 payload，修复有效档报错；ACE CRC 元数据转为标准 CRC32；CLI 接受并在打开底层解码器前传递密码（补充 Blowfish 密码向量回归，避免 unified setter 仅更新 options 导致丢失）；单项提取先解码 solid 前驱以恢复字典，传播跳过错误。ACE v1/v2 真实样本 CLI test 通过。unarc-rs 0.8 解码 API 仍返回整项 Vec，逐项重新打开带来重复扫描，流式 writer API 需上游改造；不能将 read_to 包装误报为流式 |

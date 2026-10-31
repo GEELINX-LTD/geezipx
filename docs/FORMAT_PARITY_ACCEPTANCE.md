@@ -148,4 +148,62 @@ python3 scripts/check-format-candidate.py --binary candidate-8f5e9f5/geezipx-lin
 - 峰值RSS 205,936KiB（约201.1MiB）。
 - PVD双端序卷大小字段均声明67,162,112字节（约64.05MiB）；输出还包含约8.95MiB预分配余量。
 
-这是Linux、刚生成输入的热页缓存单例内存诊断。源码同时保留原始文件Vec、建树时的内容clone及估算长度输出Cursor，且回写整个输出Vec；因此下一步优先改造ISO创建的数据源及输出路径：为依赖提供可寻址输入、减少内容复制，并以实际生成长度输出镜像。该单例不构成统一吞吐基线或所有输入的RSS上限。
+这是Linux、刚生成输入的热页缓存单例内存诊断。旧源码同时保留原始文件Vec、建树时的内容clone及估算长度输出Cursor，且回写整个输出Vec。该单例不构成统一吞吐基线或所有输入的RSS上限；修复与对照实测见下述第四轮。
+
+## 第四轮：ISO 创建内存与兼容性修复
+
+实现提交 `418cd013ee0fd5038bae4095653b2a27edac8513`。保留 core `Read` 输入 API，以磁盘暂存适配可寻址格式，不要求调用者一次性持有文件内容。
+
+- 原文先以64KiB级缓冲写入一个匿名临时文件，输入树保存`FileSource`区间；建树/clone只复制句柄和元数据。格式化写入第二个缓冲临时文件，最后按实际长度顺序输出，消除整包Vec、内容clone和估算输出Vec。
+- 新增独立MIT支持库`geezipx-iso 0.1.0`，保留`hadris_iso`依赖/库别名，原作者/许可与上游1.2.1清单保留。路径和版本同时声明；实际发布core前须先发布支持库，不能依赖仅本地生效的workspace patch。
+- 修复真实文件末扇区只seek不写零的问题。输出长度与PVD两种端序的卷大小一致，不再带预分配余量。
+- 目录记录不跨2048字节扇区；目录先于内容按广度布局，SUSP CE指向目录之后、文件内容之前的单扇区续接区。固定大小回填dot/dotdot、子目录和内容地址，保留Joliet Level3与Rock Ridge名称。
+- 旧候选经7-Zip读取内容通过，但bsdtar返回`Invalid parameter in SUSP "CE" extension`；修复后两工具均通过。20个192字节长名、交替空/非空文件强制目录跨多个扇区，bsdtar保留完整RRIP名且所有内容哈希一致；7-Zip验证Joliet视图内容，超过其名称限制的长名按既有规则截短。
+
+### 实测与资源范围
+
+Linux、Rust1.96 release CLI；临时目录显式放在`/dev/sda1`，避开本机`/tmp`的tmpfs。输入是`bytes(range(256))*256`的64KiB块重复，刚生成后运行，用`/usr/bin/time -f '%M %e'`记录峰值RSS/墙钟。旧包来自上述`8f5e9f5`原生候选；新本地可执行文件SHA-256为`6270d2a90339a66b2e9d842d0d0cd74fc5ba324c345e34cd564725b6d6e0298a`，测试前后不变。
+
+| 实现 | 输入字节 | ISO实际字节 | PVD声明字节 | 峰值RSS / KiB | 单次墙钟 / 秒 |
+|---|---:|---:|---:|---:|---:|
+| 旧候选 | 67108864 | 76546560 | 67162112 | 205936 | 0.06 |
+| 本轮 | 67108864 | 67162112 | 67162112 | 8520 | 0.08 |
+| 本轮 | 536870912 | 536924160 | 536924160 | 8500 | 0.59 |
+
+64MiB对照中的峰值RSS降低约95.9%；输入从64MiB增至512MiB时仍约8.3MiB。64MiB内容SHA-256为`281e519df3077b557c6b03f5da83c4e8d397219259615dd7c3308f89cae8f2a6`，512MiB内容为`c047731a3c134f3d34286d608e9c173027d50f43ab9d2064f3c360939977e908`，独立提取后相同。以上是热页缓存单次内存诊断，不能据此推导统一吞吐提升或全部平台RSS上限。
+
+暂存空间约等于原文加生成镜像；目录元数据内存仍随项数增长。`TMPDIR`/`TMP`/`TEMP`若指向tmpfs，临时文件仍占系统内存。最终输出仍为顺序Write，新增的是暂存磁盘I/O；本轮保留ISO创建属性默认值，不代表新增完整POSIX属性还原。
+
+### 本地验证
+
+- workspace fmt、Clippy全目标/全feature且`-D warnings`通过；workspace测试1141通过、9忽略、0失败。
+- 支持库独立130项单元测试、全feature库检查及`cargo package`默认验证通过；排除于workspace的库单独验证，忽略项不计为通过。
+- 新增6项回归覆盖拒绝大Read请求的生成流、失败读回滚、源截断、路径/重复项、输出/取消回调、PVD/物理长度、Unicode树和目录/CE扇区边界。扇区跨界断言在修复前确实失败。
+- 7-Zip与bsdtar独立提取Unicode/嵌套/空目录、空文件、64/512MiB文件与多扇区长名集合通过；提取内容SHA-256一致。
+- 实际release CLI/SFX候选39项通过；对已有目标执行SIGINT取消创建，返回非零且原内容保持不变，临时输出清理。
+
+### 本轮原生矩阵
+
+同一源码`418cd013ee0fd5038bae4095653b2a27edac8513`的[CI 41166748855](https://github.com/GEELINX-LTD/geezipx/actions/runs/41166748855)和[Audit 41166752086](https://github.com/GEELINX-LTD/geezipx/actions/runs/41166752086)全部成功。三平台Clippy与最小/基础/扩展测试实际执行，新增6项ISO回归包含在各配置中；候选构建重建目标SFX stub并执行实际CLI/SFX验收。
+
+| 原生系统 / 架构 | 最小配置：通过 / 忽略 | 基础配置：通过 / 忽略 | 扩展工作区配置：通过 / 忽略 | 实际CLI验收 |
+|---|---:|---:|---:|---:|
+| Ubuntu / x86-64 | 1020 / 4 | 1080 / 9 | 1141 / 9 | 39 / 39 |
+| Windows / x86-64 | 1012 / 4 | 1072 / 9 | 1133 / 9 | 39 / 39 |
+| macOS / Intel x86-64 | 1020 / 4 | 1030 / 9 | 1128 / 9 | 39 / 39 |
+
+feature配置与第三轮相同；macOS基础配置为RAR/SFX、扩展与CLI为RAR/WIM/SFX，不包含ZPAQ；其它架构、Windows桌面与GUI验收不能由此推导。实际系统分别为Ubuntu24.04.5 LTS、Windows Server2025 10.0.26100、macOS15.7.9 (24G830)；runner image分别为`ubuntu-24.04 / 20261025.353.1`、`windows-2025-vs2026 / 20261021.278.1`、`macos-15 / 20260824.0482.1`。
+
+| 本轮CLI产物 | 字节数 | 可执行文件SHA-256 |
+|---|---:|---|
+| [geezipx-linux-x86_64](https://github.com/GEELINX-LTD/geezipx/actions/runs/41166748855/artifacts/13029469126) | 18147288 | `7296862590a8dd24b3cddc09af2e761d1825a28b1b26cd18d8a93537ff4b1408` |
+| [geezipx-windows-x86_64](https://github.com/GEELINX-LTD/geezipx/actions/runs/41166748855/artifacts/13029492081) | 13955584 | `16c7ff275ec244e6b614568ef67b0eeb79bdcf233f69246d6dbcccf99a0a73df` |
+| [geezipx-macos-x86_64](https://github.com/GEELINX-LTD/geezipx/actions/runs/41166748855/artifacts/13028809239) | 16434544 | `6d8e495f1e69f7d8faded9629d5fda39ab8a55bb53af3b83cc53fa688b9eb5f3` |
+
+三份可执行文件与三份同名`-acceptance`报告已下载；逐一核对418cd01完整源码SHA、feature参数和二进制哈希。ELF64/Mach-O64/PE机器头均为x86-64。39项检查的名称、提取文件名/长度/SHA-256在三平台完全一致；下载的Linux CLI重新执行39项含新建SFX通过，报告与CI相同。CLI仍显示0.7.4，以源码SHA区分候选；Actions产物保留7天。
+
+```bash
+gh run download 41166748855 --dir candidate-418cd01
+chmod +x candidate-418cd01/geezipx-linux-x86_64/geezipx
+GITHUB_SHA=418cd013ee0fd5038bae4095653b2a27edac8513 GEEZIPX_CANDIDATE_FEATURES=--all-features python3 scripts/check-format-candidate.py --binary candidate-418cd01/geezipx-linux-x86_64/geezipx --sfx --report downloaded-linux-418cd01-report.json
+```
