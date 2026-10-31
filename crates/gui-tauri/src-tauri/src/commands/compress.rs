@@ -309,14 +309,18 @@ fn validate_gui_output(sources: &[PathBuf], output: &Path) -> Result<(), String>
             return Err("Output file cannot be located inside a source directory".to_string());
         }
         if let Some(output) = &canonical_output {
-            let mut same_file = source == *output;
+            let same_file = source == *output;
             #[cfg(unix)]
-            {
+            let same_file = {
                 use std::os::unix::fs::MetadataExt;
-                if let (Ok(input), Ok(output)) = (fs::metadata(&source), fs::metadata(output)) {
-                    same_file |= input.dev() == output.dev() && input.ino() == output.ino();
-                }
-            }
+                same_file
+                    || match (fs::metadata(&source), fs::metadata(output)) {
+                        (Ok(input), Ok(output)) => {
+                            input.dev() == output.dev() && input.ino() == output.ino()
+                        }
+                        _ => false,
+                    }
+            };
             if same_file {
                 return Err("Output file cannot also be a source file".to_string());
             }

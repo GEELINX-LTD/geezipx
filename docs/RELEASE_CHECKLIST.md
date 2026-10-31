@@ -81,6 +81,7 @@ Win11 的传统菜单位于“显示更多选项”（Shift+F10）。构建成�
 - [x] 自绘窗口：43 项 egui 回归通过，覆盖窗口命令、对话框上方的窗口按钮、忙碌关闭确认和 macOS 缩放计算；Linux release 在 Xvfb + Openbox 验证系统边框为零、标题栏移动、右侧/角缩放与 760×480 下限、最小化、最大化/还原、双击，以及最小窗口 Enter 创建/解压 ZIP，独立 CRC/内容核对通过。浅深色与对话框截图已同步。
 - [x] 窗口圆角：普通窗口使用 12 点圆角，最大化/全屏恢复直角；绘制网格回归覆盖浅深色、默认/最小尺寸和对话框遮罩，Linux release 在 Xvfb + Openbox + 支持透明度的合成器中验证四角透出桌面、最大化和还原。
 - [ ] Windows/macOS/原生 Wayland 自绘窗口验收：拖动、边角缩放、高 DPI、最大化/全屏及还原、对话框打开时窗口控制，以及任务运行时关闭与清理；macOS 重点验证位置/尺寸更新的缩放路径与透明圆角。
+- [ ] 对候选提交运行更新后的 `gui-egui.yml`：确认 `macos-latest` 的 arm64 编译、测试与产物上传；检查移除 `macos-14` brownout、旧 artifact action 的 Node.js 20 警告和 `ubuntu-latest` 迁移提示后的 annotations。
 - [ ] Windows/macOS 字体验收：系统 UI/中文/等宽字体选择，手选安装字体的 TTC 字面索引、重启保留、卸载后回退，以及高 DPI 设置页显示。
 - [ ] Windows/macOS：验证系统文件/目录选择器、Ctrl/Cmd/Shift 选择、键盘焦点、DPI 缩放和最小窗口对话框。
 - [ ] 目标桌面：验证超大归档的打开、滚动、搜索，以及任务运行期间的导航响应。

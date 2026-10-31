@@ -31,7 +31,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
+          - os: ubuntu-24.04
             platform: linux-x86_64
             suffix: ''
             test_features: '--all-features'
@@ -39,7 +39,7 @@ jobs:
             platform: windows-x86_64
             suffix: '.exe'
             test_features: '--all-features'
-          - os: macos-14
+          - os: macos-latest
             platform: macos-arm64
             suffix: ''
             test_features: '' # Match the existing macOS exclusion of ZPAQ (C++/LLVM compatibility).
@@ -124,13 +124,13 @@ jobs:
           'Verified per-user install, licenses, revision, shortcuts and uninstall.' >> $env:GITHUB_STEP_SUMMARY
       - name: Upload Windows installer
         if: runner.os == 'Windows'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: geezipx-egui-windows-x86_64-installer
           if-no-files-found: error
           retention-days: 30
           path: target/release/bundle/egui-nsis/*
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: geezipx-egui-${{ matrix.platform }}
           if-no-files-found: error

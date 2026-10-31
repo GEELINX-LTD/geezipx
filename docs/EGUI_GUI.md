@@ -111,7 +111,7 @@ Linux release 在隔离 Xvfb 实窗中验证：仅有西文字体和无系统字
 
 文件行以归档路径/条目路径确定 ID，目录激活另按条目记录成对点击，避免 egui 全局三击计数影响连续导航；Windows 使用系统双击间隔，其余平台默认 500 ms。导航工具提示的方向键使用绘制图标。`crates/gui-egui/src/app/tests.rs` 覆盖超过 300 ms 的双击、快速进入嵌套目录、返回后再次进入、树展开与单击导航、过滤时保留父目录行、`..` 双击返回并定位原子目录、带父目录行的框选及拖动不启动解压；`tests/drag_export.rs` 覆盖松手前零读取、放置后只解压一次、中文目录和空目录。Windows COM 用例验证 Unicode 描述、取消、释放后 `IStream` 交付与重复读取；Linux Xvfb 通过一次 Xdnd 拖动交付多选，并核对接收内容。真实 Explorer/Finder 的大文件、覆盖提示、取消和 DPI 行为仍需实机验收。
 
-独立 `.github/workflows/gui-egui.yml` 对 Linux x86_64、Windows x86_64、macOS arm64 执行检查、测试、release 编译并上传裸可执行文件与许可证；Windows 额外上传 `geezipx-egui-windows-x86_64-installer`，内含 `GeeZipX-Native_<version>_x64-setup.exe`、`SHA256SUMS.txt` 和标明提交的 `build-info.json`。可在 Actions 手动触发并选择测试分支；安装包 artifacts 保留 30 天，不上传到正式 Release。
+独立 `.github/workflows/gui-egui.yml` 对 Linux x86_64（`ubuntu-24.04`）、Windows x86_64（`windows-latest`）、macOS arm64（`macos-latest`）执行检查、测试、release 编译并上传裸可执行文件与许可证；artifact action 使用 Node.js 24 的 `actions/upload-artifact@v7`。Windows 额外上传 `geezipx-egui-windows-x86_64-installer`，内含 `GeeZipX-Native_<version>_x64-setup.exe`、`SHA256SUMS.txt` 和标明提交的 `build-info.json`。可在 Actions 手动触发并选择测试分支；安装包 artifacts 保留 30 天，不上传到正式 Release。
 
 Windows 安装器支持简体中文/英文，默认安装到 `%LOCALAPPDATA%\Programs\GeeZipX Native`，无需管理员权限；添加开始菜单入口和独立的卸载项，可与 Tauri 版并存。安装目录内 `build-info.txt` 标明版本与提交；卸载只清理本安装器的文件和入口，保留应用偏好、最近记录及用户自行放入的文件。工作流在含中文与空格的目录执行静默安装/卸载，检查应用哈希、许可证、提交、快捷方式、注册项与无关文件保留。安装器脚本位于 `crates/gui-egui/windows/installer.nsi`，需要 NSIS 3；构建时传入 `APP_VERSION` 与 `APP_REVISION`，不依赖 Tauri 工具链。
 

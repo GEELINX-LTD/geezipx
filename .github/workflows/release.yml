@@ -20,7 +20,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
+          - os: ubuntu-24.04
             artifact: geezipx-linux-x86_64
             binary: geezipx
             ext: tar.gz
@@ -109,7 +109,7 @@ jobs:
           if-no-files-found: error
 
   gui-linux:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
       - uses: actions-rust-lang/setup-rust-toolchain@v1
@@ -214,7 +214,7 @@ jobs:
 
   consolidate:
     needs: [build, gui-linux, gui-macos, gui-windows]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:

@@ -19,7 +19,7 @@ concurrency:
 jobs:
   doc:
     needs: fmt
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     env:
       RUSTDOCFLAGS: -D warnings
     steps:
@@ -31,7 +31,7 @@ jobs:
       - run: cargo doc --workspace --exclude geezipx-gui --no-deps --document-private-items
 
   fmt:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
       - uses: actions-rust-lang/setup-rust-toolchain@v1
@@ -48,7 +48,7 @@ jobs:
         run: cargo fmt --manifest-path crates/vendor/nsis/Cargo.toml --check
 
   gui-build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
@@ -70,7 +70,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-15-intel, windows-latest]
+        os: [ubuntu-24.04, macos-15-intel, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v6
@@ -99,7 +99,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
+          - os: ubuntu-24.04
             stub_target: linux-x86_64
             stub_binary: sfx-stub
           - os: macos-15-intel
@@ -155,7 +155,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
+          - os: ubuntu-24.04
             artifact: geezipx-linux-x86_64
             path: target/release/geezipx
             stub_target: linux-x86_64
@@ -218,7 +218,7 @@ jobs:
 
   sfx-e2e:
     needs: [fmt, clippy, test]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
       - uses: actions-rust-lang/setup-rust-toolchain@v1
@@ -253,7 +253,7 @@ jobs:
 
   interop:
     needs: [clippy, test, build]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
       - uses: actions-rust-lang/setup-rust-toolchain@v1
@@ -264,7 +264,7 @@ jobs:
 
   streaming-smoke:
     needs: [clippy, test]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
       - uses: actions-rust-lang/setup-rust-toolchain@v1
@@ -275,7 +275,7 @@ jobs:
 
   bench-compile:
     needs: fmt
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
       - uses: actions-rust-lang/setup-rust-toolchain@v1
@@ -286,7 +286,7 @@ jobs:
 
   bench-regression:
     needs: test
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
       - uses: actions-rust-lang/setup-rust-toolchain@v1
