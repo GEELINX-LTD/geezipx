@@ -26,6 +26,8 @@
 
 - EGG：真实 `alkegi/unegg` CC0 样本暴露 LZMA 无 EOS 块被误判截断，已使用块的已知原始长度解码；独立 Store/Deflate/BZip2/LZMA/混合方法、Android POSIX 元数据、无块空文件共 7 份样本通过。新增 64 MiB 累计索引预算、范围和父引用校验，拒绝重复 ID/名称、循环/缺失父项、截断及尾随压缩数据；四项回归与 core Clippy 通过。保留 3 份最小真实样本及来源/许可；验收详情见 [专项验收](FORMAT_PARITY_ACCEPTANCE.md)。
 
+- ISZ：官方 UltraISO9.7.6.3829生成的真实zlib ISZ通过；还原ISO与官方结果逐字节一致并通过7-Zip校验，已保留自有内容fixture。修复“非final/缺Adler32但输出长度匹配”的zlib误接受；流式和seek视图共用StreamEnd/精确输入长度验证。详见[专项验收](FORMAT_PARITY_ACCEPTANCE.md)。
+
 ## 逐项记录
 
 | 项目（含别名） | 本轮结果 | 验证/限制 |

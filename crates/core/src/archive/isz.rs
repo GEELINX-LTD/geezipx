@@ -234,14 +234,7 @@ pub fn isz_decompress<R: Read + Seek, W: Write>(
             match chunk_type {
                 1 => copy_block(encoded.as_slice(), &mut writer, expected)?,
                 2 => {
-                    let mut decoder = flate2::read::ZlibDecoder::new(encoded.as_slice());
-                    copy_block(&mut decoder, &mut writer, expected)?;
-                    if decoder.total_in() != u64::from(chunk_size) {
-                        return Err(GeeZipError::format(
-                            "trailing data in ISZ zlib block",
-                            ArchiveFormat::Isz,
-                        ));
-                    }
+                    copy_zlib_block(&encoded, &mut writer, expected)?;
                 }
                 3 => {
                     // ISZ strips the four-byte BZip2 magic. Chain it back
@@ -263,6 +256,48 @@ pub fn isz_decompress<R: Read + Seek, W: Write>(
         data_offset = data_end;
     }
     Ok(total_written)
+}
+
+// read::ZlibDecoder can reach EOF without StreamEnd on a truncated stream.
+// Require its final block and Adler32 even when the claimed output size matches.
+fn copy_zlib_block(encoded: &[u8], writer: &mut dyn Write, expected: u64) -> GeeZipResult<()> {
+    use flate2::{Decompress, FlushDecompress, Status};
+    let mut decoder = Decompress::new(true);
+    let mut output = [0; 32 * 1024];
+    loop {
+        let before_in = decoder.total_in();
+        let before_out = decoder.total_out();
+        let status = decoder
+            .decompress(
+                &encoded[before_in as usize..],
+                &mut output,
+                FlushDecompress::None,
+            )
+            .map_err(|e| GeeZipError::format(e.to_string(), ArchiveFormat::Isz))?;
+        if decoder.total_out() > expected {
+            return Err(GeeZipError::format(
+                "ISZ block exceeds declared size",
+                ArchiveFormat::Isz,
+            ));
+        }
+        let produced = (decoder.total_out() - before_out) as usize;
+        writer.write_all(&output[..produced])?;
+        if status == Status::StreamEnd {
+            if decoder.total_in() != encoded.len() as u64 || decoder.total_out() != expected {
+                return Err(GeeZipError::format(
+                    "ISZ zlib block size/trailing data mismatch",
+                    ArchiveFormat::Isz,
+                ));
+            }
+            return Ok(());
+        }
+        if decoder.total_in() == before_in && produced == 0 {
+            return Err(GeeZipError::format(
+                "incomplete ISZ zlib stream",
+                ArchiveFormat::Isz,
+            ));
+        }
+    }
 }
 
 // Early GeeZipX releases wrote sectors instead of bytes. Restrict that
@@ -387,14 +422,7 @@ impl<R: Read + Seek> IszImage<R> {
             match kind {
                 1 => self.block = encoded,
                 2 => {
-                    let mut decoder = flate2::read::ZlibDecoder::new(encoded.as_slice());
-                    copy_block(&mut decoder, &mut self.block, expected)?;
-                    if decoder.total_in() != u64::from(len) {
-                        return Err(GeeZipError::format(
-                            "trailing ISZ zlib bytes",
-                            ArchiveFormat::Isz,
-                        ));
-                    }
+                    copy_zlib_block(&encoded, &mut self.block, expected)?;
                 }
                 3 => {
                     let mut decoder =
@@ -711,6 +739,45 @@ mod tests {
             original.len() as u64
         );
         assert_eq!(output, original);
+    }
+
+    #[test]
+    fn isz_rejects_unfinished_zlib_in_stream_and_seek_views() {
+        let plain = vec![b'X'; 2048];
+        let mut unfinished = vec![0x78, 0x01, 0]; // zlib, non-final stored block
+        unfinished.extend(2048u16.to_le_bytes());
+        unfinished.extend((!2048u16).to_le_bytes());
+        unfinished.extend(&plain);
+        let data = single_chunk_isz(2, &unfinished, 1);
+        assert!(isz_verify(&mut Cursor::new(&data)).is_err());
+        let mut image = IszImage::new(Cursor::new(&data)).unwrap();
+        assert!(image.read_to_end(&mut Vec::new()).is_err());
+
+        let complete = build_test_isz(&plain);
+        // Remove only Adler32, while fixing the chunk length and file geometry.
+        let mut encoded = complete[67..].to_vec();
+        encoded.truncate(encoded.len() - 4);
+        let data = single_chunk_isz(2, &encoded, 1);
+        assert!(isz_verify(&mut Cursor::new(&data)).is_err());
+    }
+
+    #[test]
+    fn ultraiso_sample_matches_official_iso_and_file() {
+        use super::super::{iso::IsoReader, ArchiveReader};
+        let data = include_bytes!("../../tests/fixtures/isz/ultraiso.isz");
+        let mut decoded = Vec::new();
+        assert_eq!(
+            isz_decompress(&mut Cursor::new(data), &mut decoded).unwrap(),
+            53248
+        );
+        assert_eq!(crc32fast::hash(&decoded), 0xba0d1460);
+        let mut reader = IsoReader::new(IszImage::new(Cursor::new(data)).unwrap());
+        let entries = reader.entries().unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].path, "hello.txt");
+        let mut output = Vec::new();
+        assert_eq!(reader.extract(&entries[0], &mut output).unwrap(), 36);
+        assert_eq!(output, b"Independent UltraISO image contents\n");
     }
 
     #[test]
