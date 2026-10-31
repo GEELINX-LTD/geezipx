@@ -14,12 +14,12 @@ impl App {
             .show(context, |ui| {
                 ui.add_enabled_ui(enabled, |ui| {
                     egui::MenuBar::new()
-                        .style(widgets::menu_style)
+                        .style(widgets::menu_bar_style)
                         .config(
                             egui::containers::menu::MenuConfig::new().style(widgets::menu_style),
                         )
                         .ui(ui, |ui| {
-                            ui.menu_button("文件", |ui| {
+                            widgets::menu_bar_button(ui, "文件", |ui| {
                                 widgets::menu(ui);
                                 if widgets::menu_item(
                                     ui,
@@ -77,7 +77,7 @@ impl App {
                                     }
                                 });
                             });
-                            ui.menu_button("编辑", |ui| {
+                            widgets::menu_bar_button(ui, "编辑", |ui| {
                                 widgets::menu(ui);
                                 if widgets::menu_item(
                                     ui,
@@ -122,7 +122,7 @@ impl App {
                                     ui.close();
                                 }
                             });
-                            ui.menu_button("查看", |ui| {
+                            widgets::menu_bar_button(ui, "查看", |ui| {
                                 widgets::menu(ui);
                                 if widgets::menu_item(
                                     ui,
@@ -168,7 +168,7 @@ impl App {
                                     ui.close();
                                 }
                             });
-                            ui.menu_button("工具", |ui| {
+                            widgets::menu_bar_button(ui, "工具", |ui| {
                                 widgets::menu(ui);
                                 if widgets::menu_item(
                                     ui,
@@ -202,7 +202,7 @@ impl App {
                                     );
                                 }
                             });
-                            ui.menu_button("帮助", |ui| {
+                            widgets::menu_bar_button(ui, "帮助", |ui| {
                                 widgets::menu(ui);
                                 if widgets::menu_item(ui, "关于 GeeZipX…", None, true).clicked()
                                 {
@@ -215,7 +215,7 @@ impl App {
                     ui.horizontal(|ui| {
                         ui.spacing_mut().item_spacing.x = 6.0;
                         ui.add_enabled_ui(idle, |ui| {
-                            if widgets::button(ui, "新建", Icon::Plus, false, 82.0)
+                            if widgets::button(ui, "新建", Icon::Plus, false, 0.0)
                                 .on_hover_ui(|ui| {
                                     widgets::shortcut_hint(
                                         ui,
@@ -227,7 +227,7 @@ impl App {
                             {
                                 self.new_archive();
                             }
-                            if widgets::button(ui, "打开", Icon::Folder, false, 82.0)
+                            if widgets::button(ui, "打开", Icon::Folder, false, 0.0)
                                 .on_hover_ui(|ui| {
                                     widgets::shortcut_hint(
                                         ui,
@@ -252,7 +252,7 @@ impl App {
                                 format!("解压所选 ({count})…")
                             };
                             ui.spacing_mut().item_spacing.x = 2.0;
-                            if widgets::button(ui, &label, Icon::ArrowRight, true, 166.0)
+                            if widgets::button(ui, &label, Icon::ArrowRight, true, 0.0)
                                 .on_hover_ui(|ui| {
                                     widgets::shortcut_hint(
                                         ui,
@@ -271,7 +271,7 @@ impl App {
                             };
                             let dropdown = egui::containers::menu::MenuButton::from_button(
                                 egui::Button::new("")
-                                    .min_size(egui::vec2(28.0, 32.0))
+                                    .min_size(egui::vec2(24.0, theme::CONTROL_HEIGHT))
                                     .fill(fill)
                                     .stroke(egui::Stroke::NONE),
                             )
@@ -337,7 +337,7 @@ impl App {
                             }
                             widgets::paint_icon(
                                 ui.painter(),
-                                response.rect.shrink(8.0),
+                                response.rect.shrink(6.0),
                                 Icon::ChevronDown,
                                 if ui.is_enabled() {
                                     egui::Color32::WHITE
@@ -354,7 +354,7 @@ impl App {
                             });
                             response.on_hover_text("更多解压方式");
                             ui.spacing_mut().item_spacing.x = 6.0;
-                            if widgets::button(ui, "测试", Icon::Shield, false, 82.0)
+                            if widgets::button(ui, "测试", Icon::Shield, false, 0.0)
                                 .on_hover_text("读取并验证全部文件的完整性")
                                 .clicked()
                             {

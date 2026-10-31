@@ -31,9 +31,9 @@ pub fn command(key: egui::Key) -> egui::KeyboardShortcut {
 
 pub fn menu_style(style: &mut egui::Style) {
     egui::containers::menu::menu_style(style);
-    style.spacing.button_padding = egui::vec2(10.0, 5.0);
+    style.spacing.button_padding = egui::vec2(8.0, 4.0);
     style.spacing.item_spacing = egui::vec2(8.0, 2.0);
-    style.spacing.interact_size.y = 32.0;
+    style.spacing.interact_size.y = theme::CONTROL_HEIGHT;
     for visuals in [
         &mut style.visuals.widgets.inactive,
         &mut style.visuals.widgets.hovered,
@@ -41,6 +41,43 @@ pub fn menu_style(style: &mut egui::Style) {
         &mut style.visuals.widgets.open,
     ] {
         visuals.corner_radius = 5.into();
+    }
+}
+
+pub fn menu_bar_style(style: &mut egui::Style) {
+    menu_style(style);
+    style.spacing.button_padding = egui::vec2(6.0, 2.0);
+    style.spacing.item_spacing.x = 4.0;
+    style.spacing.interact_size.y = 24.0;
+    style
+        .text_styles
+        .insert(egui::TextStyle::Button, FontId::proportional(13.0));
+}
+
+pub fn menu_bar_button<R>(ui: &mut Ui, label: &str, contents: impl FnOnce(&mut Ui) -> R) {
+    let active_id = ui.id().with("active-menu");
+    let active = ui.ctx().data(|data| data.get_temp::<egui::Id>(active_id));
+    let response = ui.button(label);
+    let popup_id = egui::Popup::default_response_id(&response);
+    if ui.is_enabled()
+        && response.hovered()
+        && active.is_some_and(|id| id != popup_id && egui::Popup::is_id_open(ui.ctx(), id))
+    {
+        egui::Popup::open_id(ui.ctx(), popup_id);
+        // The previous menu may already have been drawn earlier in this pass.
+        ui.ctx().request_discard("menu switched on hover");
+    }
+    let config = egui::containers::menu::MenuConfig::new().style(menu_style);
+    egui::Popup::menu(&response)
+        .style(menu_style)
+        .info(
+            egui::UiStackInfo::new(egui::UiKind::Menu)
+                .with_tag_value(egui::containers::menu::MenuConfig::MENU_CONFIG_TAG, config),
+        )
+        .show(contents);
+    if egui::Popup::is_id_open(ui.ctx(), popup_id) {
+        ui.ctx()
+            .data_mut(|data| data.insert_temp(active_id, popup_id));
     }
 }
 
@@ -56,7 +93,7 @@ pub fn menu_item(
     enabled: bool,
 ) -> Response {
     let mut button = egui::Button::new(label)
-        .min_size(egui::vec2(252.0, 32.0))
+        .min_size(egui::vec2(252.0, theme::CONTROL_HEIGHT))
         .truncate();
     if let Some(shortcut) = shortcut {
         button = button.shortcut_text(
@@ -116,7 +153,7 @@ pub fn subtle_button(ui: &mut Ui, label: &str) -> Response {
                 .color(theme::palette(ui).accent),
         )
         .small()
-        .min_size(egui::vec2(0.0, 28.0))
+        .min_size(egui::vec2(0.0, 24.0))
         .frame_when_inactive(false),
     )
 }
@@ -375,14 +412,11 @@ fn focus(ui: &Ui, response: &Response) {
 
 pub fn button(ui: &mut Ui, text: &str, icon: Icon, primary: bool, width: f32) -> Response {
     let p = theme::palette(ui);
-    let font = FontId::proportional(14.0);
+    let font = FontId::proportional(13.0);
     let galley = ui.painter().layout_no_wrap(text.into(), font, p.text);
-    let w = if width > 0.0 {
-        width
-    } else {
-        galley.size().x + 46.0
-    };
-    let (rect, response) = ui.allocate_exact_size(egui::vec2(w, 32.0), Sense::click());
+    let w = (galley.size().x + 38.0).max(width);
+    let (rect, response) =
+        ui.allocate_exact_size(egui::vec2(w, theme::CONTROL_HEIGHT), Sense::click());
     accessible(&response, text, None);
     let fill = if primary {
         if response.hovered() {
@@ -408,15 +442,15 @@ pub fn button(ui: &mut Ui, text: &str, icon: Icon, primary: bool, width: f32) ->
     } else {
         p.text
     };
-    let left = rect.center().x - (galley.size().x + 28.0) / 2.0;
+    let left = rect.center().x - (galley.size().x + 22.0) / 2.0;
     paint_icon(
         ui.painter(),
-        Rect::from_center_size(egui::pos2(left + 8.0, rect.center().y), Vec2::splat(18.0)),
+        Rect::from_center_size(egui::pos2(left + 8.0, rect.center().y), Vec2::splat(16.0)),
         icon,
         color,
     );
     ui.painter().galley_with_override_text_color(
-        egui::pos2(left + 28.0, rect.center().y - galley.size().y / 2.0),
+        egui::pos2(left + 22.0, rect.center().y - galley.size().y / 2.0),
         galley,
         color,
     );
@@ -426,14 +460,15 @@ pub fn button(ui: &mut Ui, text: &str, icon: Icon, primary: bool, width: f32) ->
 
 fn icon_control(ui: &mut Ui, icon: Icon, label: &str) -> Response {
     let p = theme::palette(ui);
-    let (rect, response) = ui.allocate_exact_size(Vec2::splat(32.0), Sense::click());
+    let (rect, response) =
+        ui.allocate_exact_size(Vec2::splat(theme::CONTROL_HEIGHT), Sense::click());
     accessible(&response, label, None);
     if response.hovered() {
         ui.painter().rect_filled(rect, 7, p.tint);
     }
     paint_icon(
         ui.painter(),
-        rect.shrink(8.0),
+        rect.shrink(6.0),
         icon,
         if ui.is_enabled() {
             p.muted

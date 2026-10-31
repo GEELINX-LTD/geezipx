@@ -537,13 +537,17 @@ impl App {
                     theme::caption(ui, "拖入压缩包直接浏览，拖入文件或文件夹开始压缩。");
                     ui.add_space(18.0);
                     ui.horizontal(|ui| {
-                        ui.add_space(((ui.available_width() - 302.0) / 2.0).max(0.0));
+                        let button_width = 118.0;
+                        let group_width = button_width * 2.0 + ui.spacing().item_spacing.x;
+                        ui.add_space(((ui.available_width() - group_width) / 2.0).max(0.0));
                         ui.add_enabled_ui(!busy, |ui| {
-                            if widgets::button(ui, "打开归档", Icon::Folder, true, 146.0).clicked()
+                            if widgets::button(ui, "打开归档", Icon::Folder, true, button_width)
+                                .clicked()
                             {
                                 self.dialog(context, Dialog::Open);
                             }
-                            if widgets::button(ui, "新建压缩包", Icon::Plus, false, 146.0).clicked()
+                            if widgets::button(ui, "新建压缩包", Icon::Plus, false, button_width)
+                                .clicked()
                             {
                                 self.new_archive();
                             }

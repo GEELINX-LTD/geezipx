@@ -244,7 +244,7 @@ impl App {
                         && !self.draft.sources.is_empty()
                         && !self.draft.output.path.as_os_str().is_empty();
                     ui.add_enabled_ui(ready, |ui| {
-                        if widgets::button(ui, "开始压缩", Icon::ArrowRight, true, 114.0).clicked()
+                        if widgets::button(ui, "开始压缩", Icon::ArrowRight, true, 0.0).clicked()
                         {
                             self.create_archive(context);
                         }
@@ -252,7 +252,8 @@ impl App {
                     if ui
                         .add_enabled(
                             !busy,
-                            egui::Button::new("取消").min_size(egui::vec2(72.0, 32.0)),
+                            egui::Button::new("取消")
+                                .min_size(egui::vec2(60.0, theme::CONTROL_HEIGHT)),
                         )
                         .clicked()
                     {

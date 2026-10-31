@@ -67,7 +67,10 @@ impl App {
                                 .into_galley(
                                     ui,
                                     Some(egui::TextWrapMode::Wrap),
-                                    (max_width - 26.0 - 32.0 - ui.spacing().item_spacing.x)
+                                    (max_width
+                                        - 26.0
+                                        - theme::CONTROL_HEIGHT
+                                        - ui.spacing().item_spacing.x)
                                         .max(1.0),
                                     egui::TextStyle::Body.resolve(ui.style()),
                                 );

@@ -2,6 +2,7 @@ use eframe::egui::{self, Color32, FontId, RichText, Stroke, TextStyle};
 use std::sync::Arc;
 
 pub const ACCENT: Color32 = Color32::from_rgb(82, 99, 224);
+pub const CONTROL_HEIGHT: f32 = 28.0;
 
 /// Semantic colors shared by standard inputs and our painted components.
 pub struct Palette {
@@ -94,8 +95,8 @@ pub fn apply(context: &egui::Context, dark: bool) {
     style.visuals.widgets.hovered.bg_stroke = Stroke::new(1.0_f32, p.accent);
     style.visuals.widgets.active.bg_stroke = Stroke::new(1.0_f32, p.accent);
     style.spacing.item_spacing = egui::vec2(8.0, 7.0);
-    style.spacing.button_padding = egui::vec2(10.0, 5.0);
-    style.spacing.interact_size.y = 32.0;
+    style.spacing.button_padding = egui::vec2(8.0, 4.0);
+    style.spacing.interact_size.y = CONTROL_HEIGHT;
     style.spacing.text_edit_width = 220.0;
     style.spacing.combo_height = 280.0;
     style.visuals.text_edit_bg_color = Some(p.surface);
@@ -122,13 +123,7 @@ pub fn modal(context: &egui::Context, id: &str) -> egui::Modal {
 }
 
 pub fn primary(ui: &mut egui::Ui, text: &str) -> egui::Response {
-    crate::widgets::button(
-        ui,
-        text,
-        crate::widgets::Icon::ArrowRight,
-        true,
-        ui.available_width(),
-    )
+    crate::widgets::button(ui, text, crate::widgets::Icon::ArrowRight, true, 0.0)
 }
 
 pub fn card(ui: &egui::Ui) -> egui::Frame {

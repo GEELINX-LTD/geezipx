@@ -4,6 +4,7 @@ impl App {
     pub(super) fn status_bar(&mut self, context: &egui::Context) -> egui::Rect {
         let controls_enabled = !self.modal_open();
         egui::TopBottomPanel::bottom("task-status")
+            .min_height(44.0)
             .frame(
                 egui::Frame::new()
                     .fill(theme::colors(self.preferences.dark).canvas)
@@ -271,7 +272,7 @@ impl App {
             ui.add_space(6.0);
             theme::rule(ui);
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.add(egui::Button::new("关闭").min_size(egui::vec2(80.0, 32.0)))
+                ui.add(egui::Button::new("关闭").min_size(egui::vec2(64.0, theme::CONTROL_HEIGHT)))
                     .clicked()
             })
             .inner

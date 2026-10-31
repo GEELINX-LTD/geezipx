@@ -196,14 +196,15 @@ impl App {
                     ui.add_enabled_ui(
                         !busy && !options.destination.path.as_os_str().is_empty(),
                         |ui| {
-                            start = widgets::button(ui, "开始解压", Icon::ArrowRight, true, 114.0)
+                            start = widgets::button(ui, "开始解压", Icon::ArrowRight, true, 0.0)
                                 .clicked();
                         },
                     );
                     if ui
                         .add_enabled(
                             !busy,
-                            egui::Button::new("取消").min_size(egui::vec2(72.0, 32.0)),
+                            egui::Button::new("取消")
+                                .min_size(egui::vec2(60.0, theme::CONTROL_HEIGHT)),
                         )
                         .clicked()
                     {

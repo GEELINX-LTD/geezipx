@@ -656,6 +656,139 @@ fn menu_labels_and_shortcuts_have_separate_unclipped_columns() {
     }
 }
 
+#[test]
+fn open_menu_bar_switches_on_hover_and_closes_normally() {
+    fn has_text(output: &egui::FullOutput, label: &str) -> bool {
+        output.shapes.iter().any(
+            |shape| matches!(&shape.shape, egui::Shape::Text(text) if text.galley.text() == label),
+        )
+    }
+    fn text_center(output: &egui::FullOutput, label: &str) -> egui::Pos2 {
+        output
+            .shapes
+            .iter()
+            .find_map(|shape| match &shape.shape {
+                egui::Shape::Text(text) if text.galley.text() == label => {
+                    Some(text.pos + text.galley.size() / 2.0)
+                }
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("missing menu text: {label}"))
+    }
+    for dark in [false, true] {
+        for size in [[760.0, 480.0], [1000.0, 680.0]] {
+            let context = context();
+            theme::apply(&context, dark);
+            let mut app = App::empty(Preferences {
+                dark,
+                ..Default::default()
+            });
+            app.archive = Some(archive());
+            draw(&mut app, &context, size);
+            let output = draw(&mut app, &context, size);
+            let menus = [
+                ("文件", "打开归档…"),
+                ("编辑", "全选"),
+                ("查看", "上一级"),
+                ("工具", "任务记录…"),
+                ("帮助", "关于 GeeZipX…"),
+            ];
+            let positions = menus.map(|(label, _)| text_center(&output, label));
+            let frame = |app: &mut App, events| {
+                context.run(
+                    egui::RawInput {
+                        screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, size.into())),
+                        time: Some(context.input(|input| input.time) + 0.1),
+                        events,
+                        ..Default::default()
+                    },
+                    |context| app.render(context),
+                )
+            };
+            let click = |pos| {
+                vec![
+                    egui::Event::PointerMoved(pos),
+                    egui::Event::PointerButton {
+                        pos,
+                        button: egui::PointerButton::Primary,
+                        pressed: true,
+                        modifiers: egui::Modifiers::NONE,
+                    },
+                    egui::Event::PointerButton {
+                        pos,
+                        button: egui::PointerButton::Primary,
+                        pressed: false,
+                        modifiers: egui::Modifiers::NONE,
+                    },
+                ]
+            };
+            for pos in positions {
+                frame(&mut app, vec![egui::Event::PointerMoved(pos)]);
+                assert!(
+                    !egui::Popup::is_any_open(&context),
+                    "closed menu opened on hover"
+                );
+            }
+            frame(&mut app, click(positions[0]));
+            let output = draw(&mut app, &context, size);
+            assert!(has_text(&output, menus[0].1));
+            for index in [1, 2, 3, 4, 0, 4, 3, 2, 1, 0] {
+                let output = frame(&mut app, vec![egui::Event::PointerMoved(positions[index])]);
+                for (other, (_, action)) in menus.iter().enumerate() {
+                    assert_eq!(
+                        has_text(&output, action),
+                        index == other,
+                        "hovering {}: {action}",
+                        menus[index].0
+                    );
+                }
+            }
+            let output = draw(&mut app, &context, size);
+            let recent = text_center(&output, "最近打开");
+            frame(&mut app, vec![egui::Event::PointerMoved(recent)]);
+            let output = draw(&mut app, &context, size);
+            assert!(has_text(&output, "暂无最近归档"));
+            let output = frame(&mut app, vec![egui::Event::PointerMoved(positions[4])]);
+            assert!(has_text(&output, "关于 GeeZipX…"));
+            assert!(!has_text(&output, "暂无最近归档"));
+            let about = text_center(&output, "关于 GeeZipX…");
+            frame(&mut app, click(about));
+            assert!(app.about && !egui::Popup::is_any_open(&context));
+            frame(&mut app, vec![egui::Event::PointerMoved(positions[0])]);
+            assert!(!egui::Popup::is_any_open(&context));
+            app.about = false;
+            draw(&mut app, &context, size);
+            frame(&mut app, click(positions[0]));
+            assert!(egui::Popup::is_any_open(&context));
+            frame(&mut app, click(positions[0]));
+            assert!(
+                !egui::Popup::is_any_open(&context),
+                "clicking open title did not close it"
+            );
+            frame(&mut app, click(positions[0]));
+            frame(
+                &mut app,
+                vec![egui::Event::Key {
+                    key: egui::Key::Escape,
+                    physical_key: None,
+                    pressed: true,
+                    repeat: false,
+                    modifiers: egui::Modifiers::NONE,
+                }],
+            );
+            assert!(!egui::Popup::is_any_open(&context));
+            frame(&mut app, vec![egui::Event::PointerMoved(positions[1])]);
+            assert!(!egui::Popup::is_any_open(&context));
+            frame(&mut app, click(positions[0]));
+            frame(&mut app, click(egui::pos2(size[0] - 20.0, size[1] - 20.0)));
+            assert!(
+                !egui::Popup::is_any_open(&context),
+                "outside click did not close menu"
+            );
+        }
+    }
+}
+
 fn pointer_frame(
     app: &mut App,
     context: &egui::Context,
