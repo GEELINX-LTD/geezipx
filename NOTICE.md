@@ -38,6 +38,20 @@ GeeZipX includes **read-only** support for CPIO archives via the
 - **Modification notice**: GeeZipX uses `cpio-archive` as an **unmodified Cargo dependency**
   and does **not** modify or copy its source code into this repository.
 
+## NSIS metadata and block readers
+
+GeeZipX uses `geezipx-nsis`, a maintained derivative of `nsis` 0.6.0, under
+Apache-2.0. The upstream attribution is:
+
+> nsis — Copyright 2026 ATRAPS LLC.
+> This product includes software developed by ATRAPS LLC.
+> Licensed under the Apache License, Version 2.0.
+
+The full license and original notice are retained in
+[crates/vendor/nsis/LICENSE](crates/vendor/nsis/LICENSE) and
+[crates/vendor/nsis/NOTICE](crates/vendor/nsis/NOTICE). Local changes are listed
+in [UPSTREAM.md](crates/vendor/nsis/UPSTREAM.md).
+
 ## Other Dependencies
 
 For licenses of other third-party dependencies, please refer to the

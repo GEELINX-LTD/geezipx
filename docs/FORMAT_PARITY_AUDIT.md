@@ -6,7 +6,7 @@
 
 ## 第一轮结论与验证（截至 `3a886ae`）
 
-用户清单中的创建与提取项已逐个完成一轮排查；有变化的实现、性能修复及暂缓分析分别提交。创建清单中的 ZIPX/XZ 已补齐，SFX 仍要求对应目标 stub；其它指定创建方法已核对。BH、DAA 1.0、NSIS 提取本轮暂缓，PEA 已新增单卷未加密读取子集；ALZ/EGG、MSI、光盘映像、WIM、SFX 和 ZIPX 的子集限制见逐项表；本轮完成不代表与 Bandizip 全变体兼容。
+用户清单中的创建与提取项已逐个完成一轮排查；有变化的实现、性能修复及暂缓分析分别提交。创建清单中的 ZIPX/XZ 已补齐，SFX 仍要求对应目标 stub；其它指定创建方法已核对。BH、DAA 1.0 仍暂缓，PEA 与 NSIS 已新增有独立语料验证的只读子集；ALZ/EGG、MSI、光盘映像、WIM、SFX 和 ZIPX 的子集限制见逐项表；本轮完成不代表与 Bandizip 全变体兼容。
 
 最终 Linux 本地检查：
 
@@ -59,7 +59,7 @@
 | --- | --- | --- |
 | ZIP / ZIPX / XPI | 已完善 | ZIPX 使用 XZ method 95；ZIP 级别透传；启用 XZ/LZMA/BZIP2/Deflate64/ZSTD/PPMd 读取；专有 JPEG/WavPack 方法未覆盖 |
 | 7Z / 7Z(LZMA2) | 已优化 | solid 按 64 MiB/1024 项阈值分块（单项可超阈值），单项 >8 MiB 暂存磁盘；加密保留自定义字典；jobs=0 自动识别；读取使用库的顺序提取避免逐项重解 solid |
-| EXE / SFX | 已完善 ZIP SFX | 新增可寻址探测：MZ/ELF/Mach-O 前缀后验证 ZIP 中央目录，不将任意 EXE 当压缩包；CLI 自动 list/test/decompress。创建仍需 feature 和对应 stub；7z/RAR/NSIS SFX 待独立载荷路由 |
+| EXE / SFX | 已完善 ZIP SFX | 新增可寻址探测：MZ/ELF/Mach-O 前缀后验证 ZIP 中央目录，不将任意 EXE 当压缩包；CLI 自动 list/test/decompress。创建仍需 feature 和对应 stub；现代NSIS3 Unicode另走只读载荷路由，7z/RAR SFX待接入 |
 | TAR | 已复核 | 读写流式；`visit_entries` 单次顺序扫描，整包提取/校验不再逐项重扫。保留随机单项提取从头扫描的 API；GNU/PAX 路径与危险路径由 tar crate/共享提取层处理；现有专项回归通过 |
 | TGZ / TAR.GZ | 已复核 | 已有 gzp 并行创建、多成员读取与单次顺序提取；访问流尾时 drain 以验证 gzip trailer；现有单/多线程、取消/损坏专项回归通过。单项 extract 提前返回不校验后续项，整包 test 才覆盖全流 |
 | LZH / LHA / lh7 | 已优化读写 | 顺序visitor避免整包提取/校验逐项重扫并验证CRC16，也覆盖PMA。创建使用按项匿名文件与64KiB缓冲，维护lh4–lh7连续字典/位流，保留不缩小则lh0回退、u32大小限制；输入暂存后可取消，源失败不改输出。38专项+89支持库测试与7-Zip互操作通过；512MiB创建RSS约532MiB→8.8MiB，详见第六轮 |
@@ -97,7 +97,7 @@
 | ARC / PAK（额外既有格式） | 已修复列表、密码和 CRC 元数据 | 列表显式 skip payload，支持 XOR 密码并在打开底层解码器前传入；CRC16 不再误标为 CRC32。带伪 header 的双文件/密码/损坏 CRC 回归及 CLI 加密 list/test/extract 通过；unarc 返回整项 Vec 和逐项重扫仍为债务 |
 | ASAR | 已优化读写 | 读取缓存64MiB内JSON索引，seek + take流式读payload，并验证可选全文件/分块SHA-256；保留unpacked/符号链接路径检查。创建以64KiB缓冲暂存匿名文件，索引预算64MiB，载荷按顺序输出；Electron官方工具双向互操作/校验信息一致。512MiB创建RSS约1.51GiB→8.1MiB，取消/失败保护通过，细节见专项验收第六轮 |
 | ZSTD | 已复核并修复溢出 | libzstd 流式、多帧读取、可选多线程编码；新增0..22等级验证，阻止u32MAX转换成负fast等级，jobs转u32不再静默截断。现有多线程/截断/级别/往返及新增溢出回归通过。创建默认不启用可选内容校验和，输入无checksum时不能保证检测所有位翻转；字典/worker占用依设置变化 |
-| NSIS | 暂缓：安装器载荷parser未实现 | 7-Zip NSIS handler 可作参考；需区分NSIS2/3、Unicode字符串/指令表、solid/non-solid及修改版Deflate/BZip2/LZMA，现有ZIP SFX探测不覆盖。下一步用makensis生成6 codec/solid组合基线并实现单次顺序解码/安全路径映射；不执行安装器代替提取 |
+| NSIS | 已接入现代Unicode子集 | 原生makensis生成Store/Deflate/BZip2/LZMA共7种solid/non-solid样本，7-Zip独立提取哈希一致。PE边界/可选CRC、64MiB元数据/字典预算与严格流结束校验；solid单次解码到匿名磁盘，安全映射静态路径，不执行脚本。ANSI/旧版/Park、BCJ、自定义打包stub、运行时文件/插件及卸载器重建暂缓；两个GUI未接入，详见第六轮 |
 | LZ4 | 已复核 | lz4_flex FrameEncoder/Decoder 固定块缓冲/流式，无按文件体积Vec；现有往返/空流/无效数据测试通过。创建默认无内容校验和，依赖输入frame可选checksum（启用时库验证）；CLI level/jobs未映射LZ4，保留当前fast编码行为，后续若引入HC应单独测吞吐/内存；skippable frame/legacy LZ4专项互操作待补 |
 
 ## 共享顺序处理
@@ -128,9 +128,10 @@
 
 ### NSIS 安装器
 
-- 已找到 [7-Zip 的 NSIS handler](https://github.com/ip7z/7zip/tree/main/CPP/7zip/Archive/Nsis)作为可核对的载荷/指令解析参考；该处理器明确区分 Deflate/BZip2/LZMA 与 solid/non-solid。项目构建 NSIS 安装包的能力与读取安装器内部文件无关。
-- 缺少的是 PE 后附载荷定位、NSIS2/3 及 Unicode 字符串/指令表解释、文件名到数据偏移映射和对应 codec 变体。现有 ZIP SFX 和通用压缩 codec 无法直接覆盖；仅在 EXE 中搜索 LZMA 魔数会误识别，也无法恢复文件列表。
-- 下一步用 makensis 构建 Store/各 codec、solid/non-solid、NSIS2/3/Unicode 语料，先支持固定且可验证的子集，再扩覆盖；solid 共享一个顺序解码状态并必要时磁盘暂存，避免逐项从头解压。所有路径仍经共享验证，必须比较提取哈希；不执行安装器或安装脚本作为解压实现。若复用 C++ handler，先决定静态依赖与三平台构建方式。
+- 已接入NSIS 3 Unicode Store及Deflate/BZip2/LZMA的solid/non-solid读取；通过PE节表定位后附NSIS头，校验范围、可选容器CRC及流结束。使用Apache-2.0的维护支持库`geezipx-nsis`（上游nsis0.6.0）解释有界解码头和NSIS BZip2块，core管理索引、取消和输出；不调用上游整包载入/提取接口。
+- solid载荷一次顺序解码至匿名文件，后续按偏移访问；non-solid按项seek。64KiB I/O、64MiB元数据/字典预算，先验证完整索引/载荷再允许提取。路径仅接受静态且相对`$INSTDIR`的可移植名称，拒绝穿越、设备名、别名冲突和未解析变量；关闭CRC的包明确报告未验证容器CRC。
+- 原生makensis生成7份样本并由7-Zip独立提取核对，覆盖空文件/目录、Unicode、不可压缩内容与重复数据；来源、许可和哈希见[fixture说明](../crates/core/tests/fixtures/nsis/README.md)。64/512MiB LZMA-solid单项用例的list/test/extract峰值RSS约16MiB，具体记录见第六轮专项验收。
+- ANSI、NSIS1/2、Park、BCJ-LZMA、自定义打包stub及卸载器重建尚未覆盖；任意分支/运行时变量、插件结果和安装时生成文件需要脚本执行语义，当前不模拟、不执行安装器。后续须先补对应独立语料及有界解码策略，不能把静态载荷读取宣称为完整安装结果还原。两个GUI需独立桥接。
 
 ## ZIP / ZIPX
 

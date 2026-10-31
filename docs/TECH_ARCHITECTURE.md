@@ -149,6 +149,7 @@ pub trait ArchiveWriter: Send {
 | `archive::iso` | ISO 读写（`compress` / `list` / `extract` / `test`）；reader 基于 `isomage`（ISO9660/Rock Ridge/Joliet），writer 基于 MIT `geezipx-iso` fork（上游hadris-iso 1.2.1，Level 1/Joliet/Rock Ridge）；`iso::writer`以单个匿名文件暂存输入，再以64KiB缓冲格式化/输出临时镜像 |
 | `archive::udf` | UDF reader采用64KiB seek缓冲；`udf::writer`将输入暂存为单个匿名文件，`geezipx-udf` FileSource按区间读取并格式化可seek临时镜像，最后以64KiB缓冲输出；默认UDF1.02、CS0 Unicode、单项创建上限4GiB，目录元数据驻内存 |
 | `archive::zpaq` | ZPAQ读写；维护`geezipx-zpaq`（别名`zpaq_rs`）新增named Read+Write接口，原文匿名文件暂存、64KiB I/O、64MiB元数据预算、共享solid模型1–3；兼容级别4/5使用模型3。创建和读取验证段SHA-1，读取仍缓冲整包/整项；流式分段包可提取，真实7.15 journal仅列出逻辑文件，fragment/index内容重建待实现 |
+| `archive::nsis` | NSIS 3 Unicode只读；PE节表/后附载荷边界与可选CRC校验，64MiB元数据/字典预算，Store/Deflate/BZip2/LZMA；solid只解码一次到匿名文件，non-solid按项seek，静态路径经共享安全输出；不执行脚本/插件 |
 | `archive::seven_zip` | 7z 读写；默认 non-solid LZMA2，支持多方法选择、solid 模式与 AES-256 密码写入 |
 | `archive::rar` | RAR 只读（`list` / `extract` / `test`，feature-gated） |
 | `archive::wim` | WIM 无压缩写入（文件数据暂存临时磁盘，64 KiB 读入并增量 SHA-1）；XPRESS 读取，LZX 兼容性待修复，LZMS 未实现；默认第一映像；feature-gated |
@@ -260,6 +261,7 @@ pub fn read_magic_bytes<R: Read>(reader: &mut R) -> io::Result<Vec<u8>>;
 - ZIP / gzip / bzip2 / lz4 frame / zstd / xz / 7z / RAR / CAB 优先用魔数字节；
 - ASAR / DEB / LZH / LHA / ISO / CPIO / ZPAQ 以及 `tar`、`tar.gz`、`tar.bz2`、`tar.br`、`tar.lz4`、`tar.zst`、`tar.xz` 依赖扩展名回退或显式格式；CAB 还支持 `MSCF` magic，CPIO 刻意不做文件级 magic sniff。
 - `read_magic_bytes()` 仅读取前 `MAGIC_DETECT_SIZE` 字节，供调用方自行决定后续缓存与回放策略。
+- PEA使用16字节前缀识别；NSIS通过可seek探测验证PE节表和后附NSIS头，不把任意MZ/EXE视为安装器；ZIP SFX仍单独验证ZIP中央目录。
 - ZPAQ 当前不做浅层 magic sniff，避免把可选解析器耦合到前 8 字节的启发式判断中。
 
 > **格式扩展方向**：`ArchiveFormat` 枚举随新增格式逐步扩展。新格式检测优先使用魔数字节；若魔数无定义（如 lzma），依赖扩展名回退或用户显式指定。ZIP 兼容别名（`.jar`/`.war`/`.apk`/`.ipa`/`.xpi`）映射到 `ArchiveFormat::Zip`；`.zipx` 映射到 `ArchiveFormat::Zipx`，创建时选择 XZ，读取共用 ZIP reader。新增格式枚举值需同步更新所有 `match` 分支的完整性检查。完整格式目标见 `docs/PRD.md` 第 5.1 节。
@@ -346,6 +348,7 @@ CLI 当前子命令为：
 | `cfb` 0.15 | MSI/OLE 化合物原始流读取，Read+Seek 按需复制 mini-stream/普通流；不解释安装数据库 |
 | `aescrypt-rs` =0.2.0-rc.18 | AES Crypt v0–v3，只读双遍认证后解密；通用 Read 输入暂存密文，seek API 可直接读取 |
 | `base64` 0.22 / `ciborium` 0.2 | AES 容器 armor/CBOR 预检；限制头部大小、嵌套与 KDF 成本 |
+| `geezipx-nsis` 0.1 | Apache-2.0支持库，派生自nsis0.6.0并保留lib/依赖别名`nsis`；只复用有界解码头的元数据视图和流式NSIS BZip2块解码，不调用整包载入/提取接口。独立版本+path，发布core前先发布支持库 |
 | `unarc-rs` 0.8 | ARJ / ACE / ARC 只读适配；使用已修复安全公告的 ZIP 依赖 |
 | `unrar` 0.5.8 | RAR 只读支持（optional, default-enabled） |
 | `thiserror` 2 | 错误定义 |
@@ -537,7 +540,8 @@ crates/gui-tauri/
 | PEA读取 | `archive/pea.rs`及子模块实现单卷/单流未加密Store/块Deflate；Read+Seek、64KiB缓冲、64MiB元数据计费预算，打开时顺序验证后建立索引，提取按对象seek并复核。使用adler2、crc32fast及RustCrypto校验实现，不运行Pea工具；文件名支持UTF-8/ASCII，两个GUI未接入 |
 | 系统关联恢复 | 多键注册尚无完整回滚；Linux 旧 handler 备份仅会话内有效，desktop ID 查找未完整遵循 XDG；安装关联表仍宽于 GUI 实际能力 |
 | 组事务与持久性 | 多文件提取按条目发布，多卷不能整组原子提交；普通失败会清理，不保证强杀、断电或所有文件系统语义下的完整回滚 |
-| 格式范围 | ALZ/EGG/PEA部分只读；Z/PMA/TLZ/AES Crypt/Compound 已接入；BH/DAA1.0/NSIS 暂缓。逐项证据、性能债务及后续方案见 [格式审查](FORMAT_PARITY_AUDIT.md)；两个 GUI 的清单分别维护，均不等同于 core/CLI |
+| NSIS读取 | `archive/nsis.rs`及子模块实现现代NSIS 3 Unicode静态文件/目录映射，Store/Deflate/BZip2/LZMA的solid与non-solid；PE范围、可选CRC和精确流结束校验。64KiB I/O、64MiB元数据与LZMA字典预算，solid匿名磁盘暂存；有界编解码内存不随单项长度增长，临时磁盘随solid原文增长。ANSI/旧版/Park、BCJ、自定义打包stub、插件/运行时文件和卸载器重建不在范围，两个GUI未接入 |
+| 格式范围 | ALZ/EGG/PEA/NSIS部分只读；Z/PMA/TLZ/AES Crypt/Compound 已接入；BH/DAA1.0 暂缓。逐项证据、性能债务及后续方案见 [格式审查](FORMAT_PARITY_AUDIT.md)；两个 GUI 的清单分别维护，均不等同于 core/CLI |
 | 桌面性能与可访问性 | 尚无 Tauri/egui 同机耗时和 RSS 对照基准；仍需超大归档、键盘焦点与原生拖放实测 |
 
 Cargo workspace 成员、feature 与依赖版本以根目录及各 crate 的 `Cargo.toml`、`Cargo.lock` 为准；本文不复制完整配置。

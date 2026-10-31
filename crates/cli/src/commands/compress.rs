@@ -555,10 +555,10 @@ fn validate_compress_inputs(
         anyhow::bail!("at least one input file is required");
     }
 
-    // RAR writing is not supported; only list, test, and decompress for read-only.
-    if format == ArchiveFormat::Rar {
+    // Installer and RAR creation are deliberately unsupported.
+    if matches!(format, ArchiveFormat::Rar | ArchiveFormat::Nsis) {
         anyhow::bail!(
-            "rar writing is not supported; use list, test, or decompress for read-only rar support"
+            "{format} writing is not supported; use list, test, or decompress for read-only {format} support"
         );
     }
 

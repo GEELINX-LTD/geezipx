@@ -83,6 +83,7 @@ pub fn parse_format(s: &str) -> Result<ArchiveFormat> {
         "arc" => Ok(ArchiveFormat::Arc),
         "egg" => Ok(ArchiveFormat::Egg),
         "pea" => Ok(ArchiveFormat::Pea),
+        "nsis" => Ok(ArchiveFormat::Nsis),
         "msi" | "compound" | "cfb" | "ole" => Ok(ArchiveFormat::Compound),
         "alz" => Ok(ArchiveFormat::Alz),
         "z" => Ok(ArchiveFormat::Z),
@@ -100,7 +101,7 @@ pub fn parse_format(s: &str) -> Result<ArchiveFormat> {
         "uu" | "uue" => Ok(ArchiveFormat::Uu),
         "xxe" => Ok(ArchiveFormat::Xxe),
         other => Err(anyhow::anyhow!(
-            "unsupported format '{other}'; expected: zip, zipx, jar, war, apk, ipa, xpi, tar, tar.gz, tgz, tar.bz2, tbz, tbz2, tar.br, gz, gzip, bz, bz2, bzip2, br, brotli, lz4, tar.lz4, zst, zstd, tar.zst, tzst, tar.xz, txz, tar.lzma, tar.lz, tlz, xz, lzma, lz, 7z, rar, cab, asar, deb, lzh, lha, pma, iso, udf, cpio, zpaq, zpq, wim, swm, uu, uue, xxe, isz, img, ima, bin, aes, enc, arj, ace, arc, alz, z, egg, pea, msi, compound, cfb, ole"
+            "unsupported format '{other}'; expected: zip, zipx, jar, war, apk, ipa, xpi, tar, tar.gz, tgz, tar.bz2, tbz, tbz2, tar.br, gz, gzip, bz, bz2, bzip2, br, brotli, lz4, tar.lz4, zst, zstd, tar.zst, tzst, tar.xz, txz, tar.lzma, tar.lz, tlz, xz, lzma, lz, 7z, rar, cab, asar, deb, lzh, lha, pma, iso, udf, cpio, zpaq, zpq, wim, swm, uu, uue, xxe, isz, img, ima, bin, aes, enc, arj, ace, arc, alz, z, egg, pea, nsis, msi, compound, cfb, ole"
         )),
     }
 }
@@ -516,6 +517,7 @@ pub fn open_reader(
         },
         ArchiveFormat::Egg => Box::new(geezipx_core::archive::egg::EggReader::open(path)?),
         ArchiveFormat::Pea => Box::new(pea_reader(file)?),
+        ArchiveFormat::Nsis => Box::new(nsis_reader(file)?),
         ArchiveFormat::Compound => Box::new(geezipx_core::archive::compound::CompoundReader::open(path)?),
         ArchiveFormat::Alz => Box::new(geezipx_core::archive::alz::AlzReader::open(path, password.map(str::to_owned))?),
         ArchiveFormat::Z => anyhow::bail!("Unix compress is a single stream; use decompress or test"),
@@ -574,6 +576,12 @@ pub fn open_reader(
 mod input;
 mod output;
 
+pub fn nsis_reader(file: fs::File) -> Result<geezipx_core::archive::nsis::NsisReader> {
+    Ok(geezipx_core::archive::nsis::NsisReader::new(
+        input::CancellableInput(file),
+    )?)
+}
+
 pub fn pea_reader(file: fs::File) -> Result<geezipx_core::archive::pea::PeaReader> {
     Ok(geezipx_core::archive::pea::PeaReader::new(
         input::CancellableInput(file),
@@ -618,6 +626,9 @@ pub fn create_writer(
             Ok(Box::new(writer))
         }
         ArchiveFormat::Tar => Ok(Box::new(TarWriter::new(file))),
+        ArchiveFormat::Nsis => {
+            anyhow::bail!("nsis is a read-only installer format; writing is not supported")
+        }
         ArchiveFormat::SevenZip => {
             let default_sz = SevenZipOptions::default();
             let sz_opts = options.seven_zip.as_ref().unwrap_or(&default_sz);

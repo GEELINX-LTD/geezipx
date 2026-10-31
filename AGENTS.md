@@ -191,6 +191,7 @@ CLI 和两个 GUI 只负责：
 - 化合物 / MSI / OLE（只读，原始 CFB streams，不解释 MSI 数据库）；
 - EGG（部分只读，单卷非 solid 未加密 Store/Deflate/BZip2/LZMA）；
 - PEA（部分只读，单卷/单流未加密 Store/Deflate PCOMPRESS0–3，三层校验，UTF-8/ASCII 名称；加密/HMAC、ECC、分卷和旧 ANSI 代码页未支持）；
+- NSIS（部分只读，NSIS 3 Unicode Store/Deflate/BZip2/LZMA，solid 与 non-solid；静态路径及可选 CRC 校验，solid 磁盘暂存，不执行脚本或插件）；
 - AES Crypt（.aes，只读，v0–v3，认证后输出）；
 - AES 加密容器（.enc，AES-256-GCM-SIV + Argon2id）；
 
@@ -198,7 +199,7 @@ ALZ 支持单卷 Store/Deflate 与 ZipCrypto，修改版 BZip2/其它方法及�
 
 CLI 已支持 `compress --split-size` 分卷创建。后续格式扩展由实际需求驱动，当前优先补齐 GUI 桥接与已知兼容性限制；core/CLI 已支持不代表 GUI 已接入，详见 `docs/GUI_MVP_PLAN.md` §3.1。
 
-Core/CLI 以用户给定的 Bandizip 清单为对齐目标，逐项实现/性能审查结果见 `docs/FORMAT_PARITY_AUDIT.md`。BH、DAA 1.0、NSIS 本轮暂缓并记录具体证据及路线；PMA 已实现、EGG/PEA 部分实现，不能继续列为永久排除。其它范围见 `docs/PRD.md` §5.2；RAR 写入仍受许可限制，ZIPX 专有方法及各格式变体的限制需分别说明。
+Core/CLI 以用户给定的 Bandizip 清单为对齐目标，逐项实现/性能审查结果见 `docs/FORMAT_PARITY_AUDIT.md`。BH、DAA 1.0 本轮暂缓并记录具体证据及路线；PMA 已实现，EGG/PEA/NSIS 部分实现，不能继续列为永久排除。其它范围见 `docs/PRD.md` §5.2；RAR 写入仍受许可限制，ZIPX 专有方法及各格式变体的限制需分别说明。
 
 当前阶段不承诺完整替代 7-Zip / WinRAR。
 

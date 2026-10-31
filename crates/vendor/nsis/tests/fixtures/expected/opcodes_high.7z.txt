@@ -1,0 +1,28 @@
+
+7-Zip 24.08 (x64) : Copyright (c) 1999-2024 Igor Pavlov : 2024-08-11
+
+Scanning the drive for archives:
+1 file, 39378 bytes (39 KiB)
+
+Listing archive: opcodes_high.exe
+
+--
+Path = opcodes_high.exe
+Type = Nsis
+Physical Size = 39378
+Method = Deflate
+Solid = -
+Headers Size = 4450
+Embedded Stub Size = 38400
+SubType = NSIS-3 Unicode
+
+----------
+Path = payload.txt
+Size = 53
+Packed Size = 53
+Modified = 2026-01-01 00:00:00.0000000
+Attributes = 
+Method = Copy
+Solid = -
+Offset = 0
+

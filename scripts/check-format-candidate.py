@@ -147,7 +147,7 @@ def main():
             for extension, format_name in [
                 ("zip", "zip"), ("zipx", "zipx"), ("7z", "7z"),
                 ("tar", "tar"), ("tgz", "tgz"), ("lzh", "lzh"),
-                ("iso", "iso"), ("udf", "udf"), ("gz", "gzip"), ("xz", "xz"),
+                ("asar", "asar"), ("iso", "iso"), ("udf", "udf"), ("gz", "gzip"), ("xz", "xz"),
                 ("uu", "uu"), ("uue", "uue"), ("xxe", "xxe"),
             ]:
                 archive = work / ("压缩样本." + extension)
@@ -194,8 +194,10 @@ def main():
                 raise AssertionError("LZH store fallback changed")
             extract("lzh-store-fallback", stored, expected=tiny.read_bytes())
 
-            enabled_features = report["features"].split(",")
-            if "zpaq" in enabled_features or "all" in enabled_features:
+            # CI records actual Cargo arguments; retain compatibility with
+            # local comma-separated feature names as well.
+            enabled_features = report["features"].replace("=", " ").replace(",", " ").split()
+            if any(feature in enabled_features for feature in ["zpaq", "all", "--all-features"]):
                 ztree = work / "zpaq-tree"
                 (ztree / "中文" / "empty-dir").mkdir(parents=True)
                 (ztree / "中文" / "first.txt").write_bytes(payload)
@@ -241,6 +243,63 @@ def main():
                     expected_manifest={f"{udf_tree.name}/{name}": value
                                        for name, value in manifest(udf_tree).items()},
                     empty_directories=["udf-tree/中文/empty", "udf-tree/only-empty"])
+
+            pea_tree = {
+                "source/empty.bin": {"bytes": 0, "sha256": hashlib.sha256(b"").hexdigest()},
+                "source/中文 Ω.txt": {"bytes": 136256, "sha256": "6050ccb8eb47ba3d20954ffe26ed6a5d1c812518115a7a682bbbba08bc70ec6e"},
+            }
+            pea_checksums = {}
+            for line in (FIXTURES / "pea/SHA256SUMS").read_text(encoding="utf-8").splitlines():
+                digest, name = line.split(maxsplit=1)
+                pea_checksums[name.lstrip("*")] = digest
+            for name, digest in sorted(pea_checksums.items()):
+                archive = work / name
+                shutil.copyfile(FIXTURES / "pea" / name, archive)
+                if sha256(archive) != digest:
+                    raise AssertionError(f"PEA fixture checksum changed: {name}")
+                if name == "multiblock.pea":
+                    extract("pea-" + name, archive,
+                            digest="c29c45cb10645a27d37ba63e00e7f2f1c1e5e860d8a28753dff84d68cf4ef341")
+                else:
+                    extract("pea-" + name, archive, expected_manifest=pea_tree,
+                            empty_directories=["source/empty-dir"])
+            damaged = bytearray((FIXTURES / "pea/crc32-pcompress2.pea").read_bytes())
+            damaged[-1] ^= 1
+            archive = work / "corrupt.pea"
+            archive.write_bytes(damaged)
+            cli("test", archive, "--json", success=False)
+            protected = work / "pea-protected"
+            (protected / "source").mkdir(parents=True)
+            (protected / "source/中文 Ω.txt").write_bytes(b"existing destination")
+            before = manifest(protected)
+            cli("decompress", archive, "-o", protected, "--force", success=False)
+            if manifest(protected) != before:
+                raise AssertionError("PEA verification failure changed destination")
+            record("pea-corruption-target-protection")
+
+            nsis_manifest = json.loads((FIXTURES / "nsis/manifest.json").read_text(encoding="utf-8"))
+            nsis_tree = {(f"nested/{name}" if name == "中文 Ω.txt" else name): nsis_manifest[name]
+                         for name in ["hello.txt", "empty.bin", "mixed.bin", "中文 Ω.txt"]}
+            for name in ["store-nonsolid", "zlib-nonsolid", "zlib-solid", "bzip2-nonsolid", "bzip2-solid", "lzma-nonsolid", "lzma-solid"]:
+                archive = work / (name + ".data")
+                shutil.copyfile(FIXTURES / "nsis" / (name + ".bin"), archive)
+                if sha256(archive) != nsis_manifest[name]["sha256"]:
+                    raise AssertionError(f"NSIS fixture checksum changed: {name}")
+                extract("nsis-" + name, archive, expected_manifest=nsis_tree,
+                        empty_directories=["empty"])
+            damaged = bytearray((FIXTURES / "nsis/zlib-solid.bin").read_bytes())
+            damaged[-5] ^= 1
+            archive = work / "corrupt.exe"
+            archive.write_bytes(damaged)
+            cli("test", archive, "--json", success=False)
+            protected = work / "nsis-protected"
+            protected.mkdir()
+            (protected / "hello.txt").write_bytes(b"existing destination")
+            before = manifest(protected)
+            cli("decompress", archive, "-o", protected, "--force", success=False)
+            if manifest(protected) != before:
+                raise AssertionError("NSIS verification failure changed destination")
+            record("nsis-corruption-target-protection")
 
             for name, expected in [
                 ("lzma5.egg", [(0, 0), (95, 0x6A94D1BC), (2060, 0xB54CCAB2), (4096, 0x1BB92DFC), (3150, 0x7A553A9D)]),

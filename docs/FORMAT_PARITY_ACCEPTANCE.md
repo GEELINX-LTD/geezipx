@@ -350,3 +350,25 @@ Linux Rust1.96 release，原生Pea创建CRC32/PCOMPRESS2单文件包；64/512MiB
 | 512 | 534113 | 8480 | 8492 | 8888 | 0.05 | 0.05 | 0.20 |
 
 载荷增长8倍时，此单项用例的峰值RSS保持约8–9MiB；元数据仍随条目数量增长。三平台原生结果在本轮五项完成后的最终候选中统一记录。
+
+### NSIS：现代 Unicode 安装器的有界静态读取
+
+- 新增core/CLI NSIS读取：先验证PE节表和后附NSIS载荷边界，再解释NSIS 3 Unicode头、静态文件/目录及偏移，支持Store和Deflate/BZip2/LZMA的solid/non-solid。任意MZ/EXE不自动计为NSIS；不执行安装器、安装脚本或插件。
+- solid只顺序解码一次到匿名文件，再按偏移访问；non-solid按项seek。固定64KiB I/O、64MiB元数据及LZMA字典预算，严格校验帧长、流结束和可选容器CRC；打开时验证索引及每项内容后才允许输出。关闭CRC的包明确报告`crc32_verified: false`，不虚称验证了不存在的校验。
+- 使用独立Apache-2.0支持库`geezipx-nsis 0.1.0`（上游nsis0.6.0，原LICENSE/NOTICE保留），仅复用有界解码头的元数据视图及流式NSIS BZip2块读取，不调用上游整包缓冲/提取API。path与版本均声明；正式发布core前须先发布该支持库。支持库354测试与package verification通过。
+- 未修改的原生makensis `v3.11-1`生成7份独立样本：Store、三种codec各自solid/non-solid；7-Zip独立提取的文件名、长度及SHA-256均与原文一致。包括空文件、Unicode、不可压缩与重复数据。7-Zip不物化脚本中的空目录，其限制记录于manifest；GeeZipX另按原始`CreateDirectory`指令验证空目录。来源、compiler/installer哈希、完整许可及可重现生成器见[fixture说明](../crates/core/tests/fixtures/nsis/README.md)。最终生成器重跑全部7种并再次核对原文通过。
+- 8项core和4项CLI专项回归涵盖短Read、取消、损坏CRC/流、截断/超大头、穿越、路径别名、文件祖先冲突、Windows设备名、未解析变量、输出失败及旧目标保护。实际512MiB solid提取在0.05秒后发SIGINT，退出130，已有目标不变且目标目录无临时文件残留。
+- 范围限NSIS 3 Unicode及相对`$INSTDIR`的静态路径；ANSI、NSIS1/2/Park、BCJ-LZMA、自定义打包stub、运行时生成文件/插件结果和卸载器重建未实现。两个GUI未接入。临时磁盘随solid解码后大小增长，元数据随条目数量增长；tmpfs仍消耗系统RAM。
+
+Linux Rust1.96 release，原生makensis创建8MiB字典的LZMA-solid单文件包，7-Zip校验通过。64/512MiB源是稀疏零填充文件，暂存位于真实ext文件系统。单次`/usr/bin/time -f '%M %e'`观测；提取内容SHA-256与原文一致，不作为统一吞吐基线。CLI二进制SHA-256：`8260bf56cc8bce7a9349635268916669d777ba1833ff5d32cef88b5eb0a11122`。
+
+| 原文 / MiB | NSIS字节数 | list RSS / KiB | test RSS / KiB | 提取 RSS / KiB | list / 秒 | test / 秒 | 提取 / 秒 |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| 64 | 111077 | 16012 | 16008 | 16284 | 0.27 | 0.27 | 0.51 |
+| 512 | 177342 | 15880 | 16516 | 16268 | 2.10 | 2.11 | 4.09 |
+
+原文增长8倍时，此单项用例RSS约15.5–16.1MiB。压缩字典、条目数量及格式变体仍会影响内存，不据此承诺总进程固定上限。
+
+### 本轮本地收尾检查
+
+workspace fmt、全部目标/feature Clippy且`-D warnings`、完整workspace测试1197通过/9忽略、最小core/CLI测试1067通过/4忽略及cargo-deny通过。重建host release SFX stub与CLI后，扩展候选脚本的77项实际CLI/SFX验收通过；包含19份PEA、7份NSIS和三项创建优化的内容/损坏保护。ZPAQ支持库24通过/1忽略、LZH支持库89通过、NSIS支持库354通过；忽略项不计为通过。三平台固定提交结果将在候选完成后追加。

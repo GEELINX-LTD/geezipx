@@ -44,6 +44,8 @@ jobs:
         run: cargo fmt --manifest-path crates/vendor/zpaq-rs/Cargo.toml --check
       - name: Check maintained LZH support library formatting
         run: cargo fmt --manifest-path crates/vendor/oxiarc-lzhuf/Cargo.toml --check
+      - name: Check maintained NSIS support library formatting
+        run: cargo fmt --manifest-path crates/vendor/nsis/Cargo.toml --check
 
   gui-build:
     runs-on: ubuntu-latest
@@ -129,6 +131,9 @@ jobs:
       - name: Test maintained LZH support library
         if: runner.os == 'Linux'
         run: cargo test --manifest-path crates/vendor/oxiarc-lzhuf/Cargo.toml --lib
+      - name: Test maintained NSIS support library
+        if: runner.os == 'Linux'
+        run: cargo test --manifest-path crates/vendor/nsis/Cargo.toml
       - name: Test minimal core/CLI features
         run: cargo test --locked -p geezipx-core -p geezipx --no-default-features
       - name: Test default core/CLI features (Linux / Windows)

@@ -2,3 +2,7 @@
 crates/vendor/zpaq-rs/zpaq/** -whitespace
 crates/vendor/zpaq-rs/LICENSE -whitespace
 crates/vendor/zpaq-rs/zpaq_rs_ffi.cpp -whitespace
+
+# Preserve upstream NSIS reference output, including CRLF and trailing spaces.
+crates/vendor/nsis/tests/fixtures/expected/*.7z.txt -text -whitespace
+crates/vendor/nsis/examples/example.log -text -whitespace

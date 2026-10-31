@@ -102,6 +102,8 @@ pub enum ArchiveFormat {
     Egg,
     /// PEA 1.x, single-volume unencrypted Store/Deflate (read-only).
     Pea,
+    /// Modern NSIS installer payloads (read-only; validated PE overlay).
+    Nsis,
     /// Unknown or unrecognised format.
     Unknown,
 }
@@ -152,6 +154,7 @@ impl fmt::Display for ArchiveFormat {
             ArchiveFormat::Compound => write!(f, "compound"),
             ArchiveFormat::Egg => write!(f, "egg"),
             ArchiveFormat::Pea => write!(f, "pea"),
+            ArchiveFormat::Nsis => write!(f, "nsis"),
             ArchiveFormat::Unknown => write!(f, "unknown"),
         }
     }
@@ -186,6 +189,7 @@ pub const MAGIC_CAB: &[u8] = b"MSCF";
 const EXTENSION_MAP: &[(&str, ArchiveFormat)] = &[
     (".egg", ArchiveFormat::Egg),
     (".pea", ArchiveFormat::Pea),
+    (".nsis", ArchiveFormat::Nsis),
     (".msi", ArchiveFormat::Compound),
     (".msp", ArchiveFormat::Compound),
     (".mst", ArchiveFormat::Compound),
@@ -399,6 +403,9 @@ pub fn detect_seekable_format<R: std::io::Read + std::io::Seek>(
             ]
             .iter()
             .any(|m| magic.starts_with(*m));
+        if magic.starts_with(b"MZ") && crate::archive::nsis::probe(reader)? {
+            return Ok(Some(ArchiveFormat::Nsis));
+        }
         if executable {
             reader.seek(SeekFrom::Start(0))?;
             if zip::ZipArchive::new(&mut *reader).is_ok() {

@@ -1,0 +1,55 @@
+{
+  "hello.txt": {
+    "bytes": 33,
+    "sha256": "2f1c3542a60c3fdd2e40c8edc6cd3b47ed009691999807ed681faf54b6aefb45"
+  },
+  "empty.bin": {
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "中文 Ω.txt": {
+    "bytes": 1818,
+    "sha256": "0d25008cec36e2a1e6b88f907de987669a7019d83e4703e74439427f6817eb8e"
+  },
+  "mixed.bin": {
+    "bytes": 393218,
+    "sha256": "3c82501825577708f69e825505a0ea0b35f501985c28fd73824df1763a91041f"
+  },
+  "compiler_version": "v3.11-1",
+  "compiler_sha256": "b945886428f881b04a504e95a5e008188e8de59ecc25fc89636710fdd98bd1bc",
+  "zlib-nonsolid": {
+    "bytes": 298128,
+    "sha256": "56e02c6e9b8cfee746253305368be55dd0c0a4f97d9de7cafb91c193bdba3e6a",
+    "reference_empty_directory": false
+  },
+  "zlib-solid": {
+    "bytes": 299319,
+    "sha256": "453250b6d34c53da098291eca002063a0ef7ed2a314b5e8e7d167cffecac425d",
+    "reference_empty_directory": false
+  },
+  "bzip2-nonsolid": {
+    "bytes": 300668,
+    "sha256": "27d9cf9b874c5b1dcb3d43ecfaa9820cce348d93ecf64bb3d6b729b9f415fd39",
+    "reference_empty_directory": false
+  },
+  "bzip2-solid": {
+    "bytes": 301448,
+    "sha256": "adb653d314a4a71d349d14a501588bc83a848a4cdddc86c1677d5eebef9d658a",
+    "reference_empty_directory": false
+  },
+  "lzma-nonsolid": {
+    "bytes": 300014,
+    "sha256": "043294ced090495e234bea0c91fcc3eef1f699f2f9b0a40ac2cb873a7c115479",
+    "reference_empty_directory": false
+  },
+  "lzma-solid": {
+    "bytes": 300983,
+    "sha256": "ea0858dcd0c352eb7610baee64c35d958fb12dbc64dac1dfeab420263308bf1d",
+    "reference_empty_directory": false
+  },
+  "store-nonsolid": {
+    "bytes": 499319,
+    "sha256": "a3450f3dc444a597af8bed650ab07f4502f33411b022bba5e65dca0be826c8fc",
+    "reference_empty_directory": false
+  }
+}

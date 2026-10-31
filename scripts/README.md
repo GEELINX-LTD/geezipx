@@ -20,8 +20,9 @@ The Release workflow runs this script and uploads the verified files as
 
 ## check-format-candidate.py
 
-Runs 38 checks against an already-built native CLI, plus a native SFX check
-with `--sfx`, using Python 3.12 and only its standard library. It uses offline
+Runs 76 checks with all CLI features, plus a native SFX check with `--sfx`
+(77 total). Builds without ZPAQ run 71 checks with SFX. Use Python 3.12 and
+only its standard library. It uses offline
 fixtures with recorded provenance and
 checks real subprocess exit codes, JSON listing/verification, extracted content,
 Unicode filesystem paths, corrupt-stream output protection and wrong-password
@@ -38,7 +39,13 @@ architecture, feature arguments, CLI version, executable SHA-256, checks and
 extracted file hashes. CI uploads separate reports with each platform's CLI
 artifact; the first error fails the step and leaves a partial failure report.
 
-Coverage includes ZIP/XZ method 95, 7z, TAR/TGZ, LZH/lh7, ISO, GZIP/XZ, real
+Set `GEEZIPX_CANDIDATE_FEATURES` to the actual Cargo feature arguments
+(e.g. `--all-features` or `--no-default-features --features rar,wim,sfx`);
+the script uses this value to decide whether to exercise ZPAQ.
+
+Coverage includes ZIP/XZ method 95, 7z, TAR/TGZ, ASAR, multi-block LZH/lh7,
+ISO/UDF trees, GZIP/XZ, 19 independent PEA fixtures and seven native NSIS
+Store/Deflate/BZip2/LZMA installers; optional ZPAQ solid/checksum cases; real
 EGG/PMA/Unix Compress/Lzip/ISZ/AES Crypt fixtures, UU/UUE/XXE, TLZ, cooked IMG/BIN views,
 synthetic ALZ/CFB regressions and native SFX. Synthetic containers are not
 independent interoperability evidence; MSI database extraction and unsupported

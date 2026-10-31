@@ -20,7 +20,7 @@
 - **实时进度条** -- 在 TTY 中显示速度、预计完成时间、逐文件状态
 - **取消安全** -- Ctrl+C 优雅退出，自动清理未完成文件；双击强制退出
 - **格式自动检测** -- 魔数字节识别 + 扩展名回退
-- **压缩级别** -- gzip/bzip2/tar.gz/tar.bz2/xz/lzma/tar.xz 支持 0-9；brotli/tar.br 支持 0-11；zstd/tar.zst 支持 0-22；LZH 0-4（lh0/lh4-lh7）；lz4/tar.lz4 仅接受 0 或省略
+- **压缩级别** -- gzip/bzip2/tar.gz/tar.bz2/xz/lzma/tar.xz 支持 0-9；brotli/tar.br 支持 0-11；zstd/tar.zst 支持 0-22；LZH 0-9（lh0/lh4-lh7，4+ 使用 lh7）；lz4/tar.lz4 仅接受 0 或省略
 - **覆盖控制** -- `--no-clobber` 跳过已有文件，`--force` 强制覆盖
 - **Zip Slip 防护** -- 所有归档格式都防护路径穿越攻击
 - **JSON 输出** -- `list --json` 机器可读；`test --json` 适合程序化验证
@@ -42,7 +42,7 @@
 
 | 格式 | 扩展名 | 读 | 写 | 说明 |
 |--------|-----------|:----:|:-----:|-------------|
-| ZIP | `.zip`, `.zipx`, `.jar`, `.war`, `.apk`, `.ipa`, `.xpi` | ✓ | ✓ | AES-256 加密写入；不支持 Deflate64 写入 |
+| ZIP / ZIPX | `.zip`, `.zipx`, `.jar`, `.war`, `.apk`, `.ipa`, `.xpi` | ✓ | ✓ | AES-256；ZIPX 创建使用 XZ method 95，未覆盖全部专有方法 |
 | TAR | `.tar` | ✓ | ✓ | |
 | GZIP / TAR.GZ | `.gz`, `.gzip`, `.tar.gz`, `.tgz` | ✓ | ✓ | 级别 0-9；tar.gz 使用 gzp 并行引擎 |
 | BZIP2 / TAR.BZ2 | `.bz2`, `.bzip2`, `.tar.bz2`, `.tbz`, `.tbz2` | ✓ | ✓ | 级别 0-9 |
@@ -52,30 +52,36 @@
 | XZ / TAR.XZ | `.xz`, `.tar.xz`, `.txz` | ✓ | ✓ | 级别 0-9 |
 | LZMA | `.lzma` | ✓ | ✓ | 级别 0-9 |
 | LZ / Lzip | `.lz` | ✓ | ✓ | LZMA 容器，含 CRC-32 校验 |
-| 7Z | `.7z` | ✓ | ✓ | AES-256 加密；固实模式；LZMA2/LZMA/BZIP2/PPMD/DEFLATE |
-| ISO 9660 | `.iso` | ✓ | ✓ | Level 1 写入；Joliet/Rock Ridge 读取 |
-| UDF | `.udf` | ✓ | ✓ | UDF 2.01 写入 |
-| ZPAQ | `.zpaq`, `.zpq` | ✓ | ✓ | 级别 1-5；需 C++17 编译器 |
-| LZH / LHA | `.lzh`, `.lha` | ✓ | ✓ | lh0-lh7 写入（级别 0-4）；CRC-16 校验 |
+| TLZ | `.tlz`, `.tar.lzma`, `.tar.lz` | ✓ | ✗ | TAR + LZMA Alone 或 Lzip |
+| 7Z | `.7z` | ✓ | ✓ | AES-256；solid；LZMA2/LZMA/BZIP2/PPMD/DEFLATE |
+| ISO 9660 | `.iso` | ✓ | ✓ | Level 1/Joliet/Rock Ridge；磁盘暂存、有界创建 |
+| UDF | `.udf` | ✓ | ✓ | UDF 1.02、CS0 Unicode；磁盘暂存、有界创建 |
+| ZPAQ | `.zpaq`, `.zpq` | 部分 | ✓ | 流式分段包可提取；journal 仅列出；模型 1–3，级别 4/5 使用模型 3 |
+| LZH / LHA | `.lzh`, `.lha` | ✓ | ✓ | lh0/lh4–lh7 创建，级别 0–9（4+ 使用 lh7）；有界暂存、CRC16 |
+| PMA | `.pma` | ✓ | ✗ | PMarc pm0/pm1/pm2；CRC16 |
 | CPIO | `.cpio` | ✓ | ✓ | newc/odc |
-| ASAR | `.asar` | ✓ | ✓ | Electron 归档；不支持加密 |
+| ASAR | `.asar` | ✓ | ✓ | Electron 归档；磁盘暂存与 SHA-256 integrity |
 | CAB | `.cab` | ✓ | ✓ | 仅单卷；不支持加密 |
 | DEB | `.deb` | ✓ | ✓ | data.tar\* payload；不支持加密 |
 | WIM / SWM | `.wim`, `.swm` | ✓ | ✓ | 未压缩写入、XPRESS 读取；LZX 兼容性待修复，LZMS 未实现 |
-| ISZ | `.isz` | ✓ | ✓ | 压缩 ISO 封装；单流 |
+| ISZ | `.isz` | ✓ | ✓ | 有界块创建/读取；直接提取 ISO 内容，暂不支持加密/分卷 |
+| SFX | `.exe` | ✓ | 按目标 | 自解压 ZIP；创建需非空目标 stub |
 | RAR | `.rar` | ✓ | ✗ | 只读（许可限制）；支持解密 |
-| AES 加密容器 | `.enc` | ✓ | ✓ | AES-256-GCM-SIV + Argon2id；验证完整容器，当前仍整体缓冲 |
-| IMG / IMA | `.img`, `.ima` | ✓ | ✓ | 透传身份复制 |
-| BIN | `.bin` | ✓ | ✓ | 透传身份复制 |
+| PEA | `.pea` | 部分 | ✗ | 单卷/单流未加密 Store/Deflate PCOMPRESS0–3；三层校验，UTF-8/ASCII 名称 |
+| NSIS 安装器 | `.exe`, `.nsis` | 部分 | ✗ | NSIS 3 Unicode Store/Deflate/BZip2/LZMA，solid/non-solid；静态路径、可选 CRC，不执行脚本/插件 |
+| 化合物 / MSI | `.msi`, `.msp`, `.mst`, `.cfb`, `.ole` | ✓ | ✗ | 原始 CFB streams，不解析 MSI 数据库或自动展开 CAB |
+| AES Crypt | `.aes` | ✓ | ✗ | v0–v3；认证后输出，有界缓冲 |
+| AES 加密容器 | `.enc` | ✓ | ✓ | AES-256-GCM-SIV + Argon2id；认证后输出，当前整体缓冲 |
+| IMG / IMA | `.img`, `.ima` | 光盘 | 透传 | cooked/raw ISO/UDF 内容提取；不支持 FAT/NTFS/分区盘 |
+| BIN | `.bin` | 光盘 | 透传 | ISO/UDF cooked 2048 或单轨 raw 2352 内容；无音轨/CUE |
 | UU / UUE | `.uu`, `.uue` | ✓ | ✓ | 文本编码/解码 |
 | XXE | `.xxe` | ✓ | ✓ | 文本编码/解码 |
-| Z (Unix Compress) | `.Z` | ✗ | ✗ | 仅识别格式，尚未实现操作支持 |
-| ARJ | `.arj` | ✓ | ✗ | 通过 unarc-rs 只读 |
-| ACE | `.ace` | ✓ | ✗ | 通过 unarc-rs 只读 |
-| ARC | `.arc` | ✓ | ✗ | 通过 unarc-rs 只读 |
-| ALZ | `.alz` | ✗ | ✗ | 仅识别格式，尚未实现操作支持 |
+| Z / Unix Compress | `.Z` | ✓ | ✗ | 有界流式 LZW；原格式无校验和 |
+| ARJ / ACE / ARC | `.arj`, `.ace`, `.arc` | ✓ | ✗ | unarc-rs 适配器 |
+| ALZ | `.alz` | 部分 | ✗ | 单卷 Store/Deflate 与 ZipCrypto；修改版 BZip2、其它方法及分卷未支持 |
+| EGG | `.egg` | 部分 | ✗ | 单卷非 solid 未加密 Store/Deflate/BZip2/LZMA；逐块 CRC/长度校验 |
 
-> **ZIPX 说明**：`.zipx` 作为 ZIP 兼容别名支持。不实现 WinZip 专有压缩方法。
+> **ZIPX 说明**：创建使用 XZ method 95；读取共用 ZIP codecs，未覆盖全部 WinZip 专有方法。
 > **WIM 写入**：WIM 写入器存储未压缩数据。如需压缩写入请使用 wimlib。
 > **格式限制详细说明见代码注释与 docs/PRD.md。**
 
@@ -285,7 +291,7 @@ geezipx compress <输入文件...> -o <输出文件> [选项]
 | `-o`, `--output` | 输出文件路径（除非使用 `--stdout`，否则必填） |
 | `-f`, `--format` | 格式：`zip`、`zipx`、`jar`、`war`、`apk`、`ipa`、`xpi`、`tar`、`tar.gz`、`tgz`、`tar.bz2`、`tbz`、`tbz2`、`tar.br`、`tar.lz4`、`tar.zst`、`tzst`、`tar.xz`、`txz`、`gz`、`gzip`、`bz2`、`bzip2`、`br`、`brotli`、`lz4`、`zst`、`zstd`、`xz`、`lzma`、`lz`、`7z`、`rar`（只读）、`cab`、`asar`、`deb`、`lzh`、`lha`、`iso`、`udf`、`cpio`、`zpaq`、`zpq`、`wim`、`swm`、`uu`、`uue`、`xxe`、`isz`、`aes`、`img`、`ima`、`bin`（省略时从扩展名推断，默认 zip） |
 | `-r`, `--recursive` | 递归添加目录 |
-| `-L`, `--level` | 压缩级别：0-9（gzip/bzip2/tar.gz/tar.bz2/xz/lzma/tar.xz）；0-11（brotli/tar.br）；0-22（zstd/zst/tar.zst/tzst）；0-4（LZH：0=lh0, 1=lh4, 2=lh5, 3=lh6, 4+=lh7）；lz4/tar.lz4 仅接受 0 或省略 |
+| `-L`, `--level` | 压缩级别：0-9（gzip/bzip2/tar.gz/tar.bz2/xz/lzma/tar.xz）；0-11（brotli/tar.br）；0-22（zstd/zst/tar.zst/tzst）；0-9（LZH：0=lh0, 1=lh4, 2=lh5, 3=lh6, 4+=lh7）；lz4/tar.lz4 仅接受 0 或省略 |
 | `-j`, `--jobs` | Worker 线程数：1（默认）、0（自动）或 N。tar.gz（gzp）和 zstd/tar.zst（zstdmt）启用多线程 |
 | `--password` | 使用 AES-256 加密 ZIP 或 7z 归档。可使用 `--password-file` 或 `--password-stdin` |
 | `--7z-method` | 7z 压缩方法：`lzma2`（默认）、`lzma`、`bzip2`、`ppmd`、`deflate`、`copy` |
@@ -449,7 +455,8 @@ SFX 功能需启用 `sfx` feature（CLI 默认包含），且所选目标必须�
 - **LZH/LHA 写入**：通过 `oxiarc-lzhuf` 支持 lh0（存储）至 lh7 压缩。CLI 级别 0→lh0, 1→lh4, 2→lh5, 3→lh6, 4+→lh7。单文件 >4 GiB 及扩展 header 元数据暂不支持。
 - **ISO 写入**：写入 ISO 9660 Level 1 + Joliet。扩展 Rock Ridge/Joliet 创建者元数据在复制时保留。UDF 写入请使用独立的 `udf` 格式。
 - **CPIO 写入**：支持 newc/odc。提取时不创建符号链接、设备、FIFO 或套接字。
-- **ZPAQ 写入**：支持级别 1-5。逐条目提取通过字节缓冲辅助函数实现，不保证流式提取。
+- **ZPAQ 写入**：磁盘暂存、有界 I/O，跨成员共享 solid 模型；模型 1–3 可用，兼容级别 4/5 映射到模型 3，不等于原生 CLI 的预处理方法 4/5。段 SHA-1 会验证；读取仍整体缓冲并可能逐项重复解码。标准 journal 仅列出逻辑文件，fragment/index 重建尚未接入；可提取 GeeZipX 的流式分段包。
+- **PEA / NSIS 读取**：均为有独立语料验证的只读子集，详见上表和[格式审查](docs/FORMAT_PARITY_AUDIT.md)。PEA 不支持加密/HMAC、ECC、分卷和旧 ANSI 名称；NSIS 不执行安装脚本/插件，不恢复运行时生成文件，旧版/ANSI/Park、BCJ、自定义打包 stub 及卸载器重建未覆盖。两个 GUI 需另行接入。
 - **ISZ**：围绕 ISO 数据的单流压缩封装。`list` 显示合成条目而非单个文件。
 - **AES `.enc`**：AES-256-GCM-SIV 加密 + Argon2id 密钥派生；打开时完成认证，`list` 和 `test` 同样验证完整容器。当前仍整体缓冲；尚未完整实现的流式容器明确拒绝。
 - **IMG / BIN**：透传身份复制——数据原样传递，无压缩或转换。

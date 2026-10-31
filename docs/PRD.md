@@ -77,6 +77,7 @@ GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开�
 | AES (.enc) | 读写 | AES-256-GCM-SIV + Argon2id；仅验证后的非流式容器 |
 | EGG | 部分只读 | 单卷非 solid 未加密 Store/Deflate/BZip2/LZMA，逐块 CRC/长度校验；AZO/solid/加密/分卷未支持 |
 | PEA | 部分只读 | 单卷/单流未加密 Store/Deflate PCOMPRESS0–3，对象/流/卷校验，有界读写及64MiB元数据预算；UTF-8/ASCII名称 |
+| NSIS (.exe，经PE载荷验证) | 部分只读 | NSIS 3 Unicode Store/Deflate/BZip2/LZMA，solid/non-solid；静态路径映射，可选容器CRC与长度校验，solid磁盘暂存；不执行安装脚本或插件 |
 | 化合物 / MSI (.msi/.msp/.mst/.cfb/.ole) | 只读 | 按需提取原始 CFB streams；不解析安装数据库或自动展开 CAB |
 | AES Crypt (.aes) | 只读 | v0–v3，认证后输出明文；有界缓冲、非 seek 输入暂存密文到磁盘 |
 | IMG (.img/.ima) | 光盘只读/创建透传 | cooked/raw ISO/UDF 内容提取；无 FAT/NTFS/分区盘支持 |
@@ -94,7 +95,8 @@ core/CLI 以 Bandizip 格式清单为对齐目标，包含已有格式的性能�
 
 | 范围 | 当前原因或状态 |
 |------|----------|
-| BH, DAA 1.0, NSIS | 本轮暂缓，具体规范、独立语料、容器解析及依赖路线见格式审查；不再按“无 Rust 生态”永久排除 |
+| BH, DAA 1.0 | 本轮暂缓，具体规范、独立语料、容器解析及依赖路线见格式审查；不再按“无 Rust 生态”永久排除 |
+| NSIS 未覆盖的变体 | ANSI/旧版/Park、BCJ-LZMA、自定义打包stub、运行时生成文件/插件结果与卸载器重建未支持；仅静态解读NSIS 3 Unicode嵌入文件，不执行脚本 |
 | PEA 未覆盖的变体 | 加密/HMAC、ECC、分卷、旧ANSI代码页未接入；仅核对声明的校验，NOALGO不提供对应完整性保证；不恢复日期/属性 |
 | EGG / ALZ 未覆盖的变体 | 已接入部分只读；solid/加密/分卷或专有压缩方法仍需逐项补齐 |
 | CPIO bin/crc | `cpio-archive` crate 不支持；1970 年代遗留格式，无现代使用场景 |

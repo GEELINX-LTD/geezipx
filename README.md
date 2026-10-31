@@ -20,7 +20,7 @@
 - **Live progress bars** -- real-time speed, ETA, and per-file status on TTY
 - **Cancel-safe** -- graceful Ctrl+C with partial-file cleanup; double Ctrl+C force-kill
 - **Auto-format detection** -- magic-byte recognition with extension-based fallback
-- **Compression levels** -- `--level 0-9` for gzip/bzip2/tar.gz/tar.bz2/xz/lzma/tar.xz; `--level 0-11` for brotli/tar.br; `--level 0-22` for zstd/tar.zst; LZH level 0-4 (lh0/lh4-lh7); lz4/tar.lz4 accept `0` or omitted level only
+- **Compression levels** -- `--level 0-9` for gzip/bzip2/tar.gz/tar.bz2/xz/lzma/tar.xz; `--level 0-11` for brotli/tar.br; `--level 0-22` for zstd/tar.zst; LZH level 0-9 (lh0/lh4-lh7; 4+ uses lh7); lz4/tar.lz4 accept `0` or omitted level only
 - **Clobber controls** -- `--no-clobber` to skip existing files, `--force` to overwrite
 - **Zip Slip protection** -- blocks path-traversal attacks in all archive formats
 - **JSON output** -- `list --json` for machine-readable inspection; `test --json` for programmatic integrity results
@@ -70,6 +70,7 @@
 | AES encrypted | `.enc` | ✓ | ✓ | AES-256-GCM-SIV + Argon2id; authenticated container; buffered processing |
 | EGG | `.egg` | Partial | ✗ | Single-volume, non-solid, unencrypted Store/Deflate/BZip2/LZMA; streaming block CRC checks |
 | PEA | `.pea` | Partial | ✗ | Single unencrypted volume/stream, Store/Deflate (PCOMPRESS0–3), object/stream/volume checksums; UTF-8/ASCII names |
+| NSIS installers | `.exe` (validated PE payload) | Partial | ✗ | NSIS 3 Unicode Store/Deflate/BZip2/LZMA, solid/non-solid; static paths; optional CRC; no script/plugin execution |
 | Compound / MSI | `.msi`, `.msp`, `.mst`, `.cfb`, `.ole` | ✓ | ✗ | Raw storage streams; seek-based; no MSI database reconstruction or recursive CAB extraction |
 | AES Crypt | `.aes` | ✓ | ✗ | v0–v3 via aescrypt-rs; bounded buffers; authenticate before plaintext output |
 | IMG / IMA | `.img`, `.ima` | ✓ | copy | ISO/UDF optical content; no FAT/NTFS/partitioned-disk support |
@@ -303,7 +304,7 @@ geezipx compress <inputs...> -o <output> [options]
 | `-o`, `--output` | Output file path (required unless `--stdout` is used) |
 | `-f`, `--format` | Format: `zip`, `zipx`, `jar`, `war`, `apk`, `ipa`, `xpi`, `tar`, `tar.gz`, `tgz`, `tar.bz2`, `tbz`, `tbz2`, `tar.br`, `tar.lz4`, `tar.zst`, `tzst`, `tar.xz`, `txz`, `gz`, `gzip`, `bz2`, `bzip2`, `br`, `brotli`, `lz4`, `zst`, `zstd`, `xz`, `lzma`, `lz`, `7z`, `rar` (read-only), `pea` (read-only), `cab`, `asar`, `deb`, `lzh`, `lha`, `iso`, `udf`, `cpio`, `zpaq`, `zpq`, `wim`, `swm`, `uu`, `uue`, `xxe`, `isz`, `aes`, `img`, `ima`, `bin` (inferred from extension if omitted, defaults to zip) |
 | `-r`, `--recursive` | Recursively add directories |
-| `-L`, `--level` | Compression level: 0-9 (zip/zipx/gzip/bzip2/tar.gz/tar.bz2/xz/lzma/tar.xz); 0-11 (brotli/tar.br); 0-22 (zstd/zst/tar.zst/tzst); 0-4 (LZH: 0=lh0, 1=lh4, 2=lh5, 3=lh6, 4+=lh7); lz4/tar.lz4 accept `0` or omitted only |
+| `-L`, `--level` | Compression level: 0-9 (zip/zipx/gzip/bzip2/tar.gz/tar.bz2/xz/lzma/tar.xz); 0-11 (brotli/tar.br); 0-22 (zstd/zst/tar.zst/tzst); 0-9 (LZH: 0=lh0, 1=lh4, 2=lh5, 3=lh6, 4+=lh7); lz4/tar.lz4 accept `0` or omitted only |
 | `-j`, `--jobs` | Worker threads: 1 (default, single-threaded), 0 (auto), or N. Effective for tar.gz (gzp), xz/tar.xz (liblzma block parallelism), and zstd/tar.zst (zstdmt); XZ memory grows with jobs and dictionary size |
 | `--password` | Encrypt ZIP or 7z with AES-256. Use `--password-file` or `--password-stdin` alternatives |
 | `--7z-method` | 7z compression method: `lzma2` (default), `lzma`, `bzip2`, `ppmd`, `deflate`, `copy` |
@@ -502,7 +503,9 @@ Most format limitations are documented in the Format Support table above. Key de
 - **PEA**: Reads one unencrypted stream/volume using Store or block Deflate (PCOMPRESS0–3). Verifies declared object, stream and volume checksums, with bounded 64 KiB buffers and a 64 MiB metadata budget. Opening verifies the archive before exposing entries; extraction seeks to indexed records. UTF-8/ASCII names are supported. Encryption/HMAC, split volumes, ECC and legacy ANSI code pages are unsupported; stored dates and attributes are not restored. NOALGO omits the corresponding integrity check. Both GUIs still require a separate adapter.
 - **RAR**: Read-only by licensing limitation. Decryption is supported via password flags.
 
-The complete core/CLI pass against the Bandizip format list, including performance debt and deferred work, is recorded in [FORMAT_PARITY_AUDIT.md](docs/FORMAT_PARITY_AUDIT.md). BH, DAA 1.0 and NSIS extraction remain unimplemented. ALZ, EGG, PEA, optical disk images, WIM and executable SFX have the subset limits recorded there; a matching extension alone does not imply full compatibility. The follow-up [parser and interoperability acceptance report](docs/FORMAT_PARITY_ACCEPTANCE.md) records real EGG, UltraISO ISZ and AES Crypt samples, independent tool comparisons, resource budgets and remaining cases.
+- **NSIS**: Reads validated NSIS 3 Unicode PE installers using Store/Deflate/BZip2/LZMA, solid or non-solid, with static paths relative to `$INSTDIR` and optional container CRC. Solid payloads are decoded once to anonymous disk storage; metadata and dictionaries have 64 MiB limits. No installer script or plugin is executed. ANSI/legacy/Park, BCJ LZMA, custom packed stubs, runtime-generated files and uninstaller reconstruction are unsupported. Both GUIs require a separate adapter.
+
+The complete core/CLI pass against the Bandizip format list, including performance debt and deferred work, is recorded in [FORMAT_PARITY_AUDIT.md](docs/FORMAT_PARITY_AUDIT.md). BH and DAA 1.0 extraction remain unimplemented. ALZ, EGG, PEA, NSIS, optical disk images, WIM and executable SFX have the subset limits recorded there; a matching extension alone does not imply full compatibility. The follow-up [parser and interoperability acceptance report](docs/FORMAT_PARITY_ACCEPTANCE.md) records real EGG, UltraISO ISZ and AES Crypt samples, independent tool comparisons, resource budgets and remaining cases.
 
 ### Benchmarks
 

@@ -72,6 +72,7 @@ unalz = "0.2.1"
 aescrypt-rs = "=0.2.0-rc.18"
 cfb = "0.15.0"
 unegg = "0.2.1"
+nsis = { package = "geezipx-nsis", version = "0.1.0", path = "../vendor/nsis" }
 # Optional: ZPAQ read/write (feature-gated, requires Rust 1.85+ and a C++17 compiler)
 zpaq_rs = { workspace = true, optional = true }
 

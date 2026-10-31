@@ -1,0 +1,37 @@
+
+7-Zip 24.08 (x64) : Copyright (c) 1999-2024 Igor Pavlov : 2024-08-11
+
+Scanning the drive for archives:
+1 file, 38775 bytes (38 KiB)
+
+Listing archive: bzip2_solid.exe
+
+--
+Path = bzip2_solid.exe
+Type = Nsis
+Physical Size = 38775
+Method = BZip2
+Solid = +
+Headers Size = 3974
+Embedded Stub Size = 37888
+SubType = NSIS-3 Unicode
+
+----------
+Path = payload.txt
+Size = 53
+Packed Size = 883
+Modified = 2026-01-01 00:00:00.0000000
+Attributes = 
+Method = BZip2
+Solid = +
+Offset = 0
+
+Path = config.ini
+Size = 
+Packed Size = 
+Modified = 2026-01-01 00:00:00.0000000
+Attributes = 
+Method = BZip2
+Solid = +
+Offset = 57
+
