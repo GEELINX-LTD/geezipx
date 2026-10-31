@@ -15,7 +15,14 @@ https://creativecommons.org/publicdomain/zero/1.0/
 - `empty_noblock.egg`: empty file represented without a compressed block.
 
 The regression tests verify independent expected lengths/CRCs rather than
-writing these samples with GeeZipX. Additional Store/Deflate/BZip2/mixed-method
-samples were checked during acceptance; encrypted/solid/split/AZO remain outside
-this reader's scope. Sample checksums and acceptance details are in
+writing these samples with GeeZipX. A separate Go implementation,
+[blurfx/unegg](https://github.com/blurfx/unegg/tree/53bd143885752d1c940bb318200773f792fe93fb),
+was built at commit `53bd143885752d1c940bb318200773f792fe93fb` with Go 1.24.4.
+Its extracted relative filenames, sizes and SHA-256 hashes match GeeZipX for
+six external Store/Deflate/BZip2/LZMA/mixed/empty archives (22 files total).
+It rejects the POSIX-extra signature in `posix.egg`, so that fixture is verified
+against upstream recorded contents rather than counted as a cross-tool success.
+
+Encrypted/solid/split/AZO remain outside this reader's scope. Input checksums,
+canonical output-tree digests and acceptance details are in
 `docs/FORMAT_PARITY_ACCEPTANCE.md` at the repository root.

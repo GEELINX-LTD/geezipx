@@ -4,7 +4,7 @@
 
 性能原则：优先有界缓冲的流式 I/O；可寻址容器优先磁盘暂存而非整文件驻内存；不以未校验的输出换取速度。编码器字典占用随压缩等级变化。专项测试后执行 workspace fmt/clippy/test 门禁；独立工具互操作与内部 round-trip 分开记录。
 
-## 本轮结论与验证
+## 第一轮结论与验证（截至 `3a886ae`）
 
 用户清单中的创建与提取项已逐个完成一轮排查；有变化的实现、性能修复及暂缓分析分别提交。创建清单中的 ZIPX/XZ 已补齐，SFX 仍要求对应目标 stub；其它指定创建方法已核对。BH、DAA 1.0、PEA、NSIS 提取本轮暂缓，ALZ/EGG、MSI、光盘映像、WIM、SFX 和 ZIPX 的子集限制见逐项表；本轮完成不代表与 Bandizip 全变体兼容。
 
@@ -20,15 +20,16 @@
 
 性能改进集中在消除整包驻内存和重复解码；未建立新的统一吞吐基线。ISO/UDF/ASAR/LZH/ZPAQ 创建与部分第三方读取 API 等性能债务已保留具体原因和后续路线。
 
-## 新实现专项验收（后续轮次）
+## 第二轮：新实现专项验收
 
-- ALZ：复现旧实现接受缺少 BFINAL/流结束标记的 Deflate（原始长度与 CRC 均匹配，CLI `test` 错误返回成功）。改用固定 32 KiB 输入/输出缓冲，要求 `StreamEnd` 且精确消耗声明的压缩区间；写入前限制原始长度，打开时校验 payload 范围。新增非 final 块、尾随垃圾、输出越界回归；专项测试与 core Clippy 通过。没有通过忽略 CRC 或扩大缓冲绕过损坏检测。
+- ALZ：严格要求Deflate流结束、声明区间、CRC和长度；固定32KiB工作缓冲，拒绝输出越界。再次修复重复规范化名称指向首项的问题。
+- EGG：7份真实样本通过上游记录比对；独立Go解包器验证其中6份、22个文件的路径/长度/SHA-256。修复合法无EOS的LZMA块误拒绝，新增64MiB索引预算和父引用/重复ID/截断检查；POSIX样本不能计为独立Go工具通过。
+- ISZ：官方UltraISO 9.7.6.3829生成的默认zlib归档，ISO还原与官方输出逐字节一致并通过7-Zip校验；修复非final/缺Adler32的误接受，流式/seek视图共用严格块校验。
+- AES Crypt：官方Linux CLI 4.7.0交叉验证63份v0–v2向量，官方新建v3含中文密码通过；保留边界fixture，验证认证失败不写目标，并明确旧格式长度字节不受MAC保护。
+- Lzip / TLZ / LZMA Alone：严格Lzip成员封装，拒绝空输入/残缺头/IO错误/尾随垃圾；固定缓冲及256MiB解码预算，GNU Lzip 1.25等级0/6/9与拼接成员互操作通过。
+- IMG / BIN：修复短Read误识别，按需校验每个raw CD扇区的同步/模式/子头并缓存当前扇区；CFB在解析前限制FAT估算预算64MiB，避免稀疏文件导致大额分配。
 
-- EGG：真实 `alkegi/unegg` CC0 样本暴露 LZMA 无 EOS 块被误判截断，已使用块的已知原始长度解码；独立 Store/Deflate/BZip2/LZMA/混合方法、Android POSIX 元数据、无块空文件共 7 份样本通过。新增 64 MiB 累计索引预算、范围和父引用校验，拒绝重复 ID/名称、循环/缺失父项、截断及尾随压缩数据；四项回归与 core Clippy 通过。保留 3 份最小真实样本及来源/许可；验收详情见 [专项验收](FORMAT_PARITY_ACCEPTANCE.md)。
-
-- ISZ：官方 UltraISO9.7.6.3829生成的真实zlib ISZ通过；还原ISO与官方结果逐字节一致并通过7-Zip校验，已保留自有内容fixture。修复“非final/缺Adler32但输出长度匹配”的zlib误接受；流式和seek视图共用StreamEnd/精确输入长度验证。详见[专项验收](FORMAT_PARITY_ACCEPTANCE.md)。
-
-- AES Crypt：官方Linux CLI4.7.0与GeeZipX CLI逐字节比对63份v0–v2向量通过；官方新建v3含中文密码通过。保留9份旧版边界向量和v3 fixture，回归涵盖短Read、错误密码、截断和MAC损坏不写目标；补seek双遍源不可变约定及旧格式长度不认证的限制。
+完整Linux门禁：fmt、workspace Clippy `-D warnings`、workspace all-features测试均通过，**1135通过、9忽略、0失败**。复查范围、8个代码/样本提交、样本来源/许可/摘要及未覆盖变体，详见[专项验收](FORMAT_PARITY_ACCEPTANCE.md)。
 
 ## 逐项记录
 
@@ -55,11 +56,11 @@
 | 化合物 / MSI | 已实现容器流提取并补FAT预算 | cfb 0.15；识别CFB magic/.msi/.msp/.mst/.cfb/.ole；mini-stream/普通流Read+Seek按需复制。打开前64MiB FAT估算预算（512/4096字节扇区约8/64GiB容器），目录等其它元数据仍驻内存。提取原始OLE/MSI streams，不解释MSI数据库File表、不自动展开CAB |
 | DAA 1.0 | 暂缓：无已验证适配器/语料 | 可参考 GPL-2.0 daa2iso，但本项目 MIT，未直接移植；尚无独立 DAA1.0 chunk/损坏/密码/分卷语料验证。后续独立规范实现或隔离转换器需先定依赖/许可策略；必须有界块索引+缓存，转换 ISO 后再提供内容视图，不能仅识别 DAA 算支持 |
 | DEB | 已优化创建内存及顺序提取 | 创建从整包原文/TAR/压缩载荷 Vec 改为磁盘暂存/64KiB 缓冲，控制信息仅小 Vec；读取 gzip/xz/zstd/bzip2/lzma/plain TAR 复用单次顺序 visitor，整包不再逐项重复解压并验证 codec trailer。现有6 codec/路径/空目录回归与新增 TAR 终止符之后 gzip CRC 损坏回归通过。创建仍经原文/TAR/压缩暂存多遍磁盘I/O，后续可将 TAR builder 直接连到编码器；只提取 data.tar 内容，不解释控制信息 |
-| EGG | 部分实现 | 单卷非 solid 未加密 Store/Deflate/BZip2/LZMA 流式提取，逐块 CRC32/长度及流结束校验；LZMA 字典内存上限 256 MiB。自有 seek 索引解析设置64 MiB累计元数据预算及路径父引用检查，unegg仅复用类型/名称编码；真实7份独立样本验收通过，含无EOS LZMA和POSIX元数据。AZO/solid/分卷/加密暂缓 |
+| EGG | 部分实现 | 单卷非 solid 未加密 Store/Deflate/BZip2/LZMA 流式提取，逐块 CRC32/长度及流结束校验；LZMA 字典内存上限 256 MiB。自有 seek 索引解析设置64 MiB累计元数据预算及路径父引用检查，unegg仅复用类型/名称编码；7份真实样本记录核对、6份/22个文件与独立Go工具哈希一致，含无EOS LZMA和POSIX元数据解析；AZO/solid/分卷/加密暂缓 |
 | IMG / IMA | 已实现光盘内容读取 | 与 BIN 复用 cooked/raw 光盘 reader，实际提取 ISO/UDF 文件，非光盘数据拒绝。修复短Read探测并逐个验证被读取的raw扇区头/模式，缓存当前扇区且保持流式；不含EDC/ECC。FAT12/16/32、NTFS、分区盘、稀疏磁盘/多轨待补，不能宣称通用 IMG 支持；旧 core/CLI stdin copy API 保留显式透传 |
-| ISZ | 已修复兼容性并优化内存/提取 | 按公开规范将 block_size 改为字节并接受 48-byte 头，兼容旧 GeeZipX 64-byte/sector 字段；创建使用 2MiB 输入块/磁盘暂存载荷和索引，Store/Zlib/Zero 自选。新增 Read+Seek 单块缓存（解压块/index 各最大64MiB），CLI list/decompress 直接提取 ISO 内文件，--stdout 仍还原 ISO，test 校验全部块。加密/分卷/非3-byte pointers 暂缓；真实 UltraISO 样本互操作待补；规范 https://forum.imgburn.com/topic/14260-isz-images-supporting/ |
+| ISZ | 已修复兼容性并优化内存/提取 | 按公开规范将 block_size 改为字节并接受 48-byte 头，兼容旧 GeeZipX 64-byte/sector 字段；创建使用 2MiB 输入块/磁盘暂存载荷和索引，Store/Zlib/Zero 自选。新增 Read+Seek 单块缓存（解压块/index 各最大64MiB），CLI list/decompress 直接提取 ISO 内文件，--stdout 仍还原 ISO，test 校验全部块。加密/分卷/非3-byte pointers暂缓；官方UltraISO 9.7.6.3829默认zlib样本互操作通过，修复StreamEnd/Adler32缺失误接受；规范 https://forum.imgburn.com/topic/14260-isz-images-supporting/ |
 | LZ / Lzip | 已完善严格解码与等级校验 | 写入仍用lzma-rust2，读取改为严格Lzip v1成员封装+已有liblzma，拒绝空输入/残缺头/错误IO/尾随垃圾；CRC32、数据/成员长度检查；256MiB解码内存上限和64KiB输入缓冲；GNU Lzip1.25多等级/拼接成员通过并保留fixture。0..9等级错误返回，level0仍为压缩；编码字典随等级分配，单流jobs暂不生效 |
-| LZMA | 已复核并修复共享 API | liblzma Alone 编解码均流式，等级0仍压缩；补充 LZMA/XZ非法等级回归，并修复共享 XZ简化API对非法等级panic。现有 LZMA 空流/截断/级别/往返测试通过。Alone无原生CRC，无法保证检测全部位翻转；解码目前内存limit不限，后续应新增可配置memlimit而非悄然拒绝合法大字典；字典占用与文件体积无关 |
+| LZMA | 已复核并修复共享 API | liblzma Alone 编解码均流式，等级0仍压缩；补充 LZMA/XZ非法等级回归，并修复共享 XZ简化API对非法等级panic。现有 LZMA 空流/截断/级别/往返测试通过。Alone无原生CRC，无法保证检测全部位翻转；解码已设256MiB内存预算，超限明确拒绝，可配置预算待补；字典占用与文件体积无关 |
 | PMA | 已实现读取 | 升级 delharc 0.8，启用 pm0/pm1/pm2；复用 LHA 流式读取与 CRC16 校验；独立 PM1/PM2 样本及 CRC32 验证通过；拒绝以 PMA 名义创建 LZH |
 | RAR / RAR5 | 已优化顺序校验并修复空文件计数 | 新增直接 visitor，CLI test/顺序访问一次打开、保留 solid 状态，避免逐项重扫；修复两种 extract_all 空文件未计数。RAR4/RAR5 solid/Unicode 等5个独立 unrar fixture 与 bsdtar 提取逐文件SHA256一致；新增可移植 Store/空文件回归。unrar 0.5 writer callback 未公开，仍整项 Vec（大单项/取消延迟债务）；后续需安全 ReadToWriter upstream API，不能直接把 native extract_to 用于通用流以避免链接/路径语义变化；分卷/密码仍受库支持范围限制 |
 | TLZ | 已实现读取并补资源边界 | `.tlz` / `.tar.lzma` / `.tar.lz` 支持 LZMA Alone 与 Lzip 两种外层，逐项访问单次流式解码；复用严格Lzip reader，Alone/Lzip解码预算256MiB。修复短Read误识别外层，截断/拼接/超大字典回归通过；不支持创建 |

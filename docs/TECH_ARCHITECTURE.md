@@ -529,6 +529,7 @@ crates/gui-tauri/
 | WIM | 无压缩写入与 XPRESS 读取可用；LZX 的独立 wimlib 样本尚未通过，LZMS、分割 SWM 与第一映像以外提取未实现 |
 | 内存预算 | ISZ、CAB、DEB、CPIO 创建改用有界块/磁盘暂存；UDF 读取使用64KiB seek缓冲，UU/XXE CLI逐行处理。ISO/UDF/ASAR/LZH/ZPAQ 创建、旧 `.enc`、部分第三方 reader 仍有整包/整项缓冲；WIM metadata/目录驻内存，不能保证所有格式低于固定上限 |
 | AES 容器 | `.enc` 支持经验证的非流式容器，拒绝不安全 schema 和超额 KDF；`.aes` 用 AES Crypt v0–v3 双遍认证后解密，非seek输入暂存密文。两者格式不兼容，创建 `.aes` 不会回退生成 `.enc` |
+| 新读取预算 | EGG累计索引64MiB；CFB打开前FAT估算64MiB（不含目录等总开销）；Lzip/LZMA Alone/TLZ解码256MiB。超过当前预算明确拒绝，并非所有合法大字典/容器均可读；可配置预算和其它累计元数据计费待补。互操作证据见[专项验收](FORMAT_PARITY_ACCEPTANCE.md) |
 | 系统关联恢复 | 多键注册尚无完整回滚；Linux 旧 handler 备份仅会话内有效，desktop ID 查找未完整遵循 XDG；安装关联表仍宽于 GUI 实际能力 |
 | 组事务与持久性 | 多文件提取按条目发布，多卷不能整组原子提交；普通失败会清理，不保证强杀、断电或所有文件系统语义下的完整回滚 |
 | 格式范围 | ALZ/EGG 部分只读；Z/PMA/TLZ/AES Crypt/Compound 已接入；BH/DAA1.0/PEA/NSIS 暂缓。逐项证据、性能债务及后续方案见 [格式审查](FORMAT_PARITY_AUDIT.md)；两个 GUI 的清单分别维护，均不等同于 core/CLI |

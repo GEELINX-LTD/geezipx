@@ -29,10 +29,10 @@ Win11 一级菜单的实验 [PR #33](https://github.com/GEELINX-LTD/geezipx/pull
 
 ## 3. 候选包构建与追溯
 
-格式对齐分支在 Linux 上的全 feature fmt/Clippy/工作区测试已通过（1119 通过、9 忽略、0 失败），core/CLI 关闭默认 feature 测试亦通过（998 通过、4 忽略、0 失败），`cargo deny check advisories bans licenses sources` 通过。忽略项没有计入通过数；各格式实际互操作样本与未完成变体以格式审查为准。发布前还需：
+格式对齐分支第二轮专项验收已通过Linux全feature fmt/Clippy/工作区测试（1135通过、9忽略、0失败），细节见[专项验收](FORMAT_PARITY_ACCEPTANCE.md)。第一轮截至`3a886ae`的core/CLI关闭默认feature测试（998通过、4忽略）及`cargo deny check advisories bans licenses sources`亦通过；最终候选仍应按影响范围复核。忽略项不计入通过数，支持范围以逐项格式审查为准。发布前还需：
 
 - [ ] 对最终候选提交执行 Windows/macOS/Linux CLI 构建与新增格式抽查，覆盖 ZIPX/XZ、AES Crypt、PMA/TLZ、ALZ/EGG 子集及 IMG/BIN/ISZ 内容视图。
-- [ ] 补充官方 AES v0–v2、真实 EGG 与 UltraISO ISZ 独立样本；内部 round-trip 不替代这些互操作验收。
+- [x] AES Crypt官方CLI交叉核验63份v0–v2向量及官方新建v3；7份真实EGG通过上游记录，其中6份/22个文件与独立Go工具哈希一致；UltraISO默认zlib ISZ还原结果与官方逐字节一致。未覆盖变体和样本来源见专项验收。
 - [ ] 涉及 stub 源码/依赖变化时重建三平台嵌入 stub，并对实际产出的 ZIP SFX 执行创建/提取验收。
 
 - [ ] 将通过检查的修复整理到可审查提交，并将候选分支推送至远端。

@@ -499,7 +499,7 @@ Most format limitations are documented in the Format Support table above. Key de
 - **UU / UUE / XXE**: Legacy text-encoding formats. Both decode (list/decompress/test) and encode (compress) are supported.
 - **RAR**: Read-only by licensing limitation. Decryption is supported via password flags.
 
-The complete core/CLI pass against the Bandizip format list, including performance debt and deferred work, is recorded in [FORMAT_PARITY_AUDIT.md](docs/FORMAT_PARITY_AUDIT.md). BH, DAA 1.0, PEA and NSIS extraction remain unimplemented. ALZ, EGG, optical disk images, WIM and executable SFX have the subset limits recorded there; a matching extension alone does not imply full compatibility.
+The complete core/CLI pass against the Bandizip format list, including performance debt and deferred work, is recorded in [FORMAT_PARITY_AUDIT.md](docs/FORMAT_PARITY_AUDIT.md). BH, DAA 1.0, PEA and NSIS extraction remain unimplemented. ALZ, EGG, optical disk images, WIM and executable SFX have the subset limits recorded there; a matching extension alone does not imply full compatibility. The follow-up [parser and interoperability acceptance report](docs/FORMAT_PARITY_ACCEPTANCE.md) records real EGG, UltraISO ISZ and AES Crypt samples, independent tool comparisons, resource budgets and remaining cases.
 
 ### Benchmarks
 
