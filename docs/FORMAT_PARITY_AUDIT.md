@@ -45,7 +45,7 @@
 | XZ / TXZ | 已优化 | `--jobs` 接入 liblzma MtStreamBuilder；默认单线程；TAR.XZ 各读取路径统一多流解码；无效选项返回错误 |
 | ACE | 已修复列表、CRC、密码与 solid 前驱处理 | 列表显式跳过 payload，修复有效档报错；ACE CRC 元数据转为标准 CRC32；CLI 接受并在打开底层解码器前传递密码（补充 Blowfish 密码向量回归，避免 unified setter 仅更新 options 导致丢失）；单项提取先解码 solid 前驱以恢复字典，传播跳过错误。ACE v1/v2 真实样本 CLI test 通过。unarc-rs 0.8 解码 API 仍返回整项 Vec，逐项重新打开带来重复扫描，流式 writer API 需上游改造；不能将 read_to 包装误报为流式 |
 | AES | 已接入 AES Crypt 读取 | aescrypt-rs 0.2.0-rc.18（锁定版本）支持 v0–v3；`.aes`/AES magic 路由，双遍验证后释放明文；通用非 seek API 将密文暂存磁盘，64 KiB 级缓冲。v0–v2全部63向量与官方4.7.0交叉比对，官方v3/中文密码通过；长度字节不受认证是旧格式限制，seek双遍源须不可变；原 `.enc` 仍非流式，拒绝以 `.aes` 创建旧容器 |
-| ALZ | 部分实现 | 新增单卷 Store/Deflate 流式提取、CRC/长度校验、ZipCrypto 密码；索引缓存避免逐项重扫。修改版 BZip2 库需要整压缩项缓冲、method 3 以及分卷暂缓；路径需 UTF-8 |
+| ALZ | 部分实现 | 新增单卷Store/Deflate流式提取、CRC/长度及严格流结束校验、ZipCrypto密码；索引缓存避免逐项重扫并拒绝重复规范化名称。修改版BZip2库需要整压缩项缓冲，method3/分卷暂缓；路径需UTF-8，累计索引预算和真实加密样本待补 |
 | ARJ | 已修复列表与密码 | 列表显式 skip payload 并传播错误；CLI 在打开解码器前传递密码（Garble/GOST 由依赖处理），Garble 正确/缺失/错误密码回归覆盖 setter 未更新 backend 的缺陷；真实 method0–4 样本 CLI test 通过，损坏 CRC 样本失败符合预期；unarc-rs 返回整项 Vec 和逐项重复扫描仍为性能债务，分卷需 volume provider 尚未接入 |
 | BH | 暂缓：规范及独立语料不足 | BlakHole/ZipTV 专有容器，未找到足以验证 header/codec/CRC 的可用解析器与独立样本；不能用ZIP别名替代。后续先补来源可追溯的 Store/压缩/损坏/Unicode 档及规范，按索引+有界Read实现，见下方阻碍记录 |
 | BIN | 已实现光盘内容读取 | CLI list/test/decompress 改为解析 ISO9660/Joliet/Rock Ridge/UDF；支持 2048-byte cooked 和单轨 2352-byte Mode1/Mode2 Form1，缓存索引/按需 seek/64KiB 缓冲，拒绝未知文件。音轨/CUE/混合轨、分区/FAT 等磁盘布局暂缓，需多轨/文件系统适配；旧 core bin_decompress 仍为显式原始复制 API |

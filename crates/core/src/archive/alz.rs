@@ -45,7 +45,10 @@ impl AlzReader {
             {
                 return Err(error("payload extends beyond archive"));
             }
-            index.entry(e.file_name.replace('\\', "/")).or_insert(i);
+            let name = e.file_name.replace('\\', "/");
+            if index.insert(name, i).is_some() {
+                return Err(error("duplicate normalized ALZ entry name"));
+            }
         }
         Ok(Self {
             reader,
@@ -276,6 +279,21 @@ mod tests {
         let mut output = Vec::new();
         assert!(reader.extract(&entry, &mut output).is_err());
         assert!(output.len() <= 1);
+    }
+
+    #[test]
+    fn reject_duplicate_normalized_names() {
+        for names in [(b"a.txt", b"a.txt"), (b"a/txt", b"a\\txt")] {
+            let mut first = fixture(0, b"first");
+            let mut second = fixture(0, b"different second payload");
+            first[35..40].copy_from_slice(names.0);
+            second[35..40].copy_from_slice(names.1);
+            first.truncate(first.len() - 16); // replace archive footer with another local record
+            first.extend_from_slice(&second[8..]);
+            let temp = tempfile::NamedTempFile::new().unwrap();
+            std::fs::write(temp.path(), first).unwrap();
+            assert!(AlzReader::open(temp.path(), None).is_err());
+        }
     }
 
     #[test]
