@@ -29,13 +29,13 @@ Win11 一级菜单的实验 [PR #33](https://github.com/GEELINX-LTD/geezipx/pull
 
 ## 3. 候选包构建与追溯
 
-格式对齐分支第二轮专项验收已通过Linux全feature fmt/Clippy/工作区测试（1135通过、9忽略、0失败），细节见[专项验收](FORMAT_PARITY_ACCEPTANCE.md)。第一轮截至`3a886ae`的core/CLI关闭默认feature测试（998通过、4忽略）及`cargo deny check advisories bans licenses sources`亦通过；最终候选仍应按影响范围复核。忽略项不计入通过数，支持范围以逐项格式审查为准。发布前还需：
+格式对齐分支已完成三轮实现/专项验收。候选`8f5e9f53780ec5502efc9fda5bf8708a29288eb7`的[CI](https://github.com/GEELINX-LTD/geezipx/actions/runs/41159081353)及[Audit](https://github.com/GEELINX-LTD/geezipx/actions/runs/41159057553)均成功；x86-64三平台最小/基础/扩展feature测试与实际CLI每平台39项验收通过，含新建原生SFX执行。macOS扩展配置为RAR/WIM/SFX，沿用ZPAQ限制。系统版本、测试数量、已下载产物SHA-256及未覆盖变体见[专项验收](FORMAT_PARITY_ACCEPTANCE.md#第三轮三平台原生候选验收)。忽略项不计为通过；最终发布源码/依赖变更后仍应按影响范围重验。后续发布验收项如下：
 
-- [ ] 对最终候选提交执行 Windows/macOS/Linux CLI 构建与新增格式抽查，覆盖 ZIPX/XZ、AES Crypt、PMA/TLZ、ALZ/EGG 子集及 IMG/BIN/ISZ 内容视图。
+- [x] 对格式对齐候选`8f5e9f5`执行Windows/macOS/Linux CLI构建与新增格式抽查，覆盖ZIPX/XZ、AES Crypt、PMA/TLZ、ALZ/EGG子集、UU/UUE/XXE及IMG/BIN/ISZ内容视图。
 - [x] AES Crypt官方CLI交叉核验63份v0–v2向量及官方新建v3；7份真实EGG通过上游记录，其中6份/22个文件与独立Go工具哈希一致；UltraISO默认zlib ISZ还原结果与官方逐字节一致。未覆盖变体和样本来源见专项验收。
-- [ ] 涉及 stub 源码/依赖变化时重建三平台嵌入 stub，并对实际产出的 ZIP SFX 执行创建/提取验收。
+- [x] CI构建时重建并嵌入三平台目标stub，实际创建/执行ZIP SFX；下载Linux候选包再次执行通过。后续stub源码/依赖变化仍需重验。
 
-- [ ] 将通过检查的修复整理到可审查提交，并将候选分支推送至远端。
+- [x] 修复已整理为独立提交，并将`feature/core-format-parity`候选分支推送远端；本次验证源码为`8f5e9f5`。
 - [ ] 针对候选分支触发 `.github/workflows/gui-windows.yml`，记录 run URL 与完整 `head_sha`，确认 GUI Rust 测试及 NSIS 构建通过。
 - [ ] 核对 artifact `geezipx-gui-windows-x86_64` 同时包含非空的 NSIS 安装程序和独立 `geezipx-gui.exe`。
 - [ ] 下载本次 run 的产物并计算 SHA256；确认运行提交与候选提交一致。

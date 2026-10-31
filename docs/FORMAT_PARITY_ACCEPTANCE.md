@@ -1,6 +1,6 @@
 # Core/CLI 新实现专项验收
 
-这是格式清单第一轮实现后的专项复查记录；兼容范围总表见 [FORMAT_PARITY_AUDIT.md](FORMAT_PARITY_AUDIT.md)。真实样本、独立工具和结构损坏回归分别记录，不把内部 round-trip 当作互操作证据。当前结果来自 Linux；Wine 中运行的外部工具不计作 Windows 原生验收。
+这是格式清单第一轮实现后的专项复查记录；兼容范围总表见 [FORMAT_PARITY_AUDIT.md](FORMAT_PARITY_AUDIT.md)。真实样本、独立工具和结构损坏回归分别记录，不把内部 round-trip 当作互操作证据。第二轮独立参考工具验收来自 Linux，包含隔离 Wine；第三轮补充了下述 x86-64 三平台原生 CLI 验收。
 
 ## EGG
 
@@ -89,7 +89,7 @@ GNU Lzip1.25独立生成levels0/6/9，各262182字节明文以及拼接成员均
 - TLZ：顺序visitor一次解码，提取/校验继续读完外层以验证尾部；`entries()`仍收集全部目录元数据，大目录统一预算是后续项。LZMA Alone共用256MiB预算，避免从未验证的字典参数直接大额分配。
 - 共享CLI回归验证坏压缩流保留旧目标并清理新目标、错误AES密码不改目标、取消清理临时文件、部分归档提取失败返回失败状态。完整门禁执行了这些既有回归。
 
-## 最终验证与待办
+## 第二轮 Linux 门禁与待办
 
 本轮代码/样本提交为`670bfe2`、`66cb7a7`、`cd0e31a`、`8221139`、`07931bc`、`c5b03dc`、`77cd3b4`、`5ea7fa6`。最终Linux工作区检查通过：
 
@@ -98,6 +98,54 @@ GNU Lzip1.25独立生成levels0/6/9，各262182字节明文以及拼接成员均
 - `cargo test --workspace --exclude geezipx-gui --all-features`：**1135通过、9忽略、0失败**；逐目标检查了实际执行数量。专项core命令使用`-p geezipx-core`，CLI包`-p geezipx`的零匹配测试不计为core验证。
 - 重建`cargo build -p geezipx --all-features`后，用实际CLI完成独立EGG文件树比较；另外复核63份AES官方明文输出、ISZ官方ISO逐字节一致以及19个样本校验值。
 
-本轮性能措施是有界流式I/O、固定缓冲、在分配前检查字典/FAT/索引预算、按扇区缓存和避免重复解码。未测得统一吞吐或峰值RSS数据，不宣称速度提升百分比或总进程内存硬上限。
+本轮性能措施是有界流式I/O、固定缓冲、在分配前检查字典/FAT/索引预算、按扇区缓存和避免重复解码。未建立统一性能基线，不宣称速度提升百分比或总进程内存硬上限。
 
-后续应分别处理：ALZ与CFB等累计元数据预算；现有整项/整包缓冲的创建和第三方读取路径；Windows/macOS原生构建与行为验证；EGG加密/solid/分卷/AZO、ISZ加密/分段/真实BZip2及其它未覆盖变体。PEA、NSIS、DAA、BH的新增实现仍按总表中的独立任务推进。
+后续应分别处理：ALZ与CFB等累计元数据预算；现有整项/整包缓冲的创建和第三方读取路径；EGG加密/solid/分卷/AZO、ISZ加密/分段/真实BZip2及其它未覆盖变体。PEA、NSIS、DAA、BH的新增实现仍按总表中的独立任务推进。
+
+## 第三轮：三平台原生候选验收
+
+验证源码为 `8f5e9f53780ec5502efc9fda5bf8708a29288eb7`：
+
+- [CI 41159081353](https://github.com/GEELINX-LTD/geezipx/actions/runs/41159081353) 全部成功，包括三平台测试/Clippy、候选构建、原生CLI/SFX、独立interop、streaming-smoke、Rust文档及原有其它任务。
+- [Audit 41159057553](https://github.com/GEELINX-LTD/geezipx/actions/runs/41159057553) 同一源码提交成功。
+- 配置/修复提交为 `2c68d47`、`62d0538`、`8f5e9f5`。第一轮远端Rust1.99 Clippy发现文本解码器`chunks_exact(4)`的新检查；改为`as_chunks::<4>().0`，本机Rust1.96和远端1.99均通过。宏验收增加UU/UUE/XXE实际字节往返。
+
+| 原生系统 / 架构 | 最小配置：通过 / 忽略 | 基础配置：通过 / 忽略 | 扩展工作区配置：通过 / 忽略 | 实际CLI验收 |
+|---|---:|---:|---:|---:|
+| Ubuntu 24.04.5 LTS / x86-64 | 1014 / 4 | 1074 / 9 | 1135 / 9 | 39 / 39 |
+| Windows Server 2025 10.0.26100 / x86-64 | 1006 / 4 | 1066 / 9 | 1127 / 9 | 39 / 39 |
+| macOS 15.7.9 (24G830) / Intel x86-64 | 1014 / 4 | 1024 / 9 | 1122 / 9 | 39 / 39 |
+
+最小配置为`cargo test --locked -p geezipx-core -p geezipx --no-default-features`。Linux/Windows基础配置使用默认feature，扩展工作区使用`--all-features`；macOS沿用LLVM/ZPAQ兼容限制，基础配置为`--no-default-features -F rar,sfx`，扩展配置及候选CLI为`--no-default-features -F rar,wim,sfx`。该结果不包含macOS的ZPAQ，也不覆盖其它CPU架构及Windows 10/11手工桌面验收。各feature组合分别运行，忽略用例不计为通过。
+
+Runner image版本分别为`ubuntu-24.04 / 20261025.353.1`、`windows-2025-vs2026 / 20261021.278.1`、`macos-15 / 20260824.0482.1`。固定使用`macos-15-intel`，使产物所声明的x86-64、构建主机与嵌入SFX stub一致。
+
+### 候选产物与可复核证据
+
+`check-format-candidate.py`在每个系统中调用实际release CLI，检查ZIP/XZ method95、7z、TAR/TGZ、LZH/lh7、ISO、GZIP/XZ、UU/UUE/XXE；消费EGG/PMA/Unix Compress/GNU Lzip/UltraISO ISZ/AES Crypt离线fixture；覆盖TLZ、cooked IMG/BIN内容视图、合成ALZ/CFB、损坏流/错误密码目标保护，并创建和执行原生SFX。合成ALZ/CFB用例的边界与离线fixture来源见脚本说明及前文。
+
+| CLI候选产物 | 字节数 | 可执行文件SHA-256 |
+|---|---:|---|
+| [geezipx-linux-x86_64](https://github.com/GEELINX-LTD/geezipx/actions/runs/41159081353/artifacts/13025959425) | 18123200 | `6247c42f9a973e8a9af342ad7706b853811b6280b43d01c99b2df76149c36af3` |
+| [geezipx-windows-x86_64](https://github.com/GEELINX-LTD/geezipx/actions/runs/41159081353/artifacts/13027055442) | 13890560 | `2e58e6144daf5f041652283b3af0860ca5d21c1ac00e43b596cafd5bfdb2e070` |
+| [geezipx-macos-x86_64](https://github.com/GEELINX-LTD/geezipx/actions/runs/41159081353/artifacts/13026818156) | 16390936 | `97e8319a7148fa8809c5bab57027562d7321453046e96a37b8e9ed12aca7ea23` |
+
+每个CLI有同名`-acceptance`报告artifact，包含`candidate-report.json`，记录源码SHA、OS/架构、feature参数、CLI版本、可执行文件SHA-256和提取文件树哈希。六份artifact已下载，逐一验证源码SHA、ELF/Mach-O/PE x86-64架构、可执行文件与报告哈希匹配。三平台39项名称及提取文件哈希完全一致；下载后的Linux CLI在本机再次运行39项验收通过，结果与CI报告一致。
+
+CLI仍显示`geezipx 0.7.4`，本轮未抬版本或发布；按完整源码SHA识别候选。Actions artifact保留7天。可在有效期内复核：
+
+```bash
+gh run download 41159081353 --dir candidate-8f5e9f5
+chmod +x candidate-8f5e9f5/geezipx-linux-x86_64/geezipx
+python3 scripts/check-format-candidate.py --binary candidate-8f5e9f5/geezipx-linux-x86_64/geezipx --sfx --report downloaded-linux-report.json
+```
+
+### ISO 创建性能观察
+
+同一下载的Linux release候选包处理一个64MiB文件（`bytes(range(256))*256`的64KiB块重复1024次），用`/usr/bin/time`记录峰值RSS：
+
+- 输入67,108,864字节；输出76,546,560字节（约73MiB）。
+- 峰值RSS 205,936KiB（约201.1MiB）。
+- PVD双端序卷大小字段均声明67,162,112字节（约64.05MiB）；输出还包含约8.95MiB预分配余量。
+
+这是Linux、刚生成输入的热页缓存单例内存诊断。源码同时保留原始文件Vec、建树时的内容clone及估算长度输出Cursor，且回写整个输出Vec；因此下一步优先改造ISO创建的数据源及输出路径：为依赖提供可寻址输入、减少内容复制，并以实际生成长度输出镜像。该单例不构成统一吞吐基线或所有输入的RSS上限。
