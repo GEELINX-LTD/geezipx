@@ -113,7 +113,7 @@ pub(super) fn decode<R: BufRead, W: Write + ?Sized>(
         }
         let mut output = [0u8; 63];
         let mut index = 0;
-        for quad in encoded.chunks_exact(4) {
+        for quad in encoded.as_chunks::<4>().0 {
             let value = quad
                 .iter()
                 .fold(0u32, |value, b| (value << 6) | reverse[*b as usize] as u32);
