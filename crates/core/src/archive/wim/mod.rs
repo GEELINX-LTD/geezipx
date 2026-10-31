@@ -253,7 +253,7 @@ mod tests {
     #[test]
     fn corrupt_wim_file_or_metadata_fails_integrity_verification() {
         use crate::archive::ArchiveWriter;
-        use std::io::{Seek, SeekFrom};
+        use std::io::{Read, Seek, SeekFrom};
         for corrupt_metadata in [false, true] {
             let temp = tempfile::tempdir().unwrap();
             let path = temp.path().join("corrupt.wim");
@@ -269,9 +269,18 @@ mod tests {
             } else {
                 reader.lookup.file_streams[0].resource.offset
             };
-            let mut file = std::fs::OpenOptions::new().write(true).open(&path).unwrap();
+            let mut file = std::fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .open(&path)
+                .unwrap();
             file.seek(SeekFrom::Start(offset)).unwrap();
-            file.write_all(&[0x55]).unwrap();
+            let mut original = [0];
+            file.read_exact(&mut original).unwrap();
+            file.seek(SeekFrom::Start(offset)).unwrap();
+            // A fixed replacement can equal the timestamp byte and leave the
+            // resource intact. Always change at least one bit of the source.
+            file.write_all(&[original[0] ^ 1]).unwrap();
             drop(file);
             if corrupt_metadata {
                 assert!(reader
