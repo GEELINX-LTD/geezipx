@@ -154,7 +154,7 @@ pub fn logo(ui: &mut egui::Ui, size: f32) {
     paint_logo(ui.painter(), rect);
 }
 
-fn paint_logo(painter: &egui::Painter, rect: egui::Rect) {
+pub(crate) fn paint_logo(painter: &egui::Painter, rect: egui::Rect) {
     painter.rect_filled(rect, rect.width() * 0.28, ACCENT);
     let s = rect.width() / 32.0;
     let origin = rect.min;

@@ -1,7 +1,7 @@
 use super::*;
 
 impl App {
-    pub(super) fn chrome(&mut self, context: &egui::Context) {
+    pub(super) fn chrome(&mut self, context: &egui::Context, parent: &mut egui::Ui) {
         let enabled = !self.modal_open();
         let idle = !self.busy();
         let has_archive = self.archive.is_some();
@@ -11,7 +11,7 @@ impl App {
                     .fill(theme::colors(self.preferences.dark).canvas)
                     .inner_margin(egui::Margin::symmetric(12, 5)),
             )
-            .show(context, |ui| {
+            .show_inside(parent, |ui| {
                 ui.add_enabled_ui(enabled, |ui| {
                     egui::MenuBar::new()
                         .style(widgets::menu_bar_style)

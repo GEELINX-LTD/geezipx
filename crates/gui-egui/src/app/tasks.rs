@@ -1,7 +1,7 @@
 use super::*;
 
 impl App {
-    pub(super) fn status_bar(&mut self, context: &egui::Context) -> egui::Rect {
+    pub(super) fn status_bar(&mut self, parent: &mut egui::Ui) -> egui::Rect {
         let controls_enabled = !self.modal_open();
         egui::TopBottomPanel::bottom("task-status")
             .min_height(44.0)
@@ -10,7 +10,7 @@ impl App {
                     .fill(theme::colors(self.preferences.dark).canvas)
                     .inner_margin(egui::Margin::symmetric(14, 7)),
             )
-            .show(context, |ui| {
+            .show_inside(parent, |ui| {
                 ui.set_min_height(30.0);
                 if let Some(active) = &self.active {
                     let progress = active.job.control.snapshot();

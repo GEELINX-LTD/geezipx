@@ -97,6 +97,58 @@ fn click_text(app: &mut App, context: &egui::Context, label: &str) {
 }
 
 #[test]
+fn custom_close_keeps_task_confirmation_and_works_with_a_dialog_open() {
+    for busy in [false, true] {
+        let context = context();
+        let mut app = App::empty(Preferences::default());
+        app.create_open = true;
+        let (_sender, receiver) = std::sync::mpsc::sync_channel(1);
+        if busy {
+            app.export.receiver = Some(receiver);
+        }
+        for _ in 0..3 {
+            draw(&mut app, &context, [1000.0, 680.0]);
+        }
+        let position = egui::pos2(977.0, 17.0);
+        pointer_frame(&mut app, &context, position, None, egui::Modifiers::NONE);
+        pointer_frame(
+            &mut app,
+            &context,
+            position,
+            Some(true),
+            egui::Modifiers::NONE,
+        );
+        let output = context.run(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(1000.0, 680.0),
+                )),
+                time: Some(context.input(|input| input.time) + 0.04),
+                events: vec![
+                    egui::Event::PointerMoved(position),
+                    egui::Event::PointerButton {
+                        pos: position,
+                        button: egui::PointerButton::Primary,
+                        pressed: false,
+                        modifiers: egui::Modifiers::NONE,
+                    },
+                ],
+                ..Default::default()
+            },
+            |context| app.render(context),
+        );
+        let closing = output.viewport_output[&egui::ViewportId::ROOT]
+            .commands
+            .iter()
+            .any(|command| matches!(command, egui::ViewportCommand::Close));
+        assert_eq!(closing, !busy);
+        assert_eq!(app.close_prompt, busy);
+        assert!(!app.close_when_finished);
+    }
+}
+
+#[test]
 fn font_settings_support_menu_selection_reset_and_escape_without_losing_selection() {
     let context = context();
     let mut app = App::empty(Preferences::default());
@@ -883,7 +935,10 @@ fn floating_notices_fit_the_message_without_changing_the_workspace_or_footer() {
                 draw(&mut app, &context, size);
             }
             let rows = ["项目", "notes.txt", "other.txt"].map(|path| row_rect(&context, path));
-            let workspace = context.available_rect();
+            let footer =
+                egui::containers::panel::PanelState::load(&context, egui::Id::new("task-status"))
+                    .unwrap()
+                    .rect;
             for (message, error) in [
                 ("完成".to_string(), false),
                 ("无法打开目标文件夹，请检查路径与访问权限。".repeat(6), true),
@@ -903,8 +958,16 @@ fn floating_notices_fit_the_message_without_changing_the_workspace_or_footer() {
                     );
                 }
                 assert!((rect.right() - (size[0] - 12.0)).abs() < 1.0);
-                assert!((rect.bottom() - (workspace.bottom() - 12.0)).abs() < 1.0);
-                assert_eq!(context.available_rect(), workspace);
+                assert!((rect.bottom() - (footer.top() - 12.0)).abs() < 1.0);
+                assert_eq!(
+                    egui::containers::panel::PanelState::load(
+                        &context,
+                        egui::Id::new("task-status")
+                    )
+                    .unwrap()
+                    .rect,
+                    footer
+                );
                 assert_eq!(
                     ["项目", "notes.txt", "other.txt"].map(|path| row_rect(&context, path)),
                     rows
@@ -914,7 +977,12 @@ fn floating_notices_fit_the_message_without_changing_the_workspace_or_footer() {
             }
             app.notice = None;
             draw(&mut app, &context, size);
-            assert_eq!(context.available_rect(), workspace);
+            assert_eq!(
+                egui::containers::panel::PanelState::load(&context, egui::Id::new("task-status"))
+                    .unwrap()
+                    .rect,
+                footer
+            );
         }
     }
 }

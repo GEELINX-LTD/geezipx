@@ -149,6 +149,7 @@ struct Unlock {
 }
 
 pub struct App {
+    window_frame: crate::window_frame::WindowFrame,
     preferences: Preferences,
     settings: Settings,
     archive: Option<Archive>,
@@ -194,6 +195,7 @@ impl App {
     }
     fn empty(preferences: Preferences) -> Self {
         Self {
+            window_frame: crate::window_frame::WindowFrame::default(),
             preferences,
             settings: Settings::default(),
             archive: None,
@@ -821,21 +823,53 @@ impl App {
             });
         }
     }
+    fn request_close(&mut self, context: &egui::Context) {
+        if self.busy() {
+            self.close_prompt = true;
+        } else {
+            context.send_viewport_cmd(egui::ViewportCommand::Close);
+        }
+    }
     fn render(&mut self, context: &egui::Context) {
         self.shortcuts(context);
-        self.chrome(context);
-        let footer = self.status_bar(context);
+        let margin = self.window_frame.margin(context);
+        let mut footer = egui::Rect::NOTHING;
         egui::CentralPanel::default()
             .frame(
                 egui::Frame::new()
-                    .fill(theme::colors(self.preferences.dark).surface)
-                    .inner_margin(12),
+                    .fill(theme::colors(self.preferences.dark).canvas)
+                    .inner_margin(margin),
             )
             .show(context, |ui| {
-                self.workspace(ui, context);
+                ui.add_space(crate::window_frame::TITLE_HEIGHT);
+                self.chrome(context, ui);
+                footer = self.status_bar(ui);
+                egui::CentralPanel::default()
+                    .frame(
+                        egui::Frame::new()
+                            .fill(theme::colors(self.preferences.dark).surface)
+                            .inner_margin(12),
+                    )
+                    .show_inside(ui, |ui| self.workspace(ui, context));
             });
         self.notices(context, footer);
         self.windows(context);
+        let title = self.archive.as_ref().map_or_else(
+            || "归档管理器".into(),
+            |archive| {
+                archive
+                    .path
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+            },
+        );
+        if self
+            .window_frame
+            .show(context, self.preferences.dark, &title)
+        {
+            self.request_close(context);
+        }
     }
 }
 impl eframe::App for App {
