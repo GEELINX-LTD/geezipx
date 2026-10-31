@@ -24,16 +24,9 @@ pub fn execute(archive: &Path, json: bool, password: Option<String>) -> Result<(
     common::validate_read_password_support(format, password.as_deref())?;
 
     let entries = match format {
-        ArchiveFormat::Img | ArchiveFormat::Bin | ArchiveFormat::Aes | ArchiveFormat::Isz => {
+        ArchiveFormat::Aes => {
             let inferred_name = match format {
-                ArchiveFormat::Img => common::img_output_filename(archive),
-                ArchiveFormat::Bin => common::bin_output_filename(archive),
                 ArchiveFormat::Aes => common::aes_output_filename(archive),
-                ArchiveFormat::Isz => archive
-                    .with_extension("iso")
-                    .file_name()
-                    .map(std::path::PathBuf::from)
-                    .unwrap_or_else(|| "output.iso".into()),
                 _ => unreachable!(),
             };
             vec![Entry {
@@ -47,6 +40,18 @@ pub fn execute(archive: &Path, json: bool, password: Option<String>) -> Result<(
                 is_dir: false,
             }]
         }
+        ArchiveFormat::Z => vec![Entry {
+            path: archive
+                .file_stem()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .into_owned(),
+            size: 0,
+            compressed_size: fs::metadata(archive)?.len(),
+            crc32: None,
+            modified: None,
+            is_dir: false,
+        }],
         ArchiveFormat::Gzip => {
             // Gzip is a single-stream compression — produce a synthetic entry.
             let inferred_name = common::gzip_output_filename(archive);
@@ -156,11 +161,11 @@ pub fn execute(archive: &Path, json: bool, password: Option<String>) -> Result<(
             // UU/UUE is a single-stream text encoding — produce a synthetic entry.
             let inferred_name = common::uu_output_filename(archive);
             let compressed_size = fs::metadata(archive).map(|m| m.len()).unwrap_or(0);
-            let data = uu::uu_decode_file(archive)
+            let size = uu::uu_decode_to_writer(archive, &mut std::io::sink())
                 .with_context(|| format!("decoding '{}'", archive.display()))?;
             vec![Entry {
                 path: inferred_name.to_string_lossy().into_owned(),
-                size: data.1.len() as u64,
+                size,
                 compressed_size,
                 crc32: None,
                 modified: None,
@@ -171,11 +176,11 @@ pub fn execute(archive: &Path, json: bool, password: Option<String>) -> Result<(
             // XXE is a single-stream text encoding — produce a synthetic entry.
             let inferred_name = common::xxe_output_filename(archive);
             let compressed_size = fs::metadata(archive).map(|m| m.len()).unwrap_or(0);
-            let data = xxe::xxe_decode_file(archive)
+            let size = xxe::xxe_decode_to_writer(archive, &mut std::io::sink())
                 .with_context(|| format!("decoding '{}'", archive.display()))?;
             vec![Entry {
                 path: inferred_name.to_string_lossy().into_owned(),
-                size: data.1.len() as u64,
+                size,
                 compressed_size,
                 crc32: None,
                 modified: None,

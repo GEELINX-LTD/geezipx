@@ -17,7 +17,9 @@ use std::fs::File;
 use std::io::{BufReader, Write};
 use std::path::PathBuf;
 
-use unarc_rs::unified::{ArchiveEntry as UnarcEntry, ArchiveFormat as UnarcFormat, UnifiedArchive};
+use unarc_rs::unified::{
+    ArchiveEntry as UnarcEntry, ArchiveFormat as UnarcFormat, ArchiveOptions, UnifiedArchive,
+};
 
 use crate::archive::{ArchiveReader, Entry};
 use crate::detect::ArchiveFormat;
@@ -27,6 +29,7 @@ use crate::error::{GeeZipError, GeeZipResult};
 pub struct AceReader {
     path: PathBuf,
     format: ArchiveFormat,
+    password: Option<String>,
 }
 
 impl fmt::Debug for AceReader {
@@ -44,13 +47,25 @@ impl AceReader {
         Self {
             path: path.into(),
             format: ArchiveFormat::Ace,
+            password: None,
         }
     }
 
     fn open_archive(&self) -> GeeZipResult<UnifiedArchive<BufReader<File>>> {
         let file = File::open(&self.path)
             .map_err(|e| GeeZipError::io(e, format!("opening '{}'", self.path.display())))?;
-        UnifiedArchive::open_with_format(BufReader::new(file), UnarcFormat::Ace).map_err(|e| {
+        // The unified setter changes options without updating the ACE backend.
+        // Supply the password while opening so ordinary read() also receives it.
+        let mut options = ArchiveOptions::default();
+        if let Some(password) = &self.password {
+            options = options.with_password(password.clone());
+        }
+        UnifiedArchive::open_with_format_and_options(
+            BufReader::new(file),
+            UnarcFormat::Ace,
+            options,
+        )
+        .map_err(|e| {
             GeeZipError::format(
                 format!("invalid ACE archive '{}': {e}", self.path.display()),
                 ArchiveFormat::Ace,
@@ -66,6 +81,9 @@ impl AceReader {
             .map_err(|e| GeeZipError::format(format!("ACE read error: {e}"), ArchiveFormat::Ace))?
         {
             entries.push(convert_entry(&unarc_entry));
+            archive.skip(&unarc_entry).map_err(|e| {
+                GeeZipError::format(format!("ACE skip error: {e}"), ArchiveFormat::Ace)
+            })?;
         }
         Ok(entries)
     }
@@ -74,6 +92,11 @@ impl AceReader {
 impl ArchiveReader for AceReader {
     fn format(&self) -> ArchiveFormat {
         self.format
+    }
+
+    fn set_password(&mut self, password: &str) -> GeeZipResult<()> {
+        self.password = Some(password.to_owned());
+        Ok(())
     }
 
     fn entries(&mut self) -> GeeZipResult<Vec<Entry>> {
@@ -103,7 +126,15 @@ impl ArchiveReader for AceReader {
                 })?;
                 return Ok(len);
             }
-            let _ = archive.skip(&unarc_entry);
+            let options = archive.options().clone();
+            archive
+                .skip_with_options(&unarc_entry, &options)
+                .map_err(|e| {
+                    GeeZipError::format(
+                        format!("ACE predecessor decode failed: {e}"),
+                        ArchiveFormat::Ace,
+                    )
+                })?;
         }
         Err(GeeZipError::EntryNotFound {
             name: entry.path.clone(),
@@ -126,15 +157,73 @@ fn convert_entry(unarc_entry: &UnarcEntry) -> Entry {
         path: unarc_entry.name().to_owned(),
         size: unarc_entry.original_size(),
         compressed_size: unarc_entry.compressed_size(),
-        crc32: Some(unarc_entry.crc() as u32),
+        // ACE stores the unfinalized (inverted) CRC32 state.
+        crc32: Some(!(unarc_entry.crc() as u32)),
         modified,
-        is_dir: unarc_entry.original_size() == 0 && unarc_entry.name().ends_with('/'),
+        is_dir: unarc_entry.is_directory(),
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ace_password_reaches_backend_before_open() {
+        fn header(data: &[u8]) -> Vec<u8> {
+            let mut bytes = ((!crc32fast::hash(data)) as u16).to_le_bytes().to_vec();
+            bytes.extend_from_slice(&(data.len() as u16).to_le_bytes());
+            bytes.extend_from_slice(data);
+            bytes
+        }
+        let mut main = vec![0, 0, 0];
+        main.extend_from_slice(b"**ACE**");
+        main.extend_from_slice(&[10, 10, 0, 0]);
+        main.extend_from_slice(&[0; 12]);
+        let mut archive = header(&main);
+        let name = b"encrypted.txt";
+        let mut file = vec![1, 0x81, 0]; // file header, payload and encryption flags
+        file.extend_from_slice(&8u32.to_le_bytes());
+        file.extend_from_slice(&8u32.to_le_bytes());
+        file.extend_from_slice(&[0; 8]);
+        file.extend_from_slice(&(!crc32fast::hash(b"AAAAAAAA")).to_le_bytes());
+        file.extend_from_slice(&[0; 6]); // Store method, quality and reserved fields
+        file.extend_from_slice(&(name.len() as u16).to_le_bytes());
+        file.extend_from_slice(name);
+        archive.extend(header(&file));
+        // ACE Blowfish-CBC test vector from MIT-licensed unarc-rs 0.8.0
+        // tests/common/ace.rs: password "test", plaintext "AAAAAAAA".
+        archive.extend_from_slice(&[0x48, 0x75, 0x48, 0xa7, 0x7c, 0xd6, 0x73, 0x5d]);
+        let temp = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(temp.path(), archive).unwrap();
+        let mut reader = AceReader::new(temp.path());
+        let entry = reader.entries().unwrap().remove(0);
+        assert!(reader.extract(&entry, &mut Vec::new()).is_err());
+        reader.set_password("test").unwrap();
+        let mut data = Vec::new();
+        assert_eq!(reader.extract(&entry, &mut data).unwrap(), 8);
+        assert_eq!(data, b"AAAAAAAA");
+        reader.set_password("wrong").unwrap();
+        assert!(reader.extract(&entry, &mut Vec::new()).is_err());
+    }
+
+    #[test]
+    fn ace_real_archive_lists_and_extracts() {
+        let temp = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(
+            temp.path(),
+            include_bytes!("../../tests/fixtures/license1.ace"),
+        )
+        .unwrap();
+        let mut reader = AceReader::new(temp.path());
+        let entries = reader.entries().unwrap();
+        assert!(!entries.is_empty());
+        for entry in entries.iter().filter(|e| !e.is_dir) {
+            let mut data = Vec::new();
+            assert_eq!(reader.extract(entry, &mut data).unwrap(), entry.size);
+            assert_eq!(crc32fast::hash(&data), entry.crc32.unwrap());
+        }
+    }
 
     #[test]
     fn ace_malformed_fails_cleanly() {

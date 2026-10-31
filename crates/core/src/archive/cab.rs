@@ -1,24 +1,9 @@
 //! Microsoft Cabinet (`.cab`) archive reader.
 //!
-//! GeeZipX exposes CAB as a read-only archive format backed by the [`cab`]
-//! crate. The current MVP supports listing, extraction, and integrity
-//! verification for single-volume cabinet files; writing, multi-volume cabinet
-//! sets, encryption, and password flows remain out of scope.
-//!
-//! # Design notes
-//!
-//! - **Read-only** — GeeZipX does not expose CAB creation in the product; the
-//!   upstream writer API is only used in unit tests to generate portable
-//!   fixtures.
-//! - **Magic + extension detection** — CAB archives are detected via the `MSCF`
-//!   signature and `.cab` extension.
-//! - **Path-based** — The reader stores the cabinet path and re-opens the file
-//!   on each operation because the upstream [`cab::Cabinet`] consumes a
-//!   `Read + Seek` source.
-//! - **Windows path normalization** — Stored file names may use backslashes.
-//!   GeeZipX normalizes them to forward slashes for listing and extraction so
-//!   shared Zip Slip protection catches `..\\evil.txt`, `C:\\foo`, and UNC
-//!   paths consistently across platforms.
+//! Supports MSZIP creation and single-volume Store/MSZIP/LZX reading through
+//! the `cab` crate. Creation stages payloads in one temporary file; only metadata
+//! is retained in memory. Multi-volume sets and encryption remain unsupported.
+//! Stored Windows backslashes are normalized before shared path checks.
 
 use std::fmt;
 use std::fs::File;
@@ -176,12 +161,12 @@ fn convert_cab_extract_error(err: std::io::Error, entry_name: &str) -> GeeZipErr
 /// Supports MSZIP (Deflate) compression.
 ///
 /// Because the `cab` crate requires all files to be registered before
-/// writing begins, `add_entry_from_reader` buffers all file data in
-/// memory.  This is acceptable for CAB files which are typically small
-/// (installers, driver packages).
+/// writing begins, `add_entry_from_reader` stages payloads on disk with bounded
+/// buffers. Empty cabinets are valid; CAB does not preserve standalone directories.
 pub struct CabWriter<W: Write + Seek + Send> {
     writer: Option<W>,
-    files: Vec<(String, Vec<u8>)>,
+    files: Vec<(String, u64)>,
+    spool: Option<File>,
     dirs: Vec<String>,
     format: ArchiveFormat,
 }
@@ -202,6 +187,7 @@ impl<W: Write + Seek + Send> CabWriter<W> {
         CabWriter {
             writer: Some(writer),
             files: Vec::new(),
+            spool: None,
             dirs: Vec::new(),
             format: ArchiveFormat::Cab,
         }
@@ -221,11 +207,19 @@ impl<W: Write + Seek + Send> ArchiveWriter for CabWriter<W> {
                 format: ArchiveFormat::Cab,
             })?
             .to_owned();
-        let mut data = Vec::new();
-        reader
-            .read_to_end(&mut data)
-            .map_err(|e| GeeZipError::io(e, format!("reading data for CAB entry '{name}'")))?;
-        self.files.push((name, data));
+        if self.spool.is_none() {
+            self.spool = Some(tempfile::tempfile()?);
+        }
+        let mut staged = std::io::BufWriter::with_capacity(64 * 1024, self.spool.as_mut().unwrap());
+        let length = std::io::copy(reader, &mut staged)?;
+        staged.flush()?;
+        if length > u64::from(u32::MAX) {
+            return Err(GeeZipError::format(
+                "CAB entry exceeds 4 GiB limit",
+                ArchiveFormat::Cab,
+            ));
+        }
+        self.files.push((name, length));
         Ok(())
     }
 
@@ -241,27 +235,21 @@ impl<W: Write + Seek + Send> ArchiveWriter for CabWriter<W> {
         Ok(())
     }
 
-    fn finish(self: Box<Self>) -> GeeZipResult<u64> {
-        let writer = self.writer.ok_or_else(|| GeeZipError::Format {
+    fn finish(mut self: Box<Self>) -> GeeZipResult<u64> {
+        let writer = self.writer.take().ok_or_else(|| GeeZipError::Format {
             message: "CAB writer not initialised (already consumed)".into(),
             format: ArchiveFormat::Cab,
         })?;
 
-        // Empty archives: return 0 bytes (cab crate panics on empty folders).
-        if self.files.is_empty() {
-            return Ok(0);
+        if self.files.is_empty() && !self.dirs.is_empty() {
+            return Err(GeeZipError::format(
+                "CAB cannot preserve standalone empty directories",
+                ArchiveFormat::Cab,
+            ));
         }
         let mut builder = cab::CabinetBuilder::new();
-
-        // Use MSZIP if there are files; None for dirs-only archives.
-        let compression = if !self.files.is_empty() {
-            cab::CompressionType::MsZip
-        } else {
-            cab::CompressionType::None
-        };
-
-        {
-            let folder = builder.add_folder(compression);
+        if !self.files.is_empty() {
+            let folder = builder.add_folder(cab::CompressionType::MsZip);
             for (path, _) in &self.files {
                 folder.add_file(path);
             }
@@ -272,7 +260,12 @@ impl<W: Write + Seek + Send> ArchiveWriter for CabWriter<W> {
             format: ArchiveFormat::Cab,
         })?;
 
-        // Write file data in registration order.
+        // Write file data in registration order from a single staged source.
+        let mut spool = self.spool.take();
+        if let Some(source) = &mut spool {
+            source.rewind()?;
+        }
+        let mut spool = spool.map(|f| std::io::BufReader::with_capacity(64 * 1024, f));
         let mut idx = 0;
         while let Some(mut file_writer) =
             cab_writer.next_file().map_err(|e| GeeZipError::Format {
@@ -286,9 +279,14 @@ impl<W: Write + Seek + Send> ArchiveWriter for CabWriter<W> {
                     format: ArchiveFormat::Cab,
                 });
             }
-            file_writer
-                .write_all(&self.files[idx].1)
-                .map_err(|e| GeeZipError::io(e, "writing CAB file data"))?;
+            let length = self.files[idx].1;
+            let n = std::io::copy(&mut spool.as_mut().unwrap().take(length), &mut file_writer)?;
+            if n != length {
+                return Err(GeeZipError::format(
+                    "truncated staged CAB entry",
+                    ArchiveFormat::Cab,
+                ));
+            }
             idx += 1;
         }
 
@@ -308,6 +306,28 @@ impl<W: Write + Seek + Send> ArchiveWriter for CabWriter<W> {
 mod tests {
     use super::*;
     use cab::{CabinetBuilder, CompressionType};
+
+    #[test]
+    fn writer_stages_large_input_and_emits_valid_empty_cab() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("large.cab");
+        let mut writer = CabWriter::new(File::create(&path).unwrap());
+        let mut generated = std::io::repeat(42).take(3 * 1024 * 1024 + 1);
+        writer
+            .add_entry_from_reader(Path::new("large"), &mut generated)
+            .unwrap();
+        Box::new(writer).finish().unwrap();
+        let mut reader = CabReader::new(&path);
+        let entries = reader.entries().unwrap();
+        assert_eq!(
+            reader.extract(&entries[0], &mut std::io::sink()).unwrap(),
+            3 * 1024 * 1024 + 1
+        );
+        Box::new(CabWriter::new(File::create(&path).unwrap()))
+            .finish()
+            .unwrap();
+        assert!(CabReader::new(&path).entries().unwrap().is_empty());
+    }
 
     fn create_test_cab(entries: &[(&str, &[u8])], compression: CompressionType) -> Vec<u8> {
         let mut builder = CabinetBuilder::new();

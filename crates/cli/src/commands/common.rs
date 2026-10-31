@@ -52,26 +52,25 @@ use geezipx_core::detect::{self, ArchiveFormat};
 
 /// Parse a user-supplied format string into an [`ArchiveFormat`].
 ///
-/// Accepts: `zip`, ZIP-derived aliases (`zipx`, `jar`, `war`, `apk`, `ipa`, `xpi`),
-/// `tar`, `tar.gz`, `tgz`, `tar.bz2`, `tbz`, `tbz2`, `tar.br`, `gz`, `gzip`,
-/// `bz2`, `bzip2`, `br`, `brotli`, `lz4`, `tar.lz4`, `zst`, `zstd`, `tar.zst`,
-/// `tzst`, `tar.xz`, `txz`, `xz`, `lzma`, `7z`, `rar`, `cab`, `asar`, `deb`,
-/// `lzh`, `lha`, `iso`, `cpio`, `zpaq`, `zpq`.
+/// Accepts core/CLI format names and extension aliases. Some parsed formats
+/// are read-only; creation paths must reject those formats explicitly.
 pub fn parse_format(s: &str) -> Result<ArchiveFormat> {
     match s.to_ascii_lowercase().as_str() {
-        "zip" | "zipx" | "jar" | "war" | "apk" | "ipa" | "xpi" => Ok(ArchiveFormat::Zip),
+        "zip" | "jar" | "war" | "apk" | "ipa" | "xpi" => Ok(ArchiveFormat::Zip),
+        "zipx" => Ok(ArchiveFormat::Zipx),
         "tar" => Ok(ArchiveFormat::Tar),
         "tar.gz" | "tgz" => Ok(ArchiveFormat::TarGz),
         "tar.bz2" | "tbz" | "tbz2" => Ok(ArchiveFormat::TarBz2),
         "tar.br" => Ok(ArchiveFormat::TarBr),
         "gz" | "gzip" => Ok(ArchiveFormat::Gzip),
-        "bz2" | "bzip2" => Ok(ArchiveFormat::Bzip2),
+        "bz" | "bz2" | "bzip2" => Ok(ArchiveFormat::Bzip2),
         "br" | "brotli" => Ok(ArchiveFormat::Brotli),
         "lz4" => Ok(ArchiveFormat::Lz4),
         "tar.lz4" => Ok(ArchiveFormat::TarLz4),
         "zst" | "zstd" => Ok(ArchiveFormat::Zstd),
         "tar.zst" | "tzst" => Ok(ArchiveFormat::TarZst),
         "tar.xz" | "txz" => Ok(ArchiveFormat::TarXz),
+        "tar.lzma" | "tar.lz" | "tlz" => Ok(ArchiveFormat::TarLz),
         "xz" => Ok(ArchiveFormat::Xz),
         "lzma" => Ok(ArchiveFormat::Lzma),
         "lz" => Ok(ArchiveFormat::Lz),
@@ -82,6 +81,10 @@ pub fn parse_format(s: &str) -> Result<ArchiveFormat> {
         "arj" => Ok(ArchiveFormat::Arj),
         "ace" => Ok(ArchiveFormat::Ace),
         "arc" => Ok(ArchiveFormat::Arc),
+        "egg" => Ok(ArchiveFormat::Egg),
+        "pea" => Ok(ArchiveFormat::Pea),
+        "nsis" => Ok(ArchiveFormat::Nsis),
+        "msi" | "compound" | "cfb" | "ole" => Ok(ArchiveFormat::Compound),
         "alz" => Ok(ArchiveFormat::Alz),
         "z" => Ok(ArchiveFormat::Z),
         "7z" => Ok(ArchiveFormat::SevenZip),
@@ -89,7 +92,7 @@ pub fn parse_format(s: &str) -> Result<ArchiveFormat> {
         "cab" => Ok(ArchiveFormat::Cab),
         "asar" => Ok(ArchiveFormat::Asar),
         "deb" => Ok(ArchiveFormat::Deb),
-        "lzh" | "lha" => Ok(ArchiveFormat::Lzh),
+        "lzh" | "lha" | "pma" => Ok(ArchiveFormat::Lzh),
         "iso" => Ok(ArchiveFormat::Iso),
         "udf" => Ok(ArchiveFormat::Udf),
         "cpio" => Ok(ArchiveFormat::Cpio),
@@ -98,7 +101,7 @@ pub fn parse_format(s: &str) -> Result<ArchiveFormat> {
         "uu" | "uue" => Ok(ArchiveFormat::Uu),
         "xxe" => Ok(ArchiveFormat::Xxe),
         other => Err(anyhow::anyhow!(
-            "unsupported format '{other}'; expected: zip, zipx, jar, war, apk, ipa, xpi, tar, tar.gz, tgz, tar.bz2, tbz, tbz2, tar.br, gz, gzip, bz2, bzip2, br, brotli, lz4, tar.lz4, zst, zstd, tar.zst, tzst, tar.xz, txz, xz, lzma, lz, 7z, rar, cab, asar, deb, lzh, lha, iso, udf, cpio, zpaq, zpq, wim, swm, uu, uue, xxe, isz"
+            "unsupported format '{other}'; expected: zip, zipx, jar, war, apk, ipa, xpi, tar, tar.gz, tgz, tar.bz2, tbz, tbz2, tar.br, gz, gzip, bz, bz2, bzip2, br, brotli, lz4, tar.lz4, zst, zstd, tar.zst, tzst, tar.xz, txz, tar.lzma, tar.lz, tlz, xz, lzma, lz, 7z, rar, cab, asar, deb, lzh, lha, pma, iso, udf, cpio, zpaq, zpq, wim, swm, uu, uue, xxe, isz, img, ima, bin, aes, enc, arj, ace, arc, alz, z, egg, pea, nsis, msi, compound, cfb, ole"
         )),
     }
 }
@@ -122,6 +125,22 @@ pub fn parse_sfx_target(s: &str) -> anyhow::Result<geezipx_core::sfx::SfxTarget>
 /// Resolve the compress output format from an optional `--format` flag and the
 /// output file extension.  Defaults to `Zip`.
 pub fn resolve_format(cli_format: Option<&str>, output: &Path) -> Result<ArchiveFormat> {
+    if output
+        .extension()
+        .is_some_and(|s| s.eq_ignore_ascii_case("aes"))
+    {
+        anyhow::bail!(
+            "AES Crypt creation is not supported; use .enc for the legacy encrypted container"
+        );
+    }
+    if cli_format.is_some_and(|s| s.eq_ignore_ascii_case("pma"))
+        || (cli_format.is_none()
+            && output
+                .extension()
+                .is_some_and(|s| s.eq_ignore_ascii_case("pma")))
+    {
+        anyhow::bail!("PMA creation is not supported; select lzh for LZH output");
+    }
     if let Some(s) = cli_format {
         return parse_format(s);
     }
@@ -151,13 +170,12 @@ pub fn detect_archive_format_from_reader<R: Read + Seek>(
     reader: &mut R,
     fallback_path: Option<&Path>,
 ) -> Result<ArchiveFormat> {
-    let magic =
-        detect::read_magic_bytes(reader).context("reading magic bytes for format detection")?;
+    let detected = detect::detect_seekable_format(reader).context("reading archive format")?;
     reader
         .seek(std::io::SeekFrom::Start(0))
-        .context("rewinding reader after magic detection")?;
+        .context("rewinding reader after format detection")?;
 
-    let fmt = match detect::detect_format(&magic) {
+    let fmt = match detected {
         Some(ArchiveFormat::Gzip) => {
             resolve_tar_wrapped(ArchiveFormat::Gzip, ArchiveFormat::TarGz, fallback_path)
         }
@@ -173,7 +191,12 @@ pub fn detect_archive_format_from_reader<R: Read + Seek>(
         Some(ArchiveFormat::Xz) => {
             resolve_tar_wrapped(ArchiveFormat::Xz, ArchiveFormat::TarXz, fallback_path)
         }
-        Some(ArchiveFormat::Lzma) => ArchiveFormat::Lzma,
+        Some(ArchiveFormat::Lzma) => {
+            resolve_tar_wrapped(ArchiveFormat::Lzma, ArchiveFormat::TarLz, fallback_path)
+        }
+        Some(ArchiveFormat::Lz) => {
+            resolve_tar_wrapped(ArchiveFormat::Lz, ArchiveFormat::TarLz, fallback_path)
+        }
         Some(fmt) => fmt,
         None => match fallback_path {
             Some(path) => detect::detect_from_extension(path).ok_or_else(|| {
@@ -435,13 +458,17 @@ fn collect_dir_contents(
 
 pub fn validate_read_password_support(format: ArchiveFormat, password: Option<&str>) -> Result<()> {
     if password.is_some()
-        && format != ArchiveFormat::Zip
+        && !matches!(format, ArchiveFormat::Zip | ArchiveFormat::Zipx)
         && format != ArchiveFormat::SevenZip
         && format != ArchiveFormat::Rar
         && format != ArchiveFormat::Aes
+        && format != ArchiveFormat::Alz
+        && format != ArchiveFormat::Ace
+        && format != ArchiveFormat::Arj
+        && format != ArchiveFormat::Arc
     {
         anyhow::bail!(
-            "--password is only supported for ZIP, 7z, RAR, and AES formats; '{}' does not support encryption",
+            "--password is only supported for ZIP, 7z, RAR, AES, ALZ, ACE, ARJ, and ARC formats; '{}' does not support encryption",
             format
         );
     }
@@ -459,7 +486,7 @@ pub fn open_reader(
     validate_read_password_support(format, password)?;
 
     Ok(match format {
-        ArchiveFormat::Zip => {
+        ArchiveFormat::Zip | ArchiveFormat::Zipx => {
             let mut reader = Box::new(ZipReader::new(file)?);
             if let Some(pwd) = password {
                 reader.set_password(pwd);
@@ -473,15 +500,34 @@ pub fn open_reader(
             }
             reader
         }
-        ArchiveFormat::Arj => Box::new(geezipx_core::archive::arj::ArjReader::new(path)),
-        ArchiveFormat::Ace => Box::new(geezipx_core::archive::ace::AceReader::new(path)),
-        ArchiveFormat::Arc => Box::new(geezipx_core::archive::arc::ArcReader::new(path)),
-        ArchiveFormat::Alz | ArchiveFormat::Z => anyhow::bail!("'{format}' support is not available in this core build"),
+        ArchiveFormat::Arj => {
+            let mut reader = geezipx_core::archive::arj::ArjReader::new(path);
+            if let Some(password) = password { reader.set_password(password)?; }
+            Box::new(reader)
+        },
+        ArchiveFormat::Ace => {
+            let mut reader = geezipx_core::archive::ace::AceReader::new(path);
+            if let Some(password) = password { reader.set_password(password)?; }
+            Box::new(reader)
+        },
+        ArchiveFormat::Arc => {
+            let mut reader = geezipx_core::archive::arc::ArcReader::new(path);
+            if let Some(password) = password { reader.set_password(password)?; }
+            Box::new(reader)
+        },
+        ArchiveFormat::Egg => Box::new(geezipx_core::archive::egg::EggReader::open(path)?),
+        ArchiveFormat::Pea => Box::new(pea_reader(file)?),
+        ArchiveFormat::Nsis => Box::new(nsis_reader(file)?),
+        ArchiveFormat::Compound => Box::new(geezipx_core::archive::compound::CompoundReader::open(path)?),
+        ArchiveFormat::Alz => Box::new(geezipx_core::archive::alz::AlzReader::open(path, password.map(str::to_owned))?),
+        ArchiveFormat::Z => anyhow::bail!("Unix compress is a single stream; use decompress or test"),
         ArchiveFormat::Asar => Box::new(AsarReader::new(path)),
         ArchiveFormat::Cab => Box::new(CabReader::new(path)),
         ArchiveFormat::Deb => Box::new(DebReader::new(file)),
         ArchiveFormat::Cpio => Box::new(CpioReader::new(path)),
         ArchiveFormat::Lzh => Box::new(LzhReader::new(file)),
+        ArchiveFormat::Bin | ArchiveFormat::Img => Box::new(geezipx_core::archive::disk_image::DiskImageReader::open(path, format)?),
+        ArchiveFormat::Isz => Box::new(IsoReader::new(geezipx_core::archive::isz::IszImage::new(std::io::BufReader::with_capacity(64*1024, file))?)),
         ArchiveFormat::Iso => Box::new(IsoReader::new(file)),
         ArchiveFormat::Udf => Box::new(UdfReader::new(path)?),
         #[cfg(feature = "wim")]
@@ -503,6 +549,7 @@ pub fn open_reader(
         ArchiveFormat::TarLz4 => Box::new(TarLz4Reader::new(file)),
         ArchiveFormat::TarZst => Box::new(TarZstReader::new(file)),
         ArchiveFormat::TarXz => Box::new(TarXzReader::new(file)),
+        ArchiveFormat::TarLz => Box::new(geezipx_core::archive::tarlz::TarLzReader::new(file)),
         #[cfg(feature = "rar")]
         ArchiveFormat::Rar => {
             let mut reader = Box::new(RarReader::new(path));
@@ -526,6 +573,21 @@ pub fn open_reader(
     })
 }
 
+mod input;
+mod output;
+
+pub fn nsis_reader(file: fs::File) -> Result<geezipx_core::archive::nsis::NsisReader> {
+    Ok(geezipx_core::archive::nsis::NsisReader::new(
+        input::CancellableInput(file),
+    )?)
+}
+
+pub fn pea_reader(file: fs::File) -> Result<geezipx_core::archive::pea::PeaReader> {
+    Ok(geezipx_core::archive::pea::PeaReader::new(
+        input::CancellableInput(file),
+    )?)
+}
+
 /// Create an archive writer with the given compression options.
 pub fn create_writer(
     file: fs::File,
@@ -534,7 +596,7 @@ pub fn create_writer(
 ) -> Result<Box<dyn ArchiveWriter>> {
     // Validate password: only ZIP and 7z formats support password for writing.
     if options.password.is_some()
-        && format != ArchiveFormat::Zip
+        && !matches!(format, ArchiveFormat::Zip | ArchiveFormat::Zipx)
         && format != ArchiveFormat::SevenZip
     {
         anyhow::bail!(
@@ -549,14 +611,24 @@ pub fn create_writer(
         }
     }
     match format {
-        ArchiveFormat::Zip => {
-            let mut writer = ZipWriter::new(file);
+        ArchiveFormat::Zip | ArchiveFormat::Zipx => {
+            let mut writer = if format == ArchiveFormat::Zipx {
+                ZipWriter::new_xz(file)
+            } else {
+                ZipWriter::new(file)
+            };
+            if let Some(level) = options.level {
+                writer.set_level(level)?;
+            }
             if let Some(pwd) = &options.password {
                 writer.set_password(pwd);
             }
             Ok(Box::new(writer))
         }
         ArchiveFormat::Tar => Ok(Box::new(TarWriter::new(file))),
+        ArchiveFormat::Nsis => {
+            anyhow::bail!("nsis is a read-only installer format; writing is not supported")
+        }
         ArchiveFormat::SevenZip => {
             let default_sz = SevenZipOptions::default();
             let sz_opts = options.seven_zip.as_ref().unwrap_or(&default_sz);
@@ -580,7 +652,10 @@ pub fn create_writer(
                 Some(_) => LzhCompressionMethod::Lh7,
                 None => LzhCompressionMethod::default(),
             };
-            Ok(Box::new(LzhWriter::new(file, method)))
+            Ok(Box::new(LzhWriter::new(
+                output::CancellableOutput(file),
+                method,
+            )))
         }
         ArchiveFormat::Iso => Ok(Box::new(IsoWriter::new(file))),
         ArchiveFormat::Udf => Ok(Box::new(UdfWriter::new(file))),
@@ -596,7 +671,10 @@ pub fn create_writer(
         ArchiveFormat::Cpio => Ok(Box::new(CpioWriter::new(file))),
         #[cfg(feature = "zpaq")]
         ArchiveFormat::Zpaq => {
-            let writer = geezipx_core::archive::zpaq::ZpaqWriter::new(file, options.level);
+            let writer = geezipx_core::archive::zpaq::ZpaqWriter::new(
+                output::CancellableOutput(file),
+                options.level,
+            );
             Ok(Box::new(writer))
         }
 
@@ -616,7 +694,7 @@ pub fn create_writer(
                 "'{format}' is a single-stream compression format; use 'compress' directly, not an archive writer"
             )
         }
-        ArchiveFormat::TarXz => Ok(Box::new(TarXzWriter::new_with_options(file, options))),
+        ArchiveFormat::TarXz => Ok(Box::new(TarXzWriter::try_new_with_options(file, options)?)),
         _ => anyhow::bail!("unsupported format for writing: {format}"),
     }
 }
@@ -653,7 +731,13 @@ pub fn aes_output_filename(archive: &Path) -> PathBuf {
         .file_name()
         .map(|s| s.to_string_lossy().to_string())
         .unwrap_or_else(|| "output".to_string());
-    let stripped = name.strip_suffix(".enc").unwrap_or(&name);
+    let stripped = if name.to_ascii_lowercase().ends_with(".enc")
+        || name.to_ascii_lowercase().ends_with(".aes")
+    {
+        &name[..name.len() - 4]
+    } else {
+        &name
+    };
     PathBuf::from(stripped)
 }
 
@@ -677,7 +761,15 @@ pub fn bzip2_output_filename(archive: &Path) -> PathBuf {
         .file_name()
         .map(|s| s.to_string_lossy().to_string())
         .unwrap_or_else(|| "output".to_string());
-    let stripped = name.strip_suffix(".bz2").unwrap_or(&name);
+    let lower = name.to_ascii_lowercase();
+    let suffix_len = if lower.ends_with(".bz2") {
+        4
+    } else if lower.ends_with(".bz") {
+        3
+    } else {
+        0
+    };
+    let stripped = &name[..name.len() - suffix_len];
     PathBuf::from(stripped)
 }
 
@@ -1057,7 +1149,7 @@ mod tests {
 
     #[test]
     fn parse_format_zipx_alias() {
-        assert_eq!(parse_format("zipx").unwrap(), ArchiveFormat::Zip);
+        assert_eq!(parse_format("zipx").unwrap(), ArchiveFormat::Zipx);
     }
 
     #[test]
@@ -1090,6 +1182,24 @@ mod tests {
     fn parse_format_zpaq_aliases() {
         assert_eq!(parse_format("zpaq").unwrap(), ArchiveFormat::Zpaq);
         assert_eq!(parse_format("zpq").unwrap(), ArchiveFormat::Zpaq);
+    }
+
+    #[test]
+    fn detect_tlz_conventions() {
+        for suffix in ["tlz", "tar.lzma", "tar.lz"] {
+            for magic in [b"LZIP".as_slice(), &[0x5d, 0, 0, 0x80, 0, 0xff, 0xff, 0xff]] {
+                let mut input = std::io::Cursor::new(magic);
+                assert_eq!(
+                    detect_archive_format_from_reader(
+                        &mut input,
+                        Some(Path::new(&format!("a.{suffix}")))
+                    )
+                    .unwrap(),
+                    ArchiveFormat::TarLz
+                );
+                assert_eq!(input.position(), 0);
+            }
+        }
     }
 
     #[test]

@@ -8,6 +8,7 @@
 - Windows：可配置右键菜单、COM 多选压缩、独立快捷解压窗口、窗口关闭权限和卸载清理。
 - GUI：并发任务隔离、密码提示、原生路径、ZIP 目录层级、7z 默认输出目录和稳定页面布局。
 - Core/CLI/SFX：失败或取消时保留已有输出、归档校验与错误传播，以及安全依赖更新。变更细节见 [CHANGELOG](../CHANGELOG.md)。
+- Core/CLI 格式对齐：完整清单已完成一轮逐项实现/性能审查，新增能力、独立样本结果、部分兼容范围与暂缓项见 [格式审查](FORMAT_PARITY_AUDIT.md)。新增读取能力不代表两个 GUI 已接入，也不代表已完成三平台发布验证。
 
 Win11 一级菜单的实验 [PR #33](https://github.com/GEELINX-LTD/geezipx/pull/33) 独立评估。本轮安装包采用已接入的传统 Explorer 菜单。
 
@@ -28,7 +29,13 @@ Win11 一级菜单的实验 [PR #33](https://github.com/GEELINX-LTD/geezipx/pull
 
 ## 3. 候选包构建与追溯
 
-- [ ] 将通过检查的修复整理到可审查提交，并将候选分支推送至远端。
+格式对齐分支已完成六轮实现/专项验收，最新候选`76b65a60fa9478f2661256369968ee275d245501`依次完成ASAR/LZH/ZPAQ创建内存改造及PEA/NSIS只读子集。[CI](https://github.com/GEELINX-LTD/geezipx/actions/runs/41201756766)及[Audit](https://github.com/GEELINX-LTD/geezipx/actions/runs/41201760473)均成功；x86-64三平台最小/基础/扩展feature测试、Clippy及原生CLI/SFX验收通过，Linux/Windows各77项、macOS73项。macOS扩展配置为RAR/WIM/SFX，沿用ZPAQ限制。六份产物/报告已下载，完整源码SHA/实际架构/二进制哈希与报告匹配，共有73项提取内容跨平台一致，Linux下载包复跑全部77项通过。测试数量、产物链接、SHA-256及各格式内存/独立互操作实测见[第六轮专项验收](FORMAT_PARITY_ACCEPTANCE.md#三平台最终候选与产物复核)。忽略项不计为通过；最终发布源码/依赖变更后仍应按影响范围重验。后续发布验收项如下：
+
+- [x] 对格式对齐候选`76b65a6`执行Windows/macOS/Linux CLI构建与新增格式抽查，覆盖ZIPX/XZ、AES Crypt、PMA/TLZ、ALZ/EGG子集、UU/UUE/XXE、IMG/BIN/ISZ内容视图、ISO/UDF及ASAR/LZH/ZPAQ创建改造，以及PEA/NSIS只读子集。
+- [x] AES Crypt官方CLI交叉核验63份v0–v2向量及官方新建v3；7份真实EGG通过上游记录，其中6份/22个文件与独立Go工具哈希一致；UltraISO默认zlib ISZ还原结果与官方逐字节一致。未覆盖变体和样本来源见专项验收。
+- [x] CI构建时重建并嵌入三平台目标stub，实际创建/执行ZIP SFX；下载Linux候选包再次执行通过。后续stub源码/依赖变化仍需重验。
+
+- [x] 修复已整理为独立提交，并将`feature/core-format-parity`候选分支推送远端；本次验证源码为`76b65a6`。
 - [ ] 针对候选分支触发 `.github/workflows/gui-windows.yml`，记录 run URL 与完整 `head_sha`，确认 GUI Rust 测试及 NSIS 构建通过。
 - [ ] 核对 artifact `geezipx-gui-windows-x86_64` 同时包含非空的 NSIS 安装程序和独立 `geezipx-gui.exe`。
 - [ ] 下载本次 run 的产物并计算 SHA256；确认运行提交与候选提交一致。
@@ -88,7 +95,7 @@ Win11 的传统菜单位于“显示更多选项”（Shift+F10）。构建成�
 在候选构建、原生验收及版本发布决定完成后执行：
 
 1. 统一 workspace、core 依赖版本、GUI `package.json` / lockfile、Tauri 配置与 `Cargo.lock`，把 CHANGELOG 的本轮内容归入正式版本及日期。
-2. 核对发布提交、必要检查和验收记录；需要 crates.io 发布时按 core → CLI 的依赖顺序执行。
+2. 核对发布提交、必要检查和验收记录；需要crates.io发布时先确认`geezipx-iso`、`geezipx-udf`、`geezipx-lzhuf`、`geezipx-zpaq`和`geezipx-nsis`所需版本已发布并可从registry解析（对应`crates/vendor/hadris-iso/Cargo.toml`、`crates/vendor/hadris-udf/Cargo.toml`、`crates/vendor/oxiarc-lzhuf/Cargo.toml`、`crates/vendor/zpaq-rs/Cargo.toml`和`crates/vendor/nsis/Cargo.toml`独立发布），再按core → CLI的依赖顺序执行。支持库使用独立版本号；不能仅依赖本地path或workspace patch来验证发布可用性。
 3. 创建版本 tag，跟踪 release workflow，核对三平台产物和校验文件并验证下载。
 4. 将构建/验收记录与已知限制放入 release notes，更新规划中的正式版本。
 

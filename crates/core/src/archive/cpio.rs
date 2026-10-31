@@ -23,7 +23,7 @@
 
 use std::fmt;
 use std::fs::File;
-use std::io::{Read, Write};
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
 use cpio_archive::{CpioHeader, OdcBuilder};
@@ -556,15 +556,22 @@ impl<W: Write + Send> ArchiveWriter for CpioWriter<W> {
     fn add_entry_from_reader(&mut self, path: &Path, reader: &mut dyn Read) -> GeeZipResult<()> {
         let name = validate_cpio_write_path(path)?;
 
-        // Buffer the data to know the size (CPIO requires size in header).
-        let mut data = Vec::new();
-        reader
-            .read_to_end(&mut data)
-            .map_err(|e| GeeZipError::io(e, format!("reading data for entry '{name}'")))?;
+        // An arbitrary Read has no length for the header. Keep small entries
+        // in bounded memory and spill larger ones to disk before emitting it.
+        let mut data = tempfile::spooled_tempfile(1024 * 1024);
+        let bytes = std::io::copy(&mut reader.take(u64::from(u32::MAX) + 1), &mut data)
+            .map_err(|e| GeeZipError::io(e, format!("staging data for entry '{name}'")))?;
+        let file_size = u32::try_from(bytes).map_err(|_| {
+            GeeZipError::format(
+                "CPIO entry exceeds the supported 32-bit size",
+                ArchiveFormat::Cpio,
+            )
+        })?;
+        data.seek(SeekFrom::Start(0))
+            .map_err(|e| GeeZipError::io(e, format!("rewinding data for entry '{name}'")))?;
 
         self.inode_counter += 1;
         let inode = self.inode_counter;
-        let file_size = data.len() as u32;
 
         let inner = self.inner.as_mut().ok_or_else(|| GeeZipError::Format {
             message: "CPIO writer not initialised (already consumed)".into(),
@@ -574,11 +581,8 @@ impl<W: Write + Send> ArchiveWriter for CpioWriter<W> {
         match inner {
             CpioWriterInner::Newc(ref mut cw) => {
                 write_newc_entry(cw, inode, &name, file_size, DEFAULT_FILE_MODE)?;
-                if file_size > 0 {
-                    cw.write_all(&data).map_err(|e| {
-                        GeeZipError::io(e, format!("writing data for entry '{name}'"))
-                    })?;
-                }
+                std::io::copy(&mut data, cw)
+                    .map_err(|e| GeeZipError::io(e, format!("writing data for entry '{name}'")))?;
                 write_newc_data_padding(cw, file_size)?;
             }
             CpioWriterInner::Odc(ref mut builder) => {
@@ -589,7 +593,7 @@ impl<W: Write + Send> ArchiveWriter for CpioWriter<W> {
                 header.nlink = 1;
                 header.file_size = file_size as u64;
                 builder
-                    .append_header_with_data(header, &data)
+                    .append_header_with_reader(header, &mut data)
                     .map_err(|e| convert_odc_write_error(e, &name))?;
             }
         }
@@ -1425,6 +1429,44 @@ mod tests {
         reader.extract(&entries[0], &mut out).unwrap();
         assert_eq!(out.len(), 10003);
         assert_eq!(out, data);
+    }
+
+    #[test]
+    fn cpio_writes_generated_large_entries_with_bounded_reads() {
+        struct Generated {
+            remaining: u64,
+        }
+        impl Read for Generated {
+            fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+                assert!(buffer.len() <= 64 * 1024, "unbounded input read");
+                let len = self.remaining.min(buffer.len() as u64) as usize;
+                buffer[..len].fill(0x5a);
+                self.remaining -= len as u64;
+                Ok(len)
+            }
+        }
+        let size = 3 * 1024 * 1024 + 17;
+        for odc in [false, true] {
+            let mut writer = if odc {
+                CpioWriter::new_odc(Vec::new())
+            } else {
+                CpioWriter::new(Vec::new())
+            };
+            writer
+                .add_entry_from_reader(
+                    Path::new("generated.bin"),
+                    &mut Generated { remaining: size },
+                )
+                .unwrap();
+            let (_, archive) = writer.finalize().unwrap();
+            let (mut reader, _temp) = round_trip_read(archive);
+            let entries = reader.entries().unwrap();
+            assert_eq!(entries.len(), 1);
+            assert_eq!(entries[0].size, size);
+            let mut output = Vec::new();
+            assert_eq!(reader.extract(&entries[0], &mut output).unwrap(), size);
+            assert!(output.iter().all(|&byte| byte == 0x5a));
+        }
     }
 
     #[test]

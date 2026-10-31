@@ -1,6 +1,8 @@
 [workspace]
 resolver = "2"
 default-members = ["crates/core", "crates/cli"]
+# Maintained upstream fork; validate/package independently of the application workspace.
+exclude = ["crates/vendor/hadris-iso", "crates/vendor/hadris-udf", "crates/vendor/oxiarc-lzhuf", "crates/vendor/zpaq-rs", "crates/vendor/nsis"]
 members = [
     "crates/core",
     "crates/cli",
@@ -22,6 +24,7 @@ rust-version = "1.96"
 [workspace.dependencies]
 geezipx-core = { version = "0.7.4", path = "crates/core", default-features = false }
 zip = { version = "9.1.3", default-features = false }
+zpaq_rs = { package = "geezipx-zpaq", version = "0.1.0", path = "crates/vendor/zpaq-rs" }
 
 [profile.release.package.geezipx-sfx-stub]
 opt-level = "z"

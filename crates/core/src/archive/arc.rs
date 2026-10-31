@@ -2,7 +2,7 @@
 //!
 //! GeeZipX exposes ARC as a read-only archive format backed by the
 //! `unarc-rs` crate.  The reader supports listing and extraction;
-//! XOR-based encryption is handled transparently by `unarc-rs`.
+//! password-based XOR decryption is handled by `unarc-rs` when a password is set.
 //!
 //! # Design notes
 //!
@@ -17,7 +17,9 @@ use std::fs::File;
 use std::io::{BufReader, Write};
 use std::path::PathBuf;
 
-use unarc_rs::unified::{ArchiveEntry as UnarcEntry, ArchiveFormat as UnarcFormat, UnifiedArchive};
+use unarc_rs::unified::{
+    ArchiveEntry as UnarcEntry, ArchiveFormat as UnarcFormat, ArchiveOptions, UnifiedArchive,
+};
 
 use crate::archive::{ArchiveReader, Entry};
 use crate::detect::ArchiveFormat;
@@ -27,6 +29,7 @@ use crate::error::{GeeZipError, GeeZipResult};
 pub struct ArcReader {
     path: PathBuf,
     format: ArchiveFormat,
+    password: Option<String>,
 }
 
 impl fmt::Debug for ArcReader {
@@ -44,13 +47,25 @@ impl ArcReader {
         Self {
             path: path.into(),
             format: ArchiveFormat::Arc,
+            password: None,
         }
     }
 
     fn open_archive(&self) -> GeeZipResult<UnifiedArchive<BufReader<File>>> {
         let file = File::open(&self.path)
             .map_err(|e| GeeZipError::io(e, format!("opening '{}'", self.path.display())))?;
-        UnifiedArchive::open_with_format(BufReader::new(file), UnarcFormat::Arc).map_err(|e| {
+        // UnifiedArchive::set_password only changes its own options; these
+        // backends receive the password when they are opened.
+        let mut options = ArchiveOptions::default();
+        if let Some(password) = &self.password {
+            options = options.with_password(password.clone());
+        }
+        UnifiedArchive::open_with_format_and_options(
+            BufReader::new(file),
+            UnarcFormat::Arc,
+            options,
+        )
+        .map_err(|e| {
             GeeZipError::format(
                 format!("invalid ARC archive '{}': {e}", self.path.display()),
                 ArchiveFormat::Arc,
@@ -66,6 +81,9 @@ impl ArcReader {
             .map_err(|e| GeeZipError::format(format!("ARC read error: {e}"), ArchiveFormat::Arc))?
         {
             entries.push(convert_entry(&unarc_entry));
+            archive.skip(&unarc_entry).map_err(|e| {
+                GeeZipError::format(format!("ARC skip error: {e}"), ArchiveFormat::Arc)
+            })?;
         }
         Ok(entries)
     }
@@ -74,6 +92,11 @@ impl ArcReader {
 impl ArchiveReader for ArcReader {
     fn format(&self) -> ArchiveFormat {
         self.format
+    }
+
+    fn set_password(&mut self, password: &str) -> GeeZipResult<()> {
+        self.password = Some(password.to_owned());
+        Ok(())
     }
 
     fn entries(&mut self) -> GeeZipResult<Vec<Entry>> {
@@ -103,7 +126,9 @@ impl ArchiveReader for ArcReader {
                 })?;
                 return Ok(len);
             }
-            let _ = archive.skip(&unarc_entry);
+            archive.skip(&unarc_entry).map_err(|e| {
+                GeeZipError::format(format!("ARC skip error: {e}"), ArchiveFormat::Arc)
+            })?;
         }
         Err(GeeZipError::EntryNotFound {
             name: entry.path.clone(),
@@ -126,7 +151,9 @@ fn convert_entry(unarc_entry: &UnarcEntry) -> Entry {
         path: unarc_entry.name().to_owned(),
         size: unarc_entry.original_size(),
         compressed_size: unarc_entry.compressed_size(),
-        crc32: Some(unarc_entry.crc() as u32),
+        // ARC stores CRC16, which unarc verifies while decoding. Do not
+        // expose it as CRC32 to the shared verifier.
+        crc32: None,
         modified,
         is_dir: unarc_entry.original_size() == 0 && unarc_entry.name().ends_with('/'),
     }
@@ -135,6 +162,62 @@ fn convert_entry(unarc_entry: &UnarcEntry) -> Entry {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn stored_arc(password: Option<&str>) -> Vec<u8> {
+        let mut archive = Vec::new();
+        for (name, data) in [
+            ("first", &b"payload with a fake header: \x1a\x02"[..]),
+            ("second", &b"second payload"[..]),
+        ] {
+            let mut crc = 0u16;
+            for &byte in data {
+                crc ^= u16::from(byte);
+                for _ in 0..8 {
+                    crc = (crc >> 1) ^ if crc & 1 != 0 { 0xa001 } else { 0 };
+                }
+            }
+            archive.extend_from_slice(&[0x1a, 2]);
+            let mut filename = [0; 13];
+            filename[..name.len()].copy_from_slice(name.as_bytes());
+            archive.extend_from_slice(&filename);
+            archive.extend_from_slice(&(data.len() as u32).to_le_bytes());
+            archive.extend_from_slice(&[0, 0, 0, 0]);
+            archive.extend_from_slice(&crc.to_le_bytes());
+            archive.extend_from_slice(&(data.len() as u32).to_le_bytes());
+            for (i, &byte) in data.iter().enumerate() {
+                archive.push(byte ^ password.map_or(0, |p| p.as_bytes()[i % p.len()]));
+            }
+        }
+        archive.extend_from_slice(&[0x1a, 0]);
+        archive
+    }
+
+    #[test]
+    fn arc_listing_skips_header_like_payload_and_password_is_forwarded() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("stored.arc");
+        for password in [None, Some("secret")] {
+            std::fs::write(&path, stored_arc(password)).unwrap();
+            let mut reader = ArcReader::new(&path);
+            if let Some(password) = password {
+                reader.set_password(password).unwrap();
+            }
+            let entries = reader.entries().unwrap();
+            assert_eq!(
+                entries.iter().map(|e| e.path.as_str()).collect::<Vec<_>>(),
+                ["first", "second"]
+            );
+            assert!(entries.iter().all(|e| e.crc32.is_none()));
+            let mut output = Vec::new();
+            reader.extract(&entries[1], &mut output).unwrap();
+            assert_eq!(output, b"second payload");
+            assert!(!format!("{reader:?}").contains("secret"));
+            let mut bad = stored_arc(password);
+            bad[23] ^= 1; // first entry CRC16
+            std::fs::write(&path, bad).unwrap();
+            assert!(reader.extract(&entries[0], &mut std::io::sink()).is_err());
+        }
+    }
 
     #[test]
     fn arc_malformed_fails_cleanly() {

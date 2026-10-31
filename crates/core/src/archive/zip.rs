@@ -153,6 +153,10 @@ impl<R: Read + Seek + Send> ArchiveReader for ZipReader<R> {
         Ok(entries)
     }
 
+    fn has_direct_visitor(&self) -> bool {
+        true
+    }
+
     fn visit_entries(
         &mut self,
         visitor: &mut super::EntryVisitor<'_>,
@@ -223,6 +227,8 @@ pub struct ZipWriter<W: Write + Seek> {
     start_pos: u64,
     format: ArchiveFormat,
     password: Option<String>,
+    method: zip::CompressionMethod,
+    level: Option<i64>,
 }
 
 impl<W: Write + Seek> ZipWriter<W> {
@@ -234,7 +240,29 @@ impl<W: Write + Seek> ZipWriter<W> {
             start_pos,
             format: ArchiveFormat::Zip,
             password: None,
+            method: zip::CompressionMethod::DEFLATE,
+            level: None,
         }
+    }
+
+    /// Create a ZIPX writer using streaming XZ compression (ZIP method 95).
+    pub fn new_xz(writer: W) -> Self {
+        let mut writer = Self::new(writer);
+        writer.format = ArchiveFormat::Zipx;
+        writer.method = zip::CompressionMethod::XZ;
+        writer
+    }
+
+    /// Set the codec's compression level (0 through 9).
+    pub fn set_level(&mut self, level: u32) -> GeeZipResult<()> {
+        if level > 9 {
+            return Err(GeeZipError::Format {
+                message: "ZIP compression level must be between 0 and 9".into(),
+                format: self.format,
+            });
+        }
+        self.level = Some(i64::from(level));
+        Ok(())
     }
 
     /// Set a password for AES-256 encryption.
@@ -272,8 +300,9 @@ impl<W: Write + Seek + Send> ArchiveWriter for ZipWriter<W> {
             })?
             .replace('\\', "/");
 
-        let mut options =
-            SimpleFileOptions::default().compression_method(zip::CompressionMethod::DEFLATE);
+        let mut options = SimpleFileOptions::default()
+            .compression_method(self.method)
+            .compression_level(self.level);
         if let Some(password) = &self.password {
             options = options.with_aes_encryption(AesMode::Aes256, password);
         }
@@ -923,6 +952,35 @@ mod tests {
         let data = create_test_zip(&[("dummy.txt", b"x")]);
         let mut reader = ZipReader::from_buf(data).unwrap();
         use_reader(&mut reader);
+    }
+
+    #[test]
+    fn zipx_codecs_interoperate_with_reader() {
+        let content = b"streamed ZIP codecs ".repeat(1024);
+        for method in [
+            zip::CompressionMethod::XZ,
+            zip::CompressionMethod::BZIP2,
+            zip::CompressionMethod::ZSTD,
+            zip::CompressionMethod::PPMD,
+        ] {
+            let mut buf = Cursor::new(Vec::new());
+            {
+                let mut writer = zip::ZipWriter::new(&mut buf);
+                writer
+                    .start_file(
+                        "test.txt",
+                        SimpleFileOptions::default().compression_method(method),
+                    )
+                    .unwrap();
+                writer.write_all(&content).unwrap();
+                writer.finish().unwrap();
+            }
+            let mut reader = ZipReader::from_buf(buf.into_inner()).unwrap();
+            let entry = reader.entries().unwrap().remove(0);
+            let mut output = Vec::new();
+            reader.extract(&entry, &mut output).unwrap();
+            assert_eq!(output, content, "{method:?}");
+        }
     }
 
     #[test]

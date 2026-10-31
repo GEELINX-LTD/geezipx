@@ -1,0 +1,1996 @@
+//! The main NSIS installer parser entry point.
+
+use core::fmt::Write as _;
+use std::sync::OnceLock;
+
+use crate::{
+    addressmap::PeOverlay,
+    decompress::{self, CompressionMethod, CompressionMode, DecodeLimit},
+    error::Error,
+    header::{
+        self, BLOCKS_NUM, V1Header,
+        blockheader::BlockType,
+        commonheader::CommonHeader,
+        firstheader::{
+            FH_FLAGS_SILENT, FH_FLAGS_UNINSTALL, FH_V1_FLAGS_CRC, FH_V1_FLAGS_SILENT,
+            FH_V1_FLAGS_UNINSTALL, FirstHeader,
+        },
+        v1header::V1HeaderKind,
+    },
+    installer::{
+        analysis::{
+            self, ExecIter, InstructionIter, PluginCallIter, RegistryIter, ShortcutIter,
+            UninstallerIter,
+        },
+        callback::Callback,
+        files::FileIter,
+        script::{self, ScriptAnalysis},
+    },
+    nsis::{
+        entry::{Entry, EntryIter},
+        langtable::{LangTable, LangTableIter},
+        page::PageIter,
+        section::{Section, SectionIter, SectionLayout},
+    },
+    opcode::{
+        self, ExecFlag, Nsis2SubVersion, NsisVersion, OpcodeInfo, ParamLayout, ParamType,
+        ParkSubVersion,
+    },
+    strings::{self, NsisString, StringEncoding, StringSegment, StringTable, ansi::AnsiCodeRange},
+    util::{Blob, read_i32_le},
+};
+
+/// The outcome of decompressing an installer's solid file-data stream.
+///
+/// Solid installers hold every embedded file in one compressed stream, which
+/// the parser decodes up front under the caller's
+/// [`max_decompressed_size`](NsisInstaller::max_decompressed_size) budget. A
+/// stream that fails or overruns that budget does not fail the parse - header
+/// structures remain fully readable - so this records why the file data is
+/// absent or incomplete.
+///
+/// Read it through [`NsisInstaller::solid_status`]. Files that fall past a
+/// truncation point, or any file at all when decoding failed, report the
+/// corresponding error from [`FileIter`] and
+/// [`ExtractedFile::decompress`](crate::installer::ExtractedFile::decompress)
+/// rather than a bounds error that looks like data corruption.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SolidStatus {
+    /// The installer is not solid; file data is sliced from the original file.
+    NotSolid,
+    /// Only metadata was parsed; payloads remain in the caller's seekable source.
+    MetadataOnly,
+    /// The whole solid stream decompressed within the budget.
+    Complete,
+    /// Decoding stopped at the budget. Files stored before that point are
+    /// still readable; the rest report [`Error::OutputTooLarge`].
+    Truncated {
+        /// The budget the stream was cut at, in bytes.
+        limit: usize,
+    },
+    /// Decoding failed outright, leaving no file data. Every file reports this
+    /// error.
+    Failed(Error),
+}
+
+/// What an installer's runtime was compiled with, as far as its stub says.
+///
+/// The opcode numbering is the runtime's: each instruction a build compiles in
+/// takes a number, and the header records none of it. Two features leave a
+/// literal in the stub that nothing else puts there, and both renumber opcodes:
+///
+/// - Logging writes `install.log` into the install directory
+///   (`build_g_logfile` in `Ui.c`), UTF-16 in a Unicode build.
+/// - The Park fork's font readers look for the TrueType `name` table by its
+///   tag (`GetTTFNameString` in the fork's `ttf.c`), as an ANSI string in
+///   either width.
+///
+/// Across the fixtures `install.log` marks exactly the three built with
+/// logging - the 3.10 logging build's two, and both Park 3 builds, which the
+/// fork's third release compiles with `NSIS_CONFIG_LOG` - and `name` exactly
+/// the four Park 2 and Park 3 builds. A stub packed or otherwise altered past
+/// reading says nothing, and the entry block decides instead.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct RuntimeFeatures {
+    /// Compiled with `NSIS_CONFIG_LOG`.
+    logs: bool,
+    /// The Park fork with its font readers (`NSIS_SUPPORT_GETFONTVERSION`).
+    reads_fonts: bool,
+}
+
+impl RuntimeFeatures {
+    /// Reads the features `stub` - the bytes before the first header - was
+    /// compiled with.
+    fn of(stub: &[u8]) -> Self {
+        let has = |needle: &[u8]| stub.windows(needle.len()).any(|window| window == needle);
+        Self {
+            logs: has(b"install.log") || has(b"i\0n\0s\0t\0a\0l\0l\0.\0l\0o\0g\0"),
+            reads_fonts: has(b"\0name\0"),
+        }
+    }
+
+    /// The Park release a runtime with these features is.
+    ///
+    /// Park 2 added `GetFontVersion`, and Park 3 `GetFontName` and logging
+    /// (`makensis /HDRINFO` of each release). `GetFontName` leaves no literal
+    /// of its own, so a font reader with logging is the third release.
+    fn park_sub(self) -> ParkSubVersion {
+        match (self.reads_fonts, self.logs) {
+            (true, true) => ParkSubVersion::Park3,
+            (true, false) => ParkSubVersion::Park2,
+            (false, _) => ParkSubVersion::Park1,
+        }
+    }
+}
+
+/// Decides whether an entry block reads as a log-enabled build, when the stub
+/// cannot say ([`RuntimeFeatures`]).
+///
+/// A build compiled with logging stores every opcode above
+/// `EW_WRITEUNINSTALLER` one higher than a standard build does. Both layouts
+/// are checked against the entry block; the standard one is assumed unless it
+/// is contradicted and the log layout is not.
+///
+/// The check is 7-Zip's: an opcode that takes fewer parameters than the entry
+/// passes cannot be the right reading. An installer that uses no opcode above
+/// the boundary is consistent with both, and reads identically either way. One
+/// that uses only opcodes whose operands fit both readings is consistent with
+/// both too, and reads differently: `LogSet on` fits `SectionGetText`, and
+/// `SectionGetText` fits `InstTypeGetText`. That is why the stub is asked
+/// first.
+fn detect_log_build(header_data: &[u8], entry_block_offset: usize, entry_count: usize) -> bool {
+    // The two layouts agree below `EW_SECTIONSET`, so an installer that never
+    // reaches that far reads identically either way and needs no scan at all.
+    // That covers most scripts.
+    if !uses_shiftable_opcode(header_data, entry_block_offset, entry_count) {
+        return false;
+    }
+
+    let standard = opcode::find_bad_opcode(
+        header_data,
+        entry_block_offset,
+        entry_count,
+        opcode::standard_layout,
+    );
+    if standard.is_none() {
+        return false;
+    }
+
+    let with_log = opcode::find_bad_opcode(
+        header_data,
+        entry_block_offset,
+        entry_count,
+        opcode::log_layout,
+    );
+    with_log.is_none()
+}
+
+/// Returns `true` if any entry uses an opcode the log build would shift.
+fn uses_shiftable_opcode(
+    header_data: &[u8],
+    entry_block_offset: usize,
+    entry_count: usize,
+) -> bool {
+    (0..entry_count).any(|i| {
+        let Some(offset) = i
+            .checked_mul(Entry::SIZE)
+            .and_then(|n| n.checked_add(entry_block_offset))
+        else {
+            return false;
+        };
+        if offset
+            .checked_add(Entry::SIZE)
+            .is_none_or(|end| end > header_data.len())
+        {
+            return false;
+        }
+        read_i32_le(header_data, offset) >= opcode::EW_SECTIONSET
+    })
+}
+
+/// String-table offsets from the tail of the common header.
+///
+/// These describe where the installer writes and how it registers itself. They
+/// are stored as offsets and resolved on demand, since resolving needs the
+/// string table.
+#[derive(Debug, Clone, Copy)]
+struct HeaderStrings {
+    install_dir: i32,
+    install_dir_auto_append: i32,
+    install_reg_key: i32,
+    install_reg_value: i32,
+    install_reg_rootkey: i32,
+    uninstall_child: i32,
+    uninstall_command: i32,
+    wininit: i32,
+}
+
+/// Parsed NSIS installer providing access to all internal structures.
+///
+/// The installer borrows the original file bytes (`'a` lifetime) and owns
+/// the decompressed header data. All view types returned by accessor methods
+/// borrow from one of these two buffers.
+///
+/// # Example
+///
+/// ```no_run
+/// use nsis::NsisInstaller;
+///
+/// let file = std::fs::read("installer.exe").unwrap();
+/// let inst = NsisInstaller::from_bytes(&file).unwrap();
+///
+/// println!("Version: {:?}", inst.version());
+/// println!("Sections: {}", inst.section_count());
+/// for section in inst.sections() {
+///     let section = section.unwrap();
+///     println!("  code_size={}", section.code_size());
+/// }
+/// ```
+#[derive(Debug)]
+pub struct NsisInstaller<'a> {
+    /// The original file bytes (borrowed).
+    file: Blob<&'a [u8]>,
+    /// Byte offset of the FirstHeader within the file.
+    first_header_file_offset: usize,
+    /// Decompressed header data (owned).
+    header_data: Blob<Vec<u8>>,
+    /// Detected compression method.
+    compression: CompressionMethod,
+    /// Detected compression mode.
+    mode: CompressionMode,
+    /// Detected NSIS version.
+    version: NsisVersion,
+    /// Detected string encoding.
+    encoding: StringEncoding,
+    /// Which ANSI special-code range the string table uses.
+    ///
+    /// Only meaningful for an ANSI table, where NSIS 3 and NSIS 2 disagree on
+    /// which byte values are codes rather than text.
+    ansi_codes: AnsiCodeRange,
+    /// FirstHeader flags (cached).
+    first_header_flags: u32,
+    /// Whether the FirstHeader uses a legacy signature.
+    is_legacy: bool,
+    /// Byte offset of the data block within the original file (non-solid only).
+    data_block_offset: usize,
+    /// Decompressed solid file data (solid mode only).
+    ///
+    /// In solid mode, this contains the decompressed file data stream
+    /// (everything after the header in the solid decompressed stream).
+    /// Each file entry is framed with a 4-byte length prefix.
+    /// `EW_EXTRACTFILE` `data_offset` values are byte positions into this buffer.
+    solid_data: Blob<Vec<u8>>,
+    /// Outcome of decompressing the solid stream (solid mode only).
+    solid_status: SolidStatus,
+    /// Parsed block offsets and counts: (offset_in_header, item_count).
+    blocks: [(u32, i32); 8],
+    /// Common header flags.
+    common_flags: u32,
+    /// Language table entry size.
+    langtable_size: i32,
+    /// On-disk section size (base 24 bytes + optional inline name buffer).
+    section_size: usize,
+    /// String offsets from the tail of the common header.
+    header_strings: HeaderStrings,
+    /// Offset of the uninstaller data within the data block, or `None` for a
+    /// version that records it on the `WriteUninstaller` instruction instead.
+    v1_uninstall_data_offset: Option<i32>,
+    /// Callback entry indices from the common header.
+    ///
+    /// Order: onInit, onInstSuccess, onInstFailed, onUserAbort, onGUIInit,
+    /// onGUIEnd, onMouseOverSection, onVerifyInstDir, onSelChange, onRebootFailed.
+    /// Value of -1 means the callback is not defined.
+    callbacks: [i32; 10],
+    /// Park sub-version (only meaningful when `version == Park`).
+    park_sub: Option<ParkSubVersion>,
+    /// NSIS 2 variable layout (only meaningful when `version == V2`).
+    nsis2_sub: Option<Nsis2SubVersion>,
+    /// Whether the compiler was built with logging, which shifts opcodes.
+    log_build: bool,
+    /// Control-flow analysis, built on first use.
+    ///
+    /// Walking the whole entry stream to build it is not cheap, and callers
+    /// reasonably ask for it more than once - the formatters take it as an
+    /// argument, so a caller holding an installer but not the analysis would
+    /// otherwise pay for it again.
+    analysis: OnceLock<ScriptAnalysis>,
+    /// Maximum decompressed size budget for unknown-size streams.
+    ///
+    /// Applied per decompression call to embedded files, the solid file-data
+    /// stream, and uninstaller overlays. A stream that would expand past this
+    /// budget is rejected with [`Error::OutputTooLarge`] rather than silently
+    /// truncated. Set via [`NsisInstaller::builder`].
+    max_decompressed_size: usize,
+    pub(super) metadata_only: bool,
+}
+
+struct DecodedHeader {
+    first_header: [u8; FirstHeader::SIZE],
+    data: Vec<u8>,
+    compression: CompressionMethod,
+    mode: CompressionMode,
+    features: RuntimeFeatures,
+}
+
+impl<'a> NsisInstaller<'a> {
+    /// Default decompression budget for unknown-size streams (64 MiB).
+    ///
+    /// Used by [`from_bytes`](Self::from_bytes) and as the
+    /// [`builder`](Self::builder)'s starting value. Override per-parse with
+    /// [`NsisInstallerBuilder::max_decompressed_size`].
+    pub const DEFAULT_MAX_DECOMPRESSED_SIZE: usize = 64 * 1024 * 1024;
+
+    /// Parses an NSIS installer from the given file bytes using default limits.
+    ///
+    /// Equivalent to `NsisInstaller::builder(file).parse()`. To configure the
+    /// decompression budget, use [`builder`](Self::builder) instead.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if any step fails (not a PE, no overlay, no NSIS
+    /// signature, decompression failure, invalid headers).
+    pub fn from_bytes(file: &'a [u8]) -> Result<Self, Error> {
+        Self::builder(file).parse()
+    }
+
+    /// Creates a [`NsisInstallerBuilder`] for parsing `file` with configurable
+    /// limits.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use nsis::NsisInstaller;
+    ///
+    /// let file = std::fs::read("installer.exe").unwrap();
+    /// let inst = NsisInstaller::builder(&file)
+    ///     .max_decompressed_size(256 * 1024 * 1024)
+    ///     .parse()
+    ///     .unwrap();
+    /// # let _ = inst.version();
+    /// ```
+    pub fn builder(file: &'a [u8]) -> NsisInstallerBuilder<'a> {
+        NsisInstallerBuilder {
+            file: Blob(file),
+            max_decompressed_size: Self::DEFAULT_MAX_DECOMPRESSED_SIZE,
+        }
+    }
+
+    /// Parses an NSIS installer with an explicit decompression budget.
+    ///
+    /// This performs the full parsing pipeline:
+    /// 1. Locate PE overlay
+    /// 2. Scan for FirstHeader at 512-byte aligned offsets
+    /// 3. Decompress the header block
+    /// 4. Parse the common header and block descriptors
+    /// 5. Detect string encoding and NSIS version
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if any step fails (not a PE, no overlay, no NSIS
+    /// signature, decompression failure, invalid headers).
+    fn parse_with_budget(file: &'a [u8], max_decompressed_size: usize) -> Result<Self, Error> {
+        Self::parse_input(file, max_decompressed_size, None)
+    }
+
+    /// Parses an already decoded header without retaining or decompressing file payloads.
+    ///
+    /// `first_header` is the original 28-byte first header. `stub_hints` is used
+    /// only to detect runtime features such as logging; it is not retained.
+    /// File iteration exposes names and data-block offsets, but payload access
+    /// must be implemented by the caller using its seekable or staged source.
+    ///
+    /// # Errors
+    /// Returns an error for inconsistent lengths, invalid structures or an
+    /// over-budget header. Metadata-only payload decompression always fails.
+    pub fn from_decoded_header(
+        data: Vec<u8>,
+        first_header: [u8; FirstHeader::SIZE],
+        compression: CompressionMethod,
+        mode: CompressionMode,
+        stub_hints: &[u8],
+    ) -> Result<Self, Error> {
+        Self::parse_input(
+            &[],
+            Self::DEFAULT_MAX_DECOMPRESSED_SIZE,
+            Some(DecodedHeader {
+                first_header,
+                data,
+                compression,
+                mode,
+                features: RuntimeFeatures::of(stub_hints),
+            }),
+        )
+    }
+
+    fn parse_input(
+        file: &'a [u8],
+        max_decompressed_size: usize,
+        decoded: Option<DecodedHeader>,
+    ) -> Result<Self, Error> {
+        let metadata_only = decoded.is_some();
+        let override_first_header = decoded.as_ref().map(|h| h.first_header).unwrap_or([0; 28]);
+        let override_features = decoded.as_ref().map(|h| h.features);
+        let (
+            first_header_file_offset,
+            first_header,
+            after_fh,
+            header_data,
+            compression,
+            mode,
+            header_compressed_size,
+        ) = if let Some(decoded) = decoded {
+            let first_header = FirstHeader::parse(&override_first_header)?;
+            if usize::try_from(first_header.length_of_header()).ok() != Some(decoded.data.len()) {
+                return Err(Error::DecompressionFailed {
+                    method: "header",
+                    detail: "decoded header length mismatch".into(),
+                });
+            }
+            if decoded.data.len() > max_decompressed_size {
+                return Err(Error::OutputTooLarge {
+                    limit: max_decompressed_size,
+                });
+            }
+            (
+                0,
+                first_header,
+                &[][..],
+                decoded.data,
+                decoded.compression,
+                decoded.mode,
+                0,
+            )
+        } else {
+            let overlay_info = PeOverlay::from_bytes(file)?;
+            let overlay = overlay_info.overlay();
+            let overlay_file_offset = overlay_info.overlay_offset();
+            let (fh_overlay_offset, first_header) = header::scan_for_first_header(overlay)?;
+            let first_header_file_offset = overlay_file_offset
+                .checked_add(fh_overlay_offset)
+                .ok_or(Error::TooShort {
+                    expected: usize::MAX,
+                    actual: overlay.len(),
+                    context: "first header file offset overflow",
+                })?;
+            let after_fh_start =
+                fh_overlay_offset
+                    .checked_add(FirstHeader::SIZE)
+                    .ok_or(Error::TooShort {
+                        expected: usize::MAX,
+                        actual: overlay.len(),
+                        context: "first header overflow",
+                    })?;
+            let after_fh = overlay.get(after_fh_start..).ok_or(Error::TooShort {
+                expected: after_fh_start.saturating_add(1),
+                actual: overlay.len(),
+                context: "data after FirstHeader",
+            })?;
+            let expected_size = usize::try_from(first_header.length_of_header()).map_err(|_| {
+                Error::DecompressionFailed {
+                    method: "header",
+                    detail: "negative header length".into(),
+                }
+            })?;
+            // A payload budget may intentionally be smaller than the header.
+            // Metadata has a separate fixed cap, preserving builder semantics.
+            if expected_size > Self::DEFAULT_MAX_DECOMPRESSED_SIZE {
+                return Err(Error::OutputTooLarge {
+                    limit: Self::DEFAULT_MAX_DECOMPRESSED_SIZE,
+                });
+            }
+            let (header_data, compression, mode, header_compressed_size) =
+                decompress::decompress_header(after_fh, expected_size)?;
+            (
+                first_header_file_offset,
+                first_header,
+                after_fh,
+                header_data,
+                compression,
+                mode,
+                header_compressed_size,
+            )
+        };
+        let is_legacy = first_header.is_legacy();
+
+        // Step 4: Parse the header. NSIS 1.x has no block table - its tables
+        // are laid end to end after a fixed struct - so which layout applies
+        // has to be worked out from whether the header reads consistently
+        // under it. The modern layout is tried first: every NSIS since 2.0
+        // writes it, and a 1.x header fails its block-offset checks.
+        // NSIS 1.x keeps this on the header, where later versions keep it on
+        // the instruction; it is picked up below if this turns out to be one.
+        let mut v1_uninstall_data_offset = None;
+        let (blocks, common_flags, langtable_size, callbacks, header_strings, is_v1) =
+            match CommonHeader::parse(&header_data) {
+                Ok(common_header) => {
+                    let mut blocks = [(0u32, 0i32); BLOCKS_NUM];
+                    for (block, bh) in blocks.iter_mut().zip(common_header.blocks().iter()) {
+                        *block = (bh.offset(), bh.num());
+                    }
+                    let callbacks = [
+                        common_header.code_on_init(),
+                        common_header.code_on_inst_success(),
+                        common_header.code_on_inst_failed(),
+                        common_header.code_on_user_abort(),
+                        common_header.code_on_gui_init(),
+                        common_header.code_on_gui_end(),
+                        common_header.code_on_mouse_over_section(),
+                        common_header.code_on_verify_inst_dir(),
+                        common_header.code_on_sel_change(),
+                        common_header.code_on_reboot_failed(),
+                    ];
+                    let header_strings = HeaderStrings {
+                        install_dir: common_header.install_dir_ptr(),
+                        install_dir_auto_append: common_header.install_dir_auto_append_ptr(),
+                        install_reg_key: common_header.install_reg_key_ptr(),
+                        install_reg_value: common_header.install_reg_value_ptr(),
+                        install_reg_rootkey: common_header.install_reg_rootkey(),
+                        uninstall_child: common_header.uninstall_child_ptr(),
+                        uninstall_command: common_header.uninstall_command_ptr(),
+                        wininit: common_header.wininit_ptr(),
+                    };
+                    (
+                        blocks,
+                        common_header.flags(),
+                        common_header.langtable_size(),
+                        callbacks,
+                        header_strings,
+                        false,
+                    )
+                }
+                // Report the modern layout's error if this is not a 1.x header
+                // either: that is far more often the real diagnosis.
+                Err(modern) => {
+                    // 1.x writes a different struct for an uninstaller, and
+                    // the FirstHeader flag says which - with 1.x's numbering,
+                    // where bit 1 rather than bit 0 carries it.
+                    let kind = if first_header.flags() & FH_V1_FLAGS_UNINSTALL != 0 {
+                        V1HeaderKind::Uninstaller
+                    } else {
+                        V1HeaderKind::Installer
+                    };
+                    let v1 = V1Header::parse(&header_data, kind).map_err(|_| modern)?;
+                    let v1_callbacks = v1.callbacks();
+                    let callback_at = |i: usize| v1_callbacks.get(i).copied().unwrap_or(-1);
+                    let callbacks = [
+                        callback_at(0), // .onInit
+                        callback_at(1), // .onInstSuccess
+                        callback_at(2), // .onInstFailed
+                        callback_at(3), // .onUserAbort
+                        // 1.x has no GUI or mouse-over callbacks. Its page
+                        // callbacks, .onNextPage and .onPrevPage, have no
+                        // counterpart either: the page system replaced them.
+                        -1,
+                        -1,
+                        -1,
+                        callback_at(6), // .onVerifyInstDir
+                        callback_at(7), // .onSelChange
+                        -1,
+                    ];
+                    let header_strings = HeaderStrings {
+                        install_dir: v1.install_dir_ptr(),
+                        install_reg_key: v1.install_reg_key_ptr(),
+                        install_reg_value: v1.install_reg_value_ptr(),
+                        install_reg_rootkey: v1.install_reg_rootkey(),
+                        // None of these exist in 1.x.
+                        install_dir_auto_append: -1,
+                        uninstall_child: -1,
+                        uninstall_command: -1,
+                        wininit: -1,
+                    };
+                    v1_uninstall_data_offset = Some(v1.uninstall_data_offset());
+                    (v1.block_layout(), 0, 0, callbacks, header_strings, true)
+                }
+            };
+
+        // Compute section size from block header gaps (7-Zip NsisIn.cpp line 5260).
+        let (sec_off_raw, sec_count_raw) = blocks
+            .get(BlockType::Sections as usize)
+            .copied()
+            .unwrap_or((0, 0));
+        let (ent_off_raw, ent_count_raw) = blocks
+            .get(BlockType::Entries as usize)
+            .copied()
+            .unwrap_or((0, 0));
+        let sec_offset = sec_off_raw as usize;
+        let sec_count = sec_count_raw.max(0) as usize;
+        let ent_offset = ent_off_raw as usize;
+        let section_size = if ent_offset > sec_offset {
+            ent_offset
+                .saturating_sub(sec_offset)
+                .checked_div(sec_count)
+                .unwrap_or(Section::BASE_SIZE)
+        } else {
+            Section::BASE_SIZE
+        };
+
+        // Step 5: Detect string encoding and version.
+        let string_block_offset = blocks
+            .get(BlockType::Strings as usize)
+            .copied()
+            .unwrap_or((0, 0))
+            .0 as usize;
+        let string_table = header_data.get(string_block_offset..).unwrap_or(&[]);
+        let encoding = if string_table.is_empty() {
+            StringEncoding::Ansi
+        } else {
+            strings::detect_encoding(string_table)
+        };
+
+        // A 1.x header settles the version on its own: the layout is unique to
+        // it, and 1.x is ANSI-only with its own string encoding.
+        let (version, encoding) = if is_v1 {
+            (NsisVersion::V1, StringEncoding::Ansi)
+        } else {
+            (
+                NsisVersion::detect(encoding, is_legacy, string_table),
+                encoding,
+            )
+        };
+        let ansi_codes = AnsiCodeRange::for_version(version);
+
+        // Step 5b: what the runtime was compiled with decides its opcode
+        // numbering, and nothing in the header records it. The stub often
+        // says; the entry block is read where it does not.
+        let features = override_features.unwrap_or_else(|| {
+            RuntimeFeatures::of(file.get(..first_header_file_offset).unwrap_or_default())
+        });
+
+        // Step 5c: the Park sub-version. A `WriteUninstaller` entry shows how
+        // many instructions the fork inserted below it; without one, the stub
+        // says which release it is.
+        let ent_count = ent_count_raw.max(0) as usize;
+        if ent_count > header_data.len() / 28
+            || ent_offset
+                .checked_add(ent_count * 28)
+                .is_none_or(|end| end > header_data.len())
+        {
+            return Err(Error::DecompressionFailed {
+                method: "header",
+                detail: "instruction table exceeds decoded header".into(),
+            });
+        }
+        let park_sub = (version == NsisVersion::Park).then(|| {
+            let table = StringTable::new(
+                &header_data,
+                string_block_offset,
+                encoding,
+                ansi_codes,
+                strings::DEFAULT_INTERNAL_VARS,
+            );
+            opcode::detect_park_sub_version(&header_data, ent_offset, ent_count, |offset| {
+                table.read(offset).ok()
+            })
+            .unwrap_or_else(|| features.park_sub())
+        });
+
+        // Step 5d: a makensis compiled with logging carries an extra opcode,
+        // which shifts every instruction above `EW_WRITEUNINSTALLER`. 1.x has
+        // its own opcode table, which numbers the log instruction whatever the
+        // build.
+        let log_build = match version {
+            NsisVersion::V1 => false,
+            NsisVersion::Park => features.logs,
+            NsisVersion::V2 | NsisVersion::V3 => {
+                features.logs || detect_log_build(&header_data, ent_offset, ent_count)
+            }
+        };
+
+        // Step 5e: NSIS 2 moved its built-in variables around, so an ANSI
+        // NSIS-2 installer needs its variable layout pinned down before any
+        // variable reference can be decoded correctly.
+        let nsis2_sub = if version == NsisVersion::V2 {
+            Some(opcode::detect_nsis2_sub_version(
+                &header_data,
+                ent_offset,
+                ent_count,
+                |offset| {
+                    // A provisional table: the variable *count* is not known
+                    // until this detection finishes. That is sound because the
+                    // detection compares variable indices, never their names.
+                    let table = StringTable::new(
+                        &header_data,
+                        string_block_offset,
+                        encoding,
+                        ansi_codes,
+                        strings::DEFAULT_INTERNAL_VARS,
+                    );
+                    match table.read(offset).ok()?.segments.as_slice() {
+                        [StringSegment::Variable { index, .. }] => Some(*index),
+                        _ => None,
+                    }
+                },
+            ))
+        } else {
+            None
+        };
+
+        // Step 6: Handle data block.
+        let (data_block_offset, solid_data, solid_status) = if metadata_only {
+            (0, Vec::new(), SolidStatus::MetadataOnly)
+        } else if mode == CompressionMode::Solid {
+            // In solid mode, the entire post-FirstHeader data is one compressed
+            // stream. Decompress the full stream to get the file data.
+            //
+            // Decompressed stream: [4B header_len][header][4B file1_len][file1]...
+            //
+            // The NSIS overlay may be followed by extra data (digital signatures,
+            // padding) beyond what `length_of_all_following_data` covers. Also,
+            // the last 4 bytes within the NSIS data may be a CRC32 that is NOT
+            // part of the compressed stream. Trim to the exact NSIS data bounds
+            // and exclude the CRC to avoid LZMA "trailing bytes" errors.
+            let nsis_data_len = (first_header.length_of_all_following_data() as usize)
+                .saturating_sub(FirstHeader::SIZE);
+            // 1.x spends bit 0 on saying the CRC is present; later versions
+            // spend bit 2 on saying it is absent.
+            let has_crc = if version == NsisVersion::V1 {
+                first_header.flags() & FH_V1_FLAGS_CRC != 0
+            } else {
+                !first_header.has_no_crc()
+            };
+            let stream_len = if has_crc {
+                nsis_data_len.saturating_sub(4)
+            } else {
+                nsis_data_len
+            };
+            let compressed_data = after_fh
+                .get(..stream_len.min(after_fh.len()))
+                .unwrap_or(after_fh);
+
+            // Decompress the full stream under the caller's budget. Header
+            // parsing has already succeeded, so a failure here degrades to
+            // "no file data" rather than failing the whole parse - but the
+            // reason is recorded in `solid_status` so that file access can
+            // report it instead of a misleading bounds error.
+            let (full_stream, status) = match decompress::decompress_block(
+                compressed_data,
+                compression,
+                DecodeLimit::Truncate(max_decompressed_size),
+            ) {
+                Ok(decoded) => {
+                    let status = if decoded.truncated {
+                        SolidStatus::Truncated {
+                            limit: max_decompressed_size,
+                        }
+                    } else {
+                        SolidStatus::Complete
+                    };
+                    (decoded.data, status)
+                }
+                Err(e) => (Vec::new(), SolidStatus::Failed(e)),
+            };
+
+            // The first 4 bytes are the header length prefix, then header_data.
+            // File data starts after: 4 + header_data.len()
+            let file_data_start = header_data.len().saturating_add(4);
+            let solid_file_data = full_stream
+                .get(file_data_start..)
+                .map(<[u8]>::to_vec)
+                .unwrap_or_default();
+
+            (0, solid_file_data, status)
+        } else {
+            // In non-solid mode, the data block follows the compressed header.
+            // `header_compressed_size` already includes the 4-byte length prefix.
+            let offset = first_header_file_offset
+                .saturating_add(FirstHeader::SIZE)
+                .saturating_add(header_compressed_size);
+            (offset, Vec::new(), SolidStatus::NotSolid)
+        };
+
+        Ok(Self {
+            file: Blob(file),
+            first_header_file_offset,
+            header_data: Blob(header_data),
+            compression,
+            mode,
+            version,
+            encoding,
+            ansi_codes,
+            first_header_flags: first_header.flags(),
+            is_legacy,
+            data_block_offset,
+            solid_data: Blob(solid_data),
+            solid_status,
+            blocks,
+            common_flags,
+            langtable_size,
+            header_strings,
+            v1_uninstall_data_offset,
+            section_size,
+            callbacks,
+            park_sub,
+            nsis2_sub,
+            log_build,
+            analysis: OnceLock::new(),
+            max_decompressed_size,
+            metadata_only,
+        })
+    }
+
+    /// Returns the decompression budget for unknown-size streams.
+    ///
+    /// See [`NsisInstallerBuilder::max_decompressed_size`].
+    #[inline]
+    pub fn max_decompressed_size(&self) -> usize {
+        self.max_decompressed_size
+    }
+
+    /// Returns the detected NSIS version.
+    #[inline]
+    pub fn version(&self) -> NsisVersion {
+        self.version
+    }
+
+    /// Returns the NSIS 2 variable layout, if this is an NSIS 2 installer.
+    ///
+    /// `None` for every other version. NSIS 2 moved its built-in variables
+    /// between releases, so decoding a variable reference - or locating the
+    /// internal `$_OUTDIR` - depends on which layout applies. See
+    /// [`Nsis2SubVersion`].
+    #[inline]
+    pub fn nsis2_sub_version(&self) -> Option<Nsis2SubVersion> {
+        self.nsis2_sub
+    }
+
+    /// Returns the detected compression method.
+    #[inline]
+    pub fn compression(&self) -> CompressionMethod {
+        self.compression
+    }
+
+    /// Returns the detected compression mode (solid or non-solid).
+    #[inline]
+    pub fn compression_mode(&self) -> CompressionMode {
+        self.mode
+    }
+
+    /// Returns the detected string encoding.
+    #[inline]
+    pub fn string_encoding(&self) -> StringEncoding {
+        self.encoding
+    }
+
+    /// Returns `true` if this is an uninstaller.
+    #[inline]
+    pub fn is_uninstaller(&self) -> bool {
+        self.first_header_flags & self.flag_uninstall() != 0
+    }
+
+    /// Returns `true` if this installer runs silently.
+    #[inline]
+    pub fn is_silent(&self) -> bool {
+        let bit = if self.version == NsisVersion::V1 {
+            FH_V1_FLAGS_SILENT
+        } else {
+            FH_FLAGS_SILENT
+        };
+        self.first_header_flags & bit != 0
+    }
+
+    /// Returns the flag bit that means "uninstaller" for this version.
+    #[inline]
+    fn flag_uninstall(&self) -> u32 {
+        if self.version == NsisVersion::V1 {
+            FH_V1_FLAGS_UNINSTALL
+        } else {
+            FH_FLAGS_UNINSTALL
+        }
+    }
+
+    /// Returns `true` if this is a legacy NSIS 1.x installer.
+    #[inline]
+    pub fn is_legacy(&self) -> bool {
+        self.is_legacy
+    }
+
+    /// Returns the byte offset of the FirstHeader in the file.
+    #[inline]
+    pub fn first_header_file_offset(&self) -> usize {
+        self.first_header_file_offset
+    }
+
+    /// Returns the common header flags.
+    #[inline]
+    pub fn common_flags(&self) -> u32 {
+        self.common_flags
+    }
+
+    /// Returns a reference to the decompressed header data.
+    #[inline]
+    pub fn header_data(&self) -> &[u8] {
+        &self.header_data
+    }
+
+    /// Returns the original file bytes.
+    #[inline]
+    pub fn file_data(&self) -> &'a [u8] {
+        self.file.0
+    }
+
+    /// Returns the (offset, count) pair for a block, or `(0, 0)` if missing.
+    fn block_info(&self, bt: BlockType) -> (u32, i32) {
+        self.blocks.get(bt as usize).copied().unwrap_or((0, 0))
+    }
+
+    /// Returns the slice of `header_data` starting at the given block's offset.
+    fn block_data(&self, bt: BlockType) -> &[u8] {
+        let (offset, _) = self.block_info(bt);
+        self.header_data.get(offset as usize..).unwrap_or(&[])
+    }
+
+    /// Returns the number of sections.
+    #[inline]
+    pub fn section_count(&self) -> usize {
+        self.block_info(BlockType::Sections).1.max(0) as usize
+    }
+
+    /// Returns the number of entries (instructions).
+    #[inline]
+    pub fn entry_count(&self) -> usize {
+        self.block_info(BlockType::Entries).1.max(0) as usize
+    }
+
+    /// Returns the number of pages.
+    #[inline]
+    pub fn page_count(&self) -> usize {
+        self.block_info(BlockType::Pages).1.max(0) as usize
+    }
+
+    /// Returns an iterator over install sections.
+    pub fn sections(&self) -> SectionIter<'_> {
+        let (_, count) = self.block_info(BlockType::Sections);
+        let is_unicode = matches!(
+            self.encoding,
+            StringEncoding::Unicode | StringEncoding::Park
+        );
+        SectionIter::with_layout(
+            self.block_data(BlockType::Sections),
+            count.max(0) as usize,
+            self.section_size,
+            is_unicode,
+            self.section_layout(),
+        )
+    }
+
+    /// Returns an iterator over bytecode entries (instructions).
+    pub fn entries(&self) -> EntryIter<'_> {
+        let (_, count) = self.block_info(BlockType::Entries);
+        EntryIter::with_stride(
+            self.block_data(BlockType::Entries),
+            count.max(0) as usize,
+            self.entry_size(),
+        )
+    }
+
+    /// Returns an iterator over installer pages.
+    pub fn pages(&self) -> PageIter<'_> {
+        let (_, count) = self.block_info(BlockType::Pages);
+        PageIter::new(self.block_data(BlockType::Pages), count.max(0) as usize)
+    }
+
+    /// Returns an iterator over language tables.
+    pub fn lang_tables(&self) -> LangTableIter<'_> {
+        let (_, count) = self.block_info(BlockType::LangTables);
+        let entry_size = (self.langtable_size.max(0) as usize).max(LangTable::MIN_SIZE);
+        LangTableIter::new(
+            self.block_data(BlockType::LangTables),
+            count.max(0) as usize,
+            entry_size,
+        )
+    }
+
+    /// Reads and decodes a string from the string table at the given offset.
+    ///
+    /// Every `i32` is a valid argument, with a defined meaning:
+    ///
+    /// - **Zero or positive:** a character index into the string table, as
+    ///   stored in section `name_ptr` fields and entry parameter slots. It is
+    ///   scaled by the character size: 2 bytes for a Unicode installer, 1 for
+    ///   ANSI. Offset 0 is the empty string every table starts with.
+    /// - **Negative:** language string `n`, stored as `-(n + 1)`. NSIS picks
+    ///   the text from the running language's table at install time, so it
+    ///   reads back as a single [`StringSegment::LangString`], rendered as
+    ///   `$(LSTR_n)`. [`resolve_lang_strings`](Self::resolve_lang_strings)
+    ///   replaces it with a given language's text. In an NSIS 1.x installer,
+    ///   which has no language tables, a negative offset means "no string"
+    ///   and reads back empty.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::InvalidStringOffset`] if the offset lies beyond the
+    /// string table, or names a language string no table can hold.
+    pub fn read_string(&self, offset: i32) -> Result<NsisString, Error> {
+        self.string_table().read(offset)
+    }
+
+    /// Reads language string `index` in `table`'s language, with the language
+    /// strings it refers to resolved.
+    ///
+    /// `index` is the `n` of a [`StringSegment::LangString`]: the string an
+    /// instruction shows as `$(LSTR_n)`. Indices 0 to 2 are the branding
+    /// text, the window caption and the installer `Name` in every NSIS 2 and
+    /// 3 installer.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use nsis::NsisInstaller;
+    ///
+    /// let file = std::fs::read("installer.exe").unwrap();
+    /// let inst = NsisInstaller::from_bytes(&file).unwrap();
+    ///
+    /// // English (US), or the first table if there is none.
+    /// let tables: Vec<_> = inst.lang_tables().filter_map(Result::ok).collect();
+    /// if let Some(table) = tables
+    ///     .iter()
+    ///     .find(|t| t.lang_id() == 1033)
+    ///     .or(tables.first())
+    /// {
+    ///     println!("Name: {}", inst.lang_string(table, 2).unwrap());
+    /// }
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::InvalidStringOffset`] if `table` has no string
+    /// `index`, or if it or a string it refers to lies beyond the string
+    /// table.
+    pub fn lang_string(&self, table: &LangTable<'_>, index: u16) -> Result<NsisString, Error> {
+        self.string_table().read_lang(table, index)
+    }
+
+    /// Returns `string` with each language-string reference replaced by its
+    /// text in `table`'s language.
+    ///
+    /// Strings read with [`read_string`](Self::read_string) - instruction
+    /// operands, section names, the common header's strings - keep their
+    /// [`StringSegment::LangString`] references, because the installer only
+    /// picks a language when it runs. This applies one. References `table`
+    /// cannot resolve stay in place; see [`StringTable::resolve_lang`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::InvalidStringOffset`] if a string it refers to lies
+    /// beyond the string table.
+    pub fn resolve_lang_strings(
+        &self,
+        string: &NsisString,
+        table: &LangTable<'_>,
+    ) -> Result<NsisString, Error> {
+        self.string_table().resolve_lang(string, table)
+    }
+
+    /// Returns the directory the installer writes to by default.
+    ///
+    /// This is the script's `InstallDir`, and usually begins with a shell
+    /// folder - `$PROGRAMFILES\MyApp`. Render it with
+    /// [`NsisString::to_install_path`](crate::strings::NsisString::to_install_path)
+    /// or, to place it under an extraction directory,
+    /// [`to_path`](crate::strings::NsisString::to_path).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the string cannot be read from the table.
+    pub fn install_dir(&self) -> Result<NsisString, Error> {
+        self.read_string(self.header_strings.install_dir)
+    }
+
+    /// Returns the directory name appended to a user-chosen install location.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the string cannot be read from the table.
+    pub fn install_dir_auto_append(&self) -> Result<NsisString, Error> {
+        self.read_string(self.header_strings.install_dir_auto_append)
+    }
+
+    /// Returns the registry key the installer records its own location under.
+    ///
+    /// Together with [`install_reg_value`](Self::install_reg_value) and
+    /// [`install_reg_root_name`](Self::install_reg_root_name) this is how the
+    /// installer finds a previous installation.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the string cannot be read from the table.
+    pub fn install_reg_key(&self) -> Result<NsisString, Error> {
+        self.read_string(self.header_strings.install_reg_key)
+    }
+
+    /// Returns the registry value name holding the recorded location.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the string cannot be read from the table.
+    pub fn install_reg_value(&self) -> Result<NsisString, Error> {
+        self.read_string(self.header_strings.install_reg_value)
+    }
+
+    /// Returns the root key for [`install_reg_key`](Self::install_reg_key),
+    /// e.g. `HKLM`.
+    #[inline]
+    pub fn install_reg_root_name(&self) -> &'static str {
+        analysis::hkey_name(self.header_strings.install_reg_rootkey)
+    }
+
+    /// Returns the command line registered for running the uninstaller.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the string cannot be read from the table.
+    pub fn uninstall_command(&self) -> Result<NsisString, Error> {
+        self.read_string(self.header_strings.uninstall_command)
+    }
+
+    /// Returns the uninstaller's child path.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the string cannot be read from the table.
+    pub fn uninstall_child(&self) -> Result<NsisString, Error> {
+        self.read_string(self.header_strings.uninstall_child)
+    }
+
+    /// Returns the `wininit.ini` path used for delete-on-reboot operations.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the string cannot be read from the table.
+    pub fn wininit_path(&self) -> Result<NsisString, Error> {
+        self.read_string(self.header_strings.wininit)
+    }
+
+    /// Returns a view of this installer's string table.
+    ///
+    /// Carries the encoding, special-code range and variable layout that
+    /// decoding depends on. [`read_string`](Self::read_string) is the shorthand
+    /// for `string_table().read(offset)`.
+    pub fn string_table(&self) -> StringTable<'_> {
+        StringTable::new(
+            &self.header_data,
+            self.block_info(BlockType::Strings).0 as usize,
+            self.encoding,
+            self.ansi_codes,
+            self.nsis2_sub
+                .map_or(strings::DEFAULT_INTERNAL_VARS, |sub| {
+                    sub.internal_var_count()
+                }),
+        )
+    }
+
+    /// Returns an iterator over every instruction in the script.
+    ///
+    /// Walks the entry stream once, classifying each entry into an
+    /// [`Instruction`](crate::installer::Instruction). The typed iterators -
+    /// [`files`](Self::files), [`plugin_calls`](Self::plugin_calls),
+    /// [`registry_ops`](Self::registry_ops) and the rest - are filters over
+    /// this same walk, so use this directly when you want more than one kind
+    /// of instruction and would otherwise traverse the script several times.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use nsis::{Instruction, NsisInstaller};
+    ///
+    /// # let data = std::fs::read("installer.exe").unwrap();
+    /// # let inst = NsisInstaller::from_bytes(&data).unwrap();
+    /// let (mut files, mut registry) = (0, 0);
+    /// for instruction in inst.instructions() {
+    ///     match instruction.unwrap() {
+    ///         Instruction::File(_) => files += 1,
+    ///         Instruction::Registry(_) => registry += 1,
+    ///         _ => {}
+    ///     }
+    /// }
+    /// ```
+    pub fn instructions(&self) -> InstructionIter<'_> {
+        let (_, count) = self.block_info(BlockType::Entries);
+        InstructionIter::new(
+            self,
+            EntryIter::with_stride(
+                self.block_data(BlockType::Entries),
+                count.max(0) as usize,
+                self.entry_size(),
+            ),
+        )
+    }
+
+    /// Returns an iterator over embedded files (`EW_EXTRACTFILE` entries).
+    ///
+    /// Each [`ExtractedFile`](crate::installer::ExtractedFile) provides the
+    /// file name, raw data as a borrowed slice (zero-copy), and a
+    /// [`decompress`](crate::installer::ExtractedFile::decompress) method.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # let data = std::fs::read("installer.exe").unwrap();
+    /// # let inst = nsis::NsisInstaller::from_bytes(&data).unwrap();
+    /// for file in inst.files() {
+    ///     let file = file.unwrap();
+    ///     println!("{}: {} bytes", file.name().unwrap(), file.data().len());
+    /// }
+    /// ```
+    pub fn files(&self) -> FileIter<'_> {
+        FileIter::new(self, self.entries())
+    }
+
+    /// Normalizes a raw opcode to its V2-equivalent number.
+    ///
+    /// For Park version, raw opcodes are shifted due to inserted extra
+    /// opcodes. This method reverses that shift. For other versions the
+    /// raw opcode is returned unchanged.
+    #[inline]
+    pub fn normalize_opcode(&self, raw: i32) -> i32 {
+        if raw < 0 {
+            return raw;
+        }
+        if self.version == NsisVersion::Park
+            && let Some(sub) = self.park_sub
+        {
+            return opcode::normalize_park_opcode(raw as u32, sub, self.log_build) as i32;
+        }
+        if self.log_build {
+            return opcode::normalize_log_opcode(raw as u32) as i32;
+        }
+        if self.version == NsisVersion::V1 {
+            return opcode::canonical_opcode(raw as u32);
+        }
+        raw
+    }
+
+    /// Returns `true` if this installer was built by a makensis compiled with
+    /// logging support.
+    ///
+    /// Those builds carry an extra instruction that shifts every opcode above
+    /// `EW_WRITEUNINSTALLER` by one. [`normalize_opcode`](Self::normalize_opcode)
+    /// undoes the shift, so this is only worth reading to know what produced
+    /// the file.
+    #[inline]
+    pub fn is_log_build(&self) -> bool {
+        self.log_build
+    }
+
+    /// Resolves an opcode index to its metadata.
+    ///
+    /// For Park version, the raw opcode is first normalized to its V2
+    /// equivalent before lookup.
+    pub fn resolve_opcode(&self, which: i32) -> Option<&'static OpcodeInfo> {
+        if which < 0 {
+            return None;
+        }
+        if self.version == NsisVersion::V1 {
+            // 1.x numbers its instructions differently from every later
+            // version, so its table is a separate one rather than a shift.
+            return opcode::lookup_v1(which as u32);
+        }
+        opcode::lookup_for(self.normalize_opcode(which) as u32, self.version)
+    }
+
+    /// Resolves one entry's operand layout, under this installer's version.
+    ///
+    /// The version pairing is here rather than at the call site because the two
+    /// halves have to match: 1.x numbers its instructions differently from every
+    /// later version, so a 1.x entry must go through `lookup_v1` **and**
+    /// `param_layout_v1`, and a modern one through `lookup` **and**
+    /// `param_layout` over the normalized opcode. A caller that took its
+    /// metadata from one table and its layout from the other would read a 1.x
+    /// entry's operands under a modern opcode's rules - the mnemonic would look
+    /// right and every slot would be wrong.
+    ///
+    /// `None` when the opcode is not one this crate knows.
+    #[must_use]
+    pub fn param_layout(&self, entry: &Entry<'_>) -> Option<ParamLayout> {
+        let info = self.resolve_opcode(entry.which())?;
+        let offsets = entry.offsets();
+        Some(if self.version == NsisVersion::V1 {
+            opcode::param_layout_v1(entry.which().max(0) as u32, info, &offsets)
+        } else {
+            opcode::param_layout(
+                self.normalize_opcode(entry.which()) as u32,
+                self.version,
+                info,
+                &offsets,
+            )
+        })
+    }
+
+    /// Returns the on-disk size of one entry for this installer's version.
+    #[inline]
+    fn entry_size(&self) -> usize {
+        match self.version {
+            NsisVersion::V1 => Entry::V1_SIZE,
+            _ => Entry::SIZE,
+        }
+    }
+
+    /// Returns the section layout this installer's version writes.
+    #[inline]
+    fn section_layout(&self) -> SectionLayout {
+        match self.version {
+            NsisVersion::V1 => SectionLayout::Nsis1,
+            _ => SectionLayout::Modern,
+        }
+    }
+
+    /// Formats an entry as a single script-like line.
+    ///
+    /// This resolves the opcode mnemonic and formats each known parameter using
+    /// the opcode metadata. It also handles opcodes whose parameter meaning is
+    /// conditional, such as [`opcode::EW_PUSHPOP`].
+    ///
+    /// # Arguments
+    ///
+    /// * `entry` - An entry returned by [`entries`](Self::entries),
+    ///   [`section_entries`](Self::section_entries), or another crate API.
+    ///
+    /// # Returns
+    ///
+    /// A stable, diagnostic string containing the `EW_*` mnemonic and decoded
+    /// operands. Unknown opcodes are rendered as `"???"` plus the raw opcode.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # let bytes = std::fs::read("installer.exe").unwrap();
+    /// # let installer = nsis::NsisInstaller::from_bytes(&bytes).unwrap();
+    /// for entry in installer.entries() {
+    ///     let entry = entry.unwrap();
+    ///     println!("{}", installer.format_entry(&entry));
+    /// }
+    /// ```
+    pub fn format_entry(&self, entry: &Entry<'_>) -> String {
+        let mut out = String::new();
+        self.write_entry(&mut out, entry);
+        out
+    }
+
+    /// Renders an entry into `out`, as [`format_entry`](Self::format_entry).
+    ///
+    /// Disassembling a whole script means one line per entry, and an installer
+    /// can hold tens of thousands. This lets a caller reuse one buffer for all
+    /// of them instead of allocating a `String` per line. Existing contents of
+    /// `out` are kept.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # let bytes = std::fs::read("installer.exe").unwrap();
+    /// # let installer = nsis::NsisInstaller::from_bytes(&bytes).unwrap();
+    /// let mut line = String::new();
+    /// for entry in installer.entries() {
+    ///     line.clear();
+    ///     installer.write_entry(&mut line, &entry.unwrap());
+    ///     println!("{line}");
+    /// }
+    /// ```
+    pub fn write_entry(&self, out: &mut String, entry: &Entry<'_>) {
+        let mnemonic = self
+            .resolve_opcode(entry.which())
+            .map(|info| info.mnemonic)
+            .unwrap_or("???");
+        out.push_str(mnemonic);
+
+        let start = out.len();
+        self.write_entry_params(out, entry);
+        if out.len() > start {
+            // Separate the operands from the mnemonic now that we know there
+            // are some.
+            out.insert(start, ' ');
+        }
+    }
+
+    /// Formats the parameters for an entry using opcode-aware resolution.
+    ///
+    /// String offsets are decoded through the installer string table,
+    /// variables are rendered with conventional NSIS names, jump targets are
+    /// marked with `=>`, and unused operands are omitted.
+    ///
+    /// # Arguments
+    ///
+    /// * `entry` - The entry whose parameter slots should be formatted.
+    ///
+    /// # Returns
+    ///
+    /// A comma-separated operand string without the opcode mnemonic. Returns an
+    /// empty string for opcodes with no meaningful operands.
+    pub fn format_entry_params(&self, entry: &Entry<'_>) -> String {
+        let mut out = String::new();
+        self.write_entry_params(&mut out, entry);
+        out
+    }
+
+    /// Renders an entry's operands into `out`, as
+    /// [`format_entry_params`](Self::format_entry_params).
+    ///
+    /// Writes directly into the caller's buffer, for rendering many entries
+    /// without a `String` per line. Existing contents of `out` are kept.
+    pub fn write_entry_params(&self, out: &mut String, entry: &Entry<'_>) {
+        self.write_params(out, entry, None);
+    }
+
+    /// Formats an entry as a single script-like line with analysis symbols.
+    ///
+    /// Jump and call operands that target known entries are annotated with the
+    /// best symbol from [`ScriptAnalysis`], such as a callback, section, label,
+    /// or discovered function name.
+    ///
+    /// # Arguments
+    ///
+    /// * `entry` - The entry to format.
+    /// * `analysis` - A script analysis produced by
+    ///   [`script_analysis`](Self::script_analysis) for the same installer.
+    ///
+    /// # Returns
+    ///
+    /// A single-line mnemonic plus operand string. Static jump/call targets are
+    /// rendered with symbols where available, for example
+    /// `jump_addr=>label_42(@42)`.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # let bytes = std::fs::read("installer.exe").unwrap();
+    /// # let installer = nsis::NsisInstaller::from_bytes(&bytes).unwrap();
+    /// let analysis = installer.script_analysis().unwrap();
+    /// for entry in installer.entries() {
+    ///     let entry = entry.unwrap();
+    ///     println!("{}", installer.format_entry_with_analysis(&entry, &analysis));
+    /// }
+    /// ```
+    pub fn format_entry_with_analysis(
+        &self,
+        entry: &Entry<'_>,
+        analysis: &ScriptAnalysis,
+    ) -> String {
+        let mnemonic = self
+            .resolve_opcode(entry.which())
+            .map(|info| info.mnemonic)
+            .unwrap_or("???");
+        let params = self.format_entry_params_with_analysis(entry, analysis);
+        if params.is_empty() {
+            mnemonic.to_string()
+        } else {
+            format!("{mnemonic} {params}")
+        }
+    }
+
+    /// Formats entry parameters with control-flow symbols from an analysis.
+    ///
+    /// # Arguments
+    ///
+    /// * `entry` - The entry whose parameters should be formatted.
+    /// * `analysis` - A script analysis produced by
+    ///   [`script_analysis`](Self::script_analysis) for the same installer.
+    ///
+    /// # Returns
+    ///
+    /// A comma-separated operand string without the opcode mnemonic. Static
+    /// jump/call targets are annotated with symbols when the analysis knows
+    /// one.
+    pub fn format_entry_params_with_analysis(
+        &self,
+        entry: &Entry<'_>,
+        analysis: &ScriptAnalysis,
+    ) -> String {
+        let mut out = String::new();
+        self.write_entry_params_with_analysis(&mut out, entry, analysis);
+        out
+    }
+
+    /// Renders an entry's operands with analysis symbols into `out`, as
+    /// [`format_entry_params_with_analysis`](Self::format_entry_params_with_analysis).
+    ///
+    /// Writes directly into the caller's buffer, for rendering many entries
+    /// without a `String` per line. Existing contents of `out` are kept.
+    pub fn write_entry_params_with_analysis(
+        &self,
+        out: &mut String,
+        entry: &Entry<'_>,
+        analysis: &ScriptAnalysis,
+    ) {
+        self.write_params(out, entry, Some(analysis));
+    }
+
+    /// Renders an `EW_PUSHPOP` entry's operands, naming the command.
+    ///
+    /// The layout already says which of Push, Pop and Exch the entry is, and
+    /// what its first operand means. This only words the line the way the
+    /// disassembly always has: the command up front, and an `Exch` depth of 1
+    /// left implicit.
+    fn write_pushpop_params(&self, out: &mut String, layout: &ParamLayout, offsets: &[i32; 6]) {
+        let [first, _, depth, ..] = *offsets;
+        match layout.types[0] {
+            ParamType::Unused => {
+                out.push_str("op=Exch");
+                if depth != 1 {
+                    let _ = write!(out, ", index={depth}");
+                }
+            }
+            ParamType::Variable(_) => {
+                out.push_str("op=Pop, var=");
+                out.push_str(&format_variable_param(&self.string_table(), first));
+            }
+            _ => {
+                out.push_str("op=Push, value=");
+                out.push_str(&self.format_string_param(first));
+            }
+        }
+    }
+
+    /// Renders an entry's operands, annotating jump targets when an analysis
+    /// is supplied.
+    fn write_params(&self, out: &mut String, entry: &Entry<'_>, analysis: Option<&ScriptAnalysis>) {
+        let offsets = entry.offsets();
+        // Some opcodes carry several script commands and choose between them
+        // with an operand, so the layout is resolved per entry rather than
+        // taken from the opcode alone - and under this installer's own version,
+        // which `param_layout` pairs for us.
+        let Some(layout) = self.param_layout(entry) else {
+            let _ = write!(out, "which={}", entry.which());
+            return;
+        };
+        // Push, Pop and Exch name their command rather than list raw slots.
+        // Keyed on the normalized opcode, since a raw 31 is `IntOp` in 1.x.
+        if self.normalize_opcode(entry.which()) == opcode::EW_PUSHPOP {
+            self.write_pushpop_params(out, &layout, &offsets);
+            return;
+        }
+        let count = layout.count as usize;
+        if count == 0 {
+            return;
+        }
+
+        let mut written = 0usize;
+        for (i, ((&val, &name), &ptype)) in offsets
+            .iter()
+            .zip(layout.names.iter())
+            .zip(layout.types.iter())
+            .take(count)
+            .enumerate()
+        {
+            // Parameter counts are the maximum an opcode has taken across NSIS
+            // versions, so an instruction compiled by a modern makensis leaves
+            // the extra slots unused. Show a slot this crate has no name for
+            // only when it actually carries something.
+            if name.is_empty() && val == 0 {
+                continue;
+            }
+
+            // Whether this operand prints at all is decided per type, so the
+            // separator is only added once something is actually written.
+            let separate = |out: &mut String, written: &mut usize| {
+                if *written > 0 {
+                    out.push_str(", ");
+                }
+                *written = written.saturating_add(1);
+            };
+
+            match ptype {
+                ParamType::String | ParamType::Number | ParamType::RawString => {
+                    separate(out, &mut written);
+                    write_named(out, name, &self.format_string_param(val));
+                }
+                ParamType::Flag(_) => {
+                    separate(out, &mut written);
+                    match ExecFlag::from_index(val) {
+                        Some(flag) => write_named(out, name, flag.name()),
+                        None => write_named(out, name, &val.to_string()),
+                    }
+                }
+                ParamType::Variable(_) => {
+                    separate(out, &mut written);
+                    write_named(out, name, &format_variable_param(&self.string_table(), val));
+                }
+                ParamType::Jump => {
+                    if val != 0 {
+                        separate(out, &mut written);
+                        match analysis {
+                            Some(analysis) => out.push_str(&format_symbolic_jump_param(
+                                &self.string_table(),
+                                name,
+                                val,
+                                analysis,
+                            )),
+                            None => {
+                                out.push_str(name);
+                                let _ = write!(out, "=>{val}");
+                            }
+                        }
+                    }
+                }
+                ParamType::Int | ParamType::DataOffset => {
+                    if val != 0 || i < count.min(2) {
+                        separate(out, &mut written);
+                        write_named(out, name, &val.to_string());
+                    }
+                }
+                ParamType::Unused => {}
+            }
+        }
+    }
+
+    /// Builds a script-level control-flow analysis.
+    ///
+    /// The analysis identifies section/callback/page/function roots, basic
+    /// blocks, and static or dynamic control-flow edges.
+    ///
+    /// # Returns
+    ///
+    /// A [`ScriptAnalysis`] containing owned graph data. The result does not
+    /// borrow entries, so consumers can serialize or cache it independently of
+    /// entry iterator lifetimes.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error`] if an entry, section, or page structure fails to parse
+    /// while collecting roots and control-flow edges.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # let bytes = std::fs::read("installer.exe").unwrap();
+    /// # let installer = nsis::NsisInstaller::from_bytes(&bytes).unwrap();
+    /// let analysis = installer.script_analysis().unwrap();
+    /// for edge in &analysis.edges {
+    ///     println!("{:?} -> {:?}", edge.kind, edge.target);
+    /// }
+    /// ```
+    pub fn script_analysis(&self) -> Result<&ScriptAnalysis, Error> {
+        if let Some(analysis) = self.analysis.get() {
+            return Ok(analysis);
+        }
+        let analysis = script::analyze(self)?;
+        // Two callers racing here both compute; the first to finish wins and
+        // the other's copy is dropped. The analysis is a pure function of the
+        // installer, so either is correct.
+        Ok(self.analysis.get_or_init(|| analysis))
+    }
+
+    /// Renders a string operand: the text it reads back as, quoted, or the
+    /// raw value when it reads back as nothing the table holds.
+    fn format_string_param(&self, offset: i32) -> String {
+        match self.read_string(offset) {
+            Ok(value) => format!("{:?}", value.to_string()),
+            Err(_) => offset.to_string(),
+        }
+    }
+
+    /// Returns where NSIS 1.x records its uninstaller data, if this is one.
+    ///
+    /// 1.x `WriteUninstaller` takes only a name; the offset of the uninstaller
+    /// data within the data block is a header field. Later versions moved it
+    /// onto the instruction, so this is `None` for them.
+    #[inline]
+    pub(crate) fn v1_uninstall_data_offset(&self) -> Option<i32> {
+        self.v1_uninstall_data_offset
+    }
+
+    /// Returns the data block offset within the original file (non-solid only).
+    #[inline]
+    pub fn data_block_offset(&self) -> usize {
+        self.data_block_offset
+    }
+
+    /// Returns the decompressed solid file data (solid mode only).
+    ///
+    /// Each file entry in this buffer is framed with a 4-byte length prefix.
+    /// Returns an empty slice for non-solid installers.
+    ///
+    /// An empty or short buffer is not necessarily corruption - consult
+    /// [`solid_status`](Self::solid_status) to tell a complete stream from one
+    /// that hit the decompression budget or failed to decode.
+    #[inline]
+    pub fn solid_data(&self) -> &[u8] {
+        &self.solid_data
+    }
+
+    /// Returns how the solid file-data stream decompressed.
+    ///
+    /// Always [`SolidStatus::NotSolid`] for non-solid installers. For solid
+    /// ones it distinguishes a complete decode from a stream cut short by the
+    /// [`max_decompressed_size`](Self::max_decompressed_size) budget or one
+    /// that failed outright - neither of which fails the parse, since header
+    /// structures stay readable either way.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use nsis::{NsisInstaller, SolidStatus};
+    ///
+    /// let file = std::fs::read("installer.exe").unwrap();
+    /// let inst = NsisInstaller::from_bytes(&file).unwrap();
+    ///
+    /// if let SolidStatus::Truncated { limit } = inst.solid_status() {
+    ///     eprintln!("solid stream cut at {limit} bytes; re-parse with a larger budget");
+    /// }
+    /// ```
+    #[inline]
+    pub fn solid_status(&self) -> &SolidStatus {
+        &self.solid_status
+    }
+
+    /// Returns an iterator over the entries belonging to the given section.
+    ///
+    /// Uses the section's `code` (start index) and `code_size` (count) to
+    /// slice the entries block.
+    pub fn section_entries(&self, section: &Section<'_>) -> EntryIter<'_> {
+        let (block_offset, _) = self.block_info(BlockType::Entries);
+        let stride = self.entry_size();
+        let code = section.code().max(0) as usize;
+        let count = section.code_size().max(0) as usize;
+        let empty = EntryIter::with_stride(&[], 0, stride);
+        let Some(byte_offset) = code
+            .checked_mul(stride)
+            .and_then(|n| n.checked_add(block_offset as usize))
+        else {
+            return empty;
+        };
+        match self.header_data.get(byte_offset..) {
+            Some(slice) => EntryIter::with_stride(slice, count, stride),
+            None => empty,
+        }
+    }
+
+    /// Returns the entry index for the `.onInit` callback.
+    ///
+    /// Called before the installer UI is shown. Takes no parameters and has
+    /// no return value. This is the primary callback used by malware to
+    /// perform early payload decryption, memory allocation, and anti-analysis
+    /// checks before any user interaction.
+    pub fn on_init(&self) -> Option<usize> {
+        Self::callback_index(self.callbacks.first().copied().unwrap_or(-1))
+    }
+
+    /// Returns the entry index for the `.onInstSuccess` callback.
+    ///
+    /// Called after all sections have been successfully executed. Takes no
+    /// parameters. Often used by malware to launch the decrypted payload
+    /// or perform cleanup after installation completes.
+    pub fn on_inst_success(&self) -> Option<usize> {
+        Self::callback_index(self.callbacks[1])
+    }
+
+    /// Returns the entry index for the `.onInstFailed` callback.
+    ///
+    /// Called when installation fails or is aborted by an error. Takes no
+    /// parameters.
+    pub fn on_inst_failed(&self) -> Option<usize> {
+        Self::callback_index(self.callbacks[2])
+    }
+
+    /// Returns the entry index for the `.onUserAbort` callback.
+    ///
+    /// Called when the user clicks Cancel. Takes no parameters. Can call
+    /// `Abort` to prevent the cancellation.
+    pub fn on_user_abort(&self) -> Option<usize> {
+        Self::callback_index(self.callbacks[3])
+    }
+
+    /// Returns the entry index for the `.onGUIInit` callback.
+    ///
+    /// Called after the installer dialog has been created but before it is
+    /// shown. Receives `$HWNDPARENT` as the parent window handle. Used for
+    /// custom UI modifications.
+    pub fn on_gui_init(&self) -> Option<usize> {
+        Self::callback_index(self.callbacks[4])
+    }
+
+    /// Returns the entry index for the `.onGUIEnd` callback.
+    ///
+    /// Called after the installer dialog is destroyed. Takes no parameters.
+    pub fn on_gui_end(&self) -> Option<usize> {
+        Self::callback_index(self.callbacks[5])
+    }
+
+    /// Returns the entry index for the `.onMouseOverSection` callback.
+    ///
+    /// Called when the mouse hovers over a section in the component page.
+    /// Receives the section index in `$0`.
+    pub fn on_mouse_over_section(&self) -> Option<usize> {
+        Self::callback_index(self.callbacks[6])
+    }
+
+    /// Returns the entry index for the `.onVerifyInstDir` callback.
+    ///
+    /// Called every time the user changes the install directory. Can call
+    /// `Abort` to reject the directory. Takes no parameters; the directory
+    /// is in `$INSTDIR`.
+    pub fn on_verify_inst_dir(&self) -> Option<usize> {
+        Self::callback_index(self.callbacks[7])
+    }
+
+    /// Returns the entry index for the `.onSelChange` callback.
+    ///
+    /// Called when the user changes the section selection on the components
+    /// page. Takes no parameters.
+    pub fn on_sel_change(&self) -> Option<usize> {
+        Self::callback_index(self.callbacks[8])
+    }
+
+    /// Returns the entry index for the `.onRebootFailed` callback.
+    ///
+    /// Called if the reboot (via `EW_REBOOT`) fails. Takes no parameters.
+    pub fn on_reboot_failed(&self) -> Option<usize> {
+        Self::callback_index(self.callbacks[9])
+    }
+
+    /// Returns `true` if the section at `section_idx` contains `entry_idx`
+    /// in its code range.
+    ///
+    /// Returns `false` if `section_idx` is out of range or the section
+    /// fails to parse. Equivalent to `self.sections().nth(section_idx)`
+    /// followed by [`Section::contains_entry`], but without exposing the
+    /// `Result<Section, _>` and signed-arithmetic boundary handling to
+    /// callers.
+    pub fn section_contains_entry(&self, section_idx: usize, entry_idx: usize) -> bool {
+        match self.sections().nth(section_idx) {
+            Some(Ok(section)) => section.contains_entry(entry_idx),
+            _ => false,
+        }
+    }
+
+    /// Returns the entry index for a given [`Callback`] slot.
+    ///
+    /// Equivalent to the named `on_*` accessors but indexed by the
+    /// [`Callback`] enum, which lets callers iterate over
+    /// [`Callback::ALL`] without hardcoding callback names.
+    pub fn callback(&self, cb: Callback) -> Option<usize> {
+        let raw = self.callbacks.get(cb.index()).copied().unwrap_or(-1);
+        Self::callback_index(raw)
+    }
+
+    /// Returns an iterator over plugin DLL calls in the script.
+    ///
+    /// Yields [`crate::installer::analysis::PluginCall`] for each `EW_REGISTERDLL` entry.
+    /// This is how NSIS plugins like `System.dll`, `nsDialogs.dll` are
+    /// invoked.
+    pub fn plugin_calls(&self) -> PluginCallIter<'_> {
+        PluginCallIter::new(self, self.make_entry_iter())
+    }
+
+    /// Returns an iterator over execution commands in the script.
+    ///
+    /// Yields [`crate::installer::analysis::ExecCommand`] for each `EW_EXECUTE` and
+    /// `EW_SHELLEXEC` entry.
+    pub fn exec_commands(&self) -> ExecIter<'_> {
+        ExecIter::new(self, self.make_entry_iter())
+    }
+
+    /// Returns an iterator over registry operations in the script.
+    ///
+    /// Yields [`crate::installer::analysis::RegistryOp`] for each `EW_WRITEREG`, `EW_DELREG`,
+    /// and `EW_READREGSTR` entry.
+    pub fn registry_ops(&self) -> RegistryIter<'_> {
+        RegistryIter::new(self, self.make_entry_iter())
+    }
+
+    /// Returns an iterator over shortcut creation operations.
+    ///
+    /// Yields [`crate::installer::analysis::Shortcut`] for each `EW_CREATESHORTCUT` entry.
+    pub fn shortcuts(&self) -> ShortcutIter<'_> {
+        ShortcutIter::new(self, self.make_entry_iter())
+    }
+
+    /// Returns an iterator over embedded uninstaller stubs.
+    ///
+    /// Yields [`crate::installer::analysis::Uninstaller`] for each `EW_WRITEUNINSTALLER` entry.
+    pub fn uninstallers(&self) -> UninstallerIter<'_> {
+        UninstallerIter::new(self, self.make_entry_iter())
+    }
+
+    fn callback_index(val: i32) -> Option<usize> {
+        if val >= 0 { Some(val as usize) } else { None }
+    }
+
+    fn make_entry_iter(&self) -> EntryIter<'_> {
+        let (_, count) = self.block_info(BlockType::Entries);
+        EntryIter::with_stride(
+            self.block_data(BlockType::Entries),
+            count.max(0) as usize,
+            self.entry_size(),
+        )
+    }
+}
+
+/// Configures and parses an [`NsisInstaller`].
+///
+/// Created via [`NsisInstaller::builder`]. Currently the only tunable is the
+/// decompression budget; additional limits can be added here without changing
+/// the [`NsisInstaller::from_bytes`] entry point.
+///
+/// # Examples
+///
+/// ```no_run
+/// use nsis::NsisInstaller;
+///
+/// let file = std::fs::read("installer.exe").unwrap();
+/// let inst = NsisInstaller::builder(&file)
+///     .max_decompressed_size(256 * 1024 * 1024)
+///     .parse()
+///     .unwrap();
+/// # let _ = inst.section_count();
+/// ```
+#[derive(Debug)]
+pub struct NsisInstallerBuilder<'a> {
+    file: Blob<&'a [u8]>,
+    max_decompressed_size: usize,
+}
+
+impl<'a> NsisInstallerBuilder<'a> {
+    /// Sets the maximum decompressed size for any single unknown-size stream
+    /// (embedded files, the solid file-data stream, uninstaller overlays).
+    ///
+    /// A stream that would expand past this budget is rejected with
+    /// [`Error::OutputTooLarge`] rather than silently truncated. Defaults to
+    /// [`NsisInstaller::DEFAULT_MAX_DECOMPRESSED_SIZE`].
+    #[must_use]
+    pub fn max_decompressed_size(mut self, bytes: usize) -> Self {
+        self.max_decompressed_size = bytes;
+        self
+    }
+
+    /// Parses the installer with the configured limits.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if parsing fails (not a PE, no overlay, no NSIS
+    /// signature, decompression failure, invalid headers).
+    pub fn parse(self) -> Result<NsisInstaller<'a>, Error> {
+        NsisInstaller::parse_with_budget(self.file.0, self.max_decompressed_size)
+    }
+}
+
+/// Appends `name=value`, or just the value for an unnamed operand.
+fn write_named(out: &mut String, name: &str, value: &str) {
+    if !name.is_empty() {
+        out.push_str(name);
+        out.push('=');
+    }
+    out.push_str(value);
+}
+
+fn format_variable_param(table: &StringTable<'_>, index: i32) -> String {
+    if index >= 0 {
+        table.variable_name(index as u16).into_owned()
+    } else {
+        index.to_string()
+    }
+}
+
+fn format_symbolic_jump_param(
+    table: &StringTable<'_>,
+    name: &str,
+    raw: i32,
+    analysis: &ScriptAnalysis,
+) -> String {
+    let value = if raw > 0 {
+        let target = usize::try_from(raw)
+            .ok()
+            .and_then(|value| value.checked_sub(1));
+        match target {
+            Some(entry) => match analysis.symbol_for_entry(entry) {
+                Some(symbol) => format!("=>{symbol}(@{entry})"),
+                None => format!("=>@{entry}"),
+            },
+            None => format!("=>invalid({raw})"),
+        }
+    } else if raw < 0 {
+        let variable = i64::from(raw)
+            .checked_neg()
+            .and_then(|value| value.checked_sub(1));
+        match variable.and_then(|value| i32::try_from(value).ok()) {
+            Some(index) => format!("=>{}", format_variable_param(table, index)),
+            None => format!("=>invalid({raw})"),
+        }
+    } else {
+        "0".to_string()
+    };
+
+    if name.is_empty() {
+        value
+    } else {
+        format!("{name}{value}")
+    }
+}

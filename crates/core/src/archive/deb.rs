@@ -339,6 +339,64 @@ impl<R: Read + Seek + Send> ArchiveReader for DebReader<R> {
         }
     }
 
+    fn has_direct_visitor(&self) -> bool {
+        true
+    }
+
+    fn visit_entries(
+        &mut self,
+        visitor: &mut super::EntryVisitor<'_>,
+        is_cancelled: &dyn Fn() -> bool,
+    ) -> GeeZipResult<()> {
+        self.inner.rewind()?;
+        let mut archive = ar::Archive::new(&mut self.inner);
+        let mut unsupported = None;
+        while let Some(result) = archive.next_entry() {
+            if is_cancelled() {
+                return Err(GeeZipError::Cancelled);
+            }
+            let member = result.map_err(convert_deb_ar_error)?;
+            let name = normalize_ar_identifier(member.header().identifier())?;
+            match classify_data_member(&name) {
+                DataMemberKind::Supported(codec) => {
+                    let decoder: Box<dyn Read + '_> = match codec {
+                        DataPayloadCodec::Tar => Box::new(member),
+                        DataPayloadCodec::Gzip => {
+                            Box::new(flate2::read::MultiGzDecoder::new(member))
+                        }
+                        DataPayloadCodec::Xz => {
+                            Box::new(xz2::read::XzDecoder::new_multi_decoder(member))
+                        }
+                        DataPayloadCodec::Zstd => {
+                            Box::new(zstd::stream::read::Decoder::new(member)?)
+                        }
+                        DataPayloadCodec::Bzip2 => {
+                            Box::new(::bzip2::read::MultiBzDecoder::new(member))
+                        }
+                        DataPayloadCodec::Lzma => {
+                            let stream = xz2::stream::Stream::new_lzma_decoder(256 * 1024 * 1024)
+                                .map_err(|e| {
+                                GeeZipError::format(e.to_string(), ArchiveFormat::Deb)
+                            })?;
+                            Box::new(xz2::read::XzDecoder::new_stream(member, stream))
+                        }
+                    };
+                    return super::tar::visit_tar_archive(
+                        tar::Archive::new(decoder),
+                        visitor,
+                        is_cancelled,
+                    );
+                }
+                DataMemberKind::Unsupported(name) => unsupported = Some(name),
+                DataMemberKind::Ignore => {}
+            }
+        }
+        if let Some(name) = unsupported {
+            return Err(unsupported_data_payload(&name));
+        }
+        Ok(())
+    }
+
     fn extract(&mut self, entry: &Entry, writer: &mut dyn Write) -> GeeZipResult<u64> {
         self.inner.seek(SeekFrom::Start(0))?;
         let mut archive = ar::Archive::new(&mut self.inner);
@@ -384,7 +442,8 @@ pub struct DebWriter<W: Write + Send> {
     writer: Option<W>,
     codec: DataPayloadCodec,
     format: ArchiveFormat,
-    entries: Vec<(String, Vec<u8>)>,
+    entries: Vec<(String, u64, u64)>,
+    spool: Option<std::fs::File>,
     directories: Vec<String>,
 }
 
@@ -405,6 +464,7 @@ impl<W: Write + Send> DebWriter<W> {
             codec: DataPayloadCodec::Gzip,
             format: ArchiveFormat::Deb,
             entries: Vec::new(),
+            spool: None,
             directories: Vec::new(),
         }
     }
@@ -416,6 +476,7 @@ impl<W: Write + Send> DebWriter<W> {
             codec,
             format: ArchiveFormat::Deb,
             entries: Vec::new(),
+            spool: None,
             directories: Vec::new(),
         }
     }
@@ -428,11 +489,15 @@ impl<W: Write + Send> ArchiveWriter for DebWriter<W> {
 
     fn add_entry_from_reader(&mut self, path: &Path, reader: &mut dyn Read) -> GeeZipResult<()> {
         let name = validate_deb_write_path(path)?;
-        let mut data = Vec::new();
-        reader
-            .read_to_end(&mut data)
-            .map_err(|e| GeeZipError::io(e, format!("reading data for DEB entry '{name}'")))?;
-        self.entries.push((name, data));
+        if self.spool.is_none() {
+            self.spool = Some(tempfile::tempfile()?);
+        }
+        let spool = self.spool.as_mut().unwrap();
+        let offset = spool.stream_position()?;
+        let mut buffered = std::io::BufWriter::with_capacity(64 * 1024, spool);
+        let length = std::io::copy(reader, &mut buffered)?;
+        buffered.flush()?;
+        self.entries.push((name, offset, length));
         Ok(())
     }
 
@@ -442,8 +507,8 @@ impl<W: Write + Send> ArchiveWriter for DebWriter<W> {
         Ok(())
     }
 
-    fn finish(self: Box<Self>) -> GeeZipResult<u64> {
-        let writer = self.writer.ok_or_else(|| GeeZipError::Format {
+    fn finish(mut self: Box<Self>) -> GeeZipResult<u64> {
+        let writer = self.writer.take().ok_or_else(|| GeeZipError::Format {
             message: "DEB writer not initialised (already consumed)".into(),
             format: ArchiveFormat::Deb,
         })?;
@@ -452,8 +517,17 @@ impl<W: Write + Send> ArchiveWriter for DebWriter<W> {
         let control_tar_gz = build_control_tar()?;
 
         // Build the data.tar.{codec} payload.
-        let data_tar = build_data_tar(&self.entries, &self.directories)?;
-        let data_compressed = compress_tar(self.codec, &data_tar)?;
+        let mut data_tar = build_data_tar(&self.entries, &self.directories, self.spool.as_mut())?;
+        data_tar.rewind()?;
+        let mut data_compressed = tempfile::tempfile()?;
+        {
+            let mut input = std::io::BufReader::with_capacity(64 * 1024, data_tar);
+            let mut output = std::io::BufWriter::with_capacity(64 * 1024, &mut data_compressed);
+            compress_tar(self.codec, &mut input, &mut output)?;
+            output.flush()?;
+        }
+        let payload_len = data_compressed.stream_position()?;
+        data_compressed.rewind()?;
 
         // Write the ar archive through a CountWriter.
         let mut counter = CountWriter {
@@ -478,12 +552,12 @@ impl<W: Write + Send> ArchiveWriter for DebWriter<W> {
                 .map_err(convert_deb_ar_error)?;
 
             // data.tar.{ext}
-            let header = ar::Header::new(
-                member_name.as_bytes().to_vec(),
-                data_compressed.len() as u64,
-            );
+            let header = ar::Header::new(member_name.as_bytes().to_vec(), payload_len);
             builder
-                .append(&header, &data_compressed[..])
+                .append(
+                    &header,
+                    std::io::BufReader::with_capacity(64 * 1024, data_compressed),
+                )
                 .map_err(convert_deb_ar_error)?;
         }
 
@@ -537,9 +611,14 @@ fn build_control_tar() -> GeeZipResult<Vec<u8>> {
     Ok(out)
 }
 
-/// Build the uncompressed data.tar as a byte vector.
-fn build_data_tar(entries: &[(String, Vec<u8>)], directories: &[String]) -> GeeZipResult<Vec<u8>> {
-    let tar_buf = Vec::new();
+/// Build data.tar in temporary storage with bounded source buffers.
+fn build_data_tar(
+    entries: &[(String, u64, u64)],
+    directories: &[String],
+    mut spool: Option<&mut std::fs::File>,
+) -> GeeZipResult<std::fs::File> {
+    let tar_file = tempfile::tempfile()?;
+    let tar_buf = std::io::BufWriter::with_capacity(64 * 1024, tar_file);
     let mut tar_builder = tar::Builder::new(tar_buf);
 
     // Directories first.
@@ -561,86 +640,43 @@ fn build_data_tar(entries: &[(String, Vec<u8>)], directories: &[String]) -> GeeZ
     }
 
     // File entries.
-    for (name, data) in entries {
+    for (name, offset, length) in entries {
         let mut header = tar::Header::new_gnu();
         header.set_path(name).map_err(|e| GeeZipError::Format {
             message: format!("setting path for '{name}': {e}"),
             format: ArchiveFormat::Deb,
         })?;
-        header.set_size(data.len() as u64);
+        header.set_size(*length);
         header.set_cksum();
+        let source = spool
+            .as_mut()
+            .ok_or_else(|| GeeZipError::format("missing DEB staged payload", ArchiveFormat::Deb))?;
+        source.seek(SeekFrom::Start(*offset))?;
         tar_builder
-            .append_data(&mut header, name, std::io::Cursor::new(data))
+            .append_data(&mut header, name, source.take(*length))
             .map_err(|e| GeeZipError::io(e, format!("writing data.tar entry '{name}'")))?;
     }
 
-    tar_builder
+    let mut buffer = tar_builder.into_inner()?;
+    buffer.flush()?;
+    buffer
         .into_inner()
-        .map_err(|e| GeeZipError::io(e, "finalising data.tar for DEB writer"))
+        .map_err(|e| GeeZipError::io(e.into_error(), "flushing staged DEB tar"))
 }
 
-/// Compress raw tar bytes using the chosen codec.
-fn compress_tar(codec: DataPayloadCodec, data: &[u8]) -> GeeZipResult<Vec<u8>> {
+/// Compress staged tar bytes without retaining either payload in memory.
+fn compress_tar<R: Read, W: Write>(
+    codec: DataPayloadCodec,
+    reader: &mut R,
+    writer: &mut W,
+) -> GeeZipResult<u64> {
     match codec {
-        DataPayloadCodec::Tar => Ok(data.to_vec()),
-        DataPayloadCodec::Gzip => {
-            let mut out = Vec::new();
-            let mut encoder =
-                flate2::write::GzEncoder::new(&mut out, flate2::Compression::default());
-            encoder
-                .write_all(data)
-                .map_err(|e| GeeZipError::io(e, "gzipping data.tar for DEB writer"))?;
-            encoder
-                .finish()
-                .map_err(|e| GeeZipError::io(e, "finishing data.tar.gz for DEB writer"))?;
-            Ok(out)
-        }
-        DataPayloadCodec::Xz => {
-            let mut out = Vec::new();
-            let mut reader = std::io::Cursor::new(data);
-            crate::archive::xz::xz_compress(&mut reader, &mut out).map_err(|e| {
-                GeeZipError::Format {
-                    message: format!("xz compressing data.tar: {e}"),
-                    format: ArchiveFormat::Deb,
-                }
-            })?;
-            Ok(out)
-        }
-        DataPayloadCodec::Zstd => {
-            let mut out = Vec::new();
-            let mut encoder = zstd::stream::write::Encoder::new(&mut out, 0)
-                .map_err(|e| GeeZipError::io(e, "initialising zstd encoder for data.tar"))?;
-            encoder
-                .write_all(data)
-                .map_err(|e| GeeZipError::io(e, "zstd compressing data.tar for DEB writer"))?;
-            encoder
-                .finish()
-                .map_err(|e| GeeZipError::io(e, "finishing data.tar.zst for DEB writer"))?;
-            Ok(out)
-        }
-        DataPayloadCodec::Bzip2 => {
-            let mut out = Vec::new();
-            let mut encoder =
-                ::bzip2::write::BzEncoder::new(&mut out, ::bzip2::Compression::default());
-            encoder
-                .write_all(data)
-                .map_err(|e| GeeZipError::io(e, "bzip2 compressing data.tar for DEB writer"))?;
-            encoder
-                .finish()
-                .map_err(|e| GeeZipError::io(e, "finishing data.tar.bz2 for DEB writer"))?;
-            Ok(out)
-        }
-        DataPayloadCodec::Lzma => {
-            let mut out = Vec::new();
-            let mut reader = std::io::Cursor::new(data);
-            crate::archive::xz::lzma_compress(&mut reader, &mut out).map_err(|e| {
-                GeeZipError::Format {
-                    message: format!("lzma compressing data.tar: {e}"),
-                    format: ArchiveFormat::Deb,
-                }
-            })?;
-            Ok(out)
-        }
+        DataPayloadCodec::Tar => Ok(std::io::copy(reader, writer)?),
+        DataPayloadCodec::Gzip => super::gzip::gzip_compress(reader, writer),
+        DataPayloadCodec::Xz => super::xz::xz_compress(reader, writer),
+        DataPayloadCodec::Zstd => super::zstd::zstd_compress(reader, writer),
+        DataPayloadCodec::Bzip2 => super::bzip2::bzip2_compress(reader, writer),
+        DataPayloadCodec::Lzma => super::xz::lzma_compress(reader, writer),
     }
 }
 
@@ -776,6 +812,23 @@ mod tests {
             ("usr/bin/hello", b"hello"),
             ("usr/share/doc/readme.txt", b"docs"),
         ]
+    }
+
+    #[test]
+    fn deb_visitor_checks_codec_trailer_after_tar_terminator() {
+        let mut payload = gzip_bytes(&sample_tar());
+        let n = payload.len();
+        payload[n - 8] ^= 1;
+        let mut reader = DebReader::from_buf(build_deb(Some(("data.tar.gz", payload))));
+        assert!(reader
+            .visit_entries(
+                &mut |_, data| {
+                    std::io::copy(data, &mut std::io::sink())?;
+                    Ok(true)
+                },
+                &|| false
+            )
+            .is_err());
     }
 
     fn sample_tar() -> Vec<u8> {

@@ -52,6 +52,7 @@ fn run_verify(archive: &Path, json: bool, password: Option<String>) -> Result<()
 
     let report = match format {
         ArchiveFormat::Gzip
+        | ArchiveFormat::Z
         | ArchiveFormat::Bzip2
         | ArchiveFormat::Brotli
         | ArchiveFormat::Lz4
@@ -60,18 +61,12 @@ fn run_verify(archive: &Path, json: bool, password: Option<String>) -> Result<()
         | ArchiveFormat::Lzma
         | ArchiveFormat::Isz => verify_single_stream(archive, format)
             .with_context(|| format!("verifying '{}'", archive.display()))?,
-        ArchiveFormat::Lz | ArchiveFormat::Img | ArchiveFormat::Bin | ArchiveFormat::Aes => {
+        ArchiveFormat::Lz | ArchiveFormat::Aes => {
             let mut input = fs::File::open(archive)?;
             let mut sink = std::io::sink();
             let bytes_read = match format {
                 ArchiveFormat::Lz => {
                     geezipx_core::archive::lz::lz_decompress(&mut input, &mut sink)?
-                }
-                ArchiveFormat::Img => {
-                    geezipx_core::archive::img::img_decompress(&mut input, &mut sink)?
-                }
-                ArchiveFormat::Bin => {
-                    geezipx_core::archive::bin::bin_decompress(&mut input, &mut sink)?
                 }
                 ArchiveFormat::Aes => geezipx_core::archive::aes::aes_decrypt(
                     &mut input,
@@ -88,29 +83,44 @@ fn run_verify(archive: &Path, json: bool, password: Option<String>) -> Result<()
             }
         }
         ArchiveFormat::Uu | ArchiveFormat::Xxe => {
-            let data = match format {
-                ArchiveFormat::Uu => {
-                    uu::uu_decode_file(archive)
-                        .map_err(|e| anyhow::anyhow!("uu verification failed: {}", e))?
-                        .1
-                }
-                ArchiveFormat::Xxe => {
-                    xxe::xxe_decode_file(archive)
-                        .map_err(|e| anyhow::anyhow!("xxe verification failed: {}", e))?
-                        .1
-                }
+            let bytes_read = match format {
+                ArchiveFormat::Uu => uu::uu_decode_to_writer(archive, &mut std::io::sink())?,
+                ArchiveFormat::Xxe => xxe::xxe_decode_to_writer(archive, &mut std::io::sink())?,
                 _ => unreachable!(),
             };
             TestReport {
                 format,
                 entry_count: 1,
-                bytes_read: data.len() as u64,
+                bytes_read,
+                crc32_verified: false,
+            }
+        }
+        ArchiveFormat::Nsis => {
+            let reader = common::nsis_reader(fs::File::open(archive)?)
+                .with_context(|| format!("verifying '{}'", archive.display()))?;
+            let (entry_count, bytes_read, crc32_verified) = reader.verified_stats();
+            TestReport {
+                format,
+                entry_count,
+                bytes_read,
+                crc32_verified,
+            }
+        }
+        ArchiveFormat::Pea => {
+            let reader = common::pea_reader(fs::File::open(archive)?)
+                .with_context(|| format!("verifying '{}'", archive.display()))?;
+            let (entry_count, bytes_read) = reader.verified_stats();
+            TestReport {
+                format,
+                entry_count,
+                bytes_read,
                 crc32_verified: false,
             }
         }
         ArchiveFormat::Cpio => verify_cpio_archive(archive)
             .with_context(|| format!("verifying '{}'", archive.display()))?,
         ArchiveFormat::Zip
+        | ArchiveFormat::Zipx
         | ArchiveFormat::SevenZip
         | ArchiveFormat::Rar
         | ArchiveFormat::Udf
@@ -118,12 +128,15 @@ fn run_verify(archive: &Path, json: bool, password: Option<String>) -> Result<()
         | ArchiveFormat::Arj
         | ArchiveFormat::Ace
         | ArchiveFormat::Arc
+        | ArchiveFormat::Egg
+        | ArchiveFormat::Compound
         | ArchiveFormat::Alz
-        | ArchiveFormat::Z
         | ArchiveFormat::Asar
         | ArchiveFormat::Deb
         | ArchiveFormat::Cab
         | ArchiveFormat::Lzh
+        | ArchiveFormat::Img
+        | ArchiveFormat::Bin
         | ArchiveFormat::Iso
         | ArchiveFormat::Zpaq
         | ArchiveFormat::Tar
@@ -132,7 +145,8 @@ fn run_verify(archive: &Path, json: bool, password: Option<String>) -> Result<()
         | ArchiveFormat::TarBr
         | ArchiveFormat::TarLz4
         | ArchiveFormat::TarZst
-        | ArchiveFormat::TarXz => {
+        | ArchiveFormat::TarXz
+        | ArchiveFormat::TarLz => {
             let mut reader = common::open_reader(archive, format, password.as_deref())?;
             verify_archive_reader(&mut *reader)
                 .with_context(|| format!("verifying '{}'", archive.display()))?

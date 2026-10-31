@@ -1,0 +1,175 @@
+# Maintained MIT-licensed fork of hadris-iso 1.2.1; see README.md.
+
+[package]
+edition = "2024"
+name = "geezipx-iso"
+version = "0.1.0"
+rust-version = "1.96"
+authors = ["hxyulin"]
+build = false
+exclude = ["/spec"]
+autolib = false
+autobins = false
+autoexamples = false
+autotests = false
+autobenches = false
+description = "GeeZipX's MIT-licensed hadris-iso fork with file-backed ISO creation"
+readme = "README.md"
+keywords = [
+    "el-torito",
+    "iso",
+    "iso9660",
+    "cd",
+    "dvd",
+]
+categories = [
+    "filesystem",
+    "encoding",
+]
+license = "MIT"
+repository = "https://github.com/GEELINX-LTD/geezipx"
+resolver = "2"
+
+[features]
+alloc = ["hadris-io/alloc"]
+async = [
+    "hadris-io/async",
+    "hadris-common/async",
+    "hadris-part/async",
+]
+default = [
+    "std",
+    "write",
+]
+joliet = ["alloc"]
+read = ["hadris-common/bytemuck"]
+std = [
+    "sync",
+    "hadris-io/std",
+    "hadris-common/std",
+    "hadris-common/bytemuck",
+    "alloc",
+    "dep:thiserror",
+    "dep:tracing",
+    "dep:chrono",
+    "chrono/std",
+    "chrono/clock",
+]
+sync = [
+    "hadris-io/sync",
+    "hadris-common/sync",
+    "hadris-part/sync",
+]
+write = [
+    "alloc",
+    "std",
+    "hadris-part/write",
+]
+
+[lib]
+name = "hadris_iso"
+path = "src/lib.rs"
+
+[[example]]
+name = "create_bootable_iso"
+path = "examples/create_bootable_iso.rs"
+
+[[example]]
+name = "extract_files"
+path = "examples/extract_files.rs"
+
+[[example]]
+name = "read_iso"
+path = "examples/read_iso.rs"
+
+[[test]]
+name = "benchmark"
+path = "tests/benchmark.rs"
+
+[[test]]
+name = "comprehensive_iso"
+path = "tests/comprehensive_iso.rs"
+
+[[test]]
+name = "iso_roundtrip_advanced"
+path = "tests/iso_roundtrip_advanced.rs"
+
+[[test]]
+name = "rrip_reader"
+path = "tests/rrip_reader.rs"
+
+[[test]]
+name = "xorriso_advanced"
+path = "tests/xorriso_advanced.rs"
+
+[[test]]
+name = "xorriso_basic"
+path = "tests/xorriso_basic.rs"
+
+[[test]]
+name = "xorriso_boot"
+path = "tests/xorriso_boot.rs"
+
+[[test]]
+name = "xorriso_helpers"
+path = "tests/xorriso_helpers.rs"
+
+[[test]]
+name = "xorriso_hybrid"
+path = "tests/xorriso_hybrid.rs"
+
+[[bench]]
+name = "iso_benchmarks"
+path = "benches/iso_benchmarks.rs"
+harness = false
+
+[dependencies.bitflags]
+version = "2.9.0"
+features = ["bytemuck"]
+
+[dependencies.bytemuck]
+version = "1.22.0"
+features = ["derive"]
+default-features = false
+
+[dependencies.chrono]
+version = "0.4.40"
+optional = true
+default-features = false
+
+[dependencies.hadris-common]
+version = "1.2.1"
+features = ["alloc"]
+default-features = false
+
+[dependencies.hadris-io]
+version = "1.2.1"
+default-features = false
+
+[dependencies.hadris-macros]
+version = "1.2.1"
+
+[dependencies.hadris-part]
+version = "1.2.1"
+default-features = false
+
+[dependencies.spin]
+version = "0.10.0"
+
+[dependencies.thiserror]
+version = "2.0.12"
+optional = true
+default-features = false
+
+[dependencies.tracing]
+version = "0.1.41"
+optional = true
+
+[dev-dependencies.criterion]
+version = "0.5.1"
+
+[dev-dependencies.static_assertions]
+version = "1.1.0"
+
+[dev-dependencies.tempfile]
+version = "3.19.1"

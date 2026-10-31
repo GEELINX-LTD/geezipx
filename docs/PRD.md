@@ -41,7 +41,8 @@ GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开�
 
 | 格式 | 能力 | 备注 |
 |------|------|------|
-| ZIP (.zip/.zipx/.jar/.war/.apk/.ipa/.xpi) | 读写 | AES-256 加密 |
+| ZIP (.zip/.jar/.war/.apk/.ipa/.xpi) | 读写 | Deflate 写入、AES-256 加密；读取 Stored/Deflate/Deflate64/BZIP2/LZMA/XZ/ZSTD/PPMd |
+| ZIPX (.zipx) | 读写 | XZ（method 95）流式写入、级别 0–9、可选 AES-256；读取复用 ZIP 编码器 |
 | TAR (.tar) | 读写 | 无压缩容器 |
 | TAR.GZ (.tar.gz/.tgz) | 读写 | 多线程并行 (-j) |
 | TAR.BZ2 (.tar.bz2/.tbz/.tbz2) | 读写 | — |
@@ -59,38 +60,50 @@ GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开�
 | 7Z (.7z) | 读写 | AES-256，多方法可选，--solid |
 | CAB (.cab) | 读写 | MSZIP 压缩，单卷 |
 | LZH/LHA (.lzh/.lha) | 读写 | lh0-lh7 |
+| PMA (.pma) | 只读 | PMarc pm0/pm1/pm2，流式解码与 CRC16 校验 |
+| TLZ (.tlz/.tar.lzma/.tar.lz) | 只读 | TAR + LZMA Alone 或 Lzip，流式提取 |
 | LZ (.lz) | 读写 | Lzip 格式 |
-| ISO (.iso) | 读写 | ISO 9660 Level 1 |
+| ISO (.iso) | 读写 | Level 1 + Joliet Level 3/Rock Ridge；有界缓冲/磁盘暂存创建，POSIX属性为写入器默认值 |
 | CPIO (.cpio) | 读写 | newc/odc |
-| ZPAQ (.zpaq/.zpq) | 读写 | 级别 1-5 |
+| ZPAQ (.zpaq/.zpq) | 部分读写 | 内置solid模型1–3，兼容级别4/5使用模型3；创建磁盘暂存/有界I/O，段SHA-1校验。流式分段包可提取；标准journal目前仅可列出逻辑文件，内容重建未接入 |
 | WIM (.wim/.swm) | 读写（有限制） | 无压缩写入、XPRESS 读取；LZX 兼容性待修复，LZMS 未实现 |
 | DEB (.deb) | 读写 | ar 容器 + control.tar.gz + data.tar.* |
 | ASAR (.asar) | 读写 | Electron 归档 |
-| UDF (.udf) | 读写 | Universal Disk Format |
-| ISZ (.isz) | 读写 | 块压缩 ISO 包装 |
+| UDF (.udf) | 读写 | UDF 1.02创建，CS0 Unicode名称；输入/镜像磁盘暂存和有界缓冲，单项创建上限4GiB；读取保留旧版UTF-8命名兼容 |
+| ISZ (.isz) | 读写 | 2MiB 有界块/磁盘暂存创建；单块缓存 seek 直接提取 ISO 文件；--stdout 还原 ISO，暂不支持加密/分卷 |
 | SFX (.exe) | 按构建目标提供 | 自解压 ZIP；缺少或为空的目标 stub 明确报错 |
 | UU (.uu/.uue) | 读写 | 自实现编解码器 |
 | XXE (.xxe) | 读写 | 自实现编解码器 |
 | AES (.enc) | 读写 | AES-256-GCM-SIV + Argon2id；仅验证后的非流式容器 |
-| IMG (.img/.ima) | 透传 | 原始磁盘镜像 |
-| BIN (.bin) | 透传 | 原始二进制 |
+| EGG | 部分只读 | 单卷非 solid 未加密 Store/Deflate/BZip2/LZMA，逐块 CRC/长度校验；AZO/solid/加密/分卷未支持 |
+| PEA | 部分只读 | 单卷/单流未加密 Store/Deflate PCOMPRESS0–3，对象/流/卷校验，有界读写及64MiB元数据预算；UTF-8/ASCII名称 |
+| NSIS (.exe，经PE载荷验证) | 部分只读 | NSIS 3 Unicode Store/Deflate/BZip2/LZMA，solid/non-solid；静态路径映射，可选容器CRC与长度校验，solid磁盘暂存；不执行安装脚本或插件 |
+| 化合物 / MSI (.msi/.msp/.mst/.cfb/.ole) | 只读 | 按需提取原始 CFB streams；不解析安装数据库或自动展开 CAB |
+| AES Crypt (.aes) | 只读 | v0–v3，认证后输出明文；有界缓冲、非 seek 输入暂存密文到磁盘 |
+| IMG (.img/.ima) | 光盘只读/创建透传 | cooked/raw ISO/UDF 内容提取；无 FAT/NTFS/分区盘支持 |
+| BIN (.bin) | 光盘只读/创建透传 | ISO9660/Joliet/Rock Ridge/UDF 内容，cooked 2048 或单轨 raw 2352 Mode1/Mode2 Form1；无音轨/CUE/分区盘支持 |
 | RAR (.rar) | 只读 | UnRAR 许可限制 |
 | ARJ, ACE, ARC | 只读 | unarc-rs 适配器 |
-| ALZ | 未实现操作支持 | 仅保留扩展名识别 |
-| Z (.Z) | 未实现操作支持 | 仅保留扩展名识别 |
+| ALZ | 部分只读 | 单卷 Store/Deflate 流式提取与 ZipCrypto；修改版 BZip2 / method 3 / 分卷暂缓 |
+| Z (.Z) | 只读 | 流式 LZW，9–16 位有界字典；格式无校验和 |
 
-### 5.2 永久排除格式
+### 5.2 对齐目标与暂缓范围
 
-以下格式经评估后明确不做：
+core/CLI 以 Bandizip 格式清单为对齐目标，包含已有格式的性能与兼容性复核。历史上因缺少现成 Rust 库而排除的 BH/PMA/PEA/EGG 以及 ZIPX 方法改为逐项评估；无法可靠实现时记录证据、限制和后续路线，不将识别扩展名或原样复制计为提取支持。逐项状态见 [格式对齐审查](FORMAT_PARITY_AUDIT.md)。
 
-| 格式 | 排除原因 |
+以下为仍需评估或保留限制的范围：
+
+| 范围 | 当前原因或状态 |
 |------|----------|
-| BH, PMA, PEA, EGG | crates.io 无可用的 Rust 库；格式规范未公开或严重不完整；无已知活跃用户群 |
+| BH, DAA 1.0 | 本轮暂缓，具体规范、独立语料、容器解析及依赖路线见格式审查；不再按“无 Rust 生态”永久排除 |
+| NSIS 未覆盖的变体 | ANSI/旧版/Park、BCJ-LZMA、自定义打包stub、运行时生成文件/插件结果与卸载器重建未支持；仅静态解读NSIS 3 Unicode嵌入文件，不执行脚本 |
+| PEA 未覆盖的变体 | 加密/HMAC、ECC、分卷、旧ANSI代码页未接入；仅核对声明的校验，NOALGO不提供对应完整性保证；不恢复日期/属性 |
+| EGG / ALZ 未覆盖的变体 | 已接入部分只读；solid/加密/分卷或专有压缩方法仍需逐项补齐 |
 | CPIO bin/crc | `cpio-archive` crate 不支持；1970 年代遗留格式，无现代使用场景 |
 | I00/I01 (分卷 ISO) | 极其小众，未来可复用通用分卷框架实现 |
 | ARJ/ACE/ARC/ALZ 写入 | 适配器为只读 API，创建需逆向 1990s 专有格式，用户群极小 |
 | Z 写入 | 2026 年无创建 .Z 文件的合理场景 |
-| ZIPX 高级方法 | WinZip 专有压缩方法无公开规范与 Rust 实现 |
+| ZIPX JPEG/WavPack 等方法 | 尚未实现；XZ 创建及通用 ZIP 解码方法已接入，不承诺全部专有方法 |
 | RAR 写入 | UnRAR 许可限制 |
 
 ## 6. 阶段目标与边界
@@ -146,7 +159,7 @@ TTY 下默认显示进度条（文件名、处理大小、百分比、速度、E
 | 错误信息质量 | 用户无需查手册即可理解 | 人工审查 |
 | 代码覆盖率 | 信息性观测指标，不设硬门禁 | cargo-tarpaulin / grcov |
 
-内存目标适用于已实现流式处理的路径，不代表全部格式的现状保证。WIM 写入使用临时磁盘保存文件内容，metadata 仍驻留内存；AES、ISZ 写入、UDF 映像读写、UU/XXE 和部分第三方格式适配器仍存在整体缓冲，详见 [当前实现限制](TECH_ARCHITECTURE.md#10-当前实现限制)。
+内存目标适用于已实现流式处理的路径，不代表全部格式的现状保证。ISO/UDF创建对输入及镜像使用有界缓冲/磁盘暂存（临时空间约输入+镜像大小，tmpfs会占系统内存，目录元数据仍随项数增长），ISZ 使用有界块/磁盘暂存，UDF 读取采用 seek/64KiB 缓冲，UU/XXE CLI 逐行处理；ASAR创建使用64KiB缓冲/磁盘暂存及有上限的JSON/校验索引；LZH创建按项暂存/有界编码，ZPAQ创建按归档暂存/共享solid模型并设元数据预算；旧 `.enc` 和部分第三方读取适配器仍有整体缓冲。WIM 文件内容暂存磁盘、metadata 驻内存。性能与兼容性债务详见 [格式对齐审查](FORMAT_PARITY_AUDIT.md) 和 [当前实现限制](TECH_ARCHITECTURE.md#10-当前实现限制)。
 
 文件输出在编码或校验成功后才发布；失败与取消保留已有目标。多文件提取按条目发布，后续条目失败不会回滚此前成功的文件；多卷发布也不构成整组原子事务。
 

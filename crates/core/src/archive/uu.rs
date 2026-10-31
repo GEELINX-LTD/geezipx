@@ -39,16 +39,8 @@ pub fn uu_encode_to_writer<R: Read, W: Write>(
     name: &str,
     writer: &mut W,
 ) -> GeeZipResult<u64> {
-    let mut data = Vec::new();
-    reader
-        .read_to_end(&mut data)
-        .map_err(|e| GeeZipError::io(e, "reading input for uu encoding"))?;
-    let body = uu_encode(&data);
-    let output = format!("begin 644 {name}\n{body}`\nend\n");
-    writer
-        .write_all(output.as_bytes())
-        .map_err(|e| GeeZipError::io(e, "writing uu-encoded output"))?;
-    Ok(output.len() as u64)
+    super::text_encoding::encode(reader, writer, name, super::text_encoding::UU, b'`')
+        .map_err(|e| GeeZipError::io(e, "streaming uu encoding"))
 }
 
 pub fn uu_decode_file(path: &Path) -> GeeZipResult<(String, Vec<u8>)> {
@@ -116,20 +108,48 @@ pub fn uu_decode(input: &str) -> Option<(String, Vec<u8>)> {
 }
 
 pub fn uu_decode_to_writer(path: &Path, writer: &mut dyn Write) -> GeeZipResult<u64> {
-    let (_filename, data) = uu_decode_file(path)?;
-    let len = data.len() as u64;
-    writer.write_all(&data).map_err(|e| {
-        GeeZipError::io(
-            e,
-            format!("writing decoded output for '{}'", path.display()),
-        )
-    })?;
-    Ok(len)
+    let file = fs::File::open(path).map_err(|e| GeeZipError::io(e, "opening uu input"))?;
+    uu_decode_stream(file, writer)
+}
+
+/// Decode a UU stream with bounded line buffers, including non-seekable input.
+pub fn uu_decode_stream<R: Read>(reader: R, writer: &mut dyn Write) -> GeeZipResult<u64> {
+    super::text_encoding::decode(
+        &mut std::io::BufReader::new(reader),
+        writer,
+        super::text_encoding::UU,
+        true,
+    )
+    .map_err(|e| GeeZipError::io(e, "streaming uu decoding"))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn uu_streaming_decode_validates_termination() {
+        let data = b"bounded line encoding ".repeat(10000);
+        let mut encoded = Vec::new();
+        uu_encode_to_writer(&mut data.as_slice(), "large.bin", &mut encoded).unwrap();
+        let mut decoded = Vec::new();
+        super::super::text_encoding::decode(
+            &mut encoded.as_slice(),
+            &mut decoded,
+            super::super::text_encoding::UU,
+            true,
+        )
+        .unwrap();
+        assert_eq!(decoded, data);
+        encoded.truncate(encoded.len() - 4);
+        assert!(super::super::text_encoding::decode(
+            &mut encoded.as_slice(),
+            &mut Vec::new(),
+            super::super::text_encoding::UU,
+            true
+        )
+        .is_err());
+    }
 
     #[test]
     fn uu_decode_roundtrip() {

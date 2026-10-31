@@ -103,9 +103,13 @@ impl<R: Read + Seek + Send> ArchiveReader for TarXzReader<R> {
 
     fn entries(&mut self) -> GeeZipResult<Vec<Entry>> {
         self.inner.seek(SeekFrom::Start(0))?;
-        let decoder = xz2::read::XzDecoder::new(&mut self.inner);
+        let decoder = xz2::read::XzDecoder::new_multi_decoder(&mut self.inner);
         let mut archive = tar::Archive::new(decoder);
         collect_tarxz_entries(&mut archive)
+    }
+
+    fn has_direct_visitor(&self) -> bool {
+        true
     }
 
     fn visit_entries(
@@ -120,7 +124,7 @@ impl<R: Read + Seek + Send> ArchiveReader for TarXzReader<R> {
 
     fn extract(&mut self, entry: &Entry, writer: &mut dyn Write) -> GeeZipResult<u64> {
         self.inner.seek(SeekFrom::Start(0))?;
-        let decoder = xz2::read::XzDecoder::new(&mut self.inner);
+        let decoder = xz2::read::XzDecoder::new_multi_decoder(&mut self.inner);
         let mut archive = tar::Archive::new(decoder);
 
         for result in archive.entries().map_err(convert_tarxz_error)? {
@@ -206,13 +210,26 @@ impl<W: Write + Send> TarXzWriter<W> {
 
     /// Create a new tar.xz writer with the given compression options.
     ///
-    /// Currently only `options.level` is applied; `options.jobs` is accepted
-    /// but ignored because the `xz2` crate does not expose a stable
-    /// multi-threaded API in its current version.
+    /// Uses block-parallel XZ when more than one worker is requested.
     ///
-    /// TODO: Revisit when `xz2` gets multithread support.
+    /// Panics on invalid encoder options. Use [`Self::try_new_with_options`]
+    /// at input boundaries to receive a structured error instead.
     pub fn new_with_options(writer: W, options: CompressOptions) -> Self {
-        Self::new_with_level(writer, options.level)
+        Self::try_new_with_options(writer, options).expect("invalid XZ encoder options")
+    }
+
+    /// Construct an encoder without panicking on invalid options.
+    pub fn try_new_with_options(writer: W, options: CompressOptions) -> GeeZipResult<Self> {
+        let stream = super::xz::encoder_stream(&options)?;
+        let counter = CountWriter {
+            inner: writer,
+            count: 0,
+        };
+        let encoder = xz2::write::XzEncoder::new_stream(counter, stream);
+        Ok(Self {
+            inner: Some(tar::Builder::new(encoder)),
+            format: ArchiveFormat::TarXz,
+        })
     }
 
     /// Finalise the archive and return the inner writer alongside

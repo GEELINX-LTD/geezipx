@@ -112,6 +112,12 @@ fn assert_zipx_roundtrip(explicit_format: bool) {
     compress.arg("-o").arg(&archive).assert().success();
 
     assert!(archive.exists(), "ZIPX archive should exist");
+    let bytes = std::fs::read(&archive).unwrap();
+    assert_eq!(
+        u16::from_le_bytes([bytes[8], bytes[9]]),
+        95,
+        "ZIPX must use XZ"
+    );
 
     geezipx()
         .args(["list", archive.to_str().unwrap()])
@@ -8143,7 +8149,7 @@ fn deb_test_valid() {
 }
 
 #[test]
-fn img_compress_decompress_roundtrip() {
+fn img_optical_filesystem_extracts_contents() {
     let td = TestDir::new();
     td.write("payload.bin", "raw image data test");
 
@@ -8152,7 +8158,7 @@ fn img_compress_decompress_roundtrip() {
         .args([
             "compress",
             "-f",
-            "img",
+            "iso",
             td.join("payload.bin").to_str().unwrap(),
             "-o",
             td.join("out.img").to_str().unwrap(),
@@ -8174,13 +8180,13 @@ fn img_compress_decompress_roundtrip() {
         .assert()
         .success();
 
-    // IMG is pass-through: content must be byte-identical
-    let extracted = std::fs::read(out_dir.join("out")).unwrap();
+    // Optical image extraction yields files inside the filesystem.
+    let extracted = std::fs::read(out_dir.join("payload.bin")).unwrap();
     assert_eq!(extracted, b"raw image data test");
 }
 
 #[test]
-fn bin_compress_decompress_roundtrip() {
+fn bin_optical_filesystem_extracts_contents() {
     let td = TestDir::new();
     td.write("payload.raw", "raw bin format test");
 
@@ -8189,7 +8195,7 @@ fn bin_compress_decompress_roundtrip() {
         .args([
             "compress",
             "-f",
-            "bin",
+            "iso",
             td.join("payload.raw").to_str().unwrap(),
             "-o",
             td.join("out.bin").to_str().unwrap(),
@@ -8211,8 +8217,8 @@ fn bin_compress_decompress_roundtrip() {
         .assert()
         .success();
 
-    // BIN is pass-through: content must be byte-identical
-    let extracted = std::fs::read(out_dir.join("out")).unwrap();
+    // The extension may be BIN; the payload remains an optical filesystem.
+    let extracted = std::fs::read(out_dir.join("payload.raw")).unwrap();
     assert_eq!(extracted, b"raw bin format test");
 }
 

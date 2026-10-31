@@ -12,7 +12,7 @@
 //! Only non-stream containers are accepted: enc_file's AES stream framing does
 //! not authenticate the final-frame flag, so it cannot detect truncation.
 
-use std::io::{Read, Write};
+use std::io::{Read, Seek, SeekFrom, Write};
 
 use base64::Engine as _;
 use ciborium::Value;
@@ -200,7 +200,31 @@ pub fn aes_encrypt<R: Read, W: Write>(
     Ok(encrypted.len() as u64)
 }
 
+/// Decrypt an AES Crypt v0–v3 file with authentication before plaintext release.
+/// Input is read twice using bounded buffers; no full-file allocation is made.
+/// The seekable source must remain unchanged during both passes. Legacy v0–v2
+/// authenticate ciphertext but leave the final block's length outside the MAC;
+/// use v3 when exact plaintext length authentication is required.
+pub fn aescrypt_decrypt<R: Read + Seek, W: Write>(
+    reader: R,
+    writer: W,
+    password: &str,
+) -> GeeZipResult<u64> {
+    aescrypt_rs::decrypt_verified(reader, writer, password)
+        .map(|outcome| outcome.plaintext_len)
+        .map_err(|e| {
+            GeeZipError::format(
+                format!("AES Crypt decryption failed: {e}"),
+                ArchiveFormat::Aes,
+            )
+        })
+}
+
 /// Decrypt data from `reader` to `writer`.
+///
+/// AES Crypt is authenticated using a seekable temporary ciphertext file, so
+/// non-seekable sources also use bounded memory and release no invalid plaintext.
+/// The legacy `.enc` format still requires whole-container allocation.
 ///
 /// `password` is required — returns an error if empty.
 /// Uses [`enc_file::decrypt_bytes`] which reads all data into memory
@@ -221,8 +245,19 @@ pub fn aes_decrypt<R: Read, W: Write>(
         });
     }
 
+    let mut prefix = Vec::with_capacity(3);
+    reader.take(3).read_to_end(&mut prefix)?;
+    let is_aescrypt = prefix == b"AES";
+    let mut input = std::io::Cursor::new(prefix).chain(reader);
+    if is_aescrypt {
+        let mut staged =
+            tempfile::tempfile().map_err(|e| GeeZipError::io(e, "staging AES Crypt ciphertext"))?;
+        std::io::copy(&mut input, &mut staged)?;
+        staged.seek(SeekFrom::Start(0))?;
+        return aescrypt_decrypt(staged, &mut writer, password);
+    }
     let mut data = Vec::new();
-    reader
+    input
         .read_to_end(&mut data)
         .map_err(|e| GeeZipError::io(e, "reading input for AES decryption"))?;
 
@@ -259,6 +294,109 @@ mod tests {
     use super::*;
     use std::io::Cursor;
     use std::sync::OnceLock;
+
+    #[test]
+    fn official_compatible_legacy_vectors_and_auth_failure() {
+        let cases: &[(&[u8], &[u8])] = &[
+            (
+                include_bytes!("../../tests/fixtures/aescrypt/v0-0.aes"),
+                b"",
+            ),
+            (
+                include_bytes!("../../tests/fixtures/aescrypt/v0-16.aes"),
+                b"0123456789ABCDEF",
+            ),
+            (
+                include_bytes!("../../tests/fixtures/aescrypt/v0-17.aes"),
+                b"0123456789ABCDEF0",
+            ),
+            (
+                include_bytes!("../../tests/fixtures/aescrypt/v1-0.aes"),
+                b"",
+            ),
+            (
+                include_bytes!("../../tests/fixtures/aescrypt/v1-16.aes"),
+                b"0123456789ABCDEF",
+            ),
+            (
+                include_bytes!("../../tests/fixtures/aescrypt/v1-17.aes"),
+                b"0123456789ABCDEF0",
+            ),
+            (
+                include_bytes!("../../tests/fixtures/aescrypt/v2-0.aes"),
+                b"",
+            ),
+            (
+                include_bytes!("../../tests/fixtures/aescrypt/v2-16.aes"),
+                b"0123456789ABCDEF",
+            ),
+            (
+                include_bytes!("../../tests/fixtures/aescrypt/v2-17.aes"),
+                b"0123456789ABCDEF0",
+            ),
+        ];
+        struct ShortReads<'a>(&'a [u8]);
+        impl Read for ShortReads<'_> {
+            fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+                let n = buf.len().min(1);
+                self.0.read(&mut buf[..n])
+            }
+        }
+        for &(bytes, expected) in cases {
+            let mut output = Vec::new();
+            assert_eq!(
+                aes_decrypt(&mut ShortReads(bytes), &mut output, "Hello").unwrap(),
+                expected.len() as u64
+            );
+            assert_eq!(output, expected);
+            for (input, password) in [(bytes, "wrong"), (&bytes[..bytes.len() - 1], "Hello")] {
+                let mut untouched = b"existing output".to_vec();
+                assert!(aescrypt_decrypt(Cursor::new(input), &mut untouched, password).is_err());
+                assert_eq!(untouched, b"existing output");
+            }
+            let mut corrupt = bytes.to_vec();
+            *corrupt.last_mut().unwrap() ^= 1;
+            let mut untouched = b"existing output".to_vec();
+            assert!(aescrypt_decrypt(Cursor::new(corrupt), &mut untouched, "Hello").is_err());
+            assert_eq!(untouched, b"existing output");
+        }
+    }
+
+    #[test]
+    fn official_aescrypt_v3_unicode_password() {
+        let bytes = include_bytes!("../../tests/fixtures/aescrypt/official-v3.aes");
+        let mut output = Vec::new();
+        assert_eq!(
+            aes_decrypt(&mut bytes.as_slice(), &mut output, "Unicode 密码 🔑").unwrap(),
+            30
+        );
+        assert_eq!(output, b"Official AES Crypt v3 fixture\n");
+    }
+
+    #[test]
+    fn aescrypt_v3_authenticates_before_writing() {
+        let mut encrypted = Vec::new();
+        aescrypt_rs::encrypt(
+            Cursor::new(b"AES Crypt interoperability"),
+            &mut encrypted,
+            "test password",
+            1,
+        )
+        .unwrap();
+        let mut output = Vec::new();
+        assert_eq!(
+            aes_decrypt(&mut Cursor::new(&encrypted), &mut output, "test password").unwrap(),
+            26
+        );
+        assert_eq!(output, b"AES Crypt interoperability");
+        let last = encrypted.len() - 1;
+        encrypted[last] ^= 1;
+        for password in ["test password", "incorrect"] {
+            let mut output = Vec::new();
+            assert!(aes_decrypt(&mut Cursor::new(&encrypted), &mut output, password).is_err());
+            assert!(output.is_empty());
+        }
+    }
 
     const FIXTURE_PASSWORD: &str = "AES compatibility 密码 🔑";
     const FIXTURE_PLAINTEXT: &[u8] = b"authenticated non-stream fixture";

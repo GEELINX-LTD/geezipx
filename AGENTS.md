@@ -150,7 +150,8 @@ CLI 和两个 GUI 只负责：
 
 当前已支持：
 
-- ZIP（含 AES-256 加密、`zipx`/`jar`/`war`/`apk`/`ipa`/`xpi` 兼容别名）；
+- ZIP（含 AES-256 加密及 `jar`/`war`/`apk`/`ipa`/`xpi` 别名）；
+- ZIPX（XZ method 95 创建；读取共用 ZIP codecs，未覆盖所有专有方法）；
 - TAR；
 - TAR.GZ / TGZ；
 - TAR.BZ2 / TBZ / TBZ2；
@@ -172,27 +173,33 @@ CLI 和两个 GUI 只负责：
 - ASAR（读写，Electron 归档）；
 - DEB（读写，Debian 包）；
 - LZH / LHA（读写，lh0-lh7）；
+- PMA（只读，pm0/pm1/pm2）；
+- TLZ / TAR.LZMA / TAR.LZ（只读，LZMA Alone 或 Lzip 外层）；
 - ISO（读写，含 Joliet Unicode 文件名 + Rock Ridge POSIX 属性）；
 - UDF（读写，Universal Disk Format DVD/Blu-ray 文件系统）；
 - CPIO（读写，newc/odc）；
-- ZPAQ（读写）；
+- ZPAQ（创建与流式分段包读写；内置solid模型1–3，兼容级别4/5使用模型3；标准journal仅列出，内容重建待实现）；
 - WIM（无压缩读写，XPRESS 解压；LZX 互操作待修复，LZMS 与分割 SWM 未实现）；
-- ISZ（读写，块压缩 ISO 包装，单流引擎）；
+- ISZ（有界块创建/读取，CLI 可直接列出及提取 ISO 内文件；加密/分卷暂不支持）；
 - SFX（自解压 ZIP 读写；创建需要对应目标的非空嵌入式 stub）；
 - ARJ（只读，unarc-rs 适配器）；
 - ACE（只读，unarc-rs 适配器）；
 - ARC（只读，unarc-rs 适配器）；
 - UU / UUE（读写，自实现编解码器）；
 - XXE（读写，自实现编解码器）；
-- IMG（透传，identity pass-through，扩展名 .img/.ima）；
-- BIN（透传，identity pass-through，扩展名 .bin）；
+- IMG / IMA、BIN（CLI 提取 cooked/raw ISO/UDF 光盘内容；创建和显式 core copy helper 仍为透传，无 FAT/NTFS/分区盘）；
+- 化合物 / MSI / OLE（只读，原始 CFB streams，不解释 MSI 数据库）；
+- EGG（部分只读，单卷非 solid 未加密 Store/Deflate/BZip2/LZMA）；
+- PEA（部分只读，单卷/单流未加密 Store/Deflate PCOMPRESS0–3，三层校验，UTF-8/ASCII 名称；加密/HMAC、ECC、分卷和旧 ANSI 代码页未支持）；
+- NSIS（部分只读，NSIS 3 Unicode Store/Deflate/BZip2/LZMA，solid 与 non-solid；静态路径及可选 CRC 校验，solid 磁盘暂存，不执行脚本或插件）；
+- AES Crypt（.aes，只读，v0–v3，认证后输出）；
 - AES 加密容器（.enc，AES-256-GCM-SIV + Argon2id）；
 
-ALZ 与 Z / Unix Compress 仅保留格式识别，尚未实现操作支持。
+ALZ 支持单卷 Store/Deflate 与 ZipCrypto，修改版 BZip2/其它方法及分卷暂缓；Z / Unix Compress 支持有界流式 LZW 解码。
 
 CLI 已支持 `compress --split-size` 分卷创建。后续格式扩展由实际需求驱动，当前优先补齐 GUI 桥接与已知兼容性限制；core/CLI 已支持不代表 GUI 已接入，详见 `docs/GUI_MVP_PLAN.md` §3.1。
 
-格式覆盖评估已完成。永久排除项见 `docs/PRD.md` §5.2：BH/PMA/PEA/EGG（无 Rust 生态）、CPIO bin/crc（无 crate 支持）、ARJ/ACE/ARC/ALZ/Z 写入（只读 API/投入产出比低）、I00/I01（小众分卷 ISO）、ZIPX 高级方法（WinZip 专有）、RAR 写入（许可限制）。
+Core/CLI 以用户给定的 Bandizip 清单为对齐目标，逐项实现/性能审查结果见 `docs/FORMAT_PARITY_AUDIT.md`。BH、DAA 1.0 本轮暂缓并记录具体证据及路线；PMA 已实现，EGG/PEA/NSIS 部分实现，不能继续列为永久排除。其它范围见 `docs/PRD.md` §5.2；RAR 写入仍受许可限制，ZIPX 专有方法及各格式变体的限制需分别说明。
 
 当前阶段不承诺完整替代 7-Zip / WinRAR。
 

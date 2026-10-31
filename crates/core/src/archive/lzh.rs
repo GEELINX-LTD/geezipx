@@ -26,7 +26,7 @@ use std::path::Path;
 use delharc::crc::Crc16;
 use delharc::header::{ext::EXT_HEADER_FILENAME, ext::EXT_HEADER_PATH, LhaHeader, OsType};
 use delharc::{LhaDecodeReader, LhaError};
-use oxiarc_lzhuf::{encode_lzh, LzhMethod};
+use oxiarc_lzhuf::{encode::LzhEncoder, LzhMethod};
 
 use crate::archive::{is_entry_path_dangerous, ArchiveReader, ArchiveWriter, Entry};
 use crate::detect::ArchiveFormat;
@@ -122,6 +122,7 @@ impl Default for LzhCompressionMethod {
     }
 }
 
+#[cfg(test)]
 fn lzh_crc16(data: &[u8]) -> u16 {
     let mut crc = Crc16::default();
     crc.digest(data);
@@ -264,7 +265,7 @@ fn write_lzh_entry<W: Write>(
     original_size: u32,
     file_crc: u16,
     is_dir: bool,
-    payload: &[u8],
+    payload: &mut dyn Read,
 ) -> GeeZipResult<()> {
     let header = build_lzh_level0_header(
         path_bytes,
@@ -298,43 +299,68 @@ fn write_lzh_entry<W: Write>(
         GeeZipError::io(err, format!("writing LZH header for '{}'", path.display()))
     })?;
     if !is_dir {
-        writer.write_all(payload).map_err(|err| {
-            GeeZipError::io(err, format!("writing LZH payload for '{}'", path.display()))
-        })?;
+        let copied = std::io::copy(&mut payload.take(u64::from(compressed_size)), writer).map_err(
+            |err| GeeZipError::io(err, format!("writing LZH payload for '{}'", path.display())),
+        )?;
+        if copied != u64::from(compressed_size) {
+            return Err(GeeZipError::format(
+                "truncated staged LZH payload",
+                ArchiveFormat::Lzh,
+            ));
+        }
     }
 
     Ok(())
 }
 
-fn read_lzh_entry_data(path: &Path, reader: &mut dyn Read, max_size: u64) -> GeeZipResult<Vec<u8>> {
-    let mut data = Vec::new();
-    let mut chunk = [0u8; LZH_READ_CHUNK_SIZE];
-
-    loop {
-        let n = reader.read(&mut chunk).map_err(|err| {
-            GeeZipError::io(
-                err,
-                format!("reading data for LZH entry '{}'", path.display()),
-            )
-        })?;
-        if n == 0 {
-            break;
+fn stage_lzh_entry_data(
+    path: &Path,
+    reader: &mut dyn Read,
+    max_size: u64,
+) -> GeeZipResult<(std::fs::File, u32, u16)> {
+    let mut staged = tempfile::tempfile()?;
+    let mut count = 0u64;
+    let mut crc = Crc16::default();
+    {
+        let mut output = std::io::BufWriter::with_capacity(LZH_READ_CHUNK_SIZE, &mut staged);
+        let mut chunk = [0u8; LZH_READ_CHUNK_SIZE];
+        loop {
+            let n = match reader.read(&mut chunk) {
+                Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+                result => result.map_err(|err| {
+                    GeeZipError::io(
+                        err,
+                        format!("reading data for LZH entry '{}'", path.display()),
+                    )
+                })?,
+            };
+            if n == 0 {
+                break;
+            }
+            count = count
+                .checked_add(n as u64)
+                .filter(|n| *n <= max_size)
+                .ok_or_else(|| lzh_entry_size_limit_error(path, max_size))?;
+            crc.digest(&chunk[..n]);
+            output.write_all(&chunk[..n])?;
         }
-
-        let next_len = data
-            .len()
-            .checked_add(n)
-            .ok_or_else(|| lzh_entry_size_limit_error(path, max_size))?;
-        let next_len =
-            u64::try_from(next_len).map_err(|_| lzh_entry_size_limit_error(path, max_size))?;
-        if next_len > max_size {
-            return Err(lzh_entry_size_limit_error(path, max_size));
-        }
-
-        data.extend_from_slice(&chunk[..n]);
+        output.flush()?;
     }
+    staged.rewind()?;
+    let count = u32::try_from(count).map_err(|_| lzh_entry_size_limit_error(path, max_size))?;
+    Ok((staged, count, crc.sum16()))
+}
 
-    Ok(data)
+struct LzhEncodeInput<'a, W: Write> {
+    source: &'a mut std::fs::File,
+    output_probe: &'a mut W,
+}
+impl<W: Write> Read for LzhEncodeInput<'_, W> {
+    fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+        // Poll cancellation/output failures while compressing staged input.
+        self.output_probe.write(&[])?;
+        self.source.read(buffer)
+    }
 }
 
 pub struct LzhWriter<W: Write + Seek + Send> {
@@ -588,10 +614,9 @@ fn convert_lha_error(err: LhaError<std::io::Error>, context: impl Into<String>) 
             format!("failed to decompress LZH entry: {message}"),
             ArchiveFormat::Lzh,
         ),
-        LhaError::Checksum(message) => GeeZipError::format(
-            format!("LZH CRC-16 verification failed: {message}"),
-            ArchiveFormat::Lzh,
-        ),
+        LhaError::Checksum => {
+            GeeZipError::format("LZH CRC-16 verification failed", ArchiveFormat::Lzh)
+        }
         _ => GeeZipError::format("LZH decoder error", ArchiveFormat::Lzh),
     }
 }
@@ -646,6 +671,70 @@ impl<R: Read + Seek + Send> ArchiveReader for LzhReader<R> {
 
     fn entries(&mut self) -> GeeZipResult<Vec<Entry>> {
         scan_lzh_entries(&mut self.inner)
+    }
+
+    fn has_direct_visitor(&self) -> bool {
+        true
+    }
+
+    fn visit_entries(
+        &mut self,
+        visitor: &mut super::EntryVisitor<'_>,
+        is_cancelled: &dyn Fn() -> bool,
+    ) -> GeeZipResult<()> {
+        self.inner.seek(SeekFrom::Start(0))?;
+        let mut reader = LhaDecodeReader::new(&mut self.inner)
+            .map_err(|err| convert_lha_decode_error(err, "reading LZH archive"))?;
+        loop {
+            if is_cancelled() {
+                return Err(GeeZipError::Cancelled);
+            }
+            let header = reader.header();
+            let path = lzh_entry_path(header)?;
+            let entry = Entry {
+                path,
+                size: header.original_size,
+                compressed_size: header.compressed_size,
+                crc32: None,
+                modified: lzh_modified_timestamp(header),
+                is_dir: header.is_directory(),
+            };
+            if !entry.is_dir && !reader.is_decoder_supported() {
+                return Err(unsupported_method_error(reader.header(), &entry.path));
+            }
+            struct Verified<'a, R>(&'a mut LhaDecodeReader<R>);
+            impl<R: Read> Read for Verified<'_, R> {
+                fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+                    let bytes = self.0.read(buf)?;
+                    if bytes == 0 && !buf.is_empty() {
+                        self.0.crc_check().map_err(std::io::Error::other)?;
+                    }
+                    Ok(bytes)
+                }
+            }
+            {
+                let mut data = Verified(&mut reader);
+                if !visitor(&entry, &mut data)? {
+                    return Ok(());
+                }
+                if !entry.is_dir {
+                    let mut sink = std::io::sink();
+                    let mut output = super::CancellableWriter::new(&mut sink, is_cancelled);
+                    let result = std::io::copy(&mut data, &mut output);
+                    if output.was_cancelled() || is_cancelled() {
+                        return Err(GeeZipError::Cancelled);
+                    }
+                    result?;
+                }
+            }
+            if !reader
+                .next_file()
+                .map_err(|err| convert_lha_decode_error(err, "reading LZH archive"))?
+            {
+                break;
+            }
+        }
+        Ok(())
     }
 
     fn extract(&mut self, entry: &Entry, writer: &mut dyn Write) -> GeeZipResult<u64> {
@@ -710,76 +799,50 @@ impl<W: Write + Seek + Send> ArchiveWriter for LzhWriter<W> {
         })?;
 
         let path_bytes = normalize_lzh_writer_path(path, false)?;
-        let data = read_lzh_entry_data(path, reader, LZH_LEVEL0_MAX_ENTRY_SIZE)?;
-        let crc = lzh_crc16(&data);
-        let original_size = u32::try_from(data.len()).map_err(|_| {
-            GeeZipError::format(
-                format!(
-                    "LZH entry '{}' too large ({} bytes)",
-                    path.display(),
-                    data.len()
-                ),
-                ArchiveFormat::Lzh,
-            )
-        })?;
-
-        if self.method.is_store() {
-            // Store (no compression) — write directly.
-            write_lzh_entry(
-                writer,
-                path,
-                &path_bytes,
-                LZH_METHOD_STORE,
-                original_size,
-                original_size,
-                crc,
-                false,
-                &data,
-            )
-        } else {
-            // Attempt compression; fall back to store if compressed data is larger.
-            let compressed = encode_lzh(&data, self.method.to_lzh_method()).map_err(|e| {
-                GeeZipError::format(
-                    format!("LZH compression failed for '{}': {}", path.display(), e),
-                    ArchiveFormat::Lzh,
-                )
-            })?;
-            if compressed.len() >= data.len() {
-                write_lzh_entry(
-                    writer,
-                    path,
-                    &path_bytes,
-                    LZH_METHOD_STORE,
-                    original_size,
-                    original_size,
-                    crc,
-                    false,
-                    &data,
-                )
-            } else {
-                let compressed_size = u32::try_from(compressed.len()).map_err(|_| {
-                    GeeZipError::format(
-                        format!(
-                            "LZH compressed entry '{}' too large ({} bytes)",
-                            path.display(),
-                            compressed.len()
-                        ),
-                        ArchiveFormat::Lzh,
-                    )
-                })?;
-                write_lzh_entry(
-                    writer,
-                    path,
-                    &path_bytes,
-                    self.method.method_bytes(),
-                    compressed_size,
-                    original_size,
-                    crc,
-                    false,
-                    &compressed,
-                )
+        let (mut raw, original_size, crc) =
+            stage_lzh_entry_data(path, reader, LZH_LEVEL0_MAX_ENTRY_SIZE)?;
+        let mut packed = None;
+        let mut compressed_size = original_size;
+        let mut method = LZH_METHOD_STORE;
+        if !self.method.is_store() {
+            let mut file = tempfile::tempfile()?;
+            {
+                let mut source = LzhEncodeInput {
+                    source: &mut raw,
+                    output_probe: writer,
+                };
+                let mut output = std::io::BufWriter::with_capacity(LZH_READ_CHUNK_SIZE, &mut file);
+                LzhEncoder::new(self.method.to_lzh_method())
+                    .encode_reader(&mut source, &mut output)
+                    .map_err(|e| {
+                        GeeZipError::format(
+                            format!("LZH compression failed for '{}': {e}", path.display()),
+                            ArchiveFormat::Lzh,
+                        )
+                    })?;
+                output.flush()?;
+            }
+            let size = file.stream_position()?;
+            if size < u64::from(original_size) {
+                // The strict inequality also guarantees the level-0 u32 bound.
+                compressed_size = size as u32;
+                method = self.method.method_bytes();
+                packed = Some(file);
             }
         }
+        let mut payload = packed.unwrap_or(raw);
+        payload.rewind()?;
+        write_lzh_entry(
+            writer,
+            path,
+            &path_bytes,
+            method,
+            compressed_size,
+            original_size,
+            crc,
+            false,
+            &mut payload,
+        )
     }
     fn add_directory(&mut self, path: &Path) -> GeeZipResult<()> {
         let writer = self.inner.as_mut().ok_or_else(|| {
@@ -798,7 +861,7 @@ impl<W: Write + Seek + Send> ArchiveWriter for LzhWriter<W> {
             0,
             0,
             true,
-            &[],
+            &mut std::io::empty(),
         )
     }
 
@@ -807,6 +870,9 @@ impl<W: Write + Seek + Send> ArchiveWriter for LzhWriter<W> {
         Ok(bytes)
     }
 }
+
+#[cfg(test)]
+mod streaming_tests;
 
 #[cfg(test)]
 mod tests {
@@ -841,7 +907,7 @@ mod tests {
             Self {
                 path,
                 data,
-                method: *b"-pm1-",
+                method: *b"-xyz-",
             }
         }
     }
@@ -1020,6 +1086,28 @@ mod tests {
     }
 
     #[test]
+    fn pma_pm1_pm2_fixtures() {
+        for (input, size, crc) in [
+            (
+                include_bytes!("../../tests/fixtures/pm1.pma").as_slice(),
+                32768,
+                0x41FE9947,
+            ),
+            (
+                include_bytes!("../../tests/fixtures/pm2.pma").as_slice(),
+                128,
+                0x906330C5,
+            ),
+        ] {
+            let mut reader = LzhReader::new(std::io::Cursor::new(input));
+            let entries = reader.entries().unwrap();
+            let mut output = Vec::new();
+            assert_eq!(reader.extract(&entries[0], &mut output).unwrap(), size);
+            assert_eq!(crc32fast::hash(&output), crc);
+        }
+    }
+
+    #[test]
     fn lzh_entries_normalize_paths_and_extract_files() {
         let archive = build_lzh(&[
             FixtureEntry::directory("docs\\"),
@@ -1043,6 +1131,39 @@ mod tests {
             .expect("file extraction should succeed");
         assert_eq!(bytes, 5);
         assert_eq!(out, b"hello");
+    }
+
+    #[test]
+    fn lzh_sequential_visit_drains_and_verifies_skipped_payloads() {
+        let original = build_lzh(&[
+            FixtureEntry::file("a", b"first"),
+            FixtureEntry::file("b", b"second"),
+        ]);
+        let mut reader = LzhReader::from_buf(original.clone());
+        let mut names = Vec::new();
+        reader
+            .visit_entries(
+                &mut |e, _| {
+                    names.push(e.path.clone());
+                    Ok(true)
+                },
+                &|| false,
+            )
+            .unwrap();
+        assert_eq!(names, ["a", "b"]);
+        let mut damaged = original;
+        let pos = damaged.windows(5).position(|w| w == b"first").unwrap();
+        damaged[pos] ^= 1;
+        let mut reader = LzhReader::from_buf(damaged);
+        assert!(reader
+            .visit_entries(
+                &mut |_, r| {
+                    std::io::copy(r, &mut std::io::sink())?;
+                    Ok(true)
+                },
+                &|| false
+            )
+            .is_err());
     }
 
     #[test]
@@ -1156,7 +1277,7 @@ mod tests {
         assert!(err
             .to_string()
             .contains("unsupported LZH compression method"));
-        assert!(err.to_string().contains("-pm1-"));
+        assert!(err.to_string().contains("-xyz-"));
     }
 
     #[test]
@@ -1365,7 +1486,7 @@ mod tests {
             remaining: 10,
             read_calls: 0,
         };
-        let err = read_lzh_entry_data(std::path::Path::new("too-large.bin"), &mut reader, 8)
+        let err = stage_lzh_entry_data(std::path::Path::new("too-large.bin"), &mut reader, 8)
             .expect_err("size limit should fail early");
         assert!(matches!(
             err,

@@ -1,4 +1,4 @@
-//! ASAR archive reader implementation.
+//! ASAR archive reader and writer implementation.
 //!
 //! Built on top of the [`asar`] crate's header parser. GeeZipX keeps the
 //! extraction logic in-house so it can enforce the same path-safety guarantees
@@ -7,13 +7,13 @@
 //!
 //! # Design notes
 //!
-//! - **Read-only** — ASAR creation is intentionally not exposed by GeeZipX.
+//! - **Disk-backed creation** — Inputs are snapshotted and indexed without
+//!   retaining payloads in RAM; explicit empty directories are preserved.
 //! - **Extension / explicit-format only** — ASAR does not have a reliable fixed
 //!   magic header, so detection is handled by `detect_from_extension()` and
 //!   explicit `--format asar` parsing.
-//! - **Path-based** — The reader stores the archive path and re-opens / re-parses
-//!   on each operation. This avoids self-referential lifetime issues because the
-//!   upstream [`asar::Header`] parser borrows from the archive bytes.
+//! - **Seekable payloads** — Only the JSON index is loaded and cached. Packed
+//!   entries stream from a file handle at their recorded offsets.
 //! - **Safe unpacked handling** — unpacked entries are read from the sibling
 //!   `.asar.unpacked` directory only after validating that the path stays under
 //!   that directory and that no symlink component is traversed.
@@ -24,14 +24,12 @@
 use std::collections::{BTreeMap, HashSet};
 use std::fmt;
 use std::fs::File as FsFile;
-use std::io::{Read, Seek, Write};
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Component, Path, PathBuf};
 
 use asar::{header::FileLocation, Header};
 
-use crate::archive::{
-    is_entry_path_dangerous, normalize_path, ArchiveReader, ArchiveWriter, CountWriter, Entry,
-};
+use crate::archive::{is_entry_path_dangerous, normalize_path, ArchiveReader, Entry};
 use crate::detect::ArchiveFormat;
 use crate::error::{GeeZipError, GeeZipResult};
 
@@ -39,6 +37,7 @@ use crate::error::{GeeZipError, GeeZipResult};
 pub struct AsarReader {
     path: PathBuf,
     format: ArchiveFormat,
+    loaded: Option<LoadedAsar>,
 }
 
 impl fmt::Debug for AsarReader {
@@ -56,27 +55,49 @@ impl AsarReader {
         Self {
             path: path.into(),
             format: ArchiveFormat::Asar,
+            loaded: None,
         }
     }
 
-    fn load_archive(&self) -> GeeZipResult<LoadedAsar> {
-        let data = std::fs::read(&self.path)
-            .map_err(|e| GeeZipError::io(e, format!("opening '{}'", self.path.display())))?;
-        let (header, payload_offset) = Header::read(&mut &data[..]).map_err(convert_asar_error)?;
-
-        let mut records = BTreeMap::new();
-        walk_header(
-            Path::new(""),
-            &header,
-            payload_offset,
-            data.len(),
-            &mut records,
-        )?;
-
-        Ok(LoadedAsar { data, records })
+    fn load_archive(&mut self) -> GeeZipResult<&mut LoadedAsar> {
+        if self.loaded.is_none() {
+            let mut file = FsFile::open(&self.path)
+                .map_err(|e| GeeZipError::io(e, format!("opening '{}'", self.path.display())))?;
+            let length = usize::try_from(file.metadata()?.len()).map_err(|_| {
+                GeeZipError::format("ASAR exceeds addressable size", ArchiveFormat::Asar)
+            })?;
+            // Validate untrusted JSON lengths before the upstream parser allocates.
+            let mut prefix = [0u8; 16];
+            file.read_exact(&mut prefix)?;
+            let header_size = u32::from_le_bytes(prefix[4..8].try_into().unwrap()) as usize;
+            let json_size = u32::from_le_bytes(prefix[12..16].try_into().unwrap()) as usize;
+            if prefix[..4] != 4u32.to_le_bytes()
+                || json_size > 64 * 1024 * 1024
+                || header_size < 8
+                || json_size > header_size - 8
+                || header_size.checked_add(8).is_none_or(|end| end > length)
+            {
+                return Err(GeeZipError::format(
+                    "invalid or oversized ASAR header (maximum JSON index: 64 MiB)",
+                    ArchiveFormat::Asar,
+                ));
+            }
+            file.seek(SeekFrom::Start(0))?;
+            let (header, payload_offset) = Header::read(&mut std::io::BufReader::new(&mut file))
+                .map_err(convert_asar_error)?;
+            let mut records = BTreeMap::new();
+            walk_header(Path::new(""), &header, payload_offset, length, &mut records)?;
+            self.loaded = Some(LoadedAsar { file, records });
+        }
+        Ok(self.loaded.as_mut().expect("index initialized"))
     }
 
-    fn read_unpacked_entry(&self, entry_path: &str, writer: &mut dyn Write) -> GeeZipResult<u64> {
+    fn read_unpacked_entry(
+        &self,
+        entry_path: &str,
+        writer: &mut dyn Write,
+        integrity: Option<&asar::header::FileIntegrity>,
+    ) -> GeeZipResult<u64> {
         let unpacked_root = self.path.with_extension("asar.unpacked");
         let root_meta = std::fs::symlink_metadata(&unpacked_root).map_err(|e| {
             GeeZipError::io(
@@ -185,9 +206,7 @@ impl AsarReader {
                 format!("opening unpacked ASAR entry '{}'", current.display()),
             )
         })?;
-        std::io::copy(&mut input, writer).map_err(|e| {
-            GeeZipError::io(e, format!("writing unpacked ASAR entry '{}'", entry_path))
-        })
+        integrity::copy_verified(&mut input, writer, integrity)
     }
 }
 
@@ -207,7 +226,7 @@ impl ArchiveReader for AsarReader {
 
     fn extract(&mut self, entry: &Entry, writer: &mut dyn Write) -> GeeZipResult<u64> {
         let loaded = self.load_archive()?;
-        let record = resolve_record(&entry.path, &loaded.records, &mut HashSet::new())?;
+        let record = resolve_record(&entry.path, &loaded.records, &mut HashSet::new())?.clone();
 
         match &record.source {
             AsarSource::Directory => {
@@ -224,19 +243,23 @@ impl ArchiveReader for AsarReader {
                 absolute_offset,
                 size,
             } => {
-                let end = absolute_offset.checked_add(*size).ok_or_else(|| {
-                    GeeZipError::format(
-                        format!("ASAR entry '{}' size overflowed", record.entry.path),
+                loaded.file.seek(SeekFrom::Start(*absolute_offset as u64))?;
+                let bytes = integrity::copy_verified(
+                    &mut (&mut loaded.file).take(*size as u64),
+                    writer,
+                    record.integrity.as_ref(),
+                )?;
+                if bytes != *size as u64 {
+                    return Err(GeeZipError::format(
+                        "truncated ASAR payload",
                         ArchiveFormat::Asar,
-                    )
-                })?;
-                let bytes = &loaded.data[*absolute_offset..end];
-                writer.write_all(bytes).map_err(|e| {
-                    GeeZipError::io(e, format!("writing ASAR entry '{}'", record.entry.path))
-                })?;
-                Ok(bytes.len() as u64)
+                    ));
+                }
+                Ok(bytes)
             }
-            AsarSource::Unpacked => self.read_unpacked_entry(&record.entry.path, writer),
+            AsarSource::Unpacked => {
+                self.read_unpacked_entry(&record.entry.path, writer, record.integrity.as_ref())
+            }
             AsarSource::Symlink { .. } => Err(GeeZipError::format(
                 format!("ASAR symlink entry '{}' could not be resolved", entry.path),
                 ArchiveFormat::Asar,
@@ -246,90 +269,13 @@ impl ArchiveReader for AsarReader {
 }
 
 // ---------------------------------------------------------------------------
-// AsarWriter
-// ---------------------------------------------------------------------------
-
-/// ASAR archive writer.
-///
-/// Creates Electron `.asar` archives using the `asar` crate.
-///
-/// Because the `asar` crate's `AsarWriter` requires all file data to be
-/// registered before finalisation, `add_entry_from_reader` buffers data
-/// in memory.  This is standard for ASAR (used at Electron app build time).
-pub struct AsarWriter<W: Write + Seek + Send> {
-    inner: asar::AsarWriter,
-    writer: Option<W>,
-    format: ArchiveFormat,
-}
-
-impl<W: Write + Seek + Send> fmt::Debug for AsarWriter<W> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("AsarWriter")
-            .field("format", &self.format)
-            .finish_non_exhaustive()
-    }
-}
-
-impl<W: Write + Seek + Send> AsarWriter<W> {
-    /// Create a new ASAR writer targeting the given output.
-    pub fn new(writer: W) -> Self {
-        AsarWriter {
-            inner: asar::AsarWriter::new(),
-            writer: Some(writer),
-            format: ArchiveFormat::Asar,
-        }
-    }
-}
-
-impl<W: Write + Seek + Send> ArchiveWriter for AsarWriter<W> {
-    fn format(&self) -> ArchiveFormat {
-        self.format
-    }
-
-    fn add_entry_from_reader(&mut self, path: &Path, reader: &mut dyn Read) -> GeeZipResult<()> {
-        let mut data = Vec::new();
-        reader.read_to_end(&mut data).map_err(|e| {
-            GeeZipError::io(
-                e,
-                format!("reading data for ASAR entry '{}'", path.display()),
-            )
-        })?;
-        self.inner
-            .write_file(path, data, false)
-            .map_err(|e| GeeZipError::Format {
-                message: format!("writing ASAR entry '{}': {e}", path.display()),
-                format: ArchiveFormat::Asar,
-            })?;
-        Ok(())
-    }
-
-    fn add_directory(&mut self, _path: &Path) -> GeeZipResult<()> {
-        // ASAR creates directories implicitly from file paths.
-        Ok(())
-    }
-
-    fn finish(self: Box<Self>) -> GeeZipResult<u64> {
-        let writer = self.writer.ok_or_else(|| GeeZipError::Format {
-            message: "ASAR writer not initialised (already consumed)".into(),
-            format: ArchiveFormat::Asar,
-        })?;
-        let mut counter = CountWriter {
-            inner: writer,
-            count: 0,
-        };
-        self.inner
-            .finalize(&mut counter)
-            .map_err(|e| GeeZipError::Format {
-                message: format!("finalising ASAR: {e}"),
-                format: ArchiveFormat::Asar,
-            })?;
-        Ok(counter.count)
-    }
-}
+mod integrity;
+mod writer;
+pub use writer::AsarWriter;
 
 #[derive(Debug)]
 struct LoadedAsar {
-    data: Vec<u8>,
+    file: FsFile,
     records: BTreeMap<String, AsarEntryRecord>,
 }
 
@@ -337,6 +283,7 @@ struct LoadedAsar {
 struct AsarEntryRecord {
     entry: Entry,
     source: AsarSource,
+    integrity: Option<asar::header::FileIntegrity>,
 }
 
 impl AsarEntryRecord {
@@ -351,10 +298,16 @@ impl AsarEntryRecord {
                 is_dir: true,
             },
             source: AsarSource::Directory,
+            integrity: None,
         }
     }
 
-    fn file(path: String, size: u64, source: AsarSource) -> Self {
+    fn file(
+        path: String,
+        size: u64,
+        source: AsarSource,
+        integrity: Option<asar::header::FileIntegrity>,
+    ) -> Self {
         Self {
             entry: Entry {
                 path,
@@ -365,6 +318,7 @@ impl AsarEntryRecord {
                 is_dir: false,
             },
             source,
+            integrity,
         }
     }
 
@@ -379,6 +333,7 @@ impl AsarEntryRecord {
                 is_dir: false,
             },
             source: AsarSource::Symlink { raw_target },
+            integrity: None,
         }
     }
 }
@@ -458,7 +413,7 @@ fn walk_header(
             };
             records.insert(
                 entry_path.clone(),
-                AsarEntryRecord::file(entry_path, size, source),
+                AsarEntryRecord::file(entry_path, size, source, file.integrity().cloned()),
             );
         }
         Header::Link { link } => {
@@ -636,7 +591,7 @@ mod tests {
     #[cfg(unix)]
     use std::os::unix::fs::symlink;
 
-    use crate::archive::ArchiveReader;
+    use crate::archive::{ArchiveReader, ArchiveWriter};
 
     fn create_basic_asar() -> Vec<u8> {
         let mut writer = asar::AsarWriter::new();
@@ -684,6 +639,27 @@ mod tests {
         let path = temp_dir.path().join(name);
         fs::write(&path, bytes).expect("archive should be written");
         path
+    }
+
+    #[test]
+    fn asar_sparse_payload_indexes_without_loading_file_and_detects_truncation() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("large.asar");
+        let header = r#"{"files":{"large.bin":{"size":536870912,"offset":"0"}}}"#;
+        let bytes = build_raw_asar(header, &[]);
+        let mut file = FsFile::create(&path).unwrap();
+        file.write_all(&bytes).unwrap();
+        file.set_len(bytes.len() as u64 + 536870912).unwrap();
+        let mut reader = AsarReader::new(&path);
+        let entries = reader.entries().unwrap();
+        assert_eq!(entries[0].size, 536870912);
+        // The cached handle must still detect payload truncation after indexing.
+        file.set_len(bytes.len() as u64).unwrap();
+        assert!(reader.extract(&entries[0], &mut std::io::sink()).is_err());
+        let mut invalid = bytes;
+        invalid[12..16].copy_from_slice(&u32::MAX.to_le_bytes());
+        std::fs::write(&path, invalid).unwrap();
+        assert!(AsarReader::new(&path).entries().is_err());
     }
 
     #[test]

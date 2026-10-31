@@ -12,16 +12,19 @@
 
 use std::io::{Read, Write};
 
-use lzma_rust2::{LzipOptions, LzipReader, LzipWriter};
+use lzma_rust2::{LzipOptions, LzipWriter};
+mod reader;
+pub use reader::LzipReader;
 
 use crate::config::CompressOptions;
+use crate::detect::ArchiveFormat;
 use crate::error::{GeeZipError, GeeZipResult};
 
 /// Compress data from `reader` into `writer` using lzip at the given level.
 ///
 /// `level` controls the LZMA compression strength:
 /// - `None`: use the default level (6).
-/// - `Some(0)`: no compression (store only).
+/// - `Some(0)`: fastest LZMA preset (still compressed).
 /// - `Some(1)`: fastest compression.
 /// - `Some(6)`: default (good balance).
 /// - `Some(9)`: best compression ratio (slowest).
@@ -33,6 +36,12 @@ pub fn lz_compress_with_level<R: Read, W: Write>(
     level: Option<u32>,
 ) -> GeeZipResult<u64> {
     let preset = level.unwrap_or(6);
+    if preset > 9 {
+        return Err(GeeZipError::format(
+            "lzip compression level must be 0..=9",
+            ArchiveFormat::Lz,
+        ));
+    }
     let options = LzipOptions::with_preset(preset);
     let mut encoder = LzipWriter::new(writer, options);
     let bytes = std::io::copy(reader, &mut encoder)
@@ -89,6 +98,98 @@ mod tests {
     use std::io::Cursor;
 
     #[test]
+    fn lzip_rejects_empty_partial_headers_trailing_data_and_io_errors() {
+        let mut compressed = Vec::new();
+        lz_compress(&mut &b"strict members"[..], &mut compressed).unwrap();
+        for length in 0..compressed.len() {
+            assert!(
+                lz_decompress(&mut &compressed[..length], &mut std::io::sink()).is_err(),
+                "accepted {length}"
+            );
+        }
+        for tail in [b"LZ".as_slice(), b"garbage", b"LZIP\x01\x1d"] {
+            let mut data = compressed.clone();
+            data.extend(tail);
+            assert!(lz_decompress(&mut data.as_slice(), &mut std::io::sink()).is_err());
+        }
+        struct Fails;
+        impl Read for Fails {
+            fn read(&mut self, _: &mut [u8]) -> std::io::Result<usize> {
+                Err(std::io::Error::new(
+                    std::io::ErrorKind::PermissionDenied,
+                    "injected read failure",
+                ))
+            }
+        }
+        assert!(lz_decompress(&mut Fails, &mut std::io::sink()).is_err());
+    }
+
+    #[test]
+    fn member_boundaries_short_reads_memory_budget_and_sticky_errors() {
+        struct ShortReads<'a> {
+            source: &'a [u8],
+            interrupt: bool,
+        }
+        impl Read for ShortReads<'_> {
+            fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+                if self.interrupt {
+                    self.interrupt = false;
+                    return Err(std::io::ErrorKind::Interrupted.into());
+                }
+                let n = buf.len().min(1);
+                self.source.read(&mut buf[..n])
+            }
+        }
+        let mut member = Vec::new();
+        lz_compress(&mut &b"first member"[..], &mut member).unwrap();
+        let mut data = member.clone();
+        lz_compress(&mut &b"second member"[..], &mut data).unwrap();
+        let mut output = Vec::new();
+        lz_decompress(
+            &mut ShortReads {
+                source: &data,
+                interrupt: true,
+            },
+            &mut output,
+        )
+        .unwrap();
+        assert_eq!(output, b"first membersecond member");
+        // Oversized dictionaries fail before allocation, including later members.
+        for mut prefix in [Vec::new(), member] {
+            prefix.extend_from_slice(b"LZIP\x01\x1d"); // 512 MiB dictionary
+            let mut decoder = LzipReader::new(prefix.as_slice());
+            assert!(std::io::copy(&mut decoder, &mut std::io::sink()).is_err());
+            assert!(decoder.read(&mut [0; 1]).is_err());
+            assert_eq!(decoder.read(&mut []).unwrap(), 0);
+        }
+    }
+
+    #[test]
+    fn gnu_lzip_fixture() {
+        let input = include_bytes!("../../tests/fixtures/lzip/gnu-1.25.lz");
+        let mut expected = Vec::with_capacity(262182);
+        for _ in 0..1024 {
+            expected.extend(0u8..=255);
+        }
+        expected.extend(b"GNU lzip independent interoperability\n");
+        let mut output = Vec::new();
+        lz_decompress(&mut input.as_slice(), &mut output).unwrap();
+        assert_eq!(output, expected);
+    }
+
+    #[test]
+    fn lz_crc_and_invalid_preset_are_checked() {
+        assert!(
+            lz_compress_with_level(&mut &b"input"[..], std::io::sink(), Some(u32::MAX)).is_err()
+        );
+        let mut data = Vec::new();
+        lz_compress(&mut &b"CRC-protected payload"[..], &mut data).unwrap();
+        let crc_offset = data.len() - 20;
+        data[crc_offset] ^= 1;
+        assert!(lz_decompress(&mut data.as_slice(), &mut std::io::sink()).is_err());
+    }
+
+    #[test]
     fn lz_roundtrip() {
         let original = b"Hello, GeeZipX! This is a test of lzip compression.";
         let mut source = Cursor::new(original.as_slice());
@@ -143,17 +244,7 @@ mod tests {
         let mut reader = Cursor::new(bad_data.as_slice());
         let mut output = Vec::new();
 
-        match lz_decompress(&mut reader, &mut output) {
-            Ok(0) => {} // Some decoders may return 0 bytes for invalid input
-            Ok(n) => panic!("expected error or 0 bytes, got {n} bytes"),
-            Err(e) => {
-                let msg = e.to_string().to_lowercase();
-                assert!(
-                    msg.contains("lzip") || msg.contains("io") || msg.contains("invalid"),
-                    "expected lzip/io error, got: {e}"
-                );
-            }
-        }
+        assert!(lz_decompress(&mut reader, &mut output).is_err());
     }
 
     #[test]

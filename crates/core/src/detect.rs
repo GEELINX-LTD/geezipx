@@ -17,6 +17,8 @@ use std::path::Path;
 pub enum ArchiveFormat {
     /// ZIP archive.
     Zip,
+    /// ZIP container using XZ compression (method 95) when writing.
+    Zipx,
     /// GNU tar archive (no magic — extension-based).
     Tar,
     /// Gzip compressed stream (`\x1F\x8B`).
@@ -47,6 +49,8 @@ pub enum ArchiveFormat {
     Lzma,
     /// Tar archive compressed with XZ (extension-based — `.tar.xz`, `.txz`).
     TarXz,
+    /// TAR wrapped in LZMA Alone or lzip (`.tlz`, `.tar.lzma`, `.tar.lz`), read-only.
+    TarLz,
     /// 7z archive (`37 7A BC AF 27 1C`).
     SevenZip,
     /// RAR archive (`52 61 72 21 1A 07`).
@@ -73,10 +77,9 @@ pub enum ArchiveFormat {
     Ace,
     /// ARC/PAK archive (extension-based — `.arc`, `.pak`; no stable magic header).
     Arc,
-    /// Unix compress stream (`.Z`) — LZW compression (extension-based; no stable magic header).
     /// ALZ archive (extension-based — `.alz`; no stable magic header).
     Alz,
-    /// Unix compress stream (`.Z`) — LZW compression (extension-based; no stable magic header).
+    /// Unix compress stream (`.Z`) — LZW compression with a 9–16 bit dictionary.
     Z,
     /// UDF disc image (`.udf`) — extension-based; no reliable magic in first 8 bytes.
     Udf,
@@ -93,6 +96,14 @@ pub enum ArchiveFormat {
     Bin,
     /// ISZ compressed ISO image (`.isz`) — block-compressed ISO wrapper.
     Isz,
+    /// Compound File Binary storage, including MSI/OLE streams (read-only).
+    Compound,
+    /// EGG (non-solid, unencrypted, read-only).
+    Egg,
+    /// PEA 1.x, single-volume unencrypted Store/Deflate (read-only).
+    Pea,
+    /// Modern NSIS installer payloads (read-only; validated PE overlay).
+    Nsis,
     /// Unknown or unrecognised format.
     Unknown,
 }
@@ -101,6 +112,7 @@ impl fmt::Display for ArchiveFormat {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             ArchiveFormat::Zip => write!(f, "zip"),
+            ArchiveFormat::Zipx => write!(f, "zipx"),
             ArchiveFormat::Tar => write!(f, "tar"),
             ArchiveFormat::Gzip => write!(f, "gzip"),
             ArchiveFormat::Bzip2 => write!(f, "bzip2"),
@@ -115,6 +127,7 @@ impl fmt::Display for ArchiveFormat {
             ArchiveFormat::TarZst => write!(f, "tar.zst"),
             ArchiveFormat::Udf => write!(f, "udf"),
             ArchiveFormat::TarXz => write!(f, "tar.xz"),
+            ArchiveFormat::TarLz => write!(f, "tar.lzma"),
             ArchiveFormat::Lzma => write!(f, "lzma"),
             ArchiveFormat::Lz => write!(f, "lz"),
             ArchiveFormat::SevenZip => write!(f, "7z"),
@@ -138,6 +151,10 @@ impl fmt::Display for ArchiveFormat {
             ArchiveFormat::Aes => write!(f, "aes"),
             ArchiveFormat::Bin => write!(f, "bin"),
             ArchiveFormat::Isz => write!(f, "isz"),
+            ArchiveFormat::Compound => write!(f, "compound"),
+            ArchiveFormat::Egg => write!(f, "egg"),
+            ArchiveFormat::Pea => write!(f, "pea"),
+            ArchiveFormat::Nsis => write!(f, "nsis"),
             ArchiveFormat::Unknown => write!(f, "unknown"),
         }
     }
@@ -170,8 +187,16 @@ pub const MAGIC_CAB: &[u8] = b"MSCF";
 
 /// Map of well-known single extensions to their archive format.
 const EXTENSION_MAP: &[(&str, ArchiveFormat)] = &[
+    (".egg", ArchiveFormat::Egg),
+    (".pea", ArchiveFormat::Pea),
+    (".nsis", ArchiveFormat::Nsis),
+    (".msi", ArchiveFormat::Compound),
+    (".msp", ArchiveFormat::Compound),
+    (".mst", ArchiveFormat::Compound),
+    (".cfb", ArchiveFormat::Compound),
+    (".ole", ArchiveFormat::Compound),
     (".zip", ArchiveFormat::Zip),
-    (".zipx", ArchiveFormat::Zip),
+    (".zipx", ArchiveFormat::Zipx),
     (".jar", ArchiveFormat::Zip),
     (".war", ArchiveFormat::Zip),
     (".apk", ArchiveFormat::Zip),
@@ -179,6 +204,7 @@ const EXTENSION_MAP: &[(&str, ArchiveFormat)] = &[
     (".xpi", ArchiveFormat::Zip),
     (".tar", ArchiveFormat::Tar),
     (".gz", ArchiveFormat::Gzip),
+    (".bz", ArchiveFormat::Bzip2),
     (".bz2", ArchiveFormat::Bzip2),
     (".br", ArchiveFormat::Brotli),
     (".lz4", ArchiveFormat::Lz4),
@@ -196,6 +222,7 @@ const EXTENSION_MAP: &[(&str, ArchiveFormat)] = &[
     (".deb", ArchiveFormat::Deb),
     (".lzh", ArchiveFormat::Lzh),
     (".lha", ArchiveFormat::Lzh),
+    (".pma", ArchiveFormat::Lzh),
     (".iso", ArchiveFormat::Iso),
     (".cpio", ArchiveFormat::Cpio),
     (".wim", ArchiveFormat::Wim),
@@ -205,12 +232,13 @@ const EXTENSION_MAP: &[(&str, ArchiveFormat)] = &[
     (".arj", ArchiveFormat::Arj),
     (".ace", ArchiveFormat::Ace),
     (".arc", ArchiveFormat::Arc),
-    (".Z", ArchiveFormat::Z),
+    (".z", ArchiveFormat::Z),
     (".alz", ArchiveFormat::Alz),
     (".udf", ArchiveFormat::Udf),
     (".img", ArchiveFormat::Img),
     (".ima", ArchiveFormat::Img),
     (".enc", ArchiveFormat::Aes),
+    (".aes", ArchiveFormat::Aes),
     (".bin", ArchiveFormat::Bin),
     (".isz", ArchiveFormat::Isz),
     (".uu", ArchiveFormat::Uu),
@@ -245,8 +273,26 @@ const EXTENSION_MAP: &[(&str, ArchiveFormat)] = &[
 /// extension-only because GeeZipX routes it through an optional parser
 /// integration rather than a shallow first-bytes recognizer.
 pub fn detect_format(data: &[u8]) -> Option<ArchiveFormat> {
+    if data.starts_with(&[0xea, 1]) && data.get(10..16) == Some(&b"\0\0POD\0"[..]) {
+        return Some(ArchiveFormat::Pea);
+    }
+    if data.starts_with(b"EGGA") {
+        return Some(ArchiveFormat::Egg);
+    }
+    if data.starts_with(&[0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]) {
+        return Some(ArchiveFormat::Compound);
+    }
+    if data.starts_with(b"AES") && data.get(3).is_some_and(|version| *version <= 3) {
+        return Some(ArchiveFormat::Aes);
+    }
+    if data.starts_with(b"ALZ\x01") {
+        return Some(ArchiveFormat::Alz);
+    }
     if data.starts_with(MAGIC_ZIP) || data.starts_with(MAGIC_ZIP_EMPTY) {
         return Some(ArchiveFormat::Zip);
+    }
+    if data.starts_with(&[0x1f, 0x9d]) {
+        return Some(ArchiveFormat::Z);
     }
     if data.starts_with(MAGIC_GZIP) {
         return Some(ArchiveFormat::Gzip);
@@ -306,6 +352,9 @@ pub fn detect_from_extension(path: &Path) -> Option<ArchiveFormat> {
     if lower.ends_with(".tar.lz4") {
         return Some(ArchiveFormat::TarLz4);
     }
+    if lower.ends_with(".tar.lzma") || lower.ends_with(".tar.lz") || lower.ends_with(".tlz") {
+        return Some(ArchiveFormat::TarLz);
+    }
     if lower.ends_with(".tar.xz") || lower.ends_with(".txz") {
         return Some(ArchiveFormat::TarXz);
     }
@@ -327,20 +376,70 @@ pub fn detect_from_extension(path: &Path) -> Option<ArchiveFormat> {
 // Helpers
 // ---------------------------------------------------------------------------
 
+/// Detect ordinary magic and ZIP SFX executables from a seekable source.
+///
+/// ZIP SFX detection validates the central directory through the ZIP reader;
+/// an executable prefix alone never establishes archive support. Reads only
+/// headers/index data and restores the caller's position, including on failure.
+pub fn detect_seekable_format<R: std::io::Read + std::io::Seek>(
+    reader: &mut R,
+) -> std::io::Result<Option<ArchiveFormat>> {
+    use std::io::SeekFrom;
+    let position = reader.stream_position()?;
+    let result = (|| {
+        reader.seek(SeekFrom::Start(0))?;
+        let magic = read_magic_bytes(reader)?;
+        if let Some(format) = detect_format(&magic) {
+            return Ok(Some(format));
+        }
+        let executable = magic.starts_with(b"MZ")
+            || magic.starts_with(b"\x7fELF")
+            || [
+                b"\xfe\xed\xfa\xce",
+                b"\xce\xfa\xed\xfe",
+                b"\xfe\xed\xfa\xcf",
+                b"\xcf\xfa\xed\xfe",
+                b"\xca\xfe\xba\xbe",
+            ]
+            .iter()
+            .any(|m| magic.starts_with(*m));
+        if magic.starts_with(b"MZ") && crate::archive::nsis::probe(reader)? {
+            return Ok(Some(ArchiveFormat::Nsis));
+        }
+        if executable {
+            reader.seek(SeekFrom::Start(0))?;
+            if zip::ZipArchive::new(&mut *reader).is_ok() {
+                return Ok(Some(ArchiveFormat::Zip));
+            }
+        }
+        Ok(None)
+    })();
+    reader.seek(SeekFrom::Start(position))?;
+    result
+}
+
 /// Number of bytes needed for magic-byte detection of all supported formats.
-pub const MAGIC_DETECT_SIZE: usize = 8;
+pub const MAGIC_DETECT_SIZE: usize = 16;
 
 /// Read up to `MAGIC_DETECT_SIZE` bytes from a reader for detection.
 ///
 /// **Note:** this function **consumes** the bytes from the reader; it
 /// does NOT peek or un-read them.  If the data needs to be re-read after
 /// detection, the caller is responsible for buffering appropriately.
-/// If the reader returns fewer than `size` bytes, the buffer is returned
-/// as-is.
+/// If the reader reaches EOF before `size` bytes, the shorter buffer is returned.
+/// Short reads and interruptions are retried until the prefix is full or EOF.
 pub fn read_magic_bytes<R: std::io::Read>(reader: &mut R) -> std::io::Result<Vec<u8>> {
     let mut buf = vec![0u8; MAGIC_DETECT_SIZE];
-    let n = reader.read(&mut buf)?;
-    buf.truncate(n);
+    let mut filled = 0;
+    while filled < buf.len() {
+        match reader.read(&mut buf[filled..]) {
+            Ok(0) => break,
+            Ok(count) => filled += count,
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(error) => return Err(error),
+        }
+    }
+    buf.truncate(filled);
     Ok(buf)
 }
 
@@ -350,6 +449,80 @@ pub fn read_magic_bytes<R: std::io::Read>(reader: &mut R) -> std::io::Result<Vec
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn pea_magic_extension_and_display() {
+        let native = include_bytes!("../tests/fixtures/pea/noalgo-pcompress2.pea");
+        assert_eq!(
+            super::detect_format(native),
+            Some(super::ArchiveFormat::Pea)
+        );
+        for length in 0..16 {
+            assert_eq!(super::detect_format(&native[..length]), None);
+        }
+        assert_eq!(
+            super::detect_from_extension(std::path::Path::new("NATIVE.PEA")),
+            Some(super::ArchiveFormat::Pea)
+        );
+        assert_eq!(super::ArchiveFormat::Pea.to_string(), "pea");
+    }
+    #[test]
+    fn pea_seekable_detection_handles_short_reads_and_restores_position() {
+        use std::io::{self, Cursor, Read, Seek, SeekFrom};
+        struct Short {
+            inner: Cursor<Vec<u8>>,
+            interrupt: bool,
+        }
+        impl Read for Short {
+            fn read(&mut self, bytes: &mut [u8]) -> io::Result<usize> {
+                if self.interrupt {
+                    self.interrupt = false;
+                    return Err(io::ErrorKind::Interrupted.into());
+                }
+                let count = bytes.len().min(3);
+                self.inner.read(&mut bytes[..count])
+            }
+        }
+        impl Seek for Short {
+            fn seek(&mut self, position: SeekFrom) -> io::Result<u64> {
+                self.inner.seek(position)
+            }
+        }
+        let native = include_bytes!("../tests/fixtures/pea/noalgo-pcompress2.pea");
+        let mut reader = Short {
+            inner: Cursor::new(native.to_vec()),
+            interrupt: true,
+        };
+        reader.seek(SeekFrom::Start(7)).unwrap();
+        assert_eq!(
+            super::detect_seekable_format(&mut reader).unwrap(),
+            Some(super::ArchiveFormat::Pea)
+        );
+        assert_eq!(reader.stream_position().unwrap(), 7);
+    }
+    #[test]
+    fn seekable_detection_validates_zip_sfx_and_restores_position() {
+        use std::io::{Cursor, Write};
+        for prefix in [b"MZ".as_slice(), b"\x7fELF", b"\xcf\xfa\xed\xfe"] {
+            let mut file = Cursor::new(Vec::new());
+            file.write_all(prefix).unwrap();
+            file.write_all(&[0; 256]).unwrap();
+            let mut zip = zip::ZipWriter::new(file);
+            zip.start_file("a.txt", zip::write::SimpleFileOptions::default())
+                .unwrap();
+            zip.write_all(b"sfx contents").unwrap();
+            let mut file = zip.finish().unwrap();
+            file.set_position(9);
+            assert_eq!(
+                super::detect_seekable_format(&mut file).unwrap(),
+                Some(super::ArchiveFormat::Zip)
+            );
+            assert_eq!(file.position(), 9);
+            let mut invalid = Cursor::new(prefix);
+            assert_eq!(super::detect_seekable_format(&mut invalid).unwrap(), None);
+            assert_eq!(invalid.position(), 0);
+        }
+    }
+
     use super::*;
 
     // ---------------------------------------------------------------
@@ -556,7 +729,6 @@ mod tests {
     #[test]
     fn ext_zip_aliases() {
         for path in [
-            "bundle.zipx",
             "plugin.jar",
             "webapp.war",
             "mobile.apk",
@@ -575,7 +747,7 @@ mod tests {
     fn ext_zipx() {
         assert_eq!(
             detect_from_extension(Path::new("archive.zipx")),
-            Some(ArchiveFormat::Zip)
+            Some(ArchiveFormat::Zipx)
         );
     }
 

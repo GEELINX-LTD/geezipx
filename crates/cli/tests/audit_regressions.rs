@@ -271,8 +271,6 @@ fn stream_file_roundtrips_and_no_clobber() {
         ("xz", "xz"),
         ("lzma", "lzma"),
         ("lz", "lz"),
-        ("img", "img"),
-        ("bin", "bin"),
         ("uu", "uu"),
         ("xxe", "xxe"),
     ] {
@@ -444,11 +442,92 @@ fn explicit_format_hint_is_honored_for_files() {
 }
 
 #[test]
+fn optical_images_extract_contents_and_reject_random_data() {
+    let dir = tempfile::tempdir().unwrap();
+    let source = dir.path().join("payload.txt");
+    fs::write(&source, b"optical payload").unwrap();
+    for extension in ["bin", "img", "ima"] {
+        let archive = dir.path().join(format!("optical.{extension}"));
+        compress(&source, &archive, "iso");
+        let cooked = fs::read(&archive).unwrap();
+        let mut raw = Vec::new();
+        for sector in cooked.chunks(2048) {
+            let mut block = [0; 2352];
+            block[..12].copy_from_slice(&[0, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 0]);
+            block[15] = 1;
+            block[16..16 + sector.len()].copy_from_slice(sector);
+            raw.extend_from_slice(&block);
+        }
+        fs::write(&archive, raw).unwrap();
+        cli().arg("test").arg(&archive).assert().success();
+        cli()
+            .arg("list")
+            .arg(&archive)
+            .assert()
+            .success()
+            .stdout(predicate::str::contains("payload.txt"));
+        let output = dir.path().join("out");
+        cli()
+            .arg("decompress")
+            .arg(&archive)
+            .arg("-o")
+            .arg(&output)
+            .assert()
+            .success();
+        assert_eq!(
+            fs::read(output.join("payload.txt")).unwrap(),
+            b"optical payload"
+        );
+        fs::write(&archive, b"arbitrary bytes are not an image").unwrap();
+        cli().arg("list").arg(&archive).assert().failure();
+        cli().arg("test").arg(&archive).assert().failure();
+    }
+}
+
+#[test]
+fn isz_lists_and_extracts_inner_optical_files() {
+    let dir = tempfile::tempdir().unwrap();
+    let source = dir.path().join("source.txt");
+    fs::write(&source, b"inside ISZ").unwrap();
+    let iso = dir.path().join("image.iso");
+    let archive = dir.path().join("image.isz");
+    compress(&source, &iso, "iso");
+    compress(&iso, &archive, "isz");
+    cli()
+        .args(["list", "--json"])
+        .arg(&archive)
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("source.txt"));
+    cli().arg("test").arg(&archive).assert().success();
+    let output = dir.path().join("files");
+    cli()
+        .arg("decompress")
+        .arg(&archive)
+        .arg("-o")
+        .arg(&output)
+        .assert()
+        .success();
+    assert_eq!(fs::read(output.join("source.txt")).unwrap(), b"inside ISZ");
+    let decoded = cli()
+        .arg("decompress")
+        .arg(&archive)
+        .arg("--stdout")
+        .output()
+        .unwrap();
+    assert!(decoded.status.success());
+    let original = fs::read(iso).unwrap();
+    assert_eq!(decoded.stdout.len(), original.len().div_ceil(2048) * 2048);
+    assert!(decoded.stdout.starts_with(&original));
+    assert!(decoded.stdout[original.len()..].iter().all(|&b| b == 0));
+}
+
+#[test]
 fn single_stream_test_and_list_are_consistent() {
     let dir = tempfile::tempdir().unwrap();
     let source = dir.path().join("source");
     fs::write(&source, b"data").unwrap();
-    for (format, extension) in [("lz", "lz"), ("img", "img"), ("bin", "bin"), ("isz", "isz")] {
+    for (format, extension) in [("lz", "lz"), ("gzip", "gz")] {
         let archive = dir.path().join(format!("data.{extension}"));
         compress(&source, &archive, format);
         let verification = cli()

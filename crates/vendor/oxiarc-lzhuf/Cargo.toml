@@ -1,0 +1,22 @@
+[package]
+name = "geezipx-lzhuf"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+authors = ["COOLJAPAN OU (Team KitaSan)"]
+description = "Bounded LZH encoding for GeeZipX, based on oxiarc-lzhuf"
+license = "Apache-2.0"
+repository = "https://github.com/GEELINX-LTD/geezipx"
+readme = "UPSTREAM.md"
+
+[lib]
+name = "oxiarc_lzhuf"
+path = "src/lib.rs"
+
+[features]
+parallel = ["dep:rayon"]
+lha-oracle = ["parallel"]
+
+[dependencies]
+oxiarc-core = "0.3.6"
+rayon = { version = "1.12.0", optional = true }

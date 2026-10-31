@@ -7,10 +7,11 @@
 //!
 //! # Design notes
 //!
-//! - **Writer scope** — GeeZipX's current writer is an MVP: it creates standard
-//!   `.7z` archives with the upstream crate's default non-solid LZMA2 encoder,
-//!   and can optionally enable AES-256 password protection before the first
-//!   entry is written. Advanced encoder selection is not yet exposed.
+//! - **Writer scope** — Defaults to non-solid LZMA2, with optional AES-256,
+//!   method selection, dictionary tuning, filename encryption and bounded
+//!   solid accumulation. Solid blocks flush at 64 MiB or 1024 entries;
+//!   an individual file may exceed the byte threshold. Entries exceeding
+//!   8 MiB spill to disk instead of remaining wholly in memory.
 //! - **Single-entry extract** re-opens the archive and uses
 //!   `sevenz_rust2::ArchiveReader::read_file()`, which is O(n) for
 //!   solid archives (decodes all preceding data).  Callers that need
@@ -144,10 +145,12 @@ pub struct SevenZipWriter<W: Write + Seek> {
     entries_written: bool,
     compression_level: u32,
     compression_jobs: u32,
+    dictionary_size: Option<u32>,
     method_string: String,
     encrypt_filenames: bool,
     solid: bool,
-    solid_buffer: Vec<(SevenZArchiveEntry, Vec<u8>)>,
+    solid_buffer: Vec<(SevenZArchiveEntry, tempfile::SpooledTempFile)>,
+    solid_bytes: u64,
 }
 
 impl<W: Write + Seek> fmt::Debug for SevenZipWriter<W> {
@@ -167,7 +170,13 @@ impl<W: Write + Seek> SevenZipWriter<W> {
     ) -> GeeZipResult<Self> {
         let start_pos = writer.stream_position().unwrap_or(0);
         let level = options.level.unwrap_or(6);
-        let jobs = options.jobs.unwrap_or(1);
+        if level > 9 {
+            return Err(GeeZipError::Format {
+                message: "7z level must be in 0..=9".into(),
+                format: ArchiveFormat::SevenZip,
+            });
+        }
+        let jobs = options.effective_jobs().clamp(1, 256) as u32;
         let method = seven_z_opts.method.as_deref().unwrap_or("lzma2");
         let encrypt_filenames = seven_z_opts.encrypt_filenames.unwrap_or(true);
 
@@ -211,10 +220,12 @@ impl<W: Write + Seek> SevenZipWriter<W> {
             entries_written: false,
             compression_level: level,
             compression_jobs: jobs,
+            dictionary_size: seven_z_opts.dictionary_size,
             method_string: method.to_string(),
             encrypt_filenames,
             solid: seven_z_opts.solid.unwrap_or(false),
             solid_buffer: Vec::new(),
+            solid_bytes: 0,
         })
     }
 
@@ -246,7 +257,7 @@ impl<W: Write + Seek> SevenZipWriter<W> {
         let compression_config: EncoderConfiguration = match self.method_string.as_str() {
             "copy" | "store" => EncoderConfiguration::new(EncoderMethod::COPY),
             "lzma2" => {
-                let lzma2 = if self.compression_jobs > 1 {
+                let mut lzma2 = if self.compression_jobs > 1 {
                     Lzma2Options::from_level_mt(
                         self.compression_level,
                         self.compression_jobs,
@@ -255,8 +266,9 @@ impl<W: Write + Seek> SevenZipWriter<W> {
                 } else {
                     Lzma2Options::from_level(self.compression_level)
                 };
-                // Note: dictionary_size customization is only applied at construction;
-                // we rebuild with the original level-based defaults here for simplicity.
+                if let Some(dict) = self.dictionary_size {
+                    lzma2.set_dictionary_size(dict);
+                }
                 lzma2.into()
             }
             "lzma" => EncoderConfiguration::new(EncoderMethod::LZMA).with_options(
@@ -281,28 +293,35 @@ impl<W: Write + Seek> SevenZipWriter<W> {
         Ok(())
     }
 
+    fn flush_solid(&mut self) -> GeeZipResult<()> {
+        if self.solid_buffer.is_empty() {
+            return Ok(());
+        }
+        let (entries, readers): (Vec<_>, Vec<_>) = self
+            .solid_buffer
+            .drain(..)
+            .map(|(entry, data)| (entry, SourceReader::new(data)))
+            .unzip();
+        self.inner
+            .as_mut()
+            .ok_or_else(|| GeeZipError::Format {
+                message: "7z writer already finalised".into(),
+                format: ArchiveFormat::SevenZip,
+            })?
+            .push_archive_entries(entries, readers)
+            .map_err(convert_7z_error)?;
+        self.solid_bytes = 0;
+        Ok(())
+    }
+
     /// Finalise the 7z archive and return the inner writer alongside the
     /// total number of bytes written.
     pub fn finalize(mut self) -> GeeZipResult<(u64, W)> {
-        let mut writer = self.inner.take().ok_or_else(|| GeeZipError::Format {
+        self.flush_solid()?;
+        let writer = self.inner.take().ok_or_else(|| GeeZipError::Format {
             message: "7z writer already finalised".into(),
             format: ArchiveFormat::SevenZip,
         })?;
-
-        // Flush solid buffer: push all buffered entries as one solid block.
-        if self.solid && !self.solid_buffer.is_empty() {
-            let (entries, readers): (Vec<_>, Vec<_>) = self
-                .solid_buffer
-                .into_iter()
-                .map(|(entry, data)| {
-                    let reader: SourceReader<_> = SourceReader::new(std::io::Cursor::new(data));
-                    (entry, reader)
-                })
-                .unzip();
-            writer
-                .push_archive_entries(entries, readers)
-                .map_err(convert_7z_error)?;
-        }
 
         let mut writer = writer
             .finish()
@@ -326,14 +345,21 @@ impl<W: Write + Seek + Send> ArchiveWriter for SevenZipWriter<W> {
         })?;
 
         if self.solid {
-            let mut data = Vec::new();
-            reader
-                .read_to_end(&mut data)
-                .map_err(|e| GeeZipError::io(e, format!("reading entry '{}'", name)))?;
+            // Small entries stay in memory; large ones spill to disk. Bound both
+            // total buffered bytes and entry count by flushing separate solid blocks.
+            let mut data = tempfile::spooled_tempfile(8 * 1024 * 1024);
+            let size = std::io::copy(reader, &mut data)
+                .map_err(|e| GeeZipError::io(e, format!("spooling entry '{name}'")))?;
+            data.rewind()
+                .map_err(|e| GeeZipError::io(e, "rewinding solid entry"))?;
             let mut entry = SevenZArchiveEntry::new_file(name);
-            entry.size = data.len() as u64;
+            entry.size = size;
             self.solid_buffer.push((entry, data));
+            self.solid_bytes = self.solid_bytes.saturating_add(size);
             self.entries_written = true;
+            if self.solid_bytes >= 64 * 1024 * 1024 || self.solid_buffer.len() >= 1024 {
+                self.flush_solid()?;
+            }
             return Ok(());
         }
 
@@ -390,6 +416,10 @@ impl ArchiveReader for SevenZipReader {
         let entries: Vec<Entry> = archive.files.iter().map(Self::to_entry).collect();
 
         Ok(entries)
+    }
+
+    fn has_direct_visitor(&self) -> bool {
+        true
     }
 
     fn visit_entries(
@@ -1490,6 +1520,39 @@ mod tests {
             reader.extract(&entries[0], &mut out).unwrap();
             assert_eq!(out, content, "level {} content mismatch", level);
         }
+    }
+
+    #[test]
+    fn seven_zip_solid_spills_large_entries() {
+        let options = SevenZipOptions {
+            solid: Some(true),
+            method: Some("copy".into()),
+            ..Default::default()
+        };
+        let mut writer = SevenZipWriter::new(
+            std::io::Cursor::new(Vec::new()),
+            &CompressOptions::default(),
+            &options,
+        )
+        .unwrap();
+        let size = 9 * 1024 * 1024;
+        writer
+            .add_entry_from_reader(Path::new("large.bin"), &mut std::io::repeat(42).take(size))
+            .unwrap();
+        assert!(writer.solid_buffer[0].1.is_rolled());
+        writer.flush_solid().unwrap();
+        assert!(writer.solid_buffer.is_empty());
+        writer
+            .add_entry_from_reader(Path::new("small.bin"), &mut &b"tail"[..])
+            .unwrap();
+        let (_, output) = writer.finalize().unwrap();
+        let (mut reader, _tmp) = buf_reader(output.into_inner());
+        let entries = reader.entries().unwrap();
+        assert_eq!(entries.len(), 2);
+        let mut output = Vec::new();
+        reader.extract(&entries[0], &mut output).unwrap();
+        assert_eq!(output.len() as u64, size);
+        assert!(output.iter().all(|&byte| byte == 42));
     }
 
     #[test]

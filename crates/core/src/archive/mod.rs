@@ -14,6 +14,7 @@
 //!   receivers so they can be used through `Box<dyn ArchiveReader>` etc.
 pub mod ace;
 pub mod aes;
+pub mod alz;
 pub mod arc;
 pub mod arj;
 pub mod asar;
@@ -21,8 +22,11 @@ pub mod bin;
 pub mod brotli;
 pub mod bzip2;
 pub mod cab;
+pub mod compound;
 pub mod cpio;
 pub mod deb;
+pub mod disk_image;
+pub mod egg;
 pub mod extraction;
 pub mod gzip;
 pub mod img;
@@ -31,6 +35,8 @@ pub mod isz;
 pub mod lz;
 pub mod lz4;
 pub mod lzh;
+pub mod nsis;
+pub mod pea;
 #[cfg(feature = "rar")]
 pub mod rar;
 pub mod seven_zip;
@@ -38,10 +44,13 @@ pub mod tar;
 pub mod tarbr;
 pub mod tarbz2;
 pub mod targz;
+pub mod tarlz;
 pub mod tarlz4;
 pub mod tarxz;
 pub mod tarzst;
+mod text_encoding;
 pub mod udf;
+pub mod unix_compress;
 pub mod uu;
 #[cfg(feature = "wim")]
 pub mod wim;
@@ -158,6 +167,11 @@ pub trait ArchiveReader: Send {
     /// method only writes the decompressed payload.
     fn extract(&mut self, entry: &Entry, writer: &mut dyn Write) -> GeeZipResult<u64>;
 
+    /// Whether `visit_entries` streams directly without per-entry disk staging.
+    fn has_direct_visitor(&self) -> bool {
+        false
+    }
+
     /// Visit entry payloads in archive order, with bounded intermediary storage.
     /// ZIP, TAR and 7z override this with direct streaming in a single pass.
     /// The compatibility implementation spools each entry to a temporary file.
@@ -231,6 +245,9 @@ pub(crate) fn extract_all_safely<R: ArchiveReader + ?Sized>(
     overwrite: bool,
     is_cancelled: &dyn Fn() -> bool,
 ) -> GeeZipResult<ExtractReport> {
+    if reader.has_direct_visitor() {
+        return extract_all_streaming(reader, dest, overwrite, is_cancelled);
+    }
     let entries = reader.entries()?;
     let output = extraction::ExtractionDir::new(dest)?;
     let mut report = ExtractReport::default();
@@ -265,6 +282,59 @@ pub(crate) fn extract_all_safely<R: ArchiveReader + ?Sized>(
             }
         }
     }
+    Ok(report)
+}
+
+/// Extract through a direct visitor, decoding sequential archives only once.
+fn extract_all_streaming<R: ArchiveReader + ?Sized>(
+    reader: &mut R,
+    dest: &Path,
+    overwrite: bool,
+    is_cancelled: &dyn Fn() -> bool,
+) -> GeeZipResult<ExtractReport> {
+    let output = extraction::ExtractionDir::new(dest)?;
+    let mut report = ExtractReport::default();
+    let format = reader.format();
+    reader.visit_entries(
+        &mut |entry, data| {
+            let mut stop_after_error = false;
+            let result = if entry.is_dir {
+                output.create_dir(&entry.path).map(|()| 0)
+            } else {
+                output.write_file(&entry.path, overwrite, |writer| {
+                    let mut writer = CancellableWriter::new(writer, is_cancelled);
+                    let result = std::io::copy(data, &mut writer);
+                    if writer.was_cancelled() {
+                        return Err(GeeZipError::Cancelled);
+                    }
+                    let n = result.map_err(|e| {
+                        stop_after_error = true;
+                        GeeZipError::io(e, "extracting entry")
+                    })?;
+                    if n != entry.size {
+                        stop_after_error = true;
+                        return Err(GeeZipError::format("entry size mismatch", format));
+                    }
+                    Ok(n)
+                })
+            };
+            match result {
+                Ok(bytes) => {
+                    report.files_extracted += 1;
+                    report.bytes_extracted += bytes;
+                }
+                Err(GeeZipError::Cancelled) => return Err(GeeZipError::Cancelled),
+                Err(err) => {
+                    if matches!(err, GeeZipError::ClobberDenied { .. }) {
+                        report.files_skipped += 1;
+                    }
+                    report.errors.push((entry.path.clone(), err));
+                }
+            }
+            Ok(!stop_after_error)
+        },
+        is_cancelled,
+    )?;
     Ok(report)
 }
 

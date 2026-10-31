@@ -20,6 +20,7 @@ fn is_stream(format: ArchiveFormat) -> bool {
     matches!(
         format,
         ArchiveFormat::Gzip
+            | ArchiveFormat::Z
             | ArchiveFormat::Bzip2
             | ArchiveFormat::Brotli
             | ArchiveFormat::Lz4
@@ -27,9 +28,6 @@ fn is_stream(format: ArchiveFormat) -> bool {
             | ArchiveFormat::Xz
             | ArchiveFormat::Lzma
             | ArchiveFormat::Lz
-            | ArchiveFormat::Img
-            | ArchiveFormat::Bin
-            | ArchiveFormat::Isz
             | ArchiveFormat::Aes
             | ArchiveFormat::Uu
             | ArchiveFormat::Xxe
@@ -45,6 +43,7 @@ fn is_wrapped(format: ArchiveFormat) -> bool {
             | ArchiveFormat::TarLz4
             | ArchiveFormat::TarZst
             | ArchiveFormat::TarXz
+            | ArchiveFormat::TarLz
     )
 }
 
@@ -73,7 +72,11 @@ pub fn execute(
     if use_stdin {
         let format =
             common::parse_format(format.context("--format is required when using --stdin")?)?;
-        if !(is_stream(format) || is_wrapped(format)) || format == ArchiveFormat::Isz {
+        if !(is_stream(format)
+            || is_wrapped(format)
+            || matches!(format, ArchiveFormat::Bin | ArchiveFormat::Img))
+            || format == ArchiveFormat::Isz
+        {
             anyhow::bail!("--stdin is only supported for single-stream formats and tar-wrapped streams; got '{format}'");
         }
         validate_password(format, password.as_deref())?;
@@ -118,7 +121,14 @@ pub fn execute(
         None => common::detect_archive_format(archive)?,
     };
     validate_password(format, password.as_deref())?;
-    if stdout && !(is_stream(format) || is_wrapped(format)) {
+    if stdout
+        && !(is_stream(format)
+            || is_wrapped(format)
+            || matches!(
+                format,
+                ArchiveFormat::Img | ArchiveFormat::Bin | ArchiveFormat::Isz
+            ))
+    {
         anyhow::bail!("--stdout is only supported for single-stream formats and tar-wrapped raw-stream output; '{format}' is a multi-file archive");
     }
     if !stdout {
@@ -246,6 +256,9 @@ fn decode<R: Read, W: Write>(
     // Check cancellation on output too, including buffered or memory-backed decoders.
     let mut writer = ProgressWriter::new(writer).with_callback(Box::new(callback(cancel)));
     let bytes = match format {
+        ArchiveFormat::Z => {
+            geezipx_core::archive::unix_compress::z_decompress(&mut reader, &mut writer)?
+        }
         ArchiveFormat::Gzip | ArchiveFormat::TarGz => {
             gzip::gzip_decompress(&mut reader, &mut writer)?
         }
@@ -262,6 +275,10 @@ fn decode<R: Read, W: Write>(
             zstd::zstd_decompress(&mut reader, &mut writer)?
         }
         ArchiveFormat::Xz | ArchiveFormat::TarXz => xz::xz_decompress(&mut reader, &mut writer)?,
+        ArchiveFormat::TarLz => std::io::copy(
+            &mut geezipx_core::archive::tarlz::decoder(&mut reader)?,
+            &mut writer,
+        )?,
         ArchiveFormat::Lzma => xz::lzma_decompress(&mut reader, &mut writer)?,
         ArchiveFormat::Lz => lz::lz_decompress(&mut reader, &mut writer)?,
         ArchiveFormat::Img => img::img_decompress(&mut reader, &mut writer)?,
@@ -269,18 +286,8 @@ fn decode<R: Read, W: Write>(
         ArchiveFormat::Aes => {
             aes::aes_decrypt(&mut reader, &mut writer, password.unwrap_or_default())?
         }
-        ArchiveFormat::Uu | ArchiveFormat::Xxe => {
-            let mut content = String::new();
-            reader.read_to_string(&mut content)?;
-            let (_, data) = if format == ArchiveFormat::Uu {
-                uu::uu_decode(&content).context("failed to decode uu stream")?
-            } else {
-                xxe::xxe_decode(&content)
-                    .map_err(|error| anyhow::anyhow!("failed to decode xxe stream: {error}"))?
-            };
-            writer.write_all(&data)?;
-            data.len() as u64
-        }
+        ArchiveFormat::Uu => uu::uu_decode_stream(&mut reader, &mut writer)?,
+        ArchiveFormat::Xxe => xxe::xxe_decode_stream(&mut reader, &mut writer)?,
         _ => anyhow::bail!("unsupported format for single-stream decompression: {format}"),
     };
     writer.flush()?;
@@ -290,6 +297,11 @@ fn decode<R: Read, W: Write>(
 
 fn output_filename(archive: &Path, format: ArchiveFormat) -> PathBuf {
     match format {
+        ArchiveFormat::Z => archive
+            .with_extension("")
+            .file_name()
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from("output")),
         ArchiveFormat::Gzip => common::gzip_output_filename(archive),
         ArchiveFormat::Bzip2 => common::bzip2_output_filename(archive),
         ArchiveFormat::Brotli => common::brotli_output_filename(archive),

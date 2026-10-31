@@ -1,0 +1,1749 @@
+//! Integration tests for the NSIS parser using self-built test fixtures.
+//!
+//! All test fixtures are built from `.nsi` scripts in `tests/build_fixtures/`
+//! using `makensis` and cover specific compression/encoding/feature combinations.
+//! `tests/build_fixtures/build-wine.sh` rebuilds them under Wine (see the README
+//! beside it).
+
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::arithmetic_side_effects,
+    clippy::indexing_slicing
+)]
+
+use nsis::{
+    Error, Instruction, NsisInstaller, SolidStatus,
+    header::firstheader::FirstHeader,
+    nsis::Entry,
+    opcode::{
+        EW_CALL, EW_FGETWS, EW_FINDPROC, EW_FPUTWS, EW_GETOSINFO, EW_INSTTYPESET,
+        EW_INVALID_OPCODE, EW_LOCKWINDOW, EW_LOG, EW_PUSHPOP, EW_RET, EW_SECTIONSET,
+        EW_WRITEUNINSTALLER, NsisVersion,
+    },
+    strings::{ShellTarget, StringEncoding, StringSegment},
+};
+
+fn fixture_bytes(name: &str) -> &'static [u8] {
+    let path = format!("{}/tests/fixtures/{name}", env!("CARGO_MANIFEST_DIR"));
+    let data = std::fs::read(&path).unwrap_or_else(|e| panic!("cannot read {path}: {e}"));
+    Vec::leak(data)
+}
+
+fn parse_fixture(name: &str) -> NsisInstaller<'static> {
+    NsisInstaller::from_bytes(fixture_bytes(name))
+        .unwrap_or_else(|e| panic!("failed to parse {name}: {e}"))
+}
+
+fn validate_all_structures(inst: &NsisInstaller<'_>) {
+    for (i, section) in inst.sections().enumerate() {
+        section.unwrap_or_else(|e| panic!("section {i} failed: {e}"));
+    }
+    for (i, entry) in inst.entries().enumerate() {
+        entry.unwrap_or_else(|e| panic!("entry {i} failed: {e}"));
+    }
+    for (i, page) in inst.pages().enumerate() {
+        page.unwrap_or_else(|e| panic!("page {i} failed: {e}"));
+    }
+}
+
+#[test]
+fn deflate_nonsolid() {
+    let inst = parse_fixture("deflate_nonsolid.exe");
+    assert_eq!(
+        inst.compression(),
+        nsis::decompress::CompressionMethod::Deflate
+    );
+    assert_eq!(
+        inst.compression_mode(),
+        nsis::decompress::CompressionMode::NonSolid
+    );
+    assert!(inst.section_count() > 0);
+    assert!(inst.entry_count() > 0);
+    validate_all_structures(&inst);
+}
+
+#[test]
+fn deflate_solid() {
+    let inst = parse_fixture("deflate_solid.exe");
+    assert_eq!(
+        inst.compression(),
+        nsis::decompress::CompressionMethod::Deflate
+    );
+    assert_eq!(
+        inst.compression_mode(),
+        nsis::decompress::CompressionMode::Solid
+    );
+    assert!(inst.section_count() > 0);
+    validate_all_structures(&inst);
+}
+
+#[test]
+fn lzma_nonsolid() {
+    let inst = parse_fixture("lzma_nonsolid.exe");
+    assert_eq!(
+        inst.compression(),
+        nsis::decompress::CompressionMethod::Lzma
+    );
+    assert_eq!(
+        inst.compression_mode(),
+        nsis::decompress::CompressionMode::NonSolid
+    );
+    assert!(inst.section_count() > 0);
+    validate_all_structures(&inst);
+}
+
+#[test]
+fn lzma_solid() {
+    let inst = parse_fixture("lzma_solid.exe");
+    assert_eq!(
+        inst.compression(),
+        nsis::decompress::CompressionMethod::Lzma
+    );
+    assert_eq!(
+        inst.compression_mode(),
+        nsis::decompress::CompressionMode::Solid
+    );
+    assert!(inst.section_count() > 0);
+    validate_all_structures(&inst);
+}
+
+#[test]
+fn full_featured_sections() {
+    let inst = parse_fixture("full_featured.exe");
+    assert_eq!(
+        inst.compression(),
+        nsis::decompress::CompressionMethod::Lzma
+    );
+    assert_eq!(
+        inst.compression_mode(),
+        nsis::decompress::CompressionMode::Solid
+    );
+    assert_eq!(inst.section_count(), 2);
+    let sections: Vec<_> = inst.sections().collect();
+    let s0 = sections[0].as_ref().unwrap();
+    let s1 = sections[1].as_ref().unwrap();
+    let name0 = s0
+        .inline_name()
+        .or_else(|| inst.read_string(s0.name_ptr()).ok().map(|n| n.to_string()))
+        .unwrap_or_default();
+    let name1 = s1
+        .inline_name()
+        .or_else(|| inst.read_string(s1.name_ptr()).ok().map(|n| n.to_string()))
+        .unwrap_or_default();
+    assert_eq!(name0, "Core Files");
+    assert_eq!(name1, "Optional Docs");
+}
+
+#[test]
+fn full_featured_callbacks() {
+    let inst = parse_fixture("full_featured.exe");
+    assert!(inst.on_init().is_some(), "should have .onInit");
+}
+
+#[test]
+fn full_featured_registry() {
+    let inst = parse_fixture("full_featured.exe");
+    let writes: Vec<_> = inst
+        .registry_ops()
+        .filter_map(|op| match op.ok()? {
+            nsis::RegistryOp::Write(w) => Some(w),
+            _ => None,
+        })
+        .collect();
+    assert!(writes.len() >= 3, "should have registry writes");
+    let has_version = writes.iter().any(|w| {
+        w.value_name()
+            .map(|n| n.to_string() == "Version")
+            .unwrap_or(false)
+    });
+    assert!(has_version, "should write Version registry value");
+}
+
+#[test]
+fn full_featured_shortcuts() {
+    let inst = parse_fixture("full_featured.exe");
+    let shortcuts: Vec<_> = inst.shortcuts().collect();
+    assert_eq!(shortcuts.len(), 2, "should have 2 shortcuts");
+}
+
+#[test]
+fn full_featured_uninstaller() {
+    let inst = parse_fixture("full_featured.exe");
+    let uninstallers: Vec<_> = inst.uninstallers().collect();
+    assert_eq!(uninstallers.len(), 1, "should have 1 uninstaller");
+    let u = uninstallers[0].as_ref().unwrap();
+    let path = u.path().unwrap().to_string();
+    assert!(
+        path.contains("uninstall"),
+        "path should contain 'uninstall', got '{path}'"
+    );
+}
+
+#[test]
+fn uninstaller_registry_delete_uses_correct_param_layout() {
+    let inst = parse_fixture("full_featured.exe");
+    let uninstaller = inst.uninstallers().next().unwrap().unwrap();
+    let data = uninstaller.decompress().unwrap();
+    let uninst = NsisInstaller::from_bytes(&data).unwrap();
+
+    let deletes: Vec<_> = uninst
+        .registry_ops()
+        .filter_map(|op| match op.ok()? {
+            nsis::RegistryOp::Delete(delete) => Some((
+                delete.root_name(),
+                delete.key().ok()?.to_string(),
+                delete.value_name().ok()?.to_string(),
+            )),
+            _ => None,
+        })
+        .collect();
+
+    assert!(
+        deletes.iter().any(|(root, key, value)| {
+            *root == "HKLM" && key == "Software\\FullFeaturedTest" && value.is_empty()
+        }),
+        "DeleteRegKey should read root from param1 and key from param2"
+    );
+}
+
+#[test]
+fn file_extraction_nonsolid() {
+    let inst = parse_fixture("deflate_nonsolid.exe");
+    let mut count = 0;
+    for file in inst.files() {
+        let file = file.unwrap();
+        assert!(!file.data().is_empty(), "non-solid file should have data");
+        let content = file.decompress().unwrap();
+        assert!(
+            !content.is_empty(),
+            "decompressed content should not be empty"
+        );
+        count += 1;
+    }
+    assert!(count > 0, "should find files");
+}
+
+#[test]
+fn decompression_budget_rejects_oversized_file() {
+    // With a tiny budget, every embedded file that decompresses to more than
+    // the budget must surface `OutputTooLarge` rather than truncated `Ok`.
+    // `deflate_nonsolid` has a genuinely compressed entry (`config.ini`).
+    let inst = NsisInstaller::builder(fixture_bytes("deflate_nonsolid.exe"))
+        .max_decompressed_size(8)
+        .parse()
+        .expect("header parsing is independent of the file budget");
+
+    // Compressed entries that expand past the budget must error; uncompressed
+    // (stored) entries are copied verbatim and cannot be a bomb, so they're
+    // exempt from the budget.
+    let mut saw_over_budget = false;
+    for file in inst.files() {
+        let file = file.unwrap();
+        let compressed = file.is_compressed();
+        match file.decompress() {
+            Ok(_) => {}
+            Err(Error::OutputTooLarge { limit }) => {
+                assert!(compressed, "only compressed streams are budget-capped");
+                assert_eq!(limit, 8);
+                saw_over_budget = true;
+            }
+            Err(e) => panic!("unexpected error: {e}"),
+        }
+    }
+    assert!(
+        saw_over_budget,
+        "expected at least one compressed file to exceed the 8-byte budget"
+    );
+}
+
+#[test]
+fn generous_budget_extracts_all_files() {
+    // The same fixture parses and extracts cleanly with a generous budget,
+    // confirming the budget is the only thing the tiny cap changed.
+    let inst = NsisInstaller::builder(fixture_bytes("deflate_nonsolid.exe"))
+        .max_decompressed_size(256 * 1024 * 1024)
+        .parse()
+        .unwrap();
+    let mut count = 0;
+    for file in inst.files() {
+        let content = file.unwrap().decompress().unwrap();
+        assert!(!content.is_empty());
+        count += 1;
+    }
+    assert!(count > 0);
+}
+
+#[test]
+fn file_extraction_reports_out_of_bounds_payload() {
+    let path = format!(
+        "{}/tests/fixtures/deflate_nonsolid.exe",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let mut data = std::fs::read(&path).unwrap_or_else(|e| panic!("cannot read {path}: {e}"));
+    let prefix_offset = {
+        let inst = NsisInstaller::from_bytes(&data).unwrap();
+        let file = inst.files().next().unwrap().unwrap();
+        inst.data_block_offset() + file.data_block_offset() as usize
+    };
+    data[prefix_offset..prefix_offset + 4].copy_from_slice(&0x7FFF_FFFFu32.to_le_bytes());
+
+    let inst = NsisInstaller::from_bytes(&data).unwrap();
+    let first_file = inst.files().next().unwrap();
+    assert!(
+        first_file.is_err(),
+        "out-of-bounds payload should not produce an empty file"
+    );
+}
+
+#[test]
+fn file_extraction_solid() {
+    let inst = parse_fixture("lzma_solid.exe");
+    let mut count = 0;
+    for file in inst.files() {
+        let file = file.unwrap();
+        assert!(
+            !file.data().is_empty(),
+            "solid file should have data from cache"
+        );
+        let content = file.decompress().unwrap();
+        assert!(
+            !content.is_empty(),
+            "decompressed content should not be empty"
+        );
+        count += 1;
+    }
+    assert!(count > 0, "should find files");
+}
+
+#[test]
+fn section_entries_mapping() {
+    let inst = parse_fixture("full_featured.exe");
+    for section in inst.sections() {
+        let section = section.unwrap();
+        if section.code_size() > 0 {
+            let entries: Vec<_> = inst.section_entries(&section).collect();
+            assert_eq!(entries.len(), section.code_size() as usize);
+            for entry in &entries {
+                entry.as_ref().unwrap();
+            }
+            return;
+        }
+    }
+    panic!("no section with code found");
+}
+
+#[test]
+fn opcode_resolution() {
+    let inst = parse_fixture("full_featured.exe");
+    let mut resolved = 0;
+    for entry in inst.entries() {
+        let entry = entry.unwrap();
+        if inst.resolve_opcode(entry.which()).is_some() {
+            resolved += 1;
+        }
+    }
+    assert!(resolved > 0, "no opcodes resolved");
+}
+
+#[test]
+fn script_formatting_uses_opcode_aware_param_types() {
+    let inst = parse_fixture("full_featured.exe");
+    let lines: Vec<_> = inst
+        .entries()
+        .map(|entry| inst.format_entry(&entry.unwrap()))
+        .collect();
+
+    assert!(
+        lines.iter().any(|line| {
+            line.starts_with("EW_GETDLGITEM ")
+                && line.contains("dialog=\"$HWNDPARENT\"")
+                && line.contains("item_id=\"1037\"")
+        }),
+        "GetDlgItem should render dialog and item id as strings"
+    );
+    assert!(
+        lines
+            .iter()
+            .any(|line| line.starts_with("EW_SETCTLCOLORS ") && line.contains("hwnd=\"$_0_\"")),
+        "SetCtlColors hwnd should render as a string parameter"
+    );
+    assert!(
+        lines
+            .iter()
+            .all(|line| !line.contains("$_65503_") && !line.contains("==>")),
+        "formatting should not wrap negative output vars or duplicate jump separators"
+    );
+}
+
+#[test]
+fn script_analysis_builds_roots_blocks_and_edges() {
+    let inst = parse_fixture("full_featured.exe");
+    let analysis = inst.script_analysis().unwrap();
+
+    assert_eq!(analysis.entry_count, inst.entry_count());
+    assert!(!analysis.roots.is_empty(), "should discover script roots");
+    assert!(
+        analysis
+            .roots
+            .iter()
+            .any(|root| matches!(root.kind, nsis::ScriptRootKind::Callback { .. })),
+        "should include callback roots"
+    );
+    assert!(
+        analysis
+            .roots
+            .iter()
+            .any(|root| matches!(root.kind, nsis::ScriptRootKind::Section { index: 0 })),
+        "should include section roots"
+    );
+    assert!(!analysis.blocks.is_empty(), "should build basic blocks");
+    assert!(
+        analysis
+            .edges
+            .iter()
+            .any(|edge| matches!(edge.kind, nsis::EdgeKind::Return)),
+        "should include return edges"
+    );
+    assert!(
+        analysis
+            .edges
+            .iter()
+            .any(|edge| matches!(edge.kind, nsis::EdgeKind::Branch { .. })),
+        "should include branch edges"
+    );
+    assert_eq!(
+        analysis.entry_to_block.len(),
+        analysis.entry_count,
+        "entry-to-block map should cover all entries"
+    );
+    let block = analysis
+        .block_for_entry(49)
+        .expect("entry 49 should be in a block");
+    assert!(
+        analysis
+            .outgoing_edges(block.id)
+            .any(|edge| matches!(edge.kind, nsis::EdgeKind::Branch { .. })),
+        "entry 49's block should have a branch edge"
+    );
+    assert!(
+        analysis
+            .function_for_entry(81)
+            .map(|function| function.name.as_str())
+            == Some("section_0"),
+        "section body should be assigned to section_0"
+    );
+    assert!(
+        analysis
+            .roots_for_entry(79)
+            .any(|root| matches!(root.kind, nsis::ScriptRootKind::Callback { .. })),
+        "entry 79 should have a callback root"
+    );
+}
+
+/// **A jump stays inside the function it is in.** Labels are places a
+/// function's own jumps go, not functions: split at every label, this
+/// fixture had 21 functions, 4 of them bare labels, and 6 jumps and
+/// fall-throughs crossing from one function into another (GAPS G35 in
+/// analysir). Only a call leaves a function now. The population assertions
+/// keep this from passing on a fixture with no labels to split at.
+#[test]
+fn control_flow_stays_inside_its_function() {
+    let inst = parse_fixture("full_featured.exe");
+    let analysis = inst.script_analysis().unwrap();
+    let function_of = |block: usize| analysis.blocks.get(block).and_then(|b| b.function);
+
+    let labels = analysis
+        .roots
+        .iter()
+        .filter(|root| matches!(root.kind, nsis::ScriptRootKind::Label))
+        .count();
+    assert!(labels > 0, "the fixture has labels to split at");
+    let mut local = 0usize;
+    for edge in &analysis.edges {
+        if matches!(edge.kind, nsis::EdgeKind::Call { .. }) {
+            continue;
+        }
+        let Some(target) = edge.target_block else {
+            continue;
+        };
+        assert_eq!(
+            function_of(edge.source_block),
+            function_of(target),
+            "{:?} edge from entry {} leaves its function",
+            edge.kind,
+            edge.source_entry
+        );
+        local += 1;
+    }
+    assert!(local > 0, "the fixture has jumps and fall-throughs");
+    assert!(
+        analysis.functions.iter().all(|function| function
+            .roots
+            .iter()
+            .filter_map(|id| analysis.roots.get(*id))
+            .any(|root| root.kind.starts_function())),
+        "every function here is entered from outside its own control flow"
+    );
+    assert!(
+        analysis.blocks.iter().all(|block| block.function.is_some()),
+        "every block belongs to a function"
+    );
+    assert_eq!(analysis.functions.len(), 17);
+}
+
+#[test]
+fn symbolic_formatting_uses_script_analysis_symbols() {
+    let inst = parse_fixture("full_featured.exe");
+    let analysis = inst.script_analysis().unwrap();
+
+    let mut saw_symbolic_target = false;
+    for (index, entry) in inst.entries().enumerate() {
+        let entry = entry.unwrap();
+        let line = inst.format_entry_with_analysis(&entry, analysis);
+        if line.contains("=>") && line.contains("(@") {
+            saw_symbolic_target = true;
+        }
+        if index == 49 {
+            assert!(
+                line.contains("=>") && !line.contains("==>"),
+                "symbolic formatting should preserve jump syntax"
+            );
+        }
+    }
+
+    assert!(
+        saw_symbolic_target,
+        "should render at least one symbolic target"
+    );
+}
+
+#[test]
+fn script_analysis_is_computed_once() {
+    let inst = parse_fixture("full_featured.exe");
+    let first = inst.script_analysis().unwrap();
+    let second = inst.script_analysis().unwrap();
+
+    // The same analysis is handed back rather than rebuilt: walking the whole
+    // entry stream is not cheap, and the formatters take it as an argument, so
+    // callers ask for it repeatedly.
+    assert!(
+        std::ptr::eq(first, second),
+        "repeated calls should return the same analysis"
+    );
+}
+
+#[test]
+fn entries_render_into_a_reused_buffer() {
+    // The buffer form must produce exactly what the allocating one does.
+    let inst = parse_fixture("full_featured.exe");
+    let analysis = inst.script_analysis().unwrap();
+
+    let mut line = String::new();
+    for entry in inst.entries() {
+        let entry = entry.unwrap();
+
+        line.clear();
+        inst.write_entry(&mut line, &entry);
+        assert_eq!(line, inst.format_entry(&entry));
+
+        line.clear();
+        inst.write_entry_params_with_analysis(&mut line, &entry, analysis);
+        assert_eq!(
+            line,
+            inst.format_entry_params_with_analysis(&entry, analysis)
+        );
+    }
+}
+
+#[test]
+fn opcode_constants_live_in_the_opcode_module() {
+    // The constants sit beside the tables that give them meaning, rather than
+    // flooding the crate root with 70 names.
+    assert_eq!(
+        [EW_INVALID_OPCODE, EW_RET, EW_CALL, EW_FGETWS],
+        [0, 1, 5, 69]
+    );
+}
+
+#[test]
+fn opcode_numbering_matches_the_layout_installers_store() {
+    // A standard makensis compiles the log instructions out, so nothing sits
+    // between WriteUninstaller and SectionSet. Numbering them as if the log
+    // opcode were always present shifts every later instruction by one, which
+    // renamed SectionSet to Log, GetOsInfo to InstTypeSet, and so on.
+    assert_eq!(EW_WRITEUNINSTALLER, 62);
+    assert_eq!(EW_SECTIONSET, 63);
+    assert_eq!(EW_INSTTYPESET, 64);
+    assert_eq!(EW_GETOSINFO, 65);
+    assert_eq!(EW_LOCKWINDOW, 67);
+    assert_eq!(EW_FPUTWS, 68);
+    assert_eq!(EW_FGETWS, 69);
+
+    // The conditional instructions get slots above everything an installer
+    // stores, so a normalised opcode is unambiguous.
+    const { assert!(EW_LOG > EW_FGETWS) };
+    const { assert!(EW_FINDPROC > EW_LOG) };
+}
+
+#[test]
+fn string_resolution() {
+    let inst = parse_fixture("full_featured.exe");
+    for section in inst.sections() {
+        let section = section.unwrap();
+        let _ = inst.read_string(section.name_ptr());
+    }
+}
+
+#[test]
+fn bzip2_nonsolid() {
+    let inst = parse_fixture("bzip2_nonsolid.exe");
+    assert_eq!(
+        inst.compression(),
+        nsis::decompress::CompressionMethod::Bzip2
+    );
+    assert_eq!(
+        inst.compression_mode(),
+        nsis::decompress::CompressionMode::NonSolid
+    );
+    assert!(inst.section_count() > 0);
+    assert!(inst.entry_count() > 0);
+    validate_all_structures(&inst);
+}
+
+#[test]
+fn bzip2_solid() {
+    let inst = parse_fixture("bzip2_solid.exe");
+    assert_eq!(
+        inst.compression(),
+        nsis::decompress::CompressionMethod::Bzip2
+    );
+    assert_eq!(
+        inst.compression_mode(),
+        nsis::decompress::CompressionMode::Solid
+    );
+    assert!(inst.section_count() > 0);
+    validate_all_structures(&inst);
+}
+
+#[test]
+fn bzip2_file_extraction_nonsolid() {
+    let inst = parse_fixture("bzip2_nonsolid.exe");
+    let mut count = 0;
+    for file in inst.files() {
+        let file = file.unwrap();
+        assert!(
+            !file.data().is_empty(),
+            "bzip2 non-solid file should have data"
+        );
+        let content = file.decompress().unwrap();
+        assert!(!content.is_empty());
+        count += 1;
+    }
+    assert!(count > 0, "should find files");
+}
+
+#[test]
+fn bzip2_file_extraction_solid() {
+    let inst = parse_fixture("bzip2_solid.exe");
+    let mut count = 0;
+    for file in inst.files() {
+        let file = file.unwrap();
+        assert!(!file.data().is_empty(), "bzip2 solid file should have data");
+        let content = file.decompress().unwrap();
+        assert!(!content.is_empty());
+        count += 1;
+    }
+    assert!(count > 0, "should find files");
+}
+
+#[test]
+fn bzip2_solid_data_is_not_padded_to_the_budget() {
+    // Regression: the NSIS-bzip2 output loop never terminated at the end of a
+    // block, so it emitted `0x0A` filler until the decompression budget was
+    // reached. This 38 KB installer yielded 67,104,886 bytes of solid data -
+    // the whole 64 MiB default budget - instead of 89.
+    let inst = parse_fixture("bzip2_solid.exe");
+    let solid = inst.solid_data();
+
+    assert!(
+        solid.len() < 1024,
+        "solid data should be the real payload, got {} bytes (budget is {})",
+        solid.len(),
+        inst.max_decompressed_size()
+    );
+    assert!(
+        !solid.ends_with(&[0x0A; 16]),
+        "solid data should not end in repeated filler"
+    );
+
+    // The other solid fixtures hold the same two payloads; sizes should agree
+    // to within the few bytes the fixtures' build runs differ by.
+    let lzma = parse_fixture("lzma_solid.exe");
+    let delta = solid.len().abs_diff(lzma.solid_data().len());
+    assert!(
+        delta <= 8,
+        "bzip2 solid data ({} bytes) should match lzma solid data ({} bytes)",
+        solid.len(),
+        lzma.solid_data().len()
+    );
+}
+
+#[test]
+fn solid_status_reports_a_complete_decode() {
+    for name in ["lzma_solid.exe", "bzip2_solid.exe", "deflate_solid.exe"] {
+        let inst = parse_fixture(name);
+        assert_eq!(
+            inst.solid_status(),
+            &SolidStatus::Complete,
+            "{name} decodes fully within the default budget"
+        );
+    }
+}
+
+#[test]
+fn non_solid_installers_report_not_solid() {
+    for name in ["lzma_nonsolid.exe", "deflate_nonsolid.exe"] {
+        let inst = parse_fixture(name);
+        assert_eq!(inst.solid_status(), &SolidStatus::NotSolid, "{name}");
+    }
+}
+
+/// Byte offset just past the first file's payload in the solid stream.
+fn first_file_end(inst: &NsisInstaller<'_>) -> usize {
+    let file = inst.files().next().unwrap().unwrap();
+    // 4-byte stream length prefix + header block + the file's own framing.
+    4 + inst.header_data().len() + file.data_block_offset() as usize + 4 + file.data().len()
+}
+
+#[test]
+fn budget_truncation_reports_the_budget_not_a_bounds_error() {
+    // Regression for the reported behaviour: an over-budget solid installer
+    // parsed successfully but every file failed with
+    //   "file data payload: expected at least 75497476 bytes, got 67104998"
+    // which reads like data corruption rather than an exhausted budget.
+    let full = parse_fixture("lzma_solid.exe");
+    assert!(full.files().count() >= 2, "fixture needs two files");
+
+    // A budget that admits the first file's data but not the second's.
+    let budget = first_file_end(&full);
+    let data = fixture_bytes("lzma_solid.exe");
+    let inst = NsisInstaller::builder(data)
+        .max_decompressed_size(budget)
+        .parse()
+        .expect("header parsing must still succeed over budget");
+
+    assert_eq!(
+        inst.solid_status(),
+        &SolidStatus::Truncated { limit: budget },
+        "the parser should record that the stream was cut at the budget"
+    );
+
+    let results: Vec<_> = inst.files().collect();
+
+    // The file stored before the cut is unaffected.
+    let first = results[0]
+        .as_ref()
+        .expect("first file is within the budget");
+    assert!(!first.decompress().unwrap().is_empty());
+
+    // Everything after it names the budget as the reason.
+    for (i, result) in results.iter().enumerate().skip(1) {
+        match result {
+            Err(Error::OutputTooLarge { limit }) => assert_eq!(*limit, budget),
+            Err(e) => panic!("file {i}: expected OutputTooLarge, got {e}"),
+            Ok(f) => panic!("file {i}: expected an error, got {:?}", f.name().unwrap()),
+        }
+    }
+}
+
+#[test]
+fn truncated_solid_decompress_reports_the_budget() {
+    // The same substitution applies to `decompress()`, not just iteration.
+    let data = fixture_bytes("lzma_solid.exe");
+    let inst = NsisInstaller::builder(data)
+        .max_decompressed_size(16)
+        .parse()
+        .expect("header parsing must still succeed");
+
+    assert!(matches!(
+        inst.solid_status(),
+        SolidStatus::Truncated { limit: 16 }
+    ));
+    for result in inst.files() {
+        assert!(matches!(result, Err(Error::OutputTooLarge { limit: 16 })));
+    }
+}
+
+#[test]
+fn small_budget_truncates_rather_than_failing() {
+    // The LZMA dictionary is capped at the budget, so the decoder must not
+    // run ahead of it: a match reaching back past the capped dictionary would
+    // fail as `dist overflow` where the stream is merely over budget. Budgets
+    // below the read chunk size are where that would show.
+    let data = fixture_bytes("full_featured.exe");
+    for budget in [4096, 5000, 8192] {
+        let inst = NsisInstaller::builder(data)
+            .max_decompressed_size(budget)
+            .parse()
+            .expect("header parsing must still succeed over budget");
+        assert_eq!(
+            inst.solid_status(),
+            &SolidStatus::Truncated { limit: budget },
+            "budget {budget}"
+        );
+    }
+}
+
+/// Copies a fixture and corrupts the tail of its solid stream, leaving the
+/// header region - which decodes with an exact bound and stops early - intact.
+fn fixture_with_corrupt_solid_tail(name: &str) -> Vec<u8> {
+    let mut data = fixture_bytes(name).to_vec();
+    let inst = parse_fixture(name);
+    let fh_offset = inst.first_header_file_offset();
+    let fh = FirstHeader::parse(&data[fh_offset..]).unwrap();
+
+    let stream_start = fh_offset + FirstHeader::SIZE;
+    let following = fh.length_of_all_following_data() as usize - FirstHeader::SIZE;
+    let crc = if fh.has_no_crc() { 0 } else { 4 };
+    let stream_end = stream_start + following - crc;
+
+    // Scribble over the last stretch of compressed data.
+    for byte in &mut data[stream_end - 16..stream_end] {
+        *byte ^= 0xFF;
+    }
+    data
+}
+
+#[test]
+fn failed_solid_decode_is_reported_not_swallowed() {
+    // Regression: a failed solid decode became an empty `solid_data` via
+    // `unwrap_or_else(|_| Vec::new())`, so parsing "succeeded" and every file
+    // then reported a bounds error with no trace of the real cause.
+    // LZMA, not bzip2: a bzip2 block must be decoded whole, so corrupting its
+    // tail also breaks the header decode. An LZMA stream decodes forward, and
+    // the header's exact-size decode stops long before the damage.
+    let data = fixture_with_corrupt_solid_tail("lzma_solid.exe");
+    let inst = NsisInstaller::from_bytes(&data)
+        .expect("header parsing is unaffected by a corrupt stream tail");
+
+    let SolidStatus::Failed(cause) = inst.solid_status() else {
+        panic!("expected Failed, got {:?}", inst.solid_status());
+    };
+    assert!(
+        matches!(cause, Error::DecompressionFailed { method: "lzma", .. }),
+        "the decode error should be preserved verbatim, got {cause}"
+    );
+
+    // Every file reports that cause rather than a bounds error.
+    let cause = cause.clone();
+    let results: Vec<_> = inst.files().collect();
+    assert!(!results.is_empty(), "the entry stream is still readable");
+    for result in results {
+        match result {
+            Err(e) => assert_eq!(e, cause),
+            Ok(f) => panic!("expected an error, got {:?}", f.name().unwrap()),
+        }
+    }
+}
+
+#[test]
+fn stubs_rejected_by_strict_pe_parsing_still_parse() {
+    // Overlay detection needs only the section table, so the PE is parsed with
+    // every optional structure switched off and in permissive mode. These three
+    // stubs are rejected outright by a strict parse:
+    //
+    //   nsis203_ansi  - resource directory offset points past the appended data
+    //   park2_unicode - base relocations at an RVA that cannot be mapped
+    //   park3_unicode - likewise
+    //
+    // 7-Zip mis-detects the two Park stubs as plain PE files for the same
+    // reason and cannot list them without an explicit `-tnsis`.
+    for name in ["nsis203_ansi.exe", "park2_unicode.exe", "park3_unicode.exe"] {
+        let data = fixture_bytes(name);
+
+        let strict = goblin::pe::PE::parse(data);
+        assert!(
+            strict.is_err(),
+            "{name}: expected a strict parse to fail; if the stub is now clean, \
+             this test no longer covers the lenient path"
+        );
+
+        let inst = NsisInstaller::from_bytes(data)
+            .unwrap_or_else(|e| panic!("{name}: should parse despite the malformed PE: {e}"));
+        assert!(inst.entry_count() > 0, "{name}: no entries");
+        for file in inst.files() {
+            let file = file.unwrap_or_else(|e| panic!("{name}: file entry failed: {e}"));
+            assert!(!file.decompress().unwrap().is_empty(), "{name}: empty file");
+        }
+    }
+}
+
+#[test]
+fn multi_block_bzip2_solid_stream_is_byte_exact() {
+    // Regression: a block whose final BWT byte was consumed as an RLE repeat
+    // count used to emit that count byte as data, inserting one spurious byte
+    // and shifting every file stored after it. It only shows on streams of more
+    // than one block, so no fixture caught it until a 72 MiB payload (~84
+    // blocks) was added.
+    //
+    // `oversize_bzip2_solid` and `oversize_lzma_solid` are built from the same
+    // script, so their decompressed solid streams must be identical.
+    let budget = 256 * 1024 * 1024;
+    let parse = |name: &str| {
+        NsisInstaller::builder(fixture_bytes(name))
+            .max_decompressed_size(budget)
+            .parse()
+            .unwrap_or_else(|e| panic!("{name}: {e}"))
+    };
+    let bzip2 = parse("oversize_bzip2_solid.exe");
+    let lzma = parse("oversize_lzma_solid.exe");
+
+    let (a, b) = (bzip2.solid_data(), lzma.solid_data());
+    assert_eq!(
+        a.len(),
+        b.len(),
+        "bzip2 and lzma builds of the same script must decode to the same length"
+    );
+    if let Some(i) = (0..a.len()).find(|&i| a[i] != b[i]) {
+        panic!(
+            "bzip2 output diverges from lzma at byte {i}: {:#04X} vs {:#04X}",
+            a[i], b[i]
+        );
+    }
+
+    // The file stored after the 72 MiB payload is the one a shifted stream
+    // loses first.
+    let names: Vec<String> = bzip2
+        .files()
+        .map(|f| f.unwrap().name().unwrap().to_string())
+        .collect();
+    assert_eq!(names, ["payload.txt", "big.bin", "config.ini"]);
+
+    let big = bzip2
+        .files()
+        .nth(1)
+        .unwrap()
+        .unwrap()
+        .decompress()
+        .expect("the 72 MiB payload should decompress");
+    assert_eq!(big.len(), 75_497_472);
+    assert!(big.iter().all(|&b| b == 0), "payload should be all zeros");
+}
+
+#[test]
+fn ansi_installers_are_not_assumed_to_be_nsis2() {
+    // makensis 3.x compiles an ANSI target whenever a script omits
+    // `Unicode true`, so the encoding alone does not give the version away.
+    // These two are 3.10 builds with an ANSI string table.
+    for name in ["ansi3_deflate_nonsolid.exe", "ansi3_latin1.exe"] {
+        let inst = parse_fixture(name);
+        assert_eq!(inst.string_encoding(), StringEncoding::Ansi, "{name}");
+        assert_eq!(
+            inst.version(),
+            NsisVersion::V3,
+            "{name}: built by makensis 3.10"
+        );
+        assert_eq!(
+            inst.nsis2_sub_version(),
+            None,
+            "{name}: not an NSIS 2 installer"
+        );
+    }
+
+    // Genuine NSIS 2 builds keep reporting NSIS 2.
+    for name in [
+        "nsis203_ansi.exe",
+        "nsis225_ansi.exe",
+        "nsis246_ansi_solid.exe",
+        "nsis246_ansi_latin1.exe",
+        "dirs_nsis246_ansi_solid.exe",
+    ] {
+        let inst = parse_fixture(name);
+        assert_eq!(inst.string_encoding(), StringEncoding::Ansi, "{name}");
+        assert_eq!(inst.version(), NsisVersion::V2, "{name}");
+    }
+}
+
+#[test]
+fn latin1_names_do_not_look_like_nsis2_variable_codes() {
+    // `ansi3_latin1` stores `grüße.txt` and `þýÿ.ini`, whose bytes fall in the
+    // NSIS 2 special-code range 0xFC-0xFF. Version detection keys off the
+    // NSIS 3 code range instead, so those literals cannot drag it back to
+    // NSIS 2 - the trap that a byte-frequency heuristic would fall into.
+    let inst = parse_fixture("ansi3_latin1.exe");
+    assert_eq!(inst.version(), NsisVersion::V3);
+
+    // Its NSIS 2.46 counterpart carries the same text and must stay NSIS 2.
+    let inst = parse_fixture("nsis246_ansi_latin1.exe");
+    assert_eq!(inst.version(), NsisVersion::V2);
+}
+
+#[test]
+fn latin1_file_names_decode_intact_in_both_ansi_ranges() {
+    // The same script compiled by makensis 3.10 (ANSI) and makensis 2.46. NSIS 3
+    // writes `0xFC-0xFF` as literal text, NSIS 2 escapes them with its SKIP
+    // code - so the two fixtures exercise opposite halves of the decoder and
+    // must produce identical names.
+    for name in ["ansi3_latin1.exe", "nsis246_ansi_latin1.exe"] {
+        let inst = parse_fixture(name);
+        let names: Vec<String> = inst
+            .files()
+            .map(|f| f.unwrap().name().unwrap().to_string())
+            .collect();
+        assert_eq!(
+            names,
+            ["grüße.txt", "þýÿ.ini"],
+            "{name}: Latin-1 characters should survive decoding"
+        );
+    }
+}
+
+#[test]
+fn install_directory_matches_the_build_script() {
+    // Each fixture's `.nsi` declares `InstallDir "$PROGRAMFILES\<name>"`. That
+    // string is a shell-folder reference, which makes this the regression test
+    // for shell decoding: the ANSI fixtures used to report `$INTERNET` because
+    // the id pair was run through the 14-bit number transform.
+    for (fixture, expected) in [
+        ("ansi3_deflate_nonsolid.exe", "$PROGRAMFILES\\Ansi3Test"),
+        ("nsis203_ansi.exe", "$PROGRAMFILES\\Nsis203Test"),
+        ("nsis246_ansi_solid.exe", "$PROGRAMFILES\\Nsis246Test"),
+        ("dirs_unicode_solid.exe", "$PROGRAMFILES\\DirsTest"),
+        ("park1_unicode.exe", "$PROGRAMFILES\\ParkTest"),
+    ] {
+        let inst = parse_fixture(fixture);
+        let dir = inst.install_dir().unwrap();
+        assert_eq!(
+            dir.to_string(),
+            expected,
+            "{fixture}: install directory should match its .nsi"
+        );
+        // The extraction rendering keeps the shell folder as a directory.
+        assert!(
+            dir.to_path().starts_with("_PROGRAMFILES/"),
+            "{fixture}: extraction path was {:?}",
+            dir.to_path()
+        );
+    }
+}
+
+#[test]
+fn registry_backed_shell_folders_resolve() {
+    // A shell reference whose primary id has bit 7 set is a registry lookup:
+    // the low bits point at a value name in the same string table. Reading it
+    // is what tells `$COMMONFILES` from `$PROGRAMFILES`; we used to report
+    // `$PROGRAMFILES` for both.
+    let inst = parse_fixture("nsis246_ansi_solid.exe");
+    let table = inst.string_table();
+
+    let mut common_files = false;
+    let mut program_files = false;
+    for offset in 0..400 {
+        let Ok(string) = table.read(offset) else {
+            continue;
+        };
+        for segment in &string.segments {
+            if let StringSegment::ShellFolder { target, .. } = segment {
+                match target {
+                    ShellTarget::CommonFiles { .. } => common_files = true,
+                    ShellTarget::ProgramFiles { .. } => program_files = true,
+                    _ => {}
+                }
+            }
+        }
+    }
+    assert!(
+        program_files,
+        "the ProgramFiles registry lookup should resolve"
+    );
+    assert!(
+        common_files,
+        "the CommonFiles registry lookup should resolve, not report ProgramFiles"
+    );
+}
+
+#[test]
+fn destination_paths_follow_set_out_path() {
+    // Every construct the dirs fixtures exercise, in script order. Both the
+    // NSIS 3 Unicode and NSIS 2.46 ANSI builds must reconstruct the same tree.
+    let expected = [
+        // Plain install root.
+        ("payload.txt", "payload.txt"),
+        // Nested subdirectory.
+        ("Lang\\de_DE.ini", "Lang/de_DE.ini"),
+        ("Lang\\en_US.ini", "Lang/en_US.ini"),
+        // Deeper nesting.
+        ("Lang\\regional\\de_AT.ini", "Lang/regional/de_AT.ini"),
+        // `SetOutPath "$OUTDIR\extra"` resolved against the directory in effect.
+        (
+            "Lang\\regional\\extra\\nested.ini",
+            "Lang/regional/extra/nested.ini",
+        ),
+        // A plain CreateDirectory in between must not become the prefix.
+        ("after\\after.txt", "after/after.txt"),
+        // An absolute destination keeps its own root.
+        ("$PLUGINSDIR\\app-64.7z", "_plugins/app-64.7z"),
+        // Back to the root.
+        ("last.txt", "last.txt"),
+    ];
+
+    for fixture in ["dirs_unicode_solid.exe", "dirs_nsis246_ansi_solid.exe"] {
+        let inst = parse_fixture(fixture);
+        let paths: Vec<(String, String)> = inst
+            .files()
+            .map(|file| {
+                let path = file.unwrap().dest_path().unwrap();
+                (path.to_install_path(), path.to_path())
+            })
+            .collect();
+
+        let expected: Vec<(String, String)> = expected
+            .iter()
+            .map(|(install, extract)| ((*install).to_string(), (*extract).to_string()))
+            .collect();
+        assert_eq!(paths, expected, "{fixture}");
+    }
+}
+
+#[test]
+fn one_walk_yields_what_the_typed_iterators_do() {
+    // The typed iterators are filters over `instructions()`, so a single pass
+    // must account for exactly what six passes used to. This is what keeps the
+    // filters honest as instruction kinds are added.
+    for name in [
+        "full_featured.exe",
+        "dirs_unicode_solid.exe",
+        "dirs_nsis246_ansi_solid.exe",
+        "park1_unicode.exe",
+        "nsis246_ansi_solid.exe",
+    ] {
+        let inst = parse_fixture(name);
+
+        let (mut files, mut plugins, mut execs, mut registry, mut shortcuts, mut uninstallers) =
+            (0, 0, 0, 0, 0, 0);
+        let mut total = 0;
+        for instruction in inst.instructions() {
+            total += 1;
+            match instruction.unwrap() {
+                Instruction::File(_) => files += 1,
+                Instruction::PluginCall(_) => plugins += 1,
+                Instruction::Exec(_) => execs += 1,
+                Instruction::Registry(_) => registry += 1,
+                Instruction::Shortcut(_) => shortcuts += 1,
+                Instruction::Uninstaller(_) => uninstallers += 1,
+                Instruction::Other(_) => {}
+            }
+        }
+
+        assert_eq!(total, inst.entry_count(), "{name}: every entry is visited");
+        assert_eq!(files, inst.files().count(), "{name}: files");
+        assert_eq!(plugins, inst.plugin_calls().count(), "{name}: plugin calls");
+        assert_eq!(execs, inst.exec_commands().count(), "{name}: exec commands");
+        assert_eq!(
+            registry,
+            inst.registry_ops().count(),
+            "{name}: registry ops"
+        );
+        assert_eq!(shortcuts, inst.shortcuts().count(), "{name}: shortcuts");
+        assert_eq!(
+            uninstallers,
+            inst.uninstallers().count(),
+            "{name}: uninstallers"
+        );
+    }
+}
+
+#[test]
+fn all_fixtures_produce_consistent_headers() {
+    let fixtures = [
+        "deflate_nonsolid.exe",
+        "deflate_solid.exe",
+        "lzma_nonsolid.exe",
+        "lzma_solid.exe",
+        "bzip2_nonsolid.exe",
+        "bzip2_solid.exe",
+        "full_featured.exe",
+        "deflate_single_file.exe",
+    ];
+    for name in fixtures {
+        let inst = parse_fixture(name);
+        // All fixtures should have valid header data.
+        assert!(
+            inst.header_data().len() >= 68,
+            "{name}: header too short ({})",
+            inst.header_data().len()
+        );
+        // All should have at least one section.
+        assert!(inst.section_count() > 0, "{name}: no sections");
+        // All should have entries.
+        assert!(inst.entry_count() > 0, "{name}: no entries");
+        // All structures should parse without errors.
+        validate_all_structures(&inst);
+    }
+}
+
+#[test]
+fn all_fixtures_extract_files() {
+    let fixtures = [
+        "deflate_nonsolid.exe",
+        "deflate_solid.exe",
+        "lzma_nonsolid.exe",
+        "lzma_solid.exe",
+        "bzip2_nonsolid.exe",
+        "bzip2_solid.exe",
+        "full_featured.exe",
+    ];
+    for name in fixtures {
+        let inst = parse_fixture(name);
+        let mut file_count = 0;
+        for file in inst.files() {
+            let file = file.unwrap();
+            let content = file.decompress().unwrap();
+            assert!(!content.is_empty(), "{name}: decompressed file is empty");
+            file_count += 1;
+        }
+        assert!(file_count > 0, "{name}: no files extracted");
+    }
+}
+
+#[test]
+fn extracted_file_content_is_valid() {
+    // Our fixtures contain payload.txt with known content.
+    let inst = parse_fixture("deflate_nonsolid.exe");
+    for file in inst.files() {
+        let file = file.unwrap();
+        let name = file.name().unwrap().to_string();
+        if name.contains("payload.txt") {
+            let content = file.decompress().unwrap();
+            let text = String::from_utf8_lossy(&content);
+            assert!(
+                text.contains("test payload"),
+                "payload.txt should contain 'test payload', got: {text}"
+            );
+            return;
+        }
+    }
+    panic!("payload.txt not found in fixture");
+}
+
+#[test]
+fn solid_and_nonsolid_produce_same_content() {
+    // Compare extracted payload.txt between solid and non-solid deflate.
+    let nonsolid = parse_fixture("deflate_nonsolid.exe");
+    let solid = parse_fixture("deflate_solid.exe");
+
+    let get_payload = |inst: &nsis::NsisInstaller<'_>| -> Vec<u8> {
+        for file in inst.files() {
+            let file = file.unwrap();
+            let name = file.name().unwrap().to_string();
+            if name.contains("payload.txt") {
+                return file.decompress().unwrap();
+            }
+        }
+        panic!("payload.txt not found");
+    };
+
+    let ns_content = get_payload(&nonsolid);
+    let s_content = get_payload(&solid);
+    assert_eq!(
+        ns_content, s_content,
+        "solid and non-solid should produce identical payload content"
+    );
+}
+
+#[test]
+fn all_compression_methods_produce_same_content() {
+    // Compare payload.txt across all 6 compression variants.
+    let fixtures = [
+        "deflate_nonsolid.exe",
+        "deflate_solid.exe",
+        "lzma_nonsolid.exe",
+        "lzma_solid.exe",
+        "bzip2_nonsolid.exe",
+        "bzip2_solid.exe",
+    ];
+
+    let mut reference: Option<Vec<u8>> = None;
+    for name in fixtures {
+        let inst = parse_fixture(name);
+        for file in inst.files() {
+            let file = file.unwrap();
+            let fname = file.name().unwrap().to_string();
+            if fname.contains("payload.txt") {
+                let content = file.decompress().unwrap();
+                if let Some(ref expected) = reference {
+                    assert_eq!(
+                        &content, expected,
+                        "{name}: payload.txt differs from deflate_nonsolid"
+                    );
+                } else {
+                    reference = Some(content);
+                }
+                break;
+            }
+        }
+    }
+    assert!(reference.is_some(), "no payload.txt found in any fixture");
+}
+
+/// Renders every entry of a fixture as `MNEMONIC operands`.
+fn rendered_entries(name: &str) -> (NsisInstaller<'static>, Vec<String>) {
+    let installer = parse_fixture(name);
+    let mut lines = Vec::new();
+    let mut line = String::new();
+    for entry in installer.entries() {
+        line.clear();
+        installer.write_entry(&mut line, &entry.expect("entry should decode"));
+        lines.push(line.clone());
+    }
+    (installer, lines)
+}
+
+/// Drops the `date_lo`/`date_hi` operands, which record when the fixture was
+/// compiled and so differ between two builds of the same script.
+fn without_timestamps(line: &str) -> String {
+    line.split(", ")
+        .filter(|p| !p.starts_with("date_lo=") && !p.starts_with("date_hi="))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+#[test]
+fn instructions_above_the_opcode_boundary_decode() {
+    // Regression test for the table being shifted from opcode 63 up: every
+    // instruction here used to be read as its neighbour, so `SectionSetText`
+    // rendered as `Log` and `FileWriteUTF16LE` as `LockWindow`.
+    let (installer, lines) = rendered_entries("opcodes_high.exe");
+    assert!(
+        !installer.is_log_build(),
+        "stock 3.10 build is not a log build"
+    );
+
+    // Each of these is one line of opcodes_high.nsi, decoded. Anything less
+    // than the whole operand list would not have caught the two defects this
+    // fixture exposed: SectionSetText keeps its text in the fifth operand
+    // slot, which the fixed layout marks unused, so the text was dropped.
+    for (opcode, expected) in [
+        (63, r#"EW_SECTIONSET section="0", text=$0"#),
+        (
+            63,
+            r#"EW_SECTIONSET section="0", op=-1, text="Renamed Section""#,
+        ),
+        (64, r#"EW_INSTTYPESET inst_type="0", text="Typical", set=1"#),
+        // `GetKnownFolderPath`: the variable is slot 1 and the folder id slot
+        // 2, which the table once rendered as `operation=0, varies=3`.
+        (
+            65,
+            r#"EW_GETOSINFO output=$3, source="{3EB685DB-65F9-4CF6-A03A-E3EF65729F3D}""#,
+        ),
+        (67, "EW_LOCKWINDOW unlock=0"),
+        (68, r#"EW_FPUTWS handle=$1, string="wide text""#),
+        (69, "EW_FGETWS handle=$1, output=$2, max_len=\"1023\""),
+    ] {
+        assert!(
+            lines.iter().any(|l| l == expected),
+            "opcode {opcode} should decode to `{expected}`, got:\n{}",
+            lines.join("\n")
+        );
+    }
+}
+
+#[test]
+fn a_log_build_is_detected_and_decodes_the_same_script() {
+    // opcodes_logbuild is the same script as opcodes_high compiled by a
+    // logging-enabled makensis, which inserts Log at 63 and shifts everything
+    // above it up by one. 7-Zip agrees, reporting `NSIS-3 Unicode log`.
+    let (installer, log_lines) = rendered_entries("opcodes_logbuild.exe");
+    assert!(installer.is_log_build(), "logging build should be detected");
+
+    let logging: Vec<_> = log_lines
+        .iter()
+        .filter(|l| l.starts_with("EW_LOG"))
+        .collect();
+    assert_eq!(
+        logging.len(),
+        2,
+        "expected LogSet and LogText: {log_lines:#?}"
+    );
+
+    // Dropping the two logging instructions, which only a logging build can
+    // emit, must leave exactly the stock build's instruction stream. Reading
+    // either file under the other's layout would break this.
+    let (_, stock_lines) = rendered_entries("opcodes_high.exe");
+    let shared: Vec<_> = log_lines
+        .iter()
+        .filter(|l| !l.starts_with("EW_LOG"))
+        .map(|l| without_timestamps(l))
+        .collect();
+    let stock: Vec<_> = stock_lines.iter().map(|l| without_timestamps(l)).collect();
+    assert_eq!(shared, stock);
+}
+
+#[test]
+fn nsis1x_is_read_through_its_own_layout() {
+    // NSIS 1.x has no block table, no page or language blocks, 20-byte
+    // sections and 24-byte instructions. Read as 2.x, the header's string
+    // pointers land on the block descriptors and the file does not parse at
+    // all - which is what it used to do.
+    let inst = parse_fixture("nsis1x.exe");
+    assert_eq!(inst.version(), NsisVersion::V1);
+    assert_eq!(inst.string_encoding(), StringEncoding::Ansi);
+    assert_eq!(inst.section_count(), 1, "the build log reports 1 section");
+    assert_eq!(
+        inst.entry_count(),
+        3,
+        "the build log reports 3 instructions"
+    );
+    assert_eq!(inst.pages().count(), 0, "1.x has no page block");
+
+    // Bit 0 of the first-header flags means "CRC present" in 1.x, where 2.x
+    // spends it on "uninstaller". nsis1x.nsi writes no uninstaller.
+    assert!(!inst.is_uninstaller());
+
+    let section = inst.sections().next().unwrap().unwrap();
+    assert_eq!(
+        inst.read_string(section.name_ptr()).unwrap().to_string(),
+        "Main"
+    );
+    assert_eq!(
+        section.code_size(),
+        2,
+        "SetOutPath and File, before the Ret"
+    );
+}
+
+#[test]
+fn nsis1x_instructions_use_the_1x_opcode_table() {
+    // 1.x numbers its instructions differently: CreateDirectory is 14 where
+    // 2.x puts it at 11, and File is 21 where 2.x puts it at 20. Read through
+    // the modern table these would be SetFileAttributes and GetTempFileName.
+    let (_, lines) = rendered_entries("nsis1x.exe");
+    let decoded: Vec<_> = lines.iter().map(|l| without_timestamps(l)).collect();
+    assert_eq!(
+        decoded,
+        [
+            r#"EW_CREATEDIR path="$INSTDIR", set_outdir=1"#,
+            r#"EW_EXTRACTFILE overwrite=0, name="payload.txt""#,
+            "EW_RET",
+        ]
+    );
+}
+
+#[test]
+fn nsis1x_variables_are_one_byte_each() {
+    // A 1.x variable reference is a single byte at or above 0xDD, where every
+    // later version writes a code byte plus an encoded index. The install
+    // directory of nsis1x.nsi is `$PROGRAMFILES\Nsis1xTest`, stored as the one
+    // byte 0xF6 followed by literal text.
+    let inst = parse_fixture("nsis1x.exe");
+    let dir = inst.install_dir().expect("an install directory");
+    assert_eq!(dir.to_string(), "$PROGRAMFILES\\Nsis1xTest");
+    assert!(matches!(
+        dir.segments.first(),
+        Some(StringSegment::Variable { index: 25, name }) if name == "$PROGRAMFILES"
+    ));
+
+    // $INSTDIR is index 22 in the 1.x list and 21 in every later one, so the
+    // output directory has to be resolved through the installer's own layout.
+    let file = inst.files().next().unwrap().unwrap();
+    assert_eq!(
+        file.dest_path().unwrap().to_string(),
+        "$INSTDIR\\payload.txt"
+    );
+}
+
+#[test]
+fn nsis1x_bzip2_is_solid_and_decodes() {
+    // NSIS 1.98 picks its compressor when makensis is built, so the bzip2
+    // compiler is a second binary - and it was built with NSIS_COMPRESS_WHOLE,
+    // making its output solid too. 1.x bzip2 keeps standard bzip2's per-block
+    // randomised flag, which NSIS 2.0 dropped; read under the 2.x layout every
+    // block is one bit out of alignment and nothing decodes at all.
+    let inst = parse_fixture("nsis1x_bzip2.exe");
+    assert_eq!(inst.version(), NsisVersion::V1);
+    assert_eq!(
+        inst.compression(),
+        nsis::decompress::CompressionMethod::Bzip2
+    );
+    assert_eq!(
+        inst.compression_mode(),
+        nsis::decompress::CompressionMode::Solid
+    );
+    assert!(matches!(inst.solid_status(), SolidStatus::Complete));
+
+    let file = inst.files().next().unwrap().unwrap();
+    assert_eq!(
+        file.dest_path().unwrap().to_string(),
+        "$INSTDIR\\payload.txt"
+    );
+    let content = file.decompress().unwrap();
+    assert!(content.starts_with(b"This is a test payload"));
+    assert_eq!(content.len(), 53, "the build log reports 53 bytes");
+}
+
+#[test]
+fn a_nsis1x_uninstaller_round_trips() {
+    // NSIS 1.x WriteUninstaller takes only a name; where the uninstaller data
+    // lives is a header field, because 1.x has nowhere else to put it. Read as
+    // a 2.x instruction that operand does not exist and reads as 0 - the start
+    // of the data block - so this used to extract whatever happened to be
+    // there.
+    let inst = parse_fixture("nsis1x_uninst.exe");
+    let uninstaller = inst.uninstallers().next().unwrap().unwrap();
+    assert_eq!(
+        uninstaller.path().unwrap().to_string(),
+        "$INSTDIR\\uninst.exe"
+    );
+    assert!(
+        uninstaller.data_offset() > 0,
+        "the offset comes from the header, not the instruction"
+    );
+
+    let stub = uninstaller.decompress().expect("the uninstaller extracts");
+    assert_eq!(&stub[..2], b"MZ", "should be a PE");
+
+    // The extracted uninstaller is itself a 1.x file, and one with a different
+    // header again: 120 bytes and no section table, so its instructions start
+    // where an installer's sections would. Read as an installer, the entry
+    // table lands 120 bytes late and string bytes decode as opcodes.
+    let uninst = NsisInstaller::from_bytes(&stub).expect("the uninstaller parses");
+    assert_eq!(uninst.version(), NsisVersion::V1);
+    assert!(uninst.is_uninstaller());
+    assert_eq!(
+        uninst.section_count(),
+        0,
+        "1.x uninstallers have no sections"
+    );
+
+    let mut lines = Vec::new();
+    let mut line = String::new();
+    for entry in uninst.entries() {
+        line.clear();
+        uninst.write_entry(&mut line, &entry.unwrap());
+        lines.push(line.clone());
+    }
+    // Exactly the uninstall section of nsis1x_uninst.nsi.
+    assert_eq!(
+        lines,
+        [
+            r#"EW_DELETEFILE filename="$INSTDIR\\payload.txt", rebootok=0"#,
+            r#"EW_DELETEFILE filename="$INSTDIR\\docs\\config.ini", rebootok=0"#,
+            r#"EW_DELETEFILE filename="$INSTDIR\\uninst.exe", rebootok=0"#,
+            r#"EW_RMDIR path="$INSTDIR\\docs", recursive=0"#,
+            r#"EW_RMDIR path="$INSTDIR", recursive=0"#,
+            "EW_RET",
+        ]
+    );
+}
+
+/// **A 1.x entry's layout is resolved under the 1.x rules, and a modern one
+/// under its own.**
+///
+/// The pairing is the point: 1.x numbers its instructions differently from every
+/// later version, so its metadata comes from `lookup_v1` and its layout from
+/// `param_layout_v1`. A caller that took one from each table would read a 1.x
+/// entry's operands under a modern opcode's rules - the mnemonic would look
+/// right and every slot would be wrong. `NsisInstaller::param_layout` owns both
+/// halves so they cannot be mixed.
+///
+/// Asserted as agreement with the renderer rather than against a hardcoded
+/// table: the renderer is the consumer whose output is already pinned by the
+/// fixtures above, so if the layout this hands back were the wrong version's,
+/// those would move.
+#[test]
+fn a_layout_is_resolved_under_its_own_installers_version() {
+    for name in ["nsis1x.exe", "nsis246_ansi_solid.exe"] {
+        let inst = parse_fixture(name);
+        let mut checked = 0usize;
+        for entry in inst.entries().take(200) {
+            let Ok(entry) = entry else { continue };
+            let Some(layout) = inst.param_layout(&entry) else {
+                continue;
+            };
+            let Some(info) = inst.resolve_opcode(entry.which()) else {
+                continue;
+            };
+            // Every named slot the layout declares is within the opcode's own
+            // parameter space, which a layout from the other version's table
+            // would routinely exceed.
+            assert!(
+                layout.count as usize <= layout.names.len(),
+                "{name}: {} declares {} operands",
+                info.mnemonic,
+                layout.count
+            );
+            // The layout is the one the renderer uses, so the rendered line
+            // names the slots this declares.
+            let rendered = inst.format_entry(&entry);
+            assert!(
+                rendered.starts_with(info.mnemonic),
+                "{name}: {rendered} is not {}",
+                info.mnemonic
+            );
+            for slot in layout.names.iter().take(layout.count as usize) {
+                if slot.is_empty() {
+                    continue;
+                }
+                checked = checked.saturating_add(1);
+            }
+        }
+        assert!(
+            checked > 0,
+            "{name} declared no named operand at all, so this asserts nothing"
+        );
+    }
+}
+
+/// **Push, Pop and Exch name their command.**
+///
+/// All three are `EW_PUSHPOP`, told apart by which operand is set. Resolving
+/// that through `param_layout` briefly dropped the command from the rendered
+/// line, printed a Pop's selector as `op=1` and an `Exch` depth of 1 as
+/// `index=1`, and no test noticed: no fixture uses the opcode. So the entries
+/// are built by hand and rendered against real installers, whose string tables
+/// resolve the operands.
+#[test]
+fn push_pop_and_exch_name_their_command() {
+    let pushpop = |offsets: [i32; 6]| -> Vec<u8> {
+        std::iter::once(EW_PUSHPOP)
+            .chain(offsets)
+            .flat_map(i32::to_le_bytes)
+            .collect()
+    };
+    for name in ["deflate_nonsolid.exe", "dirs_nsis246_ansi_solid.exe"] {
+        let inst = parse_fixture(name);
+        for (offsets, expected) in [
+            (
+                [1, 0, 0, 0, 0, 0],
+                r#"EW_PUSHPOP op=Push, value="ProgramFilesDir""#,
+            ),
+            ([3, 1, 0, 0, 0, 0], "EW_PUSHPOP op=Pop, var=$3"),
+            ([0, 0, 1, 0, 0, 0], "EW_PUSHPOP op=Exch"),
+            ([0, 0, 2, 0, 0, 0], "EW_PUSHPOP op=Exch, index=2"),
+        ] {
+            let bytes = pushpop(offsets);
+            let entry = Entry::parse(&bytes).unwrap();
+            assert_eq!(inst.format_entry(&entry), expected, "{name}: {offsets:?}");
+        }
+    }
+}
+
+// -- Language tables --
+
+/// The language table for `lang_id`.
+fn lang_table<'a>(
+    inst: &'a NsisInstaller<'_>,
+    lang_id: u16,
+) -> nsis::nsis::langtable::LangTable<'a> {
+    inst.lang_tables()
+        .map(Result::unwrap)
+        .find(|t| t.lang_id() == lang_id)
+        .unwrap_or_else(|| panic!("no table for language {lang_id}"))
+}
+
+#[test]
+fn lang_tables_read_every_field_at_its_offset() {
+    // `langstrings.nsi` loads English, German and Hebrew. The compiler marks
+    // Hebrew right-to-left and offsets its dialog resources by 100.
+    let inst = parse_fixture("langstrings.exe");
+    let mut ids: Vec<u16> = inst.lang_tables().map(|t| t.unwrap().lang_id()).collect();
+    ids.sort_unstable();
+    assert_eq!(ids, [1031, 1033, 1037]);
+
+    for (id, rtl, dlg_offset) in [(1033, false, 0), (1031, false, 0), (1037, true, 100)] {
+        let table = lang_table(&inst, id);
+        assert_eq!(table.is_rtl(), rtl, "language {id}");
+        assert_eq!(table.dlg_offset(), dlg_offset, "language {id}");
+    }
+}
+
+#[test]
+fn lang_string_two_is_the_installer_name_in_every_version() {
+    // Language strings 0-2 are the branding text, the caption and `Name`, in
+    // every compiler since NSIS 2. The caption names `$(^Name)` in turn.
+    for (fixture, name) in [
+        ("nsis203_ansi.exe", "NSIS203 Test"),
+        ("nsis246_ansi_solid.exe", "NSIS246 Test"),
+        ("park3_unicode.exe", "Park Test"),
+        ("full_featured.exe", "Full Featured Test"),
+        ("langstrings.exe", "Language Test"),
+    ] {
+        let inst = parse_fixture(fixture);
+        let english = lang_table(&inst, 1033);
+        assert_eq!(
+            inst.lang_string(&english, 2).unwrap().to_string(),
+            name,
+            "{fixture}"
+        );
+        assert_eq!(
+            inst.lang_string(&english, 1).unwrap().to_string(),
+            format!("{name} Setup"),
+            "{fixture}"
+        );
+        assert!(
+            inst.lang_string(&english, 0)
+                .unwrap()
+                .to_string()
+                .starts_with("Nullsoft Install System"),
+            "{fixture}"
+        );
+    }
+}
+
+#[test]
+fn lang_string_follows_the_language() {
+    let inst = parse_fixture("langstrings.exe");
+    let german = lang_table(&inst, 1031);
+    assert_eq!(
+        inst.lang_string(&german, 1).unwrap().to_string(),
+        "Installation von Language Test"
+    );
+}
+
+#[test]
+fn instruction_operands_resolve_per_language() {
+    // `DetailPrint "$(Greeting)"` stores a language-string reference; each
+    // language's text in turn names `$(^Name)`.
+    let inst = parse_fixture("langstrings.exe");
+    let operand = inst
+        .entries()
+        .map(Result::unwrap)
+        .flat_map(|e| e.offsets())
+        .filter(|&offset| offset < 0)
+        .map(|offset| inst.read_string(offset).unwrap())
+        .find(|s| {
+            inst.resolve_lang_strings(s, &lang_table(&inst, 1033))
+                .unwrap()
+                .to_string()
+                .starts_with("Hello")
+        })
+        .expect("the DetailPrint operand");
+    assert!(
+        operand.to_string().starts_with("$(LSTR_"),
+        "unresolved: {operand}"
+    );
+
+    for (id, text) in [
+        (1033, "Hello from Language Test"),
+        (1031, "Hallo von Language Test"),
+        (1037, "Shalom from Language Test"),
+    ] {
+        let resolved = inst
+            .resolve_lang_strings(&operand, &lang_table(&inst, id))
+            .unwrap();
+        assert_eq!(resolved.to_string(), text, "language {id}");
+    }
+}
+
+#[test]
+fn lang_string_rejects_an_index_past_the_table() {
+    let inst = parse_fixture("langstrings.exe");
+    let english = lang_table(&inst, 1033);
+    let past = u16::try_from(english.string_count()).unwrap();
+    assert!(matches!(
+        inst.lang_string(&english, past),
+        Err(Error::InvalidStringOffset { .. })
+    ));
+}

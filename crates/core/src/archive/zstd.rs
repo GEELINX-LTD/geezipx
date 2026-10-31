@@ -10,7 +10,19 @@
 use std::io::{Read, Write};
 
 use crate::config::CompressOptions;
+use crate::detect::ArchiveFormat;
 use crate::error::{GeeZipError, GeeZipResult};
+
+fn compression_level(level: Option<u32>) -> GeeZipResult<i32> {
+    match level {
+        None | Some(0) => Ok(0),
+        Some(level @ 1..=22) => Ok(level as i32),
+        Some(level) => Err(GeeZipError::format(
+            format!("zstd compression level must be 0..=22, got {level}"),
+            ArchiveFormat::Zstd,
+        )),
+    }
+}
 
 /// Compress data from `reader` into `writer` using Zstandard at the given level.
 ///
@@ -25,10 +37,7 @@ pub fn zstd_compress_with_level<R: Read, W: Write>(
     writer: W,
     level: Option<u32>,
 ) -> GeeZipResult<u64> {
-    let level_i32 = match level {
-        None | Some(0) => 0, // 0 means "default" in the zstd crate
-        Some(l) => l as i32,
-    };
+    let level_i32 = compression_level(level)?;
     let mut encoder = zstd::stream::write::Encoder::new(writer, level_i32)
         .map_err(|e| GeeZipError::io(e, "zstd compression init failed"))?;
     let bytes = std::io::copy(reader, &mut encoder)
@@ -51,11 +60,9 @@ pub fn zstd_compress_with_options<R: Read, W: Write>(
     writer: W,
     options: CompressOptions,
 ) -> GeeZipResult<u64> {
-    let level_i32 = match options.level {
-        None | Some(0) => 0,
-        Some(l) => l as i32,
-    };
-    let workers = options.effective_jobs() as u32;
+    let level_i32 = compression_level(options.level)?;
+    let workers = u32::try_from(options.effective_jobs())
+        .map_err(|_| GeeZipError::format("zstd jobs exceeds u32 range", ArchiveFormat::Zstd))?;
     let mut encoder = zstd::stream::write::Encoder::new(writer, level_i32)
         .map_err(|e| GeeZipError::io(e, "zstd compression init failed"))?;
     if workers > 1 {
@@ -97,6 +104,22 @@ pub fn zstd_decompress<R: Read, W: Write>(reader: &mut R, writer: &mut W) -> Gee
 mod tests {
     use super::*;
     use std::io::Cursor;
+
+    #[test]
+    fn zstd_presets_do_not_wrap_into_negative_fast_levels() {
+        for level in [23, u32::MAX] {
+            assert!(
+                zstd_compress_with_level(&mut &b"input"[..], std::io::sink(), Some(level)).is_err()
+            );
+            let options = CompressOptions {
+                level: Some(level),
+                ..Default::default()
+            };
+            assert!(
+                zstd_compress_with_options(&mut &b"input"[..], std::io::sink(), options).is_err()
+            );
+        }
+    }
 
     #[test]
     fn zstd_roundtrip() {

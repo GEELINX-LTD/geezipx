@@ -19,11 +19,14 @@ use crate::error::{GeeZipError, GeeZipResult};
 ///
 /// `None` and `Some(0)` map to the default level (6). Unlike gzip/xz, the
 /// libbz2 API does not support a true "store only" level 0 mode.
-fn level_to_compression(level: Option<u32>) -> ::bzip2::Compression {
+fn level_to_compression(level: Option<u32>) -> GeeZipResult<::bzip2::Compression> {
     match level {
-        None | Some(0) => ::bzip2::Compression::default(),
-        Some(l @ 1..=9) => ::bzip2::Compression::new(l),
-        Some(l) => panic!("expected bzip2 compression level in 0..=9, got {l}"),
+        None | Some(0) => Ok(::bzip2::Compression::default()),
+        Some(l @ 1..=9) => Ok(::bzip2::Compression::new(l)),
+        Some(l) => Err(GeeZipError::format(
+            format!("bzip2 level must be in 0..=9, got {l}"),
+            crate::detect::ArchiveFormat::Bzip2,
+        )),
     }
 }
 
@@ -42,7 +45,7 @@ pub fn bzip2_compress_with_level<R: Read, W: Write>(
     writer: W,
     level: Option<u32>,
 ) -> GeeZipResult<u64> {
-    let compression = level_to_compression(level);
+    let compression = level_to_compression(level)?;
     let mut encoder = ::bzip2::write::BzEncoder::new(writer, compression);
     let bytes = std::io::copy(reader, &mut encoder)
         .map_err(|e| GeeZipError::io(e, "bzip2 compression failed"))?;
@@ -93,6 +96,13 @@ pub fn bzip2_decompress<R: Read, W: Write>(reader: &mut R, writer: &mut W) -> Ge
 mod tests {
     use super::*;
     use std::io::Cursor;
+
+    #[test]
+    fn bzip2_invalid_level_writes_nothing() {
+        let mut out = Vec::new();
+        assert!(bzip2_compress_with_level(&mut b"payload".as_slice(), &mut out, Some(10)).is_err());
+        assert!(out.is_empty());
+    }
 
     #[test]
     fn bzip2_roundtrip() {

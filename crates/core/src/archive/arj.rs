@@ -17,7 +17,9 @@ use std::fs::File;
 use std::io::{BufReader, Write};
 use std::path::PathBuf;
 
-use unarc_rs::unified::{ArchiveEntry as UnarcEntry, ArchiveFormat as UnarcFormat, UnifiedArchive};
+use unarc_rs::unified::{
+    ArchiveEntry as UnarcEntry, ArchiveFormat as UnarcFormat, ArchiveOptions, UnifiedArchive,
+};
 
 use crate::archive::{ArchiveReader, Entry};
 use crate::detect::ArchiveFormat;
@@ -27,6 +29,7 @@ use crate::error::{GeeZipError, GeeZipResult};
 pub struct ArjReader {
     path: PathBuf,
     format: ArchiveFormat,
+    password: Option<String>,
 }
 
 impl fmt::Debug for ArjReader {
@@ -44,13 +47,24 @@ impl ArjReader {
         Self {
             path: path.into(),
             format: ArchiveFormat::Arj,
+            password: None,
         }
     }
 
     fn open_archive(&self) -> GeeZipResult<UnifiedArchive<BufReader<File>>> {
         let file = File::open(&self.path)
             .map_err(|e| GeeZipError::io(e, format!("opening '{}'", self.path.display())))?;
-        UnifiedArchive::open_with_format(BufReader::new(file), UnarcFormat::Arj).map_err(|e| {
+        // The unified setter changes options without updating the ARJ backend.
+        let mut options = ArchiveOptions::default();
+        if let Some(password) = &self.password {
+            options = options.with_password(password.clone());
+        }
+        UnifiedArchive::open_with_format_and_options(
+            BufReader::new(file),
+            UnarcFormat::Arj,
+            options,
+        )
+        .map_err(|e| {
             GeeZipError::format(
                 format!("invalid ARJ archive '{}': {e}", self.path.display()),
                 ArchiveFormat::Arj,
@@ -66,6 +80,9 @@ impl ArjReader {
             .map_err(|e| GeeZipError::format(format!("ARJ read error: {e}"), ArchiveFormat::Arj))?
         {
             entries.push(convert_entry(&unarc_entry));
+            archive.skip(&unarc_entry).map_err(|e| {
+                GeeZipError::format(format!("ARJ skip error: {e}"), ArchiveFormat::Arj)
+            })?;
         }
         Ok(entries)
     }
@@ -74,6 +91,11 @@ impl ArjReader {
 impl ArchiveReader for ArjReader {
     fn format(&self) -> ArchiveFormat {
         self.format
+    }
+
+    fn set_password(&mut self, password: &str) -> GeeZipResult<()> {
+        self.password = Some(password.to_owned());
+        Ok(())
     }
 
     fn entries(&mut self) -> GeeZipResult<Vec<Entry>> {
@@ -105,7 +127,9 @@ impl ArchiveReader for ArjReader {
                 return Ok(len);
             }
             // Skip non-matching entry.
-            let _ = archive.skip(&unarc_entry);
+            archive.skip(&unarc_entry).map_err(|e| {
+                GeeZipError::format(format!("ARJ skip error: {e}"), ArchiveFormat::Arj)
+            })?;
         }
         Err(GeeZipError::EntryNotFound {
             name: entry.path.clone(),
@@ -130,7 +154,7 @@ fn convert_entry(unarc_entry: &UnarcEntry) -> Entry {
         compressed_size: unarc_entry.compressed_size(),
         crc32: Some(unarc_entry.crc() as u32),
         modified,
-        is_dir: unarc_entry.original_size() == 0 && unarc_entry.name().ends_with('/'),
+        is_dir: unarc_entry.is_directory(),
     }
 }
 
@@ -149,6 +173,75 @@ mod tests {
         //   - malformed input → clean error
         //   - trait-object dispatch works
         b"MALFORMED_ARJ_FILE".to_vec()
+    }
+
+    #[test]
+    fn arj_password_reaches_backend_before_open() {
+        fn header(data: &[u8]) -> Vec<u8> {
+            let mut bytes = vec![0x60, 0xea];
+            bytes.extend_from_slice(&(data.len() as u16).to_le_bytes());
+            bytes.extend_from_slice(data);
+            bytes.extend_from_slice(&crc32fast::hash(data).to_le_bytes());
+            bytes.extend_from_slice(&[0, 0]); // no extended headers
+            bytes
+        }
+        let mut main = vec![0; 30];
+        main[0] = 30;
+        main[1] = 11;
+        main[2] = 1;
+        main[4] = 1; // garbled, legacy encryption version zero
+        main[6] = 2; // archive comment header
+        main.extend_from_slice(b"encrypted.arj\0\0");
+        let mut archive = header(&main);
+        let data = b"ARJ garble password regression";
+        let mut file = vec![0; 30];
+        file[0] = 30;
+        file[1] = 11;
+        file[2] = 1;
+        file[4] = 1; // garbled Store entry
+        file[7] = 17; // password modifier
+        file[12..16].copy_from_slice(&(data.len() as u32).to_le_bytes());
+        file[16..20].copy_from_slice(&(data.len() as u32).to_le_bytes());
+        file[20..24].copy_from_slice(&crc32fast::hash(data).to_le_bytes());
+        file.extend_from_slice(b"payload.txt\0\0");
+        archive.extend(header(&file));
+        let password = b"secret";
+        for (index, &byte) in data.iter().enumerate() {
+            archive.push(byte ^ password[index % password.len()].wrapping_add(17));
+        }
+        archive.extend_from_slice(&[0x60, 0xea, 0, 0]);
+        let temp = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(temp.path(), archive).unwrap();
+        let mut reader = ArjReader::new(temp.path());
+        let entry = reader.entries().unwrap().remove(0);
+        assert!(reader.extract(&entry, &mut Vec::new()).is_err());
+        reader.set_password("secret").unwrap();
+        let mut output = Vec::new();
+        assert_eq!(
+            reader.extract(&entry, &mut output).unwrap(),
+            data.len() as u64
+        );
+        assert_eq!(output, data);
+        reader.set_password("wrong").unwrap();
+        assert!(reader.extract(&entry, &mut Vec::new()).is_err());
+    }
+
+    #[test]
+    fn arj_real_archive_lists_and_extracts() {
+        let temp = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(
+            temp.path(),
+            include_bytes!("../../tests/fixtures/stored.arj"),
+        )
+        .unwrap();
+        let mut reader = ArjReader::new(temp.path());
+        let entries = reader.entries().unwrap();
+        assert!(!entries.is_empty());
+        for entry in entries.iter().filter(|e| !e.is_dir) {
+            let mut data = Vec::new();
+            assert_eq!(reader.extract(entry, &mut data).unwrap(), entry.size);
+            assert_eq!(crc32fast::hash(&data), entry.crc32.unwrap());
+        }
     }
 
     #[test]

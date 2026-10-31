@@ -121,6 +121,40 @@ impl ArchiveReader for RarReader {
         Ok(entries)
     }
 
+    fn has_direct_visitor(&self) -> bool {
+        true
+    }
+
+    fn visit_entries(
+        &mut self,
+        visitor: &mut super::EntryVisitor<'_>,
+        is_cancelled: &dyn Fn() -> bool,
+    ) -> GeeZipResult<()> {
+        let mut archive = self.open_process()?;
+        while let Some(header) = archive.read_header().map_err(convert_unrar_error)? {
+            if is_cancelled() {
+                return Err(GeeZipError::Cancelled);
+            }
+            let entry = Self::to_entry(header.entry());
+            if entry.is_dir {
+                let keep_going = visitor(&entry, &mut std::io::empty())?;
+                archive = header.skip().map_err(convert_unrar_error)?;
+                if !keep_going {
+                    break;
+                }
+            } else {
+                // unrar 0.5 exposes Vec or filesystem extraction, not a writer
+                // callback. Retain one item at a time and keep the solid state.
+                let (data, next) = header.read().map_err(convert_unrar_error)?;
+                archive = next;
+                if !visitor(&entry, &mut std::io::Cursor::new(data))? {
+                    break;
+                }
+            }
+        }
+        Ok(())
+    }
+
     fn extract(&mut self, entry: &Entry, writer: &mut dyn Write) -> GeeZipResult<u64> {
         let mut archive = self.open_process()?;
         let target_path = &entry.path;
@@ -240,18 +274,16 @@ impl ArchiveReader for RarReader {
             // Read entry data and write
             let (data, rest) = header.read().map_err(convert_unrar_error)?;
             archive = rest;
-            if !data.is_empty() {
-                match output.write_all(&data) {
-                    Ok(()) => {
-                        report.files_extracted += 1;
-                        report.bytes_extracted += size;
-                    }
-                    Err(e) => {
-                        report.errors.push((
-                            entry_path_str.clone(),
-                            GeeZipError::io(e, format!("extracting '{}'", entry_path_str)),
-                        ));
-                    }
+            match output.write_all(&data) {
+                Ok(()) => {
+                    report.files_extracted += 1;
+                    report.bytes_extracted += size;
+                }
+                Err(e) => {
+                    report.errors.push((
+                        entry_path_str.clone(),
+                        GeeZipError::io(e, format!("extracting '{}'", entry_path_str)),
+                    ));
                 }
             }
         }
@@ -366,21 +398,18 @@ impl ArchiveReader for RarReader {
                 return Err(GeeZipError::Cancelled);
             }
 
-            // Read entry data and write
             let (data, rest) = header.read().map_err(convert_unrar_error)?;
             archive = rest;
-            if !data.is_empty() {
-                match output.write_all(&data) {
-                    Ok(()) => {
-                        report.files_extracted += 1;
-                        report.bytes_extracted += size;
-                    }
-                    Err(e) => {
-                        report.errors.push((
-                            entry_path_str.clone(),
-                            GeeZipError::io(e, format!("extracting '{}'", entry_path_str)),
-                        ));
-                    }
+            match output.write_all(&data) {
+                Ok(()) => {
+                    report.files_extracted += 1;
+                    report.bytes_extracted += size;
+                }
+                Err(e) => {
+                    report.errors.push((
+                        entry_path_str.clone(),
+                        GeeZipError::io(e, format!("extracting '{}'", entry_path_str)),
+                    ));
                 }
             }
         }
@@ -455,6 +484,65 @@ mod tests {
 
         let result = UnrarArchive::new(&path).open_for_listing();
         assert!(result.is_err(), "corrupted data should fail");
+    }
+
+    #[test]
+    fn rar_stored_entries_visit_in_order_and_count_empty_files() {
+        // Independent RAR4 Store fixture: basic 13-byte main header and
+        // 32-byte file headers, each protected by the low CRC32 word.
+        fn header(mut data: Vec<u8>) -> Vec<u8> {
+            let crc = crc32fast::hash(&data[2..]) as u16;
+            data[..2].copy_from_slice(&crc.to_le_bytes());
+            data
+        }
+        let mut rar = b"Rar!\x1a\x07\x00".to_vec();
+        rar.extend(header(vec![0, 0, 0x73, 0, 0, 13, 0, 0, 0, 0, 0, 0, 0]));
+        for (name, data) in [("empty", &b""[..]), ("filled", &b"data"[..])] {
+            let mut h = vec![0, 0, 0x74, 0, 0x80];
+            h.extend_from_slice(&(32u16 + name.len() as u16).to_le_bytes());
+            h.extend_from_slice(&(data.len() as u32).to_le_bytes());
+            h.extend_from_slice(&(data.len() as u32).to_le_bytes());
+            h.push(3);
+            h.extend_from_slice(&crc32fast::hash(data).to_le_bytes());
+            h.extend_from_slice(&0u32.to_le_bytes());
+            h.extend_from_slice(&[20, 0x30]);
+            h.extend_from_slice(&(name.len() as u16).to_le_bytes());
+            h.extend_from_slice(&0o100644u32.to_le_bytes());
+            h.extend_from_slice(name.as_bytes());
+            rar.extend(header(h));
+            rar.extend_from_slice(data);
+        }
+        rar.extend(header(vec![0, 0, 0x7b, 0, 0, 7, 0]));
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("test.rar");
+        std::fs::write(&path, rar).unwrap();
+        let mut reader = RarReader::new(&path);
+        let mut visited = Vec::new();
+        reader
+            .visit_entries(
+                &mut |entry, input| {
+                    let n = std::io::copy(input, &mut std::io::sink())?;
+                    assert_eq!(n, entry.size);
+                    visited.push(entry.path.clone());
+                    Ok(true)
+                },
+                &|| false,
+            )
+            .unwrap();
+        assert_eq!(visited, ["empty", "filled"]);
+        let output = tmp.path().join("files");
+        let report = reader.extract_all(&output, true).unwrap();
+        assert!(report.errors.is_empty());
+        assert_eq!(report.files_extracted, 2);
+        assert_eq!(report.bytes_extracted, 4);
+        let cancelled = tmp.path().join("cancel_api");
+        assert_eq!(
+            reader
+                .extract_all_with_cancel(&cancelled, true, &|| false)
+                .unwrap()
+                .files_extracted,
+            2
+        );
     }
 
     /// Helper: generate a minimal RAR archive with a single file.

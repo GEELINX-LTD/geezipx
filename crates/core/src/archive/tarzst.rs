@@ -109,6 +109,10 @@ impl<R: Read + Seek + Send> ArchiveReader for TarZstReader<R> {
         collect_tarzst_entries(&mut archive)
     }
 
+    fn has_direct_visitor(&self) -> bool {
+        true
+    }
+
     fn visit_entries(
         &mut self,
         visitor: &mut super::EntryVisitor<'_>,
