@@ -2,12 +2,15 @@ use super::*;
 
 impl App {
     pub(super) fn workspace(&mut self, ui: &mut egui::Ui, context: &egui::Context) {
+        let language = self.preferences.language;
         let busy = self.busy();
         if let Some(path) = self.retry_path.clone() {
             ui.horizontal(|ui| {
-                ui.add(egui::Label::new(format!("未能打开：{}", path.display())).truncate());
+                ui.add(
+                    egui::Label::new(tr!(language, CannotOpenArchive, path.display())).truncate(),
+                );
                 if ui
-                    .add_enabled(!busy, egui::Button::new("输入密码重试"))
+                    .add_enabled(!busy, egui::Button::new(tr!(language, RetryPassword)))
                     .clicked()
                 {
                     self.unlock = Some(Unlock {
@@ -26,17 +29,23 @@ impl App {
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 4.0;
             ui.add_enabled_ui(browser.can_back(), |ui| {
-                if widgets::navigation_button(ui, Icon::ArrowLeft, "返回", false).clicked() {
+                if widgets::navigation_button(ui, Icon::ArrowLeft, tr!(language, Back), false)
+                    .clicked()
+                {
                     browser.back();
                 }
             });
             ui.add_enabled_ui(browser.can_forward(), |ui| {
-                if widgets::navigation_button(ui, Icon::ArrowRight, "前进", false).clicked() {
+                if widgets::navigation_button(ui, Icon::ArrowRight, tr!(language, Forward), false)
+                    .clicked()
+                {
                     browser.forward();
                 }
             });
             ui.add_enabled_ui(!browser.directory.is_empty(), |ui| {
-                if widgets::navigation_button(ui, Icon::ArrowUp, "上一级", true).clicked() {
+                if widgets::navigation_button(ui, Icon::ArrowUp, tr!(language, Parent), true)
+                    .clicked()
+                {
                     browser.parent();
                 }
             });
@@ -97,7 +106,7 @@ impl App {
                 },
             );
             ui.add_space(4.0);
-            if widgets::search(ui, &mut browser.query, search_width).changed() {
+            if widgets::search(ui, &mut browser.query, search_width, language).changed() {
                 browser.refresh();
             }
         });
@@ -108,6 +117,7 @@ impl App {
             .show_inside(ui, |ui| self.archive_contents(ui, context));
     }
     fn archive_contents(&mut self, ui: &mut egui::Ui, context: &egui::Context) {
+        let language = self.preferences.language;
         let busy = self.busy();
         let mut preview = None;
         let mut extract = false;
@@ -123,10 +133,10 @@ impl App {
         let palette = theme::palette(ui);
         ui.painter().rect_filled(header, 4, palette.soft);
         for (index, (label, sort)) in [
-            ("名称", Some(SortColumn::Name)),
-            ("大小", Some(SortColumn::Size)),
-            ("压缩后", Some(SortColumn::Packed)),
-            ("类型", Some(SortColumn::Type)),
+            (tr!(language, Name), Some(SortColumn::Name)),
+            (tr!(language, Size), Some(SortColumn::Size)),
+            (tr!(language, Packed), Some(SortColumn::Packed)),
+            (tr!(language, Type), Some(SortColumn::Type)),
         ]
         .into_iter()
         .enumerate()
@@ -260,7 +270,7 @@ impl App {
                                     name: "..",
                                     size: "",
                                     packed: "",
-                                    kind: "上一级",
+                                    kind: tr!(language, Parent),
                                     folder: true,
                                     selected: false,
                                     focused: false,
@@ -278,7 +288,7 @@ impl App {
                             if response.drag_started() {
                                 self.row_activation.reset();
                             }
-                            response.on_hover_text("双击返回上一级");
+                            response.on_hover_text(tr!(language, ParentHint));
                             continue;
                         }
                         let index = visual_index - parent_offset;
@@ -302,7 +312,13 @@ impl App {
                                     name: &row.name,
                                     size: &size,
                                     packed: &packed,
-                                    kind: &row.kind,
+                                    kind: if row.is_dir {
+                                        tr!(language, Folder)
+                                    } else if row.kind == "文件" {
+                                        tr!(language, File)
+                                    } else {
+                                        &row.kind
+                                    },
                                     folder: row.is_dir,
                                     selected: browser.selection.contains(&row.path),
                                     focused: list_focused
@@ -359,13 +375,16 @@ impl App {
                             }
                             response.context_menu(|ui| {
                                 widgets::menu(ui);
-                                if row.is_dir && ui.button("打开文件夹").clicked() {
+                                if row.is_dir && ui.button(tr!(language, OpenFolder)).clicked() {
                                     navigate = Some(row.path.clone());
                                     ui.close();
                                 }
                                 if !row.is_dir
                                     && ui
-                                        .add_enabled(!busy, egui::Button::new("预览文本"))
+                                        .add_enabled(
+                                            !busy,
+                                            egui::Button::new(tr!(language, PreviewText)),
+                                        )
                                         .clicked()
                                 {
                                     preview = row.entry_index;
@@ -375,8 +394,9 @@ impl App {
                                 if ui
                                     .add_enabled(
                                         !busy,
-                                        egui::Button::new(format!(
-                                            "解压所选 ({})…",
+                                        egui::Button::new(tr!(
+                                            language,
+                                            ExtractSelectedCount,
                                             browser.selection.len()
                                         )),
                                     )
@@ -385,7 +405,7 @@ impl App {
                                     extract = true;
                                     ui.close();
                                 }
-                                if ui.button("复制归档内路径").clicked() {
+                                if ui.button(tr!(language, CopyArchivePath)).clicked() {
                                     context.copy_text(
                                         browser
                                             .selection
@@ -397,11 +417,11 @@ impl App {
                                     ui.close();
                                 }
                                 ui.separator();
-                                if ui.button("全选").clicked() {
+                                if ui.button(tr!(language, SelectAll)).clicked() {
                                     browser.select_all();
                                     ui.close();
                                 }
-                                if ui.button("清空选择").clicked() {
+                                if ui.button(tr!(language, ClearSelection)).clicked() {
                                     browser.clear_selection();
                                     ui.close();
                                 }
@@ -414,9 +434,9 @@ impl App {
                             theme::caption(
                                 ui,
                                 if browser.query.is_empty() {
-                                    "此文件夹为空"
+                                    tr!(language, EmptyFolder)
                                 } else {
-                                    "没有匹配的文件 · 按 Esc 清除搜索"
+                                    tr!(language, NoMatches)
                                 },
                             );
                         });
@@ -510,6 +530,7 @@ impl App {
         }
     }
     fn welcome(&mut self, ui: &mut egui::Ui, context: &egui::Context) {
+        let language = self.preferences.language;
         let opening = self
             .active
             .as_ref()
@@ -523,8 +544,8 @@ impl App {
                     if opening {
                         ui.spinner();
                         ui.add_space(10.0);
-                        ui.heading("正在打开归档…");
-                        theme::caption(ui, "归档目录在后台读取，你可以随时取消。");
+                        ui.heading(tr!(language, OpeningArchive));
+                        theme::caption(ui, tr!(language, OpeningHint));
                         return;
                     }
                     if ui.available_height() > 560.0 {
@@ -533,21 +554,33 @@ impl App {
                         theme::logo(ui, 48.0);
                         ui.add_space(12.0);
                     }
-                    ui.label(RichText::new("文件归档，轻松处理").size(23.0).strong());
-                    theme::caption(ui, "拖入压缩包直接浏览，拖入文件或文件夹开始压缩。");
+                    ui.label(RichText::new(tr!(language, Welcome)).size(23.0).strong());
+                    theme::caption(ui, tr!(language, WelcomeHint));
                     ui.add_space(18.0);
                     ui.horizontal(|ui| {
                         let button_width = 118.0;
                         let group_width = button_width * 2.0 + ui.spacing().item_spacing.x;
                         ui.add_space(((ui.available_width() - group_width) / 2.0).max(0.0));
                         ui.add_enabled_ui(!busy, |ui| {
-                            if widgets::button(ui, "打开归档", Icon::Folder, true, button_width)
-                                .clicked()
+                            if widgets::button(
+                                ui,
+                                tr!(language, OpenArchive),
+                                Icon::Folder,
+                                true,
+                                button_width,
+                            )
+                            .clicked()
                             {
                                 self.dialog(context, Dialog::Open);
                             }
-                            if widgets::button(ui, "新建压缩包", Icon::Plus, false, button_width)
-                                .clicked()
+                            if widgets::button(
+                                ui,
+                                tr!(language, NewArchive),
+                                Icon::Plus,
+                                false,
+                                button_width,
+                            )
+                            .clicked()
                             {
                                 self.new_archive();
                             }
@@ -564,12 +597,13 @@ impl App {
                     ui.vertical(|ui| {
                         ui.set_width(recent_width);
                         ui.horizontal(|ui| {
-                            theme::caption(ui, "最近打开");
+                            theme::caption(ui, tr!(language, Recent));
                             ui.with_layout(
                                 egui::Layout::right_to_left(egui::Align::Center),
                                 |ui| {
                                     if !self.preferences.recent.is_empty()
-                                        && widgets::subtle_button(ui, "清空").clicked()
+                                        && widgets::subtle_button(ui, tr!(language, Clear))
+                                            .clicked()
                                     {
                                         self.preferences.recent.clear();
                                     }
@@ -585,7 +619,7 @@ impl App {
                                     &path.file_name().unwrap_or_default().to_string_lossy(),
                                     Icon::Archive,
                                     false,
-                                    "打开",
+                                    tr!(language, Open),
                                 )
                                 .on_hover_text(path.display().to_string())
                                 .clicked()
@@ -596,7 +630,7 @@ impl App {
                         }
                         if self.preferences.recent.is_empty() {
                             ui.add_space(8.0);
-                            theme::caption(ui, "打开过的归档会显示在这里。");
+                            theme::caption(ui, tr!(language, RecentHint));
                         }
                         if let Some(path) = open {
                             self.open_archive(context, path, None);

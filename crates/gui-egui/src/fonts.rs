@@ -1,6 +1,7 @@
 use ab_glyph::{Font, FontRef};
 use eframe::egui::{self, FontData, FontDefinitions, FontFamily};
 use fontdb::{Database, Family, Query};
+use geezipx_egui::{i18n::Language, tr};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 use std::sync::{Arc, OnceLock};
@@ -26,10 +27,10 @@ pub enum Selection {
 }
 
 impl Selection {
-    pub fn label(&self) -> &str {
+    pub fn label_in(&self, language: Language) -> &str {
         match self {
-            Self::System => "跟随系统（默认）",
-            Self::Noto => "Noto Sans SC（内置）",
+            Self::System => tr!(language, SystemFont),
+            Self::Noto => tr!(language, NotoFont),
             Self::Installed(name) => name,
         }
     }

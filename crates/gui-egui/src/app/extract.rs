@@ -59,7 +59,7 @@ impl App {
             return;
         };
         if options.show_password && self.read_password.is_empty() {
-            self.form_error = Some("请输入归档密码，或关闭密码输入。".into());
+            self.form_error = Some(tr!(self.preferences.language, EnterPasswordOrDisable).into());
             self.extraction = Some(options);
             return;
         }
@@ -86,6 +86,7 @@ impl App {
             return;
         }
         let busy = self.busy();
+        let language = self.preferences.language;
         let had_popup = egui::Popup::is_any_open(context);
         let mut cancel = false;
         let mut browse = false;
@@ -101,10 +102,11 @@ impl App {
                 let (rect, _) =
                     ui.allocate_exact_size(egui::vec2(26.0, 26.0), egui::Sense::hover());
                 widgets::paint_icon(ui.painter(), rect, Icon::Folder, theme::palette(ui).accent);
-                ui.heading("解压到");
+                ui.heading(tr!(language, ExtractTo));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.add_enabled_ui(!busy, |ui| {
-                        cancel = widgets::icon_button(ui, Icon::Close, "关闭").clicked();
+                        cancel =
+                            widgets::icon_button(ui, Icon::Close, tr!(language, Close)).clicked();
                     });
                 });
             });
@@ -122,10 +124,12 @@ impl App {
             theme::caption(
                 ui,
                 if options.selection.is_empty() {
-                    format!("{name} · 全部内容")
+                    tr!(language, ExtractAllSummary, name)
                 } else {
-                    format!(
-                        "{name} · 已选 {} 项，包含文件夹内全部内容",
+                    tr!(
+                        language,
+                        ExtractSelectionSummary,
+                        name,
                         options.selection.len()
                     )
                 },
@@ -140,45 +144,58 @@ impl App {
                             ui.label(RichText::new(error).color(Color32::from_rgb(194, 81, 70)));
                             ui.add_space(4.0);
                         }
-                        ui.label(RichText::new("目标位置").strong());
+                        ui.label(RichText::new(tr!(language, Destination)).strong());
                         ui.horizontal(|ui| {
                             let width = (ui.available_width() - 38.0).max(120.0);
                             ui.allocate_ui_with_layout(
                                 egui::vec2(width, 32.0),
                                 egui::Layout::left_to_right(egui::Align::Center),
                                 |ui| {
-                                    options.destination.edit(ui, "选择目标文件夹…");
+                                    options.destination.edit(ui, tr!(language, DestinationHint));
                                 },
                             );
-                            browse =
-                                widgets::icon_button(ui, Icon::Folder, "浏览目标文件夹").clicked();
+                            browse = widgets::icon_button(
+                                ui,
+                                Icon::Folder,
+                                tr!(language, BrowseDestination),
+                            )
+                            .clicked();
                         });
-                        theme::caption(ui, "保留压缩包内的目录结构。");
+                        theme::caption(ui, tr!(language, PreserveStructure));
                         ui.add_space(6.0);
                         ui.horizontal(|ui| {
-                            ui.label("遇到同名文件");
+                            ui.label(tr!(language, ExistingFiles));
                             egui::ComboBox::from_id_salt("extraction-overwrite")
                                 .width(180.0)
                                 .selected_text(if options.overwrite {
-                                    "替换已有文件"
+                                    tr!(language, ReplaceFiles)
                                 } else {
-                                    "跳过已有文件"
+                                    tr!(language, SkipFiles)
                                 })
                                 .show_ui(ui, |ui| {
                                     ui.selectable_value(
                                         &mut options.overwrite,
                                         false,
-                                        "跳过已有文件",
+                                        tr!(language, SkipFiles),
                                     );
                                     ui.selectable_value(
                                         &mut options.overwrite,
                                         true,
-                                        "替换已有文件",
+                                        tr!(language, ReplaceFiles),
                                     );
                                 });
                         });
-                        widgets::check(ui, &mut options.open_after, "完成后打开目标文件夹");
-                        if widgets::check(ui, &mut options.show_password, "使用归档密码").changed()
+                        widgets::check(
+                            ui,
+                            &mut options.open_after,
+                            tr!(language, OpenAfterExtract),
+                        );
+                        if widgets::check(
+                            ui,
+                            &mut options.show_password,
+                            tr!(language, UsePassword),
+                        )
+                        .changed()
                             && !options.show_password
                         {
                             self.read_password.clear();
@@ -187,7 +204,7 @@ impl App {
                             ui.add(
                                 widgets::text_edit(&mut self.read_password)
                                     .password(true)
-                                    .hint_text("仅用于本次解压"),
+                                    .hint_text(tr!(language, ExtractionPasswordHint)),
                             );
                         }
                     });
@@ -196,19 +213,25 @@ impl App {
             theme::rule(ui);
             ui.add_space(4.0);
             ui.horizontal(|ui| {
-                theme::caption(ui, "跳过和完成数量会显示在结果中");
+                theme::caption(ui, tr!(language, ExtractionCountsHint));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.add_enabled_ui(
                         !busy && !options.destination.path.as_os_str().is_empty(),
                         |ui| {
-                            start = widgets::button(ui, "开始解压", Icon::ArrowRight, true, 0.0)
-                                .clicked();
+                            start = widgets::button(
+                                ui,
+                                tr!(language, StartExtraction),
+                                Icon::ArrowRight,
+                                true,
+                                0.0,
+                            )
+                            .clicked();
                         },
                     );
                     if ui
                         .add_enabled(
                             !busy,
-                            egui::Button::new("取消")
+                            egui::Button::new(tr!(language, Cancel))
                                 .min_size(egui::vec2(60.0, theme::CONTROL_HEIGHT)),
                         )
                         .clicked()

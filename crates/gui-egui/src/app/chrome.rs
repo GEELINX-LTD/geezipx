@@ -2,6 +2,7 @@ use super::*;
 
 impl App {
     pub(super) fn chrome(&mut self, context: &egui::Context, parent: &mut egui::Ui) {
+        let language = self.preferences.language;
         let enabled = !self.modal_open();
         let idle = !self.busy();
         let has_archive = self.archive.is_some();
@@ -19,11 +20,11 @@ impl App {
                             egui::containers::menu::MenuConfig::new().style(widgets::menu_style),
                         )
                         .ui(ui, |ui| {
-                            widgets::menu_bar_button(ui, "文件", |ui| {
+                            widgets::menu_bar_button(ui, tr!(language, FileMenu), |ui| {
                                 widgets::menu(ui);
                                 if widgets::menu_item(
                                     ui,
-                                    "打开归档…",
+                                    tr!(language, OpenArchiveMenu),
                                     Some(widgets::command(egui::Key::O)),
                                     idle,
                                 )
@@ -34,7 +35,7 @@ impl App {
                                 }
                                 if widgets::menu_item(
                                     ui,
-                                    "新建压缩包…",
+                                    tr!(language, NewArchiveMenu),
                                     Some(widgets::command(egui::Key::N)),
                                     idle,
                                 )
@@ -44,10 +45,10 @@ impl App {
                                     ui.close();
                                 }
                                 ui.separator();
-                                ui.menu_button("最近打开", |ui| {
+                                ui.menu_button(tr!(language, Recent), |ui| {
                                     widgets::menu(ui);
                                     if self.preferences.recent.is_empty() {
-                                        theme::caption(ui, "暂无最近归档");
+                                        theme::caption(ui, tr!(language, NoRecent));
                                     }
                                     let mut open = None;
                                     for path in &self.preferences.recent {
@@ -69,7 +70,13 @@ impl App {
                                     }
                                     if !self.preferences.recent.is_empty() {
                                         ui.separator();
-                                        if widgets::menu_item(ui, "清空记录", None, true).clicked()
+                                        if widgets::menu_item(
+                                            ui,
+                                            tr!(language, ClearHistory),
+                                            None,
+                                            true,
+                                        )
+                                        .clicked()
                                         {
                                             self.preferences.recent.clear();
                                             ui.close();
@@ -77,11 +84,11 @@ impl App {
                                     }
                                 });
                             });
-                            widgets::menu_bar_button(ui, "编辑", |ui| {
+                            widgets::menu_bar_button(ui, tr!(language, EditMenu), |ui| {
                                 widgets::menu(ui);
                                 if widgets::menu_item(
                                     ui,
-                                    "全选",
+                                    tr!(language, SelectAll),
                                     Some(widgets::command(egui::Key::A)),
                                     has_archive,
                                 )
@@ -94,7 +101,7 @@ impl App {
                                 }
                                 if widgets::menu_item(
                                     ui,
-                                    "清空选择",
+                                    tr!(language, ClearSelection),
                                     Some(egui::KeyboardShortcut::new(
                                         egui::Modifiers::NONE,
                                         egui::Key::Escape,
@@ -110,7 +117,7 @@ impl App {
                                 }
                                 if widgets::menu_item(
                                     ui,
-                                    "搜索当前目录…",
+                                    tr!(language, SearchDirectoryMenu),
                                     Some(widgets::command(egui::Key::F)),
                                     has_archive,
                                 )
@@ -122,11 +129,11 @@ impl App {
                                     ui.close();
                                 }
                             });
-                            widgets::menu_bar_button(ui, "查看", |ui| {
+                            widgets::menu_bar_button(ui, tr!(language, ViewMenu), |ui| {
                                 widgets::menu(ui);
                                 if widgets::menu_item(
                                     ui,
-                                    "上一级",
+                                    tr!(language, Parent),
                                     Some(egui::KeyboardShortcut::new(
                                         egui::Modifiers::ALT,
                                         egui::Key::ArrowUp,
@@ -140,8 +147,13 @@ impl App {
                                     }
                                     ui.close();
                                 }
-                                if widgets::menu_item(ui, "重新读取归档", None, has_archive && idle)
-                                    .clicked()
+                                if widgets::menu_item(
+                                    ui,
+                                    tr!(language, Reload),
+                                    None,
+                                    has_archive && idle,
+                                )
+                                .clicked()
                                 {
                                     if let Some(path) =
                                         self.archive.as_ref().map(|a| a.path.clone())
@@ -154,9 +166,9 @@ impl App {
                                 if widgets::menu_item(
                                     ui,
                                     if self.preferences.dark {
-                                        "切换到浅色外观"
+                                        tr!(language, LightAppearance)
                                     } else {
-                                        "切换到深色外观"
+                                        tr!(language, DarkAppearance)
                                     },
                                     None,
                                     true,
@@ -168,11 +180,11 @@ impl App {
                                     ui.close();
                                 }
                             });
-                            widgets::menu_bar_button(ui, "工具", |ui| {
+                            widgets::menu_bar_button(ui, tr!(language, ToolsMenu), |ui| {
                                 widgets::menu(ui);
                                 if widgets::menu_item(
                                     ui,
-                                    "测试归档完整性",
+                                    tr!(language, TestArchive),
                                     None,
                                     idle && has_archive,
                                 )
@@ -181,30 +193,35 @@ impl App {
                                     self.verify(context);
                                     ui.close();
                                 }
-                                if widgets::menu_item(ui, "任务记录…", None, true).clicked() {
+                                if widgets::menu_item(ui, tr!(language, TasksMenu), None, true)
+                                    .clicked()
+                                {
                                     self.tasks_open = true;
                                     ui.close();
                                 }
                                 ui.separator();
-                                if widgets::menu_item(ui, "设置…", None, true).clicked() {
+                                if widgets::menu_item(ui, tr!(language, SettingsMenu), None, true)
+                                    .clicked()
+                                {
                                     self.show_settings();
                                     ui.close();
                                 }
                                 if has_archive {
                                     ui.separator();
-                                    theme::caption(ui, "下一次读取使用的密码");
+                                    theme::caption(ui, tr!(language, NextPassword));
                                     ui.add(
                                         widgets::text_edit(&mut self.read_password)
                                             .password(true)
                                             .background_color(theme::palette(ui).soft)
                                             .desired_width(232.0)
-                                            .hint_text("仅用于下一次操作"),
+                                            .hint_text(tr!(language, NextOperation)),
                                     );
                                 }
                             });
-                            widgets::menu_bar_button(ui, "帮助", |ui| {
+                            widgets::menu_bar_button(ui, tr!(language, HelpMenu), |ui| {
                                 widgets::menu(ui);
-                                if widgets::menu_item(ui, "关于 GeeZipX…", None, true).clicked()
+                                if widgets::menu_item(ui, tr!(language, AboutMenu), None, true)
+                                    .clicked()
                                 {
                                     self.about = true;
                                     ui.close();
@@ -215,11 +232,11 @@ impl App {
                     ui.horizontal(|ui| {
                         ui.spacing_mut().item_spacing.x = 6.0;
                         ui.add_enabled_ui(idle, |ui| {
-                            if widgets::button(ui, "新建", Icon::Plus, false, 0.0)
+                            if widgets::button(ui, tr!(language, New), Icon::Plus, false, 0.0)
                                 .on_hover_ui(|ui| {
                                     widgets::shortcut_hint(
                                         ui,
-                                        "新建压缩包",
+                                        tr!(language, NewArchive),
                                         widgets::command(egui::Key::N),
                                     )
                                 })
@@ -227,11 +244,11 @@ impl App {
                             {
                                 self.new_archive();
                             }
-                            if widgets::button(ui, "打开", Icon::Folder, false, 0.0)
+                            if widgets::button(ui, tr!(language, Open), Icon::Folder, false, 0.0)
                                 .on_hover_ui(|ui| {
                                     widgets::shortcut_hint(
                                         ui,
-                                        "打开归档",
+                                        tr!(language, OpenArchive),
                                         widgets::command(egui::Key::O),
                                     )
                                 })
@@ -247,16 +264,16 @@ impl App {
                                 .as_ref()
                                 .map_or(0, |a| a.browser.selection.len());
                             let label = if count == 0 {
-                                "解压全部…".into()
+                                tr!(language, ExtractAllMenu).into()
                             } else {
-                                format!("解压所选 ({count})…")
+                                tr!(language, ExtractSelectedCount, count)
                             };
                             ui.spacing_mut().item_spacing.x = 2.0;
                             if widgets::button(ui, &label, Icon::ArrowRight, true, 0.0)
                                 .on_hover_ui(|ui| {
                                     widgets::shortcut_hint(
                                         ui,
-                                        "选择目标位置",
+                                        tr!(language, ChooseDestination),
                                         widgets::command(egui::Key::E),
                                     )
                                 })
@@ -283,7 +300,7 @@ impl App {
                                 widgets::menu(ui);
                                 if widgets::menu_item(
                                     ui,
-                                    "解压所选…",
+                                    tr!(language, ExtractSelectedMenu),
                                     if count > 0 {
                                         Some(widgets::command(egui::Key::E))
                                     } else {
@@ -298,7 +315,7 @@ impl App {
                                 }
                                 if widgets::menu_item(
                                     ui,
-                                    "解压全部…",
+                                    tr!(language, ExtractAllMenu),
                                     if count == 0 {
                                         Some(widgets::command(egui::Key::E))
                                     } else {
@@ -312,20 +329,30 @@ impl App {
                                     ui.close();
                                 }
                                 ui.separator();
-                                if widgets::menu_item(ui, "全部解压到同名文件夹", None, true)
-                                    .clicked()
+                                if widgets::menu_item(
+                                    ui,
+                                    tr!(language, ExtractNamedFolder),
+                                    None,
+                                    true,
+                                )
+                                .clicked()
                                 {
                                     self.quick_extract(context, false);
                                     ui.close();
                                 }
-                                if widgets::menu_item(ui, "全部解压到当前文件夹", None, true)
-                                    .clicked()
+                                if widgets::menu_item(
+                                    ui,
+                                    tr!(language, ExtractCurrentFolder),
+                                    None,
+                                    true,
+                                )
+                                .clicked()
                                 {
                                     self.quick_extract(context, true);
                                     ui.close();
                                 }
                                 ui.separator();
-                                theme::caption(ui, "快捷解压保留已有同名文件");
+                                theme::caption(ui, tr!(language, QuickExtractHint));
                             });
                             let response = dropdown.0;
                             if response.hovered() && ui.is_enabled() {
@@ -349,13 +376,13 @@ impl App {
                                 egui::WidgetInfo::labeled(
                                     egui::WidgetType::Button,
                                     ui.is_enabled(),
-                                    "更多解压方式",
+                                    tr!(language, MoreExtract),
                                 )
                             });
-                            response.on_hover_text("更多解压方式");
+                            response.on_hover_text(tr!(language, MoreExtract));
                             ui.spacing_mut().item_spacing.x = 6.0;
-                            if widgets::button(ui, "测试", Icon::Shield, false, 0.0)
-                                .on_hover_text("读取并验证全部文件的完整性")
+                            if widgets::button(ui, tr!(language, Test), Icon::Shield, false, 0.0)
+                                .on_hover_text(tr!(language, TestHint))
                                 .clicked()
                             {
                                 self.verify(context);
@@ -369,14 +396,15 @@ impl App {
                                 } else {
                                     Icon::Moon
                                 },
-                                "切换浅色 / 深色",
+                                tr!(language, ToggleAppearance),
                             )
                             .clicked()
                             {
                                 self.preferences.dark = !self.preferences.dark;
                                 theme::apply(context, self.preferences.dark);
                             }
-                            if widgets::icon_button(ui, Icon::Clock, "任务记录").clicked() {
+                            if widgets::icon_button(ui, Icon::Clock, tr!(language, Tasks)).clicked()
+                            {
                                 self.tasks_open = true;
                             }
                             if let Some(archive) = &self.archive {

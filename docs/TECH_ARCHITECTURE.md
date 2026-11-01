@@ -440,6 +440,8 @@ Reader/File → ProgressReader → Decoder/ArchiveReader → ProgressWriter → 
 
 `crates/gui-egui` 使用 egui/eframe 0.33.3 + Glow、rfd 系统文件选择器。所有阻塞文件工作在 `Job<T>` 后台线程执行；结果通过容量 1 的 channel 返回，进度使用 `Arc<Mutex<Progress>>` 最新快照和限频唤醒，不积累读取块事件。取消状态属于每个任务，界面一次只启动一个后台操作；退出时等待取消清理。
 
+`i18n.rs` 维护简体中文/English 文案与 `Language` 枚举；`tr!` 在编译期检查键及两种语言的格式参数。设置页即时切换语言，保存到 `native-preferences`；旧设置缺失语言或语言值未知时使用简体中文。后台 `Control` 持有任务启动时的语言，避免依赖全局可变语言或改变 core。归档文件名、路径和 core/系统错误详情不参与翻译。
+
 原生端通过 `fonts.rs` 的 fontdb 在启动时发现系统字体并缓存目录及默认字面，`app/settings.rs` 提供“跟随系统 / 内置 Noto / 已安装字体”的可搜索选择器，保存在现有 `native-preferences` 中；用户选择只在启动及变更时加载，已卸载/不可读的字体回退至默认字体链。Windows 优先 Segoe UI/微软雅黑、macOS 优先系统无衬线/苹方、Linux 使用 Fontconfig 的通用字体配置。等宽文本保留独立的系统等宽字面；缺失中文字形逐字回退到内嵌 Noto Sans SC 2.004（SIL OFL 1.1）。加载前使用与 egui 相同的 ab_glyph 解析器验证字面，保留 TTC 字面索引，不可读/不可解析的字体自动跳过；字体发现与磁盘读取不进入重绘路径。系统字体仅在本机使用，不随应用重新分发。
 
 主窗口在无系统装饰的透明原生窗口内绘制，普通窗口使用 12 点圆角，最大化/全屏时恢复直角；egui 根背景、标题栏、状态栏和 Modal 遮罩共同保持外角透明，Linux 由桌面合成器完成混合。`window_frame.rs` 负责主题一致的标题栏、边框及窗口控制，通过 eframe `ViewportCommand` 请求原生移动、最小化和最大化，Windows/Linux 使用原生拖动缩放，macOS 使用有最小尺寸约束的位置/尺寸更新；标题栏和边缘交互位于应用 Modal 之上，关闭动作接回复用任务退出确认。菜单、状态栏和工作区使用嵌套 panel，预留标题栏空间。其余界面由 `app/chrome.rs` 的菜单/工具栏、`app/workspace.rs` 的路径/搜索与紧凑文件表格、`app/folders.rs` 的可调整宽度目录树、底部状态/进度组成；创建、解压、任务详情分别在 `app/create.rs`、`app/extract.rs`、`app/tasks.rs` 按需打开 Modal。对话框提交使用独立状态和选择快照，失败后恢复原目标/来源/选择及非密码选项，密码在每次提交后清空。主操作独立于可滚动设置区域；输入框编辑期间不抢占导航和全选快捷键，Esc 不取消后台任务。窗口默认 1000×680、最小 760×480（逻辑像素）。

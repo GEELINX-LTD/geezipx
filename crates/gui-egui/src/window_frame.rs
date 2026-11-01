@@ -1,6 +1,7 @@
 use crate::theme;
 use eframe::egui::{self, Align2, Color32, CursorIcon, FontId, Rect, Sense, Stroke, Vec2};
 use egui::viewport::ResizeDirection;
+use geezipx_egui::{i18n::Language, tr};
 
 #[cfg(any(test, target_os = "macos"))]
 mod resize;
@@ -67,7 +68,13 @@ impl WindowFrame {
     }
 
     /// Draw after application modals so OS-level window actions stay available.
-    pub fn show(&mut self, context: &egui::Context, dark: bool, title: &str) -> bool {
+    pub fn show(
+        &mut self,
+        context: &egui::Context,
+        dark: bool,
+        title: &str,
+        language: Language,
+    ) -> bool {
         #[cfg(target_os = "macos")]
         self.update_resize(context);
         let p = theme::colors(dark);
@@ -176,10 +183,10 @@ impl WindowFrame {
                     let rect = control_rect(header, control);
                     let response = ui.interact(rect, ui.id().with(control), Sense::click());
                     let label = match control {
-                        Control::Minimize => "最小化",
-                        Control::Maximize if expanded => "还原窗口",
-                        Control::Maximize => "最大化",
-                        Control::Close => "关闭窗口",
+                        Control::Minimize => tr!(language, Minimize),
+                        Control::Maximize if expanded => tr!(language, RestoreWindow),
+                        Control::Maximize => tr!(language, Maximize),
+                        Control::Close => tr!(language, CloseWindow),
                     };
                     response.widget_info(|| {
                         egui::WidgetInfo::labeled(egui::WidgetType::Button, true, label)

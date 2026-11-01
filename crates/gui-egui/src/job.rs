@@ -1,4 +1,5 @@
 //! One worker owns each operation. Progress is a single coalesced snapshot.
+use crate::{i18n::Language, tr};
 use geezipx_core::{io::ProgressEvent, ProgressCallback};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -20,6 +21,7 @@ pub struct Progress {
 
 #[derive(Clone)]
 pub struct Control {
+    pub language: Language,
     cancelled: Arc<AtomicBool>,
     progress: Arc<Mutex<Progress>>,
     wake: Arc<dyn Fn() + Send + Sync>,
@@ -34,6 +36,7 @@ impl Default for Control {
 impl Control {
     pub fn new(wake: impl Fn() + Send + Sync + 'static) -> Self {
         Self {
+            language: Language::default(),
             cancelled: Arc::default(),
             progress: Arc::default(),
             wake: Arc::new(wake),
@@ -48,7 +51,7 @@ impl Control {
     }
     pub fn check(&self) -> Result<(), String> {
         if self.is_cancelled() {
-            Err(CANCELLED.into())
+            Err(tr!(self.language, OperationCancelled).into())
         } else {
             Ok(())
         }
@@ -101,8 +104,17 @@ impl<T: Send + 'static> Job<T> {
         context: &eframe::egui::Context,
         work: impl FnOnce(&Control) -> Result<T, String> + Send + 'static,
     ) -> Self {
+        Self::spawn_in(context, Language::default(), work)
+    }
+
+    pub fn spawn_in(
+        context: &eframe::egui::Context,
+        language: Language,
+        work: impl FnOnce(&Control) -> Result<T, String> + Send + 'static,
+    ) -> Self {
         let context = context.clone();
-        let control = Control::new(move || context.request_repaint());
+        let mut control = Control::new(move || context.request_repaint());
+        control.language = language;
         let worker_control = control.clone();
         let (sender, receiver) = mpsc::sync_channel(1);
         let error_sender = sender.clone();
@@ -112,12 +124,12 @@ impl<T: Send + 'static> Job<T> {
                 let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                     work(&worker_control)
                 }))
-                .unwrap_or_else(|_| Err("任务异常终止，请检查输入文件后重试。".into()));
+                .unwrap_or_else(|_| Err(tr!(language, WorkerPanic).into()));
                 let _ = sender.send(result);
                 (worker_control.wake)();
             });
         if let Err(error) = spawn {
-            let _ = error_sender.send(Err(format!("无法启动后台任务：{error}")));
+            let _ = error_sender.send(Err(tr!(language, WorkerStartError, error)));
         }
         Self {
             control,
@@ -129,7 +141,9 @@ impl<T: Send + 'static> Job<T> {
         match self.receiver.try_recv() {
             Ok(result) => Some(result),
             Err(mpsc::TryRecvError::Empty) => None,
-            Err(mpsc::TryRecvError::Disconnected) => Some(Err("后台任务已断开。".into())),
+            Err(mpsc::TryRecvError::Disconnected) => {
+                Some(Err(tr!(self.control.language, WorkerDisconnected).into()))
+            }
         }
     }
 }

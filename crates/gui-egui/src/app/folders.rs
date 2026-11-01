@@ -2,6 +2,7 @@ use super::*;
 
 impl App {
     pub(super) fn folder_tree(&mut self, ui: &mut egui::Ui) {
+        let language = self.preferences.language;
         let max_width = (ui.available_width() * 0.38).clamp(156.0, 300.0);
         egui::SidePanel::left("archive-folders")
             .default_width(200.0)
@@ -26,7 +27,7 @@ impl App {
                 ui.painter().text(
                     header.left_center() + egui::vec2(12.0, 0.0),
                     egui::Align2::LEFT_CENTER,
-                    "文件夹",
+                    tr!(language, Folders),
                     egui::FontId::proportional(12.0),
                     palette.muted,
                 );
@@ -64,12 +65,17 @@ impl App {
                                 id,
                                 egui::Sense::click(),
                             );
+                            let name = if node.path.is_empty() {
+                                tr!(language, ArchiveRoot)
+                            } else {
+                                &node.name
+                            };
                             response.widget_info(|| {
                                 egui::WidgetInfo::selected(
                                     egui::WidgetType::SelectableLabel,
                                     ui.is_enabled(),
                                     node.path == browser.directory,
-                                    &node.name,
+                                    name,
                                 )
                             });
                             let expand = ui.interact(
@@ -121,7 +127,7 @@ impl App {
                                 rect.right_bottom() - egui::vec2(5.0, 0.0),
                             );
                             let mut job = egui::text::LayoutJob::simple(
-                                node.name.clone(),
+                                name.to_owned(),
                                 egui::FontId::proportional(13.0),
                                 palette.text,
                                 text_rect.width().max(0.0),

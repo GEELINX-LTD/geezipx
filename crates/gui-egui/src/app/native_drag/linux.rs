@@ -1,5 +1,5 @@
 //! Xdnd copy source for eframe's X11 window. No GTK window or event loop is needed.
-use geezipx_egui::export::DeferredExport;
+use geezipx_egui::{export::DeferredExport, tr};
 use raw_window_handle::{HasDisplayHandle, RawDisplayHandle};
 use std::{
     sync::Arc,
@@ -40,16 +40,14 @@ pub(super) fn start(
     finished: impl Fn(std::result::Result<bool, String>) + Send + 'static,
     cancel: std::sync::Arc<std::sync::atomic::AtomicBool>,
 ) -> std::result::Result<(), String> {
+    let language = export.control.language;
     let display = frame.display_handle().map_err(|e| e.to_string())?;
     let RawDisplayHandle::Xlib(display) = display.as_raw() else {
-        return Err(
-            "当前 Wayland 会话尚不支持拖出，请使用 X11/XWayland 启动原生端，或使用解压操作。"
-                .into(),
-        );
+        return Err(tr!(language, WaylandDragUnsupported).into());
     };
     let source = Source::new(export).map_err(|e| e.to_string())?;
     let xlib = x11_dl::xlib::Xlib::open().map_err(|e| e.to_string())?;
-    let display_ptr = display.display.ok_or("X11 显示连接不可用")?;
+    let display_ptr = display.display.ok_or(tr!(language, X11Unavailable))?;
     // SAFETY: Frame lends the live Xlib display and this runs on its UI thread.
     // Release winit's implicit button grab before our dedicated Xdnd connection
     // grabs the pointer. Never close or retain this borrowed display.
@@ -233,7 +231,7 @@ impl Source {
             )?
             .reply()?;
         if grab.status != GrabStatus::SUCCESS {
-            return Err("无法接管拖动指针".into());
+            return Err(tr!(self.export.control.language, DragPointerError).into());
         }
         let result = self.track(cancel);
         let _ = self.conn.ungrab_pointer(CURRENT_TIME);
@@ -269,7 +267,7 @@ impl Source {
             }
             if let Some(time) = dropping {
                 if Instant::now().duration_since(time) > Duration::from_secs(30) {
-                    return Err("接收方未确认拖放完成".into());
+                    return Err(tr!(self.export.control.language, DragReceiverTimeout).into());
                 }
             } else {
                 let escaped = if let Some(key) = self.escape {

@@ -2,7 +2,9 @@
 use crate::{
     browser,
     engine::{self, ReadRequest},
+    i18n::Language,
     job::Control,
+    tr,
 };
 use geezipx_core::archive::{is_entry_path_dangerous, Entry};
 use std::{
@@ -41,12 +43,15 @@ impl DeferredExport {
         password: Option<String>,
         control: Control,
     ) -> Result<Self, String> {
-        let roots: BTreeSet<_> = export_roots(&key.selection)?.into_iter().collect();
+        let language = control.language;
+        let roots: BTreeSet<_> = export_roots(&key.selection, language)?
+            .into_iter()
+            .collect();
         let mut root_names = BTreeSet::new();
         for root in &roots {
             let leaf = root.rsplit('/').next().unwrap_or(root);
             if !root_names.insert(leaf) {
-                return Err(format!("拖出项目名称重复：{leaf}"));
+                return Err(tr!(language, DuplicateExport, leaf));
             }
         }
         let mut items = BTreeMap::new();
@@ -61,7 +66,7 @@ impl DeferredExport {
             };
             let prefix = root.rsplit_once('/').map_or("", |(parent, _)| parent);
             if is_entry_path_dangerous(Path::new(&path)) {
-                return Err(format!("归档包含不安全路径：{path}"));
+                return Err(tr!(language, UnsafePath, path));
             }
             let name = if prefix.is_empty() {
                 path.as_str()
@@ -88,7 +93,7 @@ impl DeferredExport {
                 .get(name)
                 .is_some_and(|item: &ExportItem| item.archive_path != path)
             {
-                return Err(format!("拖出项目名称重复：{name}"));
+                return Err(tr!(language, DuplicateExport, name));
             }
             let name = name.to_owned();
             items.insert(
@@ -102,7 +107,7 @@ impl DeferredExport {
             );
         }
         if items.is_empty() {
-            return Err("所选条目已不存在，请重新打开归档。".into());
+            return Err(tr!(language, SelectionMissing).into());
         }
         Ok(Self {
             key,
@@ -124,10 +129,13 @@ impl DeferredExport {
     }
     fn with_prepared<T>(&self, read: impl FnOnce(&PreparedExport) -> T) -> Result<T, String> {
         if !self.is_dropped() {
-            return Err("拖动尚未放置，不读取归档内容。".into());
+            return Err(tr!(self.control.language, DropNotConfirmed).into());
         }
         self.control.check()?;
-        let mut state = self.state.lock().map_err(|_| "拖出任务状态已损坏")?;
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| tr!(self.control.language, ExportStateDamaged))?;
         if state.prepared.is_none() {
             let password = state.password.take();
             state.prepared = Some(prepare(self.key.clone(), password, &self.control));
@@ -145,12 +153,14 @@ impl DeferredExport {
             .paths()?
             .into_iter()
             .find(|path| path.file_name().is_some_and(|file| file == name))
-            .ok_or("承诺的拖出条目不存在")?;
-        let parent = destination.parent().ok_or("目标位置无父目录")?;
+            .ok_or(tr!(self.control.language, PromisedItemMissing))?;
+        let parent = destination
+            .parent()
+            .ok_or(tr!(self.control.language, DestinationParentMissing))?;
         let leaf = destination
             .file_name()
             .and_then(|name| name.to_str())
-            .ok_or("目标文件名无效")?;
+            .ok_or(tr!(self.control.language, InvalidDestinationName))?;
         let output = geezipx_core::archive::extraction::ExtractionDir::new(parent)
             .map_err(|e| e.to_string())?;
         let mut pending = vec![(source, leaf.to_owned())];
@@ -168,10 +178,18 @@ impl DeferredExport {
             } else {
                 output
                     .write_file(&relative, false, |writer| {
-                        let mut input = std::fs::File::open(&source)
-                            .map_err(|e| geezipx_core::error::GeeZipError::io(e, "读取拖出文件"))?;
-                        std::io::copy(&mut input, writer)
-                            .map_err(|e| geezipx_core::error::GeeZipError::io(e, "写入拖出文件"))
+                        let mut input = std::fs::File::open(&source).map_err(|e| {
+                            geezipx_core::error::GeeZipError::io(
+                                e,
+                                tr!(self.control.language, ReadExport),
+                            )
+                        })?;
+                        std::io::copy(&mut input, writer).map_err(|e| {
+                            geezipx_core::error::GeeZipError::io(
+                                e,
+                                tr!(self.control.language, WriteExport),
+                            )
+                        })
                     })
                     .map_err(|e| e.to_string())?;
             }
@@ -179,16 +197,19 @@ impl DeferredExport {
         Ok(())
     }
     pub fn file_path(&self, index: usize) -> Result<PathBuf, String> {
-        let item = self.items.get(index).ok_or("拖出条目索引无效")?;
+        let item = self
+            .items
+            .get(index)
+            .ok_or(tr!(self.control.language, InvalidExportIndex))?;
         if item.is_dir {
-            return Err("文件夹没有内容流。".into());
+            return Err(tr!(self.control.language, FolderHasNoStream).into());
         }
         self.with_prepared(|p| p._directory.path().join(&item.archive_path))
     }
 }
-fn export_roots(selection: &BTreeSet<String>) -> Result<Vec<String>, String> {
+fn export_roots(selection: &BTreeSet<String>, language: Language) -> Result<Vec<String>, String> {
     if selection.is_empty() {
-        return Err("请先选择要拖出的文件或文件夹。".into());
+        return Err(tr!(language, SelectExport).into());
     }
     let normalized: BTreeSet<_> = selection
         .iter()
@@ -196,7 +217,7 @@ fn export_roots(selection: &BTreeSet<String>) -> Result<Vec<String>, String> {
         .collect();
     for path in &normalized {
         if path.is_empty() || is_entry_path_dangerous(Path::new(path)) {
-            return Err(format!("归档包含不安全路径：{path}"));
+            return Err(tr!(language, UnsafePath, path));
         }
     }
     Ok(normalized
@@ -228,13 +249,14 @@ pub fn prepare(
     password: Option<String>,
     control: &Control,
 ) -> Result<PreparedExport, String> {
+    let language = control.language;
     if key.selection.is_empty() {
-        return Err("请先选择要拖出的文件或文件夹。".into());
+        return Err(tr!(language, SelectExport).into());
     }
     let directory = tempfile::Builder::new()
         .prefix("geezipx-drag-")
         .tempdir()
-        .map_err(|e| format!("无法准备拖出文件：{e}"))?;
+        .map_err(|e| tr!(language, PrepareExportError, e))?;
     engine::extract(
         ReadRequest {
             archive: key.archive.clone(),
@@ -262,7 +284,7 @@ pub fn prepare(
         }
         let path = directory.path().join(name);
         if !path.exists() {
-            return Err(format!("无法准备所选条目：{name}"));
+            return Err(tr!(language, PrepareItemError, name));
         }
         paths.push(path);
     }

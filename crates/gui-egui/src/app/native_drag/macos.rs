@@ -1,5 +1,5 @@
 //! Finder file promises run on a background operation queue after an accepted drop.
-use geezipx_egui::export::DeferredExport;
+use geezipx_egui::{export::DeferredExport, tr};
 use objc2::{
     define_class, msg_send,
     rc::Retained,
@@ -65,13 +65,13 @@ define_class!(
             let state = self.ivars();
             state.export.confirm_drop();
             let result = if state.completion.cancel.load(Ordering::Relaxed) {
-                Err("拖放已取消。".into())
+                Err(tr!(state.export.control.language, DragCancelled).into())
             } else if let Some(path) = url.path() {
                 state
                     .export
                     .write_promised_root(&state.name, &PathBuf::from(path.to_string()))
             } else {
-                Err("拖放目标不是文件路径。".into())
+                Err(tr!(state.export.control.language, DragDestinationNotPath).into())
             };
             match result {
                 Ok(()) => {
@@ -131,11 +131,12 @@ pub(super) fn start(
     finished: impl Fn(Result<bool, String>) + Send + 'static,
     cancel: Arc<AtomicBool>,
 ) -> Result<(), String> {
-    let mtm = MainThreadMarker::new().ok_or("拖放需要主线程")?;
+    let language = export.control.language;
+    let mtm = MainThreadMarker::new().ok_or(tr!(language, DragNeedsMainThread))?;
     let RawWindowHandle::AppKit(handle) =
         frame.window_handle().map_err(|e| e.to_string())?.as_raw()
     else {
-        return Err("AppKit 窗口不可用".into());
+        return Err(tr!(language, AppKitUnavailable).into());
     };
     let roots: Vec<_> = export
         .items
@@ -151,13 +152,13 @@ pub(super) fn start(
     // passed to AppKit remain owned by its drag session and promise providers.
     unsafe {
         let view = &*handle.ns_view.as_ptr().cast::<NSView>();
-        let window = view.window().ok_or("窗口不可用")?;
+        let window = view.window().ok_or(tr!(language, WindowUnavailable))?;
         let position = window.mouseLocationOutsideOfEventStream();
         let image = NSImage::initWithData(
             NSImage::alloc(),
             &NSData::with_bytes(include_bytes!("../../../assets/drag-file.png")),
         )
-        .ok_or("拖放图标不可用")?;
+        .ok_or(tr!(language, DragIconUnavailable))?;
         let rect = NSRect::new(position, image.size());
         let queue = NSOperationQueue::new();
         queue.setMaxConcurrentOperationCount(1);
@@ -194,7 +195,7 @@ pub(super) fn start(
         let timestamp = NSApp(mtm)
             .currentEvent()
             .map_or(0.0, |event| event.timestamp());
-        let event = NSEvent::mouseEventWithType_location_modifierFlags_timestamp_windowNumber_context_eventNumber_clickCount_pressure(NSEventType::LeftMouseDragged, position, NSEventModifierFlags::empty(), timestamp, window.windowNumber(), None, 0, 1, 1.0).ok_or("无法创建拖放事件")?;
+        let event = NSEvent::mouseEventWithType_location_modifierFlags_timestamp_windowNumber_context_eventNumber_clickCount_pressure(NSEventType::LeftMouseDragged, position, NSEventModifierFlags::empty(), timestamp, window.windowNumber(), None, 0, 1, 1.0).ok_or(tr!(language, DragEventError))?;
         view.beginDraggingSessionWithItems_event_source(
             &NSArray::from_retained_slice(&items),
             &event,

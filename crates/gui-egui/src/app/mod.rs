@@ -19,7 +19,9 @@ use geezipx_core::{config::CompressOptions, detect::ArchiveFormat};
 use geezipx_egui::{
     browser::SortColumn,
     engine::{self, Archive, CompressRequest, Preview, ReadRequest, Summary},
+    i18n::Language,
     job::{Job, CANCELLED},
+    tr,
 };
 use notices::Notice;
 use serde::{Deserialize, Serialize};
@@ -40,14 +42,14 @@ enum Kind {
     Dialog,
 }
 impl Kind {
-    fn title(self) -> &'static str {
+    fn title(self, language: Language) -> &'static str {
         match self {
-            Self::List => "打开归档",
-            Self::Compress => "创建压缩包",
-            Self::Extract => "解压文件",
-            Self::Verify => "完整性测试",
-            Self::Preview => "文本预览",
-            Self::Dialog => "选择文件",
+            Self::List => tr!(language, OpenArchive),
+            Self::Compress => tr!(language, CreateArchive),
+            Self::Extract => tr!(language, ExtractFiles),
+            Self::Verify => tr!(language, IntegrityTest),
+            Self::Preview => tr!(language, TextPreview),
+            Self::Dialog => tr!(language, SelectFiles),
         }
     }
     fn record(self) -> bool {
@@ -87,6 +89,7 @@ struct Preferences {
     dark: bool,
     recent: Vec<PathBuf>,
     font: crate::fonts::Selection,
+    language: Language,
 }
 #[derive(Default)]
 struct PathField {
@@ -252,7 +255,7 @@ impl App {
         self.notice = None;
         self.active = Some(Active {
             kind,
-            job: Job::spawn(context, work),
+            job: Job::spawn_in(context, self.preferences.language, work),
         });
     }
     fn open_archive(&mut self, context: &egui::Context, path: PathBuf, password: Option<String>) {
@@ -296,7 +299,10 @@ impl App {
             return;
         }
         if self.busy() {
-            self.notice = Some(Notice::new("请等待当前任务结束后再添加文件。", true));
+            self.notice = Some(Notice::new(
+                tr!(self.preferences.language, WaitForTask),
+                true,
+            ));
             return;
         }
         if self.extraction.is_some()
@@ -320,6 +326,7 @@ impl App {
         }
     }
     fn dialog(&mut self, context: &egui::Context, dialog: Dialog) {
+        let language = self.preferences.language;
         let output = self.draft.output.path.clone();
         let destination = self
             .extraction
@@ -328,20 +335,20 @@ impl App {
         self.start(context, Kind::Dialog, move |_| {
             let paths = match dialog {
                 Dialog::Open => rfd::FileDialog::new()
-                    .set_title("打开归档")
+                    .set_title(tr!(language, OpenArchive))
                     .pick_file()
                     .into_iter()
                     .collect(),
                 Dialog::Files => rfd::FileDialog::new()
-                    .set_title("添加文件")
+                    .set_title(tr!(language, AddFiles))
                     .pick_files()
                     .unwrap_or_default(),
                 Dialog::Folders => rfd::FileDialog::new()
-                    .set_title("添加文件夹")
+                    .set_title(tr!(language, AddFolders))
                     .pick_folders()
                     .unwrap_or_default(),
                 Dialog::Save => {
-                    let mut picker = rfd::FileDialog::new().set_title("保存压缩包");
+                    let mut picker = rfd::FileDialog::new().set_title(tr!(language, SaveArchive));
                     if let Some(name) = output.file_name() {
                         picker = picker.set_file_name(name.to_string_lossy());
                     }
@@ -351,7 +358,8 @@ impl App {
                     picker.save_file().into_iter().collect()
                 }
                 Dialog::Destination => {
-                    let mut picker = rfd::FileDialog::new().set_title("选择解压位置");
+                    let mut picker =
+                        rfd::FileDialog::new().set_title(tr!(language, SelectExtractionFolder));
                     if let Some(destination) = destination {
                         picker = picker.set_directory(destination);
                     }
@@ -444,7 +452,7 @@ impl App {
                 }
             },
             Err(error) => {
-                record.cancelled = error == CANCELLED;
+                record.cancelled = error == CANCELLED || active.job.control.is_cancelled();
                 record.failed = !record.cancelled;
                 record.message = error.clone();
                 if record.failed && !self.close_when_finished {
@@ -530,12 +538,13 @@ impl App {
         if self.busy() {
             return;
         }
+        let language = self.preferences.language;
         if self.draft.show_password && self.draft.password.is_empty() {
-            self.form_error = Some("请设置密码，或关闭密码保护。".into());
+            self.form_error = Some(tr!(language, SetPasswordOrDisable).into());
             return;
         }
         if self.draft.password != self.draft.confirm {
-            self.form_error = Some("两次密码不一致，请重新输入。".into());
+            self.form_error = Some(tr!(language, PasswordMismatch).into());
             return;
         }
         if self.draft.sources.is_empty() || self.draft.output.path.as_os_str().is_empty() {
@@ -543,13 +552,12 @@ impl App {
         }
         let format = engine::formats::WRITE_FORMATS[self.draft.format].0;
         if format == ArchiveFormat::Aes && self.draft.password.is_empty() {
-            self.form_error = Some("AES 加密容器需要设置密码。".into());
+            self.form_error = Some(tr!(language, AesNeedsPassword).into());
             self.draft.show_password = true;
             return;
         }
         if engine::streams::single_input(format) && self.draft.sources.len() != 1 {
-            self.form_error =
-                Some("此格式只能保存一个普通文件，请选择一个文件或改用 ZIP 等归档格式。".into());
+            self.form_error = Some(tr!(language, SingleFileOnly).into());
             return;
         }
         let level = engine::formats::preset_level(format, self.draft.preset);
@@ -579,7 +587,10 @@ impl App {
     }
     fn open_output(&mut self, path: PathBuf) {
         if let Err(error) = open::that_detached(path) {
-            self.notice = Some(Notice::new(format!("无法打开文件夹：{error}"), true));
+            self.notice = Some(Notice::new(
+                tr!(self.preferences.language, CannotOpenFolder, error),
+                true,
+            ));
         }
     }
     fn shortcuts(&mut self, context: &egui::Context) {
@@ -717,33 +728,33 @@ impl App {
         }
     }
     fn windows(&mut self, context: &egui::Context) {
+        let language = self.preferences.language;
         self.create_window(context);
         self.extract_window(context);
         self.tasks_window(context);
         self.settings_window(context);
         if self.about {
-            let response = theme::modal(context, "about", self.window_frame.corner_radius(context)).show(context, |ui| {
-                ui.set_width(460.0_f32.min(context.content_rect().width() - 64.0));
-                ui.horizontal(|ui| {
-                    theme::logo(ui, 34.0);
-                    ui.heading(format!("GeeZipX {}", env!("CARGO_PKG_VERSION")));
+            let response = theme::modal(context, "about", self.window_frame.corner_radius(context))
+                .show(context, |ui| {
+                    ui.set_width(460.0_f32.min(context.content_rect().width() - 64.0));
+                    ui.horizontal(|ui| {
+                        theme::logo(ui, 34.0);
+                        ui.heading(format!("GeeZipX {}", env!("CARGO_PKG_VERSION")));
+                    });
+                    theme::caption(ui, tr!(language, NativeTagline));
+                    ui.hyperlink_to(tr!(language, ProjectLink), env!("CARGO_PKG_REPOSITORY"));
+                    ui.label(tr!(language, Licenses));
+                    ui.collapsing(tr!(language, FontLicenses), |ui| {
+                        egui::ScrollArea::vertical()
+                            .max_height(200.0)
+                            .show(ui, |ui| {
+                                ui.label(include_str!("../../assets/FONT-NOTICE.txt"));
+                                ui.label(include_str!("../../assets/FONT-LICENSE.txt"));
+                                ui.label(include_str!("../../assets/EGUI-FONTS-LICENSES.txt"));
+                            });
+                    });
+                    ui.button(tr!(language, Close)).clicked()
                 });
-                theme::caption(ui, "轻巧、专注的原生归档工具");
-                ui.hyperlink_to("项目主页与问题反馈", env!("CARGO_PKG_REPOSITORY"));
-                ui.label(
-                    "GeeZipX 采用 MIT 许可。优先使用系统字体，中文缺字由内置 Noto Sans SC 补齐（SIL OFL 1.1 许可）。",
-                );
-                ui.collapsing("字体版权与许可", |ui| {
-                    egui::ScrollArea::vertical()
-                        .max_height(200.0)
-                        .show(ui, |ui| {
-                            ui.label(include_str!("../../assets/FONT-NOTICE.txt"));
-                            ui.label(include_str!("../../assets/FONT-LICENSE.txt"));
-                            ui.label(include_str!("../../assets/EGUI-FONTS-LICENSES.txt"));
-                        });
-                });
-                ui.button("关闭").clicked()
-            });
             if response.inner || response.should_close() {
                 self.about = false;
             }
@@ -754,7 +765,7 @@ impl App {
                     context,
                     |ui| {
                         ui.set_width(360.0);
-                        ui.heading("使用密码打开归档");
+                        ui.heading(tr!(language, UnlockArchive));
                         ui.label(
                             unlock
                                 .path
@@ -765,9 +776,9 @@ impl App {
                         ui.add(
                             widgets::text_edit(&mut unlock.password)
                                 .password(true)
-                                .hint_text("归档密码"),
+                                .hint_text(tr!(language, ArchivePassword)),
                         );
-                        theme::primary(ui, "重新打开").clicked()
+                        theme::primary(ui, tr!(language, Reopen)).clicked()
                     },
                 );
             if response.inner {
@@ -788,7 +799,7 @@ impl App {
                             ui.label(RichText::new(&preview.name).strong());
                         });
                         if preview.truncated {
-                            theme::caption(ui, "仅显示前 512 KiB；完整内容请解压后查看。");
+                            theme::caption(ui, tr!(language, PreviewLimit));
                         }
                         egui::ScrollArea::both()
                             .max_height((context.content_rect().height() - 200.0).max(120.0))
@@ -799,7 +810,7 @@ impl App {
                                         .desired_width(f32::INFINITY),
                                 );
                             });
-                        ui.button("关闭").clicked()
+                        ui.button(tr!(language, Close)).clicked()
                     },
                 );
             if response.inner || response.should_close() {
@@ -814,13 +825,13 @@ impl App {
             )
             .show(context, |ui| {
                 ui.set_width(380.0);
-                ui.heading("任务仍在进行");
-                ui.label("关闭前会安全取消任务并清理临时文件。已经解压完成的文件会保留。");
+                ui.heading(tr!(language, TaskRunning));
+                ui.label(tr!(language, CloseTaskHint));
                 ui.horizontal(|ui| {
-                    if ui.button("继续处理").clicked() {
+                    if ui.button(tr!(language, Continue)).clicked() {
                         self.close_prompt = false;
                     }
-                    if ui.button("取消任务并退出").clicked() {
+                    if ui.button(tr!(language, CancelAndExit)).clicked() {
                         if let Some(cancel) = &self.export.cancel {
                             cancel.store(true, std::sync::atomic::Ordering::Relaxed);
                         }
@@ -870,7 +881,7 @@ impl App {
         self.notices(context, footer);
         self.windows(context);
         let title = self.archive.as_ref().map_or_else(
-            || "归档管理器".into(),
+            || tr!(self.preferences.language, ArchiveManager).into(),
             |archive| {
                 archive
                     .path
@@ -879,10 +890,12 @@ impl App {
                     .to_string_lossy()
             },
         );
-        if self
-            .window_frame
-            .show(context, self.preferences.dark, &title)
-        {
+        if self.window_frame.show(
+            context,
+            self.preferences.dark,
+            &title,
+            self.preferences.language,
+        ) {
             self.request_close(context);
         }
     }
@@ -928,9 +941,9 @@ impl eframe::App for App {
                 rect.center(),
                 egui::Align2::CENTER_CENTER,
                 if self.create_open {
-                    "松开鼠标，添加到压缩列表"
+                    tr!(self.preferences.language, DropAdd)
                 } else {
-                    "松开鼠标，打开归档或创建压缩包"
+                    tr!(self.preferences.language, DropOpen)
                 },
                 egui::FontId::proportional(22.0),
                 Color32::WHITE,

@@ -29,7 +29,12 @@ fn draw(
                 ui.label("Modal contents");
             });
         }
-        close = window.show(context, false, "A long archive name.zip");
+        close = window.show(
+            context,
+            false,
+            "A long archive name.zip",
+            Language::default(),
+        );
     });
     (output, close)
 }

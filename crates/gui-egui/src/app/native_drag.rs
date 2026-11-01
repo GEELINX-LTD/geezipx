@@ -1,4 +1,6 @@
 use geezipx_egui::export::DeferredExport;
+#[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+use geezipx_egui::tr;
 use std::sync::{atomic::AtomicBool, Arc};
 
 /// Begin dragging descriptors immediately; native backends authorize data only on drop.
@@ -23,8 +25,9 @@ pub fn start(
     }
     #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
     {
+        let language = export.control.language;
         let _ = (frame, export, finished, cancel);
-        Err("此平台尚不支持拖出文件，请使用解压操作。".into())
+        Err(tr!(language, DragUnsupported).into())
     }
 }
 #[cfg(target_os = "linux")]

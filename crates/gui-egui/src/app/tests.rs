@@ -402,6 +402,124 @@ fn font_preferences_restore_across_restarts_and_migrate_existing_preferences() {
 }
 
 #[test]
+fn language_settings_switch_immediately_and_preserve_archive_selection() {
+    let has_text = |output: &egui::FullOutput, label: &str| {
+        output.shapes.iter().any(
+            |shape| matches!(&shape.shape, egui::Shape::Text(text) if text.galley.text() == label),
+        )
+    };
+    let context = context();
+    let mut app = App::empty(Preferences::default());
+    app.archive = Some(archive());
+    app.archive
+        .as_mut()
+        .unwrap()
+        .browser
+        .select(0, false, false);
+    click_text(&mut app, &context, "工具");
+    click_text(&mut app, &context, "设置…");
+    click_text(&mut app, &context, "简体中文");
+    assert!(egui::Popup::is_any_open(&context));
+    key(&mut app, &context, egui::Key::Escape, egui::Modifiers::NONE);
+    assert!(app.settings.open);
+    assert!(!egui::Popup::is_any_open(&context));
+    click_text(&mut app, &context, "简体中文");
+    click_text(&mut app, &context, "English");
+    assert_eq!(app.preferences.language, Language::English);
+    assert!(!egui::Popup::is_any_open(&context));
+    let output = draw(&mut app, &context, [1000.0, 680.0]);
+    assert!(has_text(&output, "Settings"));
+    assert!(has_text(&output, "Language"));
+    click_text(&mut app, &context, "Done");
+    let output = draw(&mut app, &context, [1000.0, 680.0]);
+    assert!(has_text(&output, "Tools"));
+    assert!(has_text(&output, "Name"));
+    assert!(has_text(&output, "Archive root"));
+    assert!(has_text(&output, "项目"));
+    assert!(app
+        .archive
+        .as_ref()
+        .unwrap()
+        .browser
+        .selection
+        .contains("项目"));
+    assert_eq!(
+        app.archive.as_ref().unwrap().path,
+        PathBuf::from("设计.zip")
+    );
+    click_text(&mut app, &context, "Tools");
+    click_text(&mut app, &context, "Settings…");
+    click_text(&mut app, &context, "English");
+    click_text(&mut app, &context, "简体中文");
+    assert_eq!(app.preferences.language, Language::Chinese);
+    click_text(&mut app, &context, "完成");
+    assert!(!app.settings.open);
+}
+
+#[test]
+fn language_preferences_restore_and_migrate_without_losing_other_settings() {
+    let mut storage = PreferenceStorage::default();
+    eframe::Storage::set_string(
+        &mut storage,
+        "native-preferences",
+        "(dark:true,recent:[\"旧归档.zip\"])".into(),
+    );
+    let mut preferences: Preferences = eframe::get_value(&storage, "native-preferences").unwrap();
+    assert_eq!(preferences.language, Language::Chinese);
+    preferences.language = Language::English;
+    preferences.font = crate::fonts::Selection::Noto;
+    eframe::set_value(&mut storage, "native-preferences", &preferences);
+    let restored: Preferences = eframe::get_value(&storage, "native-preferences").unwrap();
+    assert_eq!(restored.language, Language::English);
+    assert_eq!(restored.font, crate::fonts::Selection::Noto);
+    assert!(restored.dark);
+    assert_eq!(restored.recent, vec![PathBuf::from("旧归档.zip")]);
+    eframe::Storage::set_string(
+        &mut storage,
+        "native-preferences",
+        "(language:future_language,dark:true)".into(),
+    );
+    let fallback: Preferences = eframe::get_value(&storage, "native-preferences").unwrap();
+    assert_eq!(fallback.language, Language::Chinese);
+    assert!(fallback.dark);
+}
+
+#[test]
+fn english_dialog_actions_remain_visible_at_minimum_size() {
+    for dark in [false, true] {
+        let context = context();
+        theme::apply(&context, dark);
+        let mut app = App::empty(Preferences {
+            dark,
+            language: Language::English,
+            ..Default::default()
+        });
+        app.settings.open = true;
+        for _ in 0..3 {
+            draw(&mut app, &context, [760.0, 480.0]);
+        }
+        let output = draw(&mut app, &context, [760.0, 480.0]);
+        assert_action_visible(&output, [760.0, 480.0], "Done");
+        assert_action_visible(&output, [760.0, 480.0], "Restore defaults");
+        app.settings.open = false;
+        app.add_sources(vec![PathBuf::from("设计资源/说明.md")]);
+        for _ in 0..3 {
+            draw(&mut app, &context, [760.0, 480.0]);
+        }
+        let output = draw(&mut app, &context, [760.0, 480.0]);
+        assert_action_visible(&output, [760.0, 480.0], "Compress");
+        app.create_open = false;
+        app.archive = Some(archive());
+        app.show_extract(true);
+        for _ in 0..3 {
+            draw(&mut app, &context, [760.0, 480.0]);
+        }
+        let output = draw(&mut app, &context, [760.0, 480.0]);
+        assert_action_visible(&output, [760.0, 480.0], "Extract");
+    }
+}
+
+#[test]
 fn creation_format_picker_reaches_last_options_at_minimum_size() {
     let context = context();
     let mut app = App::empty(Preferences::default());
@@ -792,7 +910,12 @@ fn enter_in_an_open_dropdown_does_not_submit_the_operation() {
 
 #[test]
 fn menu_labels_and_shortcuts_have_separate_unclipped_columns() {
-    for dark in [false, true] {
+    for (dark, language) in [
+        (false, Language::Chinese),
+        (true, Language::Chinese),
+        (false, Language::English),
+        (true, Language::English),
+    ] {
         for (size, os) in [
             ([760.0, 480.0], egui::os::OperatingSystem::Windows),
             ([1000.0, 680.0], egui::os::OperatingSystem::Windows),
@@ -804,12 +927,18 @@ fn menu_labels_and_shortcuts_have_separate_unclipped_columns() {
             theme::apply(&context, dark);
             let mut app = App::empty(Preferences {
                 dark,
+                language,
                 ..Default::default()
             });
             app.archive = Some(archive());
-            for (menu, label, shortcut_key) in
-                [("文件", "新建压缩包…", 'N'), ("编辑", "搜索当前目录…", 'F')]
-            {
+            for (menu, label, shortcut_key) in [
+                (tr!(language, FileMenu), tr!(language, NewArchiveMenu), 'N'),
+                (
+                    tr!(language, EditMenu),
+                    tr!(language, SearchDirectoryMenu),
+                    'F',
+                ),
+            ] {
                 let output = draw(&mut app, &context, size);
                 let position = output
                     .shapes

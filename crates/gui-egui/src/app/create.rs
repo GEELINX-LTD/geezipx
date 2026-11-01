@@ -5,6 +5,7 @@ impl App {
         if !self.create_open {
             return;
         }
+        let language = self.preferences.language;
         let busy = self.busy();
         let had_popup = egui::Popup::is_any_open(context);
         let mut cancel = false;
@@ -19,10 +20,11 @@ impl App {
                 let (rect, _) =
                     ui.allocate_exact_size(egui::vec2(26.0, 26.0), egui::Sense::hover());
                 widgets::paint_icon(ui.painter(), rect, Icon::Archive, theme::palette(ui).accent);
-                ui.heading("新建压缩包");
+                ui.heading(tr!(language, NewArchive));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.add_enabled_ui(!busy, |ui| {
-                        cancel = widgets::icon_button(ui, Icon::Close, "关闭").clicked();
+                        cancel =
+                            widgets::icon_button(ui, Icon::Close, tr!(language, Close)).clicked();
                     });
                 });
             });
@@ -33,8 +35,8 @@ impl App {
                 .show(ui, |ui| {
                     ui.add_enabled_ui(!busy, |ui| {
                         ui.horizontal(|ui| {
-                            ui.label(RichText::new("待压缩内容").strong());
-                            widgets::badge(ui, &format!("{} 项", self.draft.sources.len()));
+                            ui.label(RichText::new(tr!(language, Contents)).strong());
+                            widgets::badge(ui, &tr!(language, ItemCount, self.draft.sources.len()));
                             ui.with_layout(
                                 egui::Layout::right_to_left(egui::Align::Center),
                                 |ui| {
@@ -42,9 +44,9 @@ impl App {
                                         && widgets::subtle_button(
                                             ui,
                                             if self.draft.show_sources {
-                                                "收起列表"
+                                                tr!(language, CollapseList)
                                             } else {
-                                                "查看 / 编辑"
+                                                tr!(language, EditSources)
                                             },
                                         )
                                         .clicked()
@@ -57,7 +59,7 @@ impl App {
                         if let Some(first) = self.draft.sources.first() {
                             let name = first.file_name().unwrap_or_default().to_string_lossy();
                             let summary = if self.draft.sources.len() > 1 {
-                                format!("{name} 等 {} 项", self.draft.sources.len())
+                                tr!(language, SourceSummary, name, self.draft.sources.len())
                             } else {
                                 name.into_owned()
                             };
@@ -70,10 +72,7 @@ impl App {
                                 .inner_margin(14)
                                 .show(ui, |ui| {
                                     ui.set_width(ui.available_width());
-                                    theme::caption(
-                                        ui,
-                                        "拖入文件或文件夹，也可以使用下方按钮添加。",
-                                    );
+                                    theme::caption(ui, tr!(language, AddHint));
                                 });
                         }
                         if self.draft.show_sources && !self.draft.sources.is_empty() {
@@ -93,6 +92,7 @@ impl App {
                                                     .unwrap_or_default()
                                                     .to_string_lossy(),
                                                 &path.display().to_string(),
+                                                language,
                                             ) {
                                                 remove = Some(index);
                                             }
@@ -104,16 +104,24 @@ impl App {
                             }
                         }
                         ui.horizontal(|ui| {
-                            if widgets::button(ui, "添加文件", Icon::Plus, false, 0.0).clicked()
+                            if widgets::button(ui, tr!(language, AddFiles), Icon::Plus, false, 0.0)
+                                .clicked()
                             {
                                 self.dialog(context, Dialog::Files);
                             }
-                            if widgets::button(ui, "添加文件夹", Icon::Folder, false, 0.0).clicked()
+                            if widgets::button(
+                                ui,
+                                tr!(language, AddFolders),
+                                Icon::Folder,
+                                false,
+                                0.0,
+                            )
+                            .clicked()
                             {
                                 self.dialog(context, Dialog::Folders);
                             }
                             if !self.draft.sources.is_empty()
-                                && widgets::subtle_button(ui, "清空").clicked()
+                                && widgets::subtle_button(ui, tr!(language, Clear)).clicked()
                             {
                                 self.draft.sources.clear();
                             }
@@ -121,17 +129,22 @@ impl App {
                         ui.add_space(5.0);
                         theme::rule(ui);
                         ui.add_space(3.0);
-                        ui.label(RichText::new("保存为").strong());
+                        ui.label(RichText::new(tr!(language, SaveAs)).strong());
                         ui.horizontal(|ui| {
                             let width = (ui.available_width() - 38.0).max(120.0);
                             ui.allocate_ui_with_layout(
                                 egui::vec2(width, 32.0),
                                 egui::Layout::left_to_right(egui::Align::Center),
                                 |ui| {
-                                    self.draft.output.edit(ui, "选择压缩包的保存位置…");
+                                    self.draft.output.edit(ui, tr!(language, SaveLocationHint));
                                 },
                             );
-                            if widgets::icon_button(ui, Icon::Folder, "浏览保存位置").clicked()
+                            if widgets::icon_button(
+                                ui,
+                                Icon::Folder,
+                                tr!(language, BrowseSaveLocation),
+                            )
+                            .clicked()
                             {
                                 self.dialog(context, Dialog::Save);
                             }
@@ -139,33 +152,49 @@ impl App {
                         let formats = engine::formats::WRITE_FORMATS;
                         let previous = self.draft.format;
                         ui.columns(2, |columns| {
-                            theme::caption(&mut columns[0], "格式");
+                            theme::caption(&mut columns[0], tr!(language, Format));
                             let width = columns[0].available_width();
                             let parent_layer = columns[0].layer_id();
                             egui::ComboBox::from_id_salt("compression-format")
                                 .width(width)
                                 .height(200.0)
-                                .selected_text(formats[self.draft.format].1)
+                                .selected_text(engine::formats::label(
+                                    formats[self.draft.format].0,
+                                    language,
+                                ))
                                 .show_ui(&mut columns[0], |ui| {
                                     context.set_sublayer(parent_layer, ui.layer_id());
-                                    for (index, (_, name)) in formats.iter().enumerate() {
-                                        ui.selectable_value(&mut self.draft.format, index, *name);
+                                    for (index, (format, _)) in formats.iter().enumerate() {
+                                        ui.selectable_value(
+                                            &mut self.draft.format,
+                                            index,
+                                            engine::formats::label(*format, language),
+                                        );
                                     }
                                 });
-                            theme::caption(&mut columns[1], "压缩偏好");
+                            theme::caption(&mut columns[1], tr!(language, CompressionPreference));
                             let adjustable =
                                 engine::formats::adjustable(formats[self.draft.format].0);
                             columns[1].add_enabled_ui(adjustable, |ui| {
                                 egui::ComboBox::from_id_salt("compression-preset")
                                     .width(ui.available_width())
                                     .selected_text(if adjustable {
-                                        ["优先速度", "标准", "优先体积"][self.draft.preset]
+                                        [
+                                            tr!(language, Fast),
+                                            tr!(language, Standard),
+                                            tr!(language, Small),
+                                        ][self.draft.preset]
                                     } else {
-                                        "标准"
+                                        tr!(language, Standard)
                                     })
                                     .show_ui(ui, |ui| {
-                                        for (index, name) in
-                                            ["优先速度", "标准", "优先体积"].iter().enumerate()
+                                        for (index, name) in [
+                                            tr!(language, Fast),
+                                            tr!(language, Standard),
+                                            tr!(language, Small),
+                                        ]
+                                        .iter()
+                                        .enumerate()
                                         {
                                             ui.selectable_value(
                                                 &mut self.draft.preset,
@@ -183,7 +212,7 @@ impl App {
                         if format == ArchiveFormat::Zip {
                             let previous = self.draft.sfx_target;
                             let mut enabled = previous.is_some();
-                            if widgets::check(ui, &mut enabled, "生成自解压包 (SFX)").changed()
+                            if widgets::check(ui, &mut enabled, tr!(language, CreateSfx)).changed()
                             {
                                 self.draft.sfx_target = if enabled {
                                     [
@@ -223,31 +252,22 @@ impl App {
                             }
                         }
                         if engine::streams::single_input(format) {
-                            theme::caption(
-                                ui,
-                                "此格式仅接受一个普通文件，不支持文件夹或多个来源。",
-                            );
+                            theme::caption(ui, tr!(language, SingleInputHint));
                         }
                         if matches!(format, ArchiveFormat::Img | ArchiveFormat::Bin) {
-                            theme::caption(
-                                ui,
-                                "原样复制镜像；不会将普通文件或文件夹制作成磁盘镜像。",
-                            );
+                            theme::caption(ui, tr!(language, CopyImageHint));
                         }
                         if format == ArchiveFormat::Lzh {
-                            theme::caption(
-                                ui,
-                                "LZH 使用 level-0 文件名，非 ASCII 名称读取时显示转义形式。",
-                            );
+                            theme::caption(ui, tr!(language, LzhHint));
                         }
                         if format == ArchiveFormat::Cab {
-                            theme::caption(ui, "CAB 不保存独立空目录；仅有空目录时不能创建。");
+                            theme::caption(ui, tr!(language, CabHint));
                         }
                         if format == ArchiveFormat::Wim {
-                            theme::caption(ui, "WIM 创建使用无压缩存储。");
+                            theme::caption(ui, tr!(language, WimHint));
                         }
                         if format == ArchiveFormat::Isz {
-                            theme::caption(ui, "来源应为 ISO 镜像；打开时浏览其中的 ISO 文件。");
+                            theme::caption(ui, tr!(language, IszHint));
                         }
                         let encryption = engine::formats::write_password(format);
                         if format == ArchiveFormat::Aes {
@@ -256,8 +276,12 @@ impl App {
                         ui.add_space(3.0);
                         ui.horizontal(|ui| {
                             ui.add_enabled_ui(encryption && format != ArchiveFormat::Aes, |ui| {
-                                if widgets::check(ui, &mut self.draft.show_password, "密码保护")
-                                    .changed()
+                                if widgets::check(
+                                    ui,
+                                    &mut self.draft.show_password,
+                                    tr!(language, PasswordProtection),
+                                )
+                                .changed()
                                     && !self.draft.show_password
                                 {
                                     self.draft.password.clear();
@@ -271,9 +295,9 @@ impl App {
                                     if widgets::subtle_button(
                                         ui,
                                         if self.draft.show_advanced {
-                                            "收起选项"
+                                            tr!(language, CollapseOptions)
                                         } else {
-                                            "更多选项…"
+                                            tr!(language, MoreOptions)
                                         },
                                     )
                                     .clicked()
@@ -288,22 +312,23 @@ impl App {
                                 columns[0].add(
                                     widgets::text_edit(&mut self.draft.password)
                                         .password(true)
-                                        .hint_text("设置密码"),
+                                        .hint_text(tr!(language, SetPassword)),
                                 );
                                 columns[1].add(
                                     widgets::text_edit(&mut self.draft.confirm)
                                         .password(true)
-                                        .hint_text("再次输入密码"),
+                                        .hint_text(tr!(language, ConfirmPassword)),
                                 );
                             });
-                            theme::caption(ui, "密码仅用于本次任务，不会保存。");
+                            theme::caption(ui, tr!(language, PasswordHint));
                         }
                         if self.draft.show_advanced {
-                            widgets::check(ui, &mut self.draft.replace, "替换已有同名压缩包");
-                            theme::caption(
+                            widgets::check(
                                 ui,
-                                "保留目录结构；链接和特殊文件会跳过，结果中报告数量。",
+                                &mut self.draft.replace,
+                                tr!(language, ReplaceArchive),
                             );
+                            theme::caption(ui, tr!(language, StructureHint));
                         }
                         if let Some(error) = &self.form_error {
                             ui.label(RichText::new(error).color(Color32::from_rgb(194, 81, 70)));
@@ -314,13 +339,20 @@ impl App {
             theme::rule(ui);
             ui.add_space(4.0);
             ui.horizontal(|ui| {
-                theme::caption(ui, "拖放可继续添加来源");
+                theme::caption(ui, tr!(language, DropMore));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     let ready = !busy
                         && !self.draft.sources.is_empty()
                         && !self.draft.output.path.as_os_str().is_empty();
                     ui.add_enabled_ui(ready, |ui| {
-                        if widgets::button(ui, "开始压缩", Icon::ArrowRight, true, 0.0).clicked()
+                        if widgets::button(
+                            ui,
+                            tr!(language, StartCompression),
+                            Icon::ArrowRight,
+                            true,
+                            0.0,
+                        )
+                        .clicked()
                         {
                             self.create_archive(context);
                         }
@@ -328,7 +360,7 @@ impl App {
                     if ui
                         .add_enabled(
                             !busy,
-                            egui::Button::new("取消")
+                            egui::Button::new(tr!(language, Cancel))
                                 .min_size(egui::vec2(60.0, theme::CONTROL_HEIGHT)),
                         )
                         .clicked()

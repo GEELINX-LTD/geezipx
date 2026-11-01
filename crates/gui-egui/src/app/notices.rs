@@ -76,7 +76,12 @@ impl App {
                                 );
                         ui.horizontal(|ui| {
                             ui.add(egui::Label::new(text));
-                            widgets::icon_button(ui, Icon::Close, "关闭消息").clicked()
+                            widgets::icon_button(
+                                ui,
+                                Icon::Close,
+                                tr!(self.preferences.language, CloseMessage),
+                            )
+                            .clicked()
                         })
                         .inner
                     })

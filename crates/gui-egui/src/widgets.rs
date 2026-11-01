@@ -3,6 +3,7 @@ use crate::theme;
 use eframe::egui::{
     self, Align2, Color32, FontId, Rect, Response, Sense, Stroke, StrokeKind, Ui, Vec2,
 };
+use geezipx_egui::{i18n::Language, tr};
 
 #[derive(Clone, Copy)]
 pub enum Icon {
@@ -164,7 +165,7 @@ pub fn text_edit(text: &mut String) -> egui::TextEdit<'_> {
         .desired_width(f32::INFINITY)
 }
 
-pub fn search(ui: &mut Ui, query: &mut String, width: f32) -> Response {
+pub fn search(ui: &mut Ui, query: &mut String, width: f32, language: Language) -> Response {
     let p = theme::palette(ui);
     let id = egui::Id::new("archive-search");
     let shortcut = ui.ctx().format_shortcut(&command(egui::Key::F));
@@ -213,7 +214,7 @@ pub fn search(ui: &mut Ui, query: &mut String, width: f32) -> Response {
             .id(id)
             .frame(false)
             .margin(egui::Margin::ZERO)
-            .hint_text("搜索此目录"),
+            .hint_text(tr!(language, SearchDirectory)),
     );
     if frame_response.clicked() {
         response.request_focus();
@@ -227,7 +228,7 @@ pub fn search(ui: &mut Ui, query: &mut String, width: f32) -> Response {
     } else {
         let clear = ui
             .interact(right, id.with("clear"), Sense::click())
-            .on_hover_text("清除搜索");
+            .on_hover_text(tr!(language, ClearSearch));
         if clear.hovered() {
             ui.painter().rect_filled(right, 4, p.tint);
         }
@@ -699,7 +700,7 @@ pub fn file_row(ui: &mut Ui, id: egui::Id, row: FileRow<'_>, columns: Columns) -
     response
 }
 
-pub fn source_row(ui: &mut Ui, name: &str, path: &str) -> bool {
+pub fn source_row(ui: &mut Ui, name: &str, path: &str, language: Language) -> bool {
     let p = theme::palette(ui);
     let (rect, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 48.0), Sense::hover());
     ui.painter().rect_filled(rect, 8, p.soft);
@@ -736,7 +737,7 @@ pub fn source_row(ui: &mut Ui, name: &str, path: &str) -> bool {
         Vec2::splat(28.0),
     );
     let response = ui.interact(remove, ui.id().with("remove"), Sense::click());
-    accessible(&response, &format!("移除 {name}"), None);
+    accessible(&response, &tr!(language, RemoveSource, name), None);
     paint_icon(ui.painter(), remove.shrink(6.0), Icon::Close, p.muted);
     focus(ui, &response);
     response.on_hover_text(path).clicked()

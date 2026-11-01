@@ -1,5 +1,5 @@
 //! Explorer virtual files: metadata while hovering, file streams only after drop.
-use geezipx_egui::export::DeferredExport;
+use geezipx_egui::{export::DeferredExport, tr};
 use std::{
     mem::{size_of, ManuallyDrop},
     sync::{
@@ -39,7 +39,7 @@ impl VirtualFiles {
             if item.name.encode_utf16().count() >= 260 {
                 return Err(Error::new(
                     E_INVALIDARG,
-                    "所选路径过长，请进入子目录后拖出。",
+                    tr!(export.control.language, DragPathTooLong),
                 ));
             }
         }

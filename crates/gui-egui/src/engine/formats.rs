@@ -1,6 +1,6 @@
 //! Format constructors are UI adapters, never codec implementations.
 use super::streams;
-use crate::job::Control;
+use crate::{i18n::Language, job::Control, tr};
 use geezipx_core::archive::{self, lzh::LzhCompressionMethod, ArchiveReader, ArchiveWriter};
 use geezipx_core::config::{CompressOptions, SevenZipOptions};
 use geezipx_core::detect::{self, ArchiveFormat};
@@ -47,6 +47,20 @@ pub const WRITE_FORMATS: &[(ArchiveFormat, &str)] = &[
     (ArchiveFormat::Bin, "BIN (原样复制)"),
     (ArchiveFormat::Isz, "ISZ (压缩镜像)"),
 ];
+
+pub fn label(format: ArchiveFormat, language: Language) -> &'static str {
+    match format {
+        ArchiveFormat::Wim => tr!(language, WimFormat),
+        ArchiveFormat::Aes => tr!(language, AesFormat),
+        ArchiveFormat::Img => tr!(language, ImgFormat),
+        ArchiveFormat::Bin => tr!(language, BinFormat),
+        ArchiveFormat::Isz => tr!(language, IszFormat),
+        _ => WRITE_FORMATS
+            .iter()
+            .find(|(value, _)| *value == format)
+            .map_or("", |(_, label)| *label),
+    }
+}
 
 pub fn extension(format: ArchiveFormat) -> String {
     match format {
@@ -103,7 +117,12 @@ pub fn preset_level(format: ArchiveFormat, preset: usize) -> Option<u32> {
 }
 
 pub fn detect(path: &Path) -> Result<ArchiveFormat, String> {
-    let mut file = File::open(path).map_err(|e| format!("无法打开 {}：{e}", path.display()))?;
+    detect_in(path, Language::default())
+}
+
+pub fn detect_in(path: &Path, language: Language) -> Result<ArchiveFormat, String> {
+    let mut file =
+        File::open(path).map_err(|e| tr!(language, CannotOpenFile, path.display(), e))?;
     let magic = detect::detect_seekable_format(&mut file).map_err(|e| e.to_string())?;
     let extension = detect::detect_from_extension(path);
     Ok(match (magic, extension) {
@@ -117,7 +136,7 @@ pub fn detect(path: &Path) -> Result<ArchiveFormat, String> {
             ArchiveFormat::TarLz
         }
         (Some(format), _) | (None, Some(format)) => format,
-        _ => return Err("无法识别此文件的归档格式。".into()),
+        _ => return Err(tr!(language, UnknownFormat).into()),
     })
 }
 
@@ -136,7 +155,8 @@ fn build_reader(
     password: Option<&str>,
     control: &Control,
 ) -> Result<Box<dyn ArchiveReader>, String> {
-    let format = detect(path)?;
+    let language = control.language;
+    let format = detect_in(path, language)?;
     let file = || {
         File::open(path)
             .map(|f| TaskFile::new(f, control))
@@ -200,7 +220,7 @@ fn build_reader(
         stream if streams::is_stream(stream) => {
             Box::new(streams::StreamReader::new(path, stream, control))
         }
-        _ => return Err(format!("此构建未启用 {format} 支持。")),
+        _ => return Err(tr!(language, FormatNotEnabled, format)),
     };
     if let Some(password) = password.filter(|p| !p.is_empty()) {
         if !matches!(
@@ -215,7 +235,7 @@ fn build_reader(
                 | ArchiveFormat::Ace
                 | ArchiveFormat::Arc
         ) {
-            return Err(format!("{format} 不支持密码，请清空密码后重试。"));
+            return Err(tr!(language, FormatNoPassword, format));
         }
         if format != ArchiveFormat::Alz {
             reader.set_password(password).map_err(|e| e.to_string())?;
@@ -230,8 +250,9 @@ pub fn create_writer(
     options: CompressOptions,
     control: &Control,
 ) -> Result<Box<dyn ArchiveWriter>, String> {
+    let language = control.language;
     if options.password.is_some() && !write_password(format) {
-        return Err(format!("{format} 不支持密码加密。"));
+        return Err(tr!(language, NoEncryption, format));
     }
     let file = TaskFile::new(file, control);
     Ok(match format {
@@ -307,7 +328,7 @@ pub fn create_writer(
         ArchiveFormat::Wim => Box::new(archive::wim::WimWriter::new(file)),
         #[cfg(feature = "zpaq")]
         ArchiveFormat::Zpaq => Box::new(archive::zpaq::ZpaqWriter::new(file, options.level)),
-        _ => return Err(format!("此界面不能创建 {format}。")),
+        _ => return Err(tr!(language, CannotCreateFormat, format)),
     })
 }
 

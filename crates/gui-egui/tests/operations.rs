@@ -61,6 +61,46 @@ fn zip(path: &Path, entries: &[(&str, &[u8])]) {
 }
 
 #[test]
+fn english_tasks_preserve_unicode_paths_and_report_results_and_cancellation() {
+    let temp = TempDir::new().unwrap();
+    let source = write(
+        temp.path(),
+        "中文文件.txt",
+        b"localized GUI, original contents",
+    );
+    let archive = temp.path().join("中文归档.zip");
+    let destination = temp.path().join("提取内容");
+    let mut control = Control::default();
+    control.language = geezipx_egui::i18n::Language::English;
+    let summary = engine::compress(
+        create(vec![source], &archive, ArchiveFormat::Zip, None, false),
+        &control,
+    )
+    .unwrap();
+    assert!(summary.message.starts_with("Archive created:"));
+    assert_eq!(summary.output, Some(archive.clone()));
+    let listing = engine::list(archive.clone(), None, &control).unwrap();
+    assert_eq!(listing.entries[0].path, "中文文件.txt");
+    assert_eq!(control.snapshot().stage, "Reading archive directory…");
+    let summary = engine::verify(read(&archive, &destination), &control).unwrap();
+    assert_eq!(summary.message, "Integrity verified: 1 files read.");
+    let summary = engine::extract(read(&archive, &destination), &control).unwrap();
+    assert_eq!(
+        summary.message,
+        "Extracted 1 files, skipped 0 existing files."
+    );
+    assert_eq!(
+        fs::read(destination.join("中文文件.txt")).unwrap(),
+        b"localized GUI, original contents"
+    );
+    control.cancel();
+    assert_eq!(
+        engine::verify(read(&archive, &destination), &control).unwrap_err(),
+        "Operation cancelled. Files already extracted have been kept."
+    );
+}
+
+#[test]
 fn every_creation_format_roundtrips_nested_files_and_supported_names() {
     for &(format, _) in engine::formats::WRITE_FORMATS {
         if engine::streams::single_input(format) {

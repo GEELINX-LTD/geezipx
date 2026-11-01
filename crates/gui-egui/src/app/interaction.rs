@@ -67,7 +67,8 @@ impl App {
             selection: archive.browser.selection.clone(),
         };
         let repaint = context.clone();
-        let control = geezipx_egui::job::Control::new(move || repaint.request_repaint());
+        let mut control = geezipx_egui::job::Control::new(move || repaint.request_repaint());
+        control.language = self.preferences.language;
         let password = std::mem::take(&mut self.read_password);
         match DeferredExport::new(
             key,
@@ -116,7 +117,9 @@ impl App {
         let result = match receiver.try_recv() {
             Ok(result) => result,
             Err(mpsc::TryRecvError::Empty) => return,
-            Err(mpsc::TryRecvError::Disconnected) => Err("系统拖放连接已中断。".into()),
+            Err(mpsc::TryRecvError::Disconnected) => {
+                Err(tr!(self.preferences.language, DragDisconnected).into())
+            }
         };
         self.export.receiver = None;
         self.export.cancel = None;
@@ -131,9 +134,19 @@ impl App {
         context.input_mut(|input| input.pointer = Default::default());
         self.row_activation.reset();
         match result {
-            Ok(true) => self.notice = Some(Notice::new("已将所选文件交给目标位置。", false)),
+            Ok(true) => {
+                self.notice = Some(Notice::new(
+                    tr!(self.preferences.language, DragDelivered),
+                    false,
+                ))
+            }
             Ok(false) => {}
-            Err(error) => self.notice = Some(Notice::new(format!("拖出未完成：{error}"), true)),
+            Err(error) => {
+                self.notice = Some(Notice::new(
+                    tr!(self.preferences.language, DragFailed, error),
+                    true,
+                ))
+            }
         }
     }
 }

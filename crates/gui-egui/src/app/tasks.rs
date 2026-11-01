@@ -2,6 +2,7 @@ use super::*;
 
 impl App {
     pub(super) fn status_bar(&mut self, parent: &mut egui::Ui) -> egui::Rect {
+        let language = self.preferences.language;
         let controls_enabled = !self.modal_open();
         let radius = self
             .window_frame
@@ -26,25 +27,28 @@ impl App {
                     let progress = active.job.control.snapshot();
                     ui.horizontal(|ui| {
                         ui.spinner();
-                        ui.label(RichText::new(active.kind.title()).strong());
+                        ui.label(RichText::new(active.kind.title(language)).strong());
                         let cancelled = active.job.control.is_cancelled();
                         let stage_width = (ui.available_width() - 180.0).max(100.0);
                         ui.add_sized(
                             [stage_width, 24.0],
                             egui::Label::new(if cancelled {
-                                "正在安全取消…"
+                                tr!(language, Cancelling)
                             } else {
                                 &progress.stage
                             })
                             .truncate(),
                         );
                         ui.add_enabled_ui(controls_enabled, |ui| {
-                            if widgets::subtle_button(ui, "详情").clicked() {
+                            if widgets::subtle_button(ui, tr!(language, Details)).clicked() {
                                 self.tasks_open = true;
                             }
                             if active.kind != Kind::Dialog
                                 && ui
-                                    .add_enabled(!cancelled, egui::Button::new("取消任务").small())
+                                    .add_enabled(
+                                        !cancelled,
+                                        egui::Button::new(tr!(language, CancelTask)).small(),
+                                    )
                                     .clicked()
                             {
                                 active.job.control.cancel();
@@ -78,8 +82,9 @@ impl App {
                             let elapsed = active.job.started.elapsed().as_secs_f64();
                             let speed = progress.bytes as f64 / elapsed.max(0.01);
                             let remaining = if speed > 0.0 && progress.total > progress.bytes {
-                                format!(
-                                    " · 约 {:.0} 秒",
+                                tr!(
+                                    language,
+                                    Remaining,
                                     (progress.total - progress.bytes) as f64 / speed
                                 )
                             } else {
@@ -94,7 +99,7 @@ impl App {
                                         theme::bytes(speed as u64)
                                     )
                                 } else {
-                                    format!("已用时 {elapsed:.0} 秒")
+                                    tr!(language, Elapsed, elapsed)
                                 },
                             );
                         });
@@ -102,26 +107,28 @@ impl App {
                 } else if self.export.receiver.is_some() {
                     ui.horizontal(|ui| {
                         ui.spinner();
-                        ui.label("拖到目标文件夹后松开鼠标 · Esc 取消");
+                        ui.label(tr!(language, DragHint));
                     });
                 } else {
                     ui.horizontal(|ui| {
                         if let Some(archive) = &self.archive {
                             let browser = &archive.browser;
-                            theme::caption(ui, format!("{} 项", browser.visible.len()));
+                            theme::caption(ui, tr!(language, ItemCount, browser.visible.len()));
                             if !browser.selection.is_empty() {
                                 theme::caption(
                                     ui,
-                                    format!(
-                                        "已选 {} 项 · {}",
+                                    tr!(
+                                        language,
+                                        SelectedCount,
                                         browser.selection.len(),
                                         theme::bytes(browser.selected_bytes)
                                     ),
                                 );
                                 if browser.hidden_selected > 0 {
                                     ui.label(
-                                        RichText::new(format!(
-                                            "其中 {} 项被筛选隐藏",
+                                        RichText::new(tr!(
+                                            language,
+                                            HiddenCount,
                                             browser.hidden_selected
                                         ))
                                         .size(12.0)
@@ -130,22 +137,31 @@ impl App {
                                 }
                             }
                         } else {
-                            theme::caption(ui, "准备就绪");
+                            theme::caption(ui, tr!(language, Ready));
                         }
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             if let Some(archive) = &self.archive {
                                 theme::caption(
                                     ui,
-                                    format!(
-                                        "共 {} 个条目 · {}",
+                                    tr!(
+                                        language,
+                                        TotalEntries,
                                         archive.entries.len(),
                                         theme::bytes(archive.bytes)
                                     ),
                                 );
                             } else {
-                                widgets::shortcut_hint(ui, "新建", widgets::command(egui::Key::N));
+                                widgets::shortcut_hint(
+                                    ui,
+                                    tr!(language, New),
+                                    widgets::command(egui::Key::N),
+                                );
                                 ui.add_space(16.0);
-                                widgets::shortcut_hint(ui, "打开", widgets::command(egui::Key::O));
+                                widgets::shortcut_hint(
+                                    ui,
+                                    tr!(language, Open),
+                                    widgets::command(egui::Key::O),
+                                );
                             }
                         });
                     });
@@ -158,6 +174,7 @@ impl App {
         if !self.tasks_open {
             return;
         }
+        let language = self.preferences.language;
         let mut open_output = None;
         let response = theme::modal(
             context,
@@ -167,9 +184,10 @@ impl App {
         .show(context, |ui| {
             ui.set_width(580.0_f32.min(context.content_rect().width() - 80.0));
             ui.horizontal(|ui| {
-                ui.heading("任务记录");
+                ui.heading(tr!(language, Tasks));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if !self.history.is_empty() && widgets::subtle_button(ui, "清空记录").clicked()
+                    if !self.history.is_empty()
+                        && widgets::subtle_button(ui, tr!(language, ClearHistory)).clicked()
                     {
                         self.history.clear();
                     }
@@ -185,7 +203,7 @@ impl App {
                             ui.set_width(ui.available_width());
                             ui.horizontal(|ui| {
                                 ui.spinner();
-                                ui.label(RichText::new(active.kind.title()).strong());
+                                ui.label(RichText::new(active.kind.title(language)).strong());
                                 ui.with_layout(
                                     egui::Layout::right_to_left(egui::Align::Center),
                                     |ui| {
@@ -193,7 +211,7 @@ impl App {
                                             && ui
                                                 .add_enabled(
                                                     !active.job.control.is_cancelled(),
-                                                    egui::Button::new("取消任务"),
+                                                    egui::Button::new(tr!(language, CancelTask)),
                                                 )
                                                 .clicked()
                                         {
@@ -218,8 +236,9 @@ impl App {
                             }
                             theme::caption(
                                 ui,
-                                format!(
-                                    "{} / {} · {} / {} 项 · 已用时 {:.1} 秒",
+                                tr!(
+                                    language,
+                                    TaskProgress,
                                     theme::bytes(progress.bytes),
                                     theme::bytes(progress.total),
                                     progress.completed,
@@ -228,13 +247,13 @@ impl App {
                                 ),
                             );
                             if active.job.control.is_cancelled() {
-                                theme::caption(ui, "正在安全取消，等待当前编解码步骤结束。");
+                                theme::caption(ui, tr!(language, CancelWait));
                             }
                         });
                     }
                     if self.history.is_empty() && self.active.is_none() {
                         ui.add_space(24.0);
-                        theme::caption(ui, "本次会话的压缩、解压与完整性测试结果会显示在这里。");
+                        theme::caption(ui, tr!(language, NoTasks));
                         ui.add_space(24.0);
                     }
                     for (index, history) in self.history.iter().enumerate() {
@@ -243,17 +262,17 @@ impl App {
                                 ui.set_width(ui.available_width());
                                 ui.horizontal(|ui| {
                                     let (status, color) = if history.cancelled {
-                                        ("已取消", theme::palette(ui).muted)
+                                        (tr!(language, Cancelled), theme::palette(ui).muted)
                                     } else if history.failed {
-                                        ("未完成", Color32::from_rgb(194, 81, 70))
+                                        (tr!(language, Failed), Color32::from_rgb(194, 81, 70))
                                     } else {
-                                        ("已完成", theme::palette(ui).accent)
+                                        (tr!(language, Completed), theme::palette(ui).accent)
                                     };
-                                    ui.label(RichText::new(history.kind.title()).strong());
+                                    ui.label(RichText::new(history.kind.title(language)).strong());
                                     ui.label(RichText::new(status).size(12.0).color(color));
                                     theme::caption(
                                         ui,
-                                        format!("{:.1} 秒", history.elapsed.as_secs_f64()),
+                                        tr!(language, Seconds, history.elapsed.as_secs_f64()),
                                     );
                                 });
                                 ui.label(&history.message);
@@ -267,8 +286,12 @@ impl App {
                                             )
                                             .truncate(),
                                         );
-                                        if widgets::icon_button(ui, Icon::Folder, "打开输出文件夹")
-                                            .clicked()
+                                        if widgets::icon_button(
+                                            ui,
+                                            Icon::Folder,
+                                            tr!(language, OpenOutputFolder),
+                                        )
+                                        .clicked()
                                         {
                                             open_output = Some(if history.kind == Kind::Compress {
                                                 path.parent()
@@ -287,8 +310,11 @@ impl App {
             ui.add_space(6.0);
             theme::rule(ui);
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.add(egui::Button::new("关闭").min_size(egui::vec2(64.0, theme::CONTROL_HEIGHT)))
-                    .clicked()
+                ui.add(
+                    egui::Button::new(tr!(language, Close))
+                        .min_size(egui::vec2(64.0, theme::CONTROL_HEIGHT)),
+                )
+                .clicked()
             })
             .inner
         });

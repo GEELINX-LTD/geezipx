@@ -1,7 +1,7 @@
 //! Blocking filesystem orchestration. Called exclusively by background jobs.
 pub mod formats;
 pub mod streams;
-use crate::{browser, job::Control};
+use crate::{browser, i18n::Language, job::Control, tr};
 use geezipx_core::{
     archive::{extraction::ExtractionDir, is_entry_path_dangerous, Entry},
     config::CompressOptions,
@@ -24,10 +24,11 @@ pub struct Archive {
 }
 
 pub fn list(path: PathBuf, password: Option<String>, control: &Control) -> Result<Archive, String> {
-    control.update(|p| p.stage = "正在读取归档目录…".into());
+    let language = control.language;
+    control.update(|p| p.stage = tr!(language, ReadingDirectory).into());
     control.check()?;
     let mut reader = formats::open_reader(&path, password.as_deref(), control)?;
-    let format = formats::detect(&path)?;
+    let format = formats::detect_in(&path, language)?;
     let entries = reader.entries();
     control.check()?;
     let entries = entries.map_err(|e| e.to_string())?;
@@ -84,28 +85,26 @@ fn parent(path: &Path) -> &Path {
 }
 
 /// Resolve existing ancestors without requiring the final directory to exist.
-fn resolved(path: &Path) -> Result<PathBuf, String> {
+fn resolved(path: &Path, language: Language) -> Result<PathBuf, String> {
     if path.exists() {
         return fs::canonicalize(path).map_err(|e| e.to_string());
     }
     let name = path
         .file_name()
-        .ok_or_else(|| format!("无效路径：{}", path.display()))?;
-    Ok(resolved(parent(path))?.join(name))
+        .ok_or_else(|| tr!(language, InvalidPath, path.display()))?;
+    Ok(resolved(parent(path), language)?.join(name))
 }
 
-fn validate_output(request: &CompressRequest) -> Result<(), String> {
+fn validate_output(request: &CompressRequest, language: Language) -> Result<(), String> {
     if request.sources.is_empty() {
-        return Err("请先添加文件或文件夹。".into());
+        return Err(tr!(language, AddFilesFirst).into());
     }
     if let Some(target) = request.sfx_target {
         if !target.is_available() {
-            return Err(format!(
-                "此构建未包含 {target:?} 自解压程序，请选择其它目标平台。"
-            ));
+            return Err(tr!(language, MissingSfx, target));
         }
         if request.format != ArchiveFormat::Zip {
-            return Err("自解压包只能使用 ZIP 格式。".into());
+            return Err(tr!(language, SfxZipOnly).into());
         }
         if target == geezipx_core::sfx::SfxTarget::Windows
             && request
@@ -113,79 +112,77 @@ fn validate_output(request: &CompressRequest) -> Result<(), String> {
                 .extension()
                 .is_none_or(|e| !e.eq_ignore_ascii_case("exe"))
         {
-            return Err("Windows 自解压包应使用 .exe 扩展名。".into());
+            return Err(tr!(language, SfxExe).into());
         }
     } else if geezipx_core::detect::detect_from_extension(&request.output) != Some(request.format) {
-        return Err(format!(
-            "输出文件名应使用 .{} 扩展名，请检查格式和保存位置。",
+        return Err(tr!(
+            language,
+            OutputExtension,
             formats::extension(request.format)
         ));
     }
     if request.options.password.as_deref() == Some("") {
-        return Err("密码不能为空。".into());
+        return Err(tr!(language, EmptyPassword).into());
     }
     if request.options.password.is_some() && !formats::write_password(request.format) {
-        return Err(format!("{} 不支持密码加密。", request.format));
+        return Err(tr!(language, NoEncryption, request.format));
     }
     if request.format == ArchiveFormat::Aes && request.options.password.is_none() {
-        return Err("AES 加密容器需要设置密码。".into());
+        return Err(tr!(language, AesNeedsPassword).into());
     }
     if streams::single_input(request.format) {
         if request.sources.len() != 1 {
-            return Err(format!(
-                "{} 仅支持一个普通文件，请改用多文件归档格式。",
-                request.format
-            ));
+            return Err(tr!(language, OneFileFormat, request.format));
         }
         let metadata = fs::symlink_metadata(&request.sources[0]).map_err(|e| e.to_string())?;
         if !metadata.is_file() || is_link(&metadata) {
-            return Err(format!(
-                "{} 的来源必须是一个普通文件，不能是文件夹或链接。",
-                request.format
-            ));
+            return Err(tr!(language, RegularFileFormat, request.format));
         }
     }
     let output_parent = fs::canonicalize(parent(&request.output))
-        .map_err(|e| format!("输出文件夹不存在或无法访问：{e}"))?;
-    let output = output_parent.join(request.output.file_name().ok_or("请填写输出文件名。")?);
+        .map_err(|e| tr!(language, OutputFolderError, e))?;
+    let output = output_parent.join(
+        request
+            .output
+            .file_name()
+            .ok_or(tr!(language, EnterOutputName))?,
+    );
     if let Ok(metadata) = fs::symlink_metadata(&output) {
         if is_link(&metadata) || !metadata.is_file() {
-            return Err("输出路径必须是普通文件，不能是链接或文件夹。".into());
+            return Err(tr!(language, OutputRegularFile).into());
         }
         if !request.replace {
-            return Err("输出文件已存在，请更改文件名，或明确勾选替换。".into());
+            return Err(tr!(language, OutputExists).into());
         }
     }
     for source in &request.sources {
-        let canonical =
-            fs::canonicalize(source).map_err(|e| format!("无法访问 {}：{e}", source.display()))?;
+        let canonical = fs::canonicalize(source)
+            .map_err(|e| tr!(language, CannotAccess, source.display(), e))?;
         if (canonical.is_dir() && output_parent.starts_with(&canonical))
             || canonical == output
             || same_file::is_same_file(&canonical, &output).unwrap_or(false)
         {
-            return Err("输出文件不能是输入文件，也不能放在正在压缩的文件夹内。".into());
+            return Err(tr!(language, OutputInsideInput).into());
         }
     }
     Ok(())
 }
 
 fn collect(sources: &[PathBuf], control: &Control) -> Result<(Vec<Input>, usize), String> {
+    let language = control.language;
     let mut roots = BTreeMap::new();
     let mut directories = HashSet::new();
     let mut skipped = 0;
     for path in sources {
         control.check()?;
         let metadata =
-            fs::symlink_metadata(path).map_err(|e| format!("无法读取 {}：{e}", path.display()))?;
+            fs::symlink_metadata(path).map_err(|e| tr!(language, CannotRead, path.display(), e))?;
         if is_link(&metadata) || (!metadata.is_dir() && !metadata.is_file()) {
             skipped += 1;
             continue;
         }
         let real = fs::canonicalize(path).map_err(|e| e.to_string())?;
-        let name = real
-            .file_name()
-            .ok_or("不能直接压缩文件系统根目录，请选择其中的文件夹。")?
-            .to_owned();
+        let name = real.file_name().ok_or(tr!(language, RootInput))?.to_owned();
         if metadata.is_dir() {
             directories.insert(real.clone());
         }
@@ -206,8 +203,8 @@ fn collect(sources: &[PathBuf], control: &Control) -> Result<(Vec<Input>, usize)
     let mut names = HashSet::new();
     while let Some((real, name)) = stack.pop() {
         control.check()?;
-        let metadata =
-            fs::symlink_metadata(&real).map_err(|e| format!("无法读取 {}：{e}", real.display()))?;
+        let metadata = fs::symlink_metadata(&real)
+            .map_err(|e| tr!(language, CannotRead, real.display(), e))?;
         if is_link(&metadata) || (!metadata.is_dir() && !metadata.is_file()) {
             skipped += 1;
             continue;
@@ -218,17 +215,15 @@ fn collect(sources: &[PathBuf], control: &Control) -> Result<(Vec<Input>, usize)
         }
         let archive_name = name
             .to_str()
-            .ok_or("输入包含不能表示为 Unicode 的文件名。")?
+            .ok_or(tr!(language, NonUnicodeName))?
             .replace('\\', "/");
         if is_entry_path_dangerous(Path::new(&archive_name)) || !names.insert(archive_name.clone())
         {
-            return Err(format!(
-                "归档中出现重复或无效名称：{archive_name}。请移除同名来源。"
-            ));
+            return Err(tr!(language, DuplicateName, archive_name));
         }
         if metadata.is_dir() {
             let mut children = fs::read_dir(&real)
-                .map_err(|e| format!("无法读取 {}：{e}", real.display()))?
+                .map_err(|e| tr!(language, CannotRead, real.display(), e))?
                 .collect::<Result<Vec<_>, _>>()
                 .map_err(|e| e.to_string())?;
             children.sort_by_key(|child| child.file_name());
@@ -248,17 +243,18 @@ fn collect(sources: &[PathBuf], control: &Control) -> Result<(Vec<Input>, usize)
         });
     }
     if inputs.is_empty() {
-        return Err("没有可压缩的普通文件或文件夹；符号链接和特殊文件会被跳过。".into());
+        return Err(tr!(language, NoRegularInputs).into());
     }
     Ok((inputs, skipped))
 }
 
 pub fn compress(request: CompressRequest, control: &Control) -> Result<Summary, String> {
-    control.update(|p| p.stage = "正在扫描输入文件…".into());
-    validate_output(&request)?;
+    let language = control.language;
+    control.update(|p| p.stage = tr!(language, Scanning).into());
+    validate_output(&request, language)?;
     let (inputs, skipped) = collect(&request.sources, control)?;
     control.update(|p| {
-        p.stage = "正在压缩".into();
+        p.stage = tr!(language, Compressing).into();
         p.entries = inputs.len();
         p.total = inputs
             .iter()
@@ -301,7 +297,7 @@ pub fn compress(request: CompressRequest, control: &Control) -> Result<Summary, 
                 writer.add_directory(&entry.name)
             } else {
                 let file = File::open(&entry.real)
-                    .map_err(|e| format!("无法读取 {}：{e}", entry.real.display()))?;
+                    .map_err(|e| tr!(language, CannotRead, entry.real.display(), e))?;
                 let mut input = ProgressReader::new(BufReader::new(file))
                     .with_total(entry.size)
                     .with_callback(control.callback(bytes));
@@ -315,13 +311,13 @@ pub fn compress(request: CompressRequest, control: &Control) -> Result<Summary, 
                 p.completed = index + 1;
             });
         }
-        control.update(|p| p.stage = "正在完成归档，请稍候…".into());
+        control.update(|p| p.stage = tr!(language, FinishingArchive).into());
         let result = writer.finish();
         control.check()?;
         result.map_err(|e| e.to_string())?;
     }
     let temp = if let Some(target) = request.sfx_target {
-        control.update(|p| p.stage = "正在生成自解压包…".into());
+        control.update(|p| p.stage = tr!(language, CreatingSfx).into());
         let sfx =
             tempfile::NamedTempFile::new_in(parent(&request.output)).map_err(|e| e.to_string())?;
         file = temp.reopen().map_err(|e| e.to_string())?;
@@ -349,12 +345,9 @@ pub fn compress(request: CompressRequest, control: &Control) -> Result<Summary, 
     } else {
         temp.persist_noclobber(&request.output)
     }
-    .map_err(|e| format!("无法保存压缩包：{}", e.error))?;
+    .map_err(|e| tr!(language, SaveArchiveError, e.error))?;
     Ok(Summary {
-        message: format!(
-            "已创建归档，共 {} 项，跳过 {skipped} 个链接或特殊文件。",
-            inputs.len()
-        ),
+        message: tr!(language, CreatedSummary, inputs.len(), skipped),
         output: Some(request.output),
     })
 }
@@ -373,10 +366,10 @@ pub fn extract(request: ReadRequest, control: &Control) -> Result<Summary, Strin
 }
 pub fn verify(request: ReadRequest, control: &Control) -> Result<Summary, String> {
     control.check()?;
-    if formats::detect(&request.archive)? == ArchiveFormat::Isz {
+    if formats::detect_in(&request.archive, control.language)? == ArchiveFormat::Isz {
         // Traversing ISO files can leave padding/unreferenced ISZ chunks unread.
         // Validate the entire outer container before checking its filesystem.
-        control.update(|p| p.stage = "正在验证全部 ISZ 数据块…".into());
+        control.update(|p| p.stage = tr!(control.language, VerifyingIsz).into());
         let file = File::open(&request.archive).map_err(|e| e.to_string())?;
         let mut file = formats::TaskFile::new(file, control);
         let result = geezipx_core::archive::isz::isz_verify(&mut file);
@@ -387,7 +380,8 @@ pub fn verify(request: ReadRequest, control: &Control) -> Result<Summary, String
 }
 
 fn read_entries(request: ReadRequest, control: &Control, verify: bool) -> Result<Summary, String> {
-    control.update(|p| p.stage = "正在读取归档…".into());
+    let language = control.language;
+    control.update(|p| p.stage = tr!(language, ReadingArchive).into());
     control.check()?;
     let mut reader = formats::open_reader(&request.archive, request.password.as_deref(), control)?;
     let entries = reader.entries();
@@ -403,20 +397,20 @@ fn read_entries(request: ReadRequest, control: &Control, verify: bool) -> Result
         .collect();
     control.check()?;
     if !request.selection.is_empty() && entries.is_empty() {
-        return Err("所选条目已不存在，请重新打开归档。".into());
+        return Err(tr!(language, SelectionMissing).into());
     }
     // Preflight the entire selection before creating files, protecting the input archive too.
     if !verify {
-        let root = resolved(&request.destination)?;
+        let root = resolved(&request.destination, language)?;
         let archive = fs::canonicalize(&request.archive).map_err(|e| e.to_string())?;
         for entry in &entries {
             let entry_path = browser::normalized(&entry.path);
             if is_entry_path_dangerous(Path::new(&entry_path)) {
-                return Err(format!("归档包含不安全路径：{}", entry.path));
+                return Err(tr!(language, UnsafePath, entry.path));
             }
             let target = root.join(browser::normalized(&entry.path));
             if target == archive || same_file::is_same_file(&archive, &target).unwrap_or(false) {
-                return Err("解压路径会覆盖正在读取的归档，请选择其他文件夹。".into());
+                return Err(tr!(language, ExtractionOverwritesArchive).into());
             }
         }
     }
@@ -427,9 +421,9 @@ fn read_entries(request: ReadRequest, control: &Control, verify: bool) -> Result
     };
     control.update(|p| {
         p.stage = if verify {
-            "正在验证完整性"
+            tr!(language, Verifying)
         } else {
-            "正在解压"
+            tr!(language, Extracting)
         }
         .into();
         p.entries = entries.len();
@@ -445,7 +439,7 @@ fn read_entries(request: ReadRequest, control: &Control, verify: bool) -> Result
     let root = if verify {
         None
     } else {
-        Some(resolved(&request.destination)?)
+        Some(resolved(&request.destination, language)?)
     };
     let mut completed = 0;
     let result = reader.visit_entries(
@@ -465,8 +459,8 @@ fn read_entries(request: ReadRequest, control: &Control, verify: bool) -> Result
                 let target = root.join(browser::normalized(&entry.path));
                 if target == source || same_file::is_same_file(&source, &target).unwrap_or(false) {
                     return Err(GeeZipError::io(
-                        io::Error::other("解压会覆盖输入归档"),
-                        "检查输出路径",
+                        io::Error::other(tr!(language, OverwritesInput)),
+                        tr!(language, CheckOutputPath),
                     ));
                 }
             }
@@ -475,7 +469,7 @@ fn read_entries(request: ReadRequest, control: &Control, verify: bool) -> Result
                     .with_total(entry.size)
                     .with_callback(control.callback(bytes));
                 let result = io::copy(input, &mut output)
-                    .map_err(|e| GeeZipError::io(e, format!("读取 {}", entry.path)));
+                    .map_err(|e| GeeZipError::io(e, tr!(language, ReadingEntry, entry.path)));
                 if control.is_cancelled() {
                     Err(GeeZipError::Cancelled)
                 } else {
@@ -512,16 +506,20 @@ fn read_entries(request: ReadRequest, control: &Control, verify: bool) -> Result
     );
     control.check()?;
     result.map_err(|error| {
-        format!(
-            "{}：{error}\n已完成 {files} 个文件，跳过 {skipped} 个。",
-            control.snapshot().entry
+        tr!(
+            language,
+            PartialRead,
+            control.snapshot().entry,
+            error,
+            files,
+            skipped
         )
     })?;
     Ok(Summary {
         message: if verify {
-            format!("完整性验证通过，已读取 {files} 个文件。")
+            tr!(language, VerifiedSummary, files)
         } else {
-            format!("已解压 {files} 个文件，跳过 {skipped} 个已有文件。")
+            tr!(language, ExtractedSummary, files, skipped)
         },
         output: if verify {
             None
@@ -544,6 +542,7 @@ pub fn preview(
     entry: Entry,
     control: &Control,
 ) -> Result<Preview, String> {
+    let language = control.language;
     control.check()?;
     let mut reader = formats::open_reader(&archive, password.as_deref(), control)?;
     let mut buffer = PreviewBuffer {
@@ -560,7 +559,8 @@ pub fn preview(
             let result = {
                 let mut writer =
                     ProgressWriter::new(&mut buffer).with_callback(control.callback(0));
-                io::copy(input, &mut writer).map_err(|e| GeeZipError::io(e, "读取预览"))
+                io::copy(input, &mut writer)
+                    .map_err(|e| GeeZipError::io(e, tr!(language, ReadingPreview)))
             };
             if !buffer.truncated {
                 result?;
@@ -572,17 +572,17 @@ pub fn preview(
     control.check()?;
     result.map_err(|e| e.to_string())?;
     if !found {
-        return Err("归档内容已变化，请重新打开后再预览。".into());
+        return Err(tr!(language, ArchiveChanged).into());
     }
     if buffer.bytes.contains(&0) {
-        return Err("此文件包含二进制内容，请提取后用相应应用打开。".into());
+        return Err(tr!(language, BinaryPreview).into());
     }
     let text = match std::str::from_utf8(&buffer.bytes) {
         Ok(text) => text.to_owned(),
         Err(error) if buffer.truncated && error.error_len().is_none() => {
             String::from_utf8_lossy(&buffer.bytes[..error.valid_up_to()]).into_owned()
         }
-        Err(_) => return Err("目前仅支持 UTF-8 文本预览，请提取后打开此文件。".into()),
+        Err(_) => return Err(tr!(language, Utf8Preview).into()),
     };
     Ok(Preview {
         name: entry.path,
