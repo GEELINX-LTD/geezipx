@@ -6,6 +6,8 @@ $menu = "$classes\AllFilesystemObjects\shell\GeeZipXNative"
 $capabilities = 'HKCU:\Software\GeeZipXNative\Capabilities'
 $clsids = @('{5AD97452-37F8-4738-A102-5B472DF60C11}', '{5AD97452-37F8-4738-A102-5B472DF60C12}')
 if ($Uninstalled) {
+  if (Test-Path -LiteralPath 'HKCU:\Software\GeeZipXNative\Shell') { throw 'Modern shell preferences survived uninstall' }
+  if (@(Get-AppxPackage -Name 'GeeZipX.Native.Shell').Count -ne 0) { throw 'Modern shell identity survived uninstall' }
   foreach ($path in @($menu, $capabilities, "$classes\GeeZipX.Native.zip") + @($clsids | ForEach-Object { "$classes\CLSID\$_" })) {
     if (Test-Path -LiteralPath $path) { throw "Integration survived uninstall: $path" }
   }
@@ -50,6 +52,7 @@ try {
   Remove-ItemProperty -LiteralPath $openWith -Name 'GeeZipXIntegrationTest.Other' -ErrorAction SilentlyContinue
 }
 # Activate the real DelegateExecute COM local server with two selected Unicode files.
+if (-not ('GeeZipXShellProbe' -as [type])) {
 Add-Type -TypeDefinition @'
 using System;
 using System.Runtime.InteropServices;
@@ -89,6 +92,7 @@ public static class GeeZipXShellProbe {
  }
 }
 '@
+}
 $temporary = Join-Path $env:RUNNER_TEMP 'GeeZipX shell 中文 selection'
 New-Item -ItemType Directory -Path $temporary -Force | Out-Null
 $first = Join-Path $temporary '说明 空格.txt'
@@ -116,4 +120,5 @@ try {
   Get-Process -Name 'geezipx-egui' -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $Exe } | Stop-Process -Force
   Remove-Item -LiteralPath $temporary -Recurse -Force -ErrorAction SilentlyContinue
 }
+& "$PSScriptRoot/test-egui-windows-explorer.ps1" -Exe $Exe
 Write-Host 'Native file associations, registry ownership and COM multi-selection passed'

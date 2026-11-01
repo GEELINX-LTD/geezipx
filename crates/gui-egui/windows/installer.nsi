@@ -73,8 +73,29 @@ Function .onInit
 FunctionEnd
 
 Section "GeeZipX Native" Main
+  ; Deactivate the old surrogate before replacing a DLL that Windows may still host.
+  ; Older, classic-menu-only versions have no DLL and do not know this maintenance flag.
+  IfFileExists "$INSTDIR\geezipx_shell.dll" 0 shell_upgrade_ready
+  ClearErrors
+  ExecWait '$\"$INSTDIR\${APP_EXE}$\" --prepare-shell-upgrade' $0
+  ${If} ${Errors}
+  ${OrIf} $0 != 0
+    DetailPrint "Could not deactivate the Windows 11 menu for upgrade. Close its menu and retry."
+    SetErrorLevel 1
+    Abort
+  ${EndIf}
+  ClearErrors
+  Delete "$INSTDIR\geezipx_shell.dll"
+  ${If} ${Errors}
+    DetailPrint "The old Explorer extension is still in use. Close its menu and retry."
+    SetErrorLevel 1
+    Abort
+  ${EndIf}
+  shell_upgrade_ready:
   SetOutPath "$INSTDIR"
   File "${REPO_ROOT}\target\release\${APP_EXE}"
+  File "${REPO_ROOT}\target\release\geezipx_shell.dll"
+  File "${REPO_ROOT}\target\release\GeeZipXShell.msix"
   File "${REPO_ROOT}\LICENSE"
   SetOutPath "$INSTDIR\licenses"
   ; Remove the previous Droid font license when upgrading an existing installation.
@@ -133,10 +154,20 @@ Section "Uninstall"
     Abort
   ${EndIf}
   integration_removed:
+  IfFileExists "$INSTDIR\geezipx_shell.dll" 0 shell_dll_removed
+  ClearErrors
+  Delete "$INSTDIR\geezipx_shell.dll"
+  ${If} ${Errors}
+    DetailPrint "The Explorer extension is still in use. Application files retained; close its menu and retry."
+    SetErrorLevel 1
+    Abort
+  ${EndIf}
+  shell_dll_removed:
   Delete "$SMPROGRAMS\${APP_NAME}\${APP_NAME}.lnk"
   Delete "$SMPROGRAMS\${APP_NAME}\Uninstall.lnk"
   RMDir "$SMPROGRAMS\${APP_NAME}"
   Delete "$INSTDIR\${APP_EXE}"
+  Delete "$INSTDIR\GeeZipXShell.msix"
   Delete "$INSTDIR\LICENSE"
   Delete "$INSTDIR\build-info.txt"
   Delete "$INSTDIR\licenses\EGUI-FONTS-LICENSES.txt"

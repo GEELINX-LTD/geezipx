@@ -1,5 +1,5 @@
 //! Explorer DelegateExecute server. It starts before the graphics runtime.
-use super::{handoff, windows::CLSIDS};
+use super::windows::CLSIDS;
 use crate::launch::Action;
 use std::{cell::RefCell, ffi::c_void, path::PathBuf};
 use windows::{
@@ -120,19 +120,8 @@ impl IExecuteCommand_Impl for Command_Impl {
             }
         }
         let exe = super::executable().map_err(|e| windows::core::Error::new(E_FAIL, e))?;
-        let file = handoff::write(self.action, &paths)
-            .map_err(|e| windows::core::Error::new(E_FAIL, e))?;
-        match std::process::Command::new(exe)
-            .arg("--shell-action-file")
-            .arg(&file)
-            .spawn()
-        {
-            Ok(_) => Ok(()),
-            Err(e) => {
-                let _ = std::fs::remove_file(file);
-                Err(windows::core::Error::new(E_FAIL, e.to_string()))
-            }
-        }
+        geezipx_shell::dispatch(&exe, self.action, &paths)
+            .map_err(|error| windows::core::Error::new(E_FAIL, error))
     }
 }
 #[implement(IClassFactory)]

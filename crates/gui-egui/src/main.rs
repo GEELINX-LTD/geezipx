@@ -22,6 +22,7 @@ fn main() -> std::process::ExitCode {
                         "--remove-shell-integration"
                             | "--repair-shell-integration"
                             | "--shell-integration-status"
+                            | "--prepare-shell-upgrade"
                             | "--register-shell-integration"
                             | "-Embedding"
                     )
@@ -40,6 +41,10 @@ fn main() -> std::process::ExitCode {
 fn run() -> Result<(), Box<dyn std::error::Error>> {
     let arguments: Vec<_> = std::env::args_os().skip(1).collect();
     if let [argument] = arguments.as_slice() {
+        if argument == "--prepare-shell-upgrade" {
+            integration::prepare_windows_upgrade().map_err(std::io::Error::other)?;
+            return Ok(());
+        }
         let operation = match argument.to_str() {
             Some("--shell-integration-status") => Some(Operation::Inspect),
             Some("--remove-shell-integration") => Some(Operation::Remove),

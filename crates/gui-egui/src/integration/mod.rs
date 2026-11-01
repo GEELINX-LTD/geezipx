@@ -3,12 +3,14 @@ use crate::{i18n::Language, launch::Action, tr};
 use std::path::PathBuf;
 #[cfg(target_os = "windows")]
 pub mod com;
-#[cfg(any(target_os = "windows", test))]
-pub mod handoff;
+#[cfg(target_os = "windows")]
+pub use geezipx_shell::handoff;
 #[cfg(target_os = "linux")]
 mod linux;
 #[cfg(target_os = "macos")]
 mod macos;
+#[cfg(target_os = "windows")]
+mod modern;
 #[cfg(target_os = "windows")]
 mod windows;
 #[cfg(target_os = "linux")]
@@ -103,6 +105,16 @@ pub enum Operation {
     },
     Remove,
     Defaults,
+}
+pub fn prepare_windows_upgrade() -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        modern::remove()
+    }
+    #[cfg(not(windows))]
+    {
+        Err("Shell extension upgrades require Windows".into())
+    }
 }
 pub fn execute(operation: Operation) -> Result<Snapshot, String> {
     match operation {

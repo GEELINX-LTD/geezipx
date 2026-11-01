@@ -78,6 +78,34 @@ fn notify() {
     unsafe { SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, None, None) };
 }
 fn menu(enabled: bool, language: Language, exe: &std::path::Path) -> Result<(), String> {
+    let settings = geezipx_shell::SETTINGS_KEY;
+    if enabled {
+        let extensions = FORMATS
+            .iter()
+            .filter(|f| f.available())
+            .flat_map(|f| f.extensions.iter().copied())
+            .collect::<Vec<_>>()
+            .join(";");
+        set(settings, "ArchiveExtensions", &extensions)?;
+        for action in Action::MENU {
+            set(
+                settings,
+                &format!("Title.{}", action.argument()),
+                action_label(action, language),
+            )?;
+        }
+        set(settings, "Enabled", "1")?;
+        if let Err(error) = super::modern::register(exe) {
+            // A failed identity registration must not leave a newly activated modern command.
+            if !super::modern::registered(exe).unwrap_or(false) {
+                remove_value(settings, "Enabled")?;
+            }
+            return Err(error);
+        }
+    } else {
+        super::modern::remove()?;
+        remove_tree(settings)?;
+    }
     remove_tree(MENU)?;
     for clsid in CLSIDS {
         remove_tree(&format!(r"{ROOT}\CLSID\{clsid}"))?;

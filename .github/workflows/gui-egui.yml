@@ -5,21 +5,32 @@ on:
     branches: [main]
     paths:
       - 'crates/gui-egui/**'
+      - 'crates/shell/**'
       - 'crates/core/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
-      - 'scripts/test-egui-windows-integration.ps1'
+      - 'scripts/*egui-windows-*.ps1'
       - '.github/workflows/gui-egui.yml'
   pull_request:
     paths:
       - 'crates/gui-egui/**'
+      - 'crates/shell/**'
       - 'crates/core/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
-      - 'scripts/test-egui-windows-integration.ps1'
+      - 'scripts/*egui-windows-*.ps1'
       - '.github/workflows/gui-egui.yml'
   workflow_dispatch:
   workflow_call:
+    inputs:
+      production_signing:
+        type: boolean
+        default: false
+    secrets:
+      WINDOWS_CERTIFICATE_PFX:
+        required: false
+      WINDOWS_CERTIFICATE_PASSWORD:
+        required: false
 
 permissions:
   contents: read
@@ -57,6 +68,18 @@ jobs:
           toolchain: "1.99.0"
           components: clippy
           cache: true
+      - name: Configure Windows shell signing identity
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          GEEZIPX_WINDOWS_CERTIFICATE_PFX: ${{ inputs.production_signing && secrets.WINDOWS_CERTIFICATE_PFX || '' }}
+          GEEZIPX_WINDOWS_CERTIFICATE_PASSWORD: ${{ inputs.production_signing && secrets.WINDOWS_CERTIFICATE_PASSWORD || '' }}
+        run: |
+          if ('${{ inputs.production_signing }}' -eq 'true') {
+            ./scripts/configure-egui-windows-signing.ps1
+          } else {
+            ./scripts/configure-egui-windows-signing.ps1 -TestCertificate
+          }
       - name: Match Windows static C++ runtime
         if: runner.os == 'Windows'
         shell: pwsh
@@ -83,11 +106,18 @@ jobs:
               ;;
           esac
       - name: Check native frontend
-        run: cargo clippy -p geezipx-egui --all-targets ${{ matrix.test_features }} --locked -- -D warnings
-      - name: Test archive operations
-        run: cargo test -p geezipx-egui ${{ matrix.test_features }} --locked
+        run: cargo clippy -p geezipx-egui -p geezipx-shell --all-targets ${{ matrix.test_features }} --locked -- -D warnings
+      - name: Test archive operations and shell commands
+        run: cargo test -p geezipx-egui -p geezipx-shell ${{ matrix.test_features }} --locked
       - name: Build standalone native frontend
         run: cargo build -p geezipx-egui --release --locked
+      - name: Build and sign Windows Explorer package
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          cargo build -p geezipx-shell --release --locked
+          if ($LASTEXITCODE -ne 0) { throw 'Shell extension build failed' }
+          ./scripts/build-egui-windows-shell.ps1
       - name: Build Windows installer
         if: runner.os == 'Windows'
         shell: pwsh
@@ -109,9 +139,12 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'NSIS packaging failed' }
           $installer = Join-Path $output "GeeZipX-Native_${version}_x64-setup.exe"
           if (-not (Test-Path $installer)) { throw 'Windows installer missing' }
+          if (Test-Path target/release/GeeZipXShell-test.cer) { Copy-Item target/release/GeeZipXShell-test.cer $output }
           $build = @{
             version = $version
             commit = $env:GITHUB_SHA
+            shellPublisher = $env:GEEZIPX_SHELL_PUBLISHER
+            testSigning = $env:GEEZIPX_SHELL_TEST_SIGNING -eq '1'
             architecture = 'x86_64'
             installer = Split-Path $installer -Leaf
           }
@@ -134,6 +167,9 @@ jobs:
           $exe = Join-Path $installDir 'geezipx-egui.exe'
           $expected = (Get-FileHash target/release/geezipx-egui.exe -Algorithm SHA256).Hash
           if ((Get-FileHash $exe -Algorithm SHA256).Hash -ne $expected) { throw 'Installed executable differs from build' }
+          foreach ($file in @('geezipx_shell.dll', 'GeeZipXShell.msix')) {
+            if ((Get-FileHash (Join-Path $installDir $file) -Algorithm SHA256).Hash -ne (Get-FileHash "target/release/$file" -Algorithm SHA256).Hash) { throw "Installed shell file differs: $file" }
+          }
           foreach ($file in @('LICENSE', 'build-info.txt', 'licenses/EGUI-FONTS-LICENSES.txt', 'licenses/FONT-LICENSE.txt', 'licenses/FONT-NOTICE.txt')) {
             if (-not (Test-Path (Join-Path $installDir $file))) { throw "Installed file missing: $file" }
           }
@@ -157,6 +193,9 @@ jobs:
             $env:LIBGL_ALWAYS_SOFTWARE = 'true'
             $env:GALLIUM_DRIVER = 'llvmpipe'
             ./scripts/test-egui-windows-integration.ps1 -Exe $exe
+            $upgrade = Start-Process $installer.FullName -ArgumentList "/S /D=$installDir" -Wait -PassThru
+            if ($upgrade.ExitCode -ne 0) { throw "Upgrade failed: $($upgrade.ExitCode)" }
+            ./scripts/test-egui-windows-integration.ps1 -Exe $exe
           } finally {
             foreach ($dll in $mesaDlls) { Remove-Item -LiteralPath (Join-Path $installDir $dll.Name) -Force -ErrorAction SilentlyContinue }
           }
@@ -164,7 +203,7 @@ jobs:
           Set-Content -Path $keep -Value 'Preserve unrelated files'
           $result = Start-Process (Join-Path $installDir 'uninstall.exe') -ArgumentList '/S' -Wait -PassThru
           if ($result.ExitCode -ne 0) { throw "Uninstaller failed: $($result.ExitCode)" }
-          if ((Test-Path $exe) -or (Test-Path $key) -or (Test-Path $shortcutDir)) { throw 'Uninstall did not clean application files and registration' }
+          if ((Test-Path $exe) -or (Test-Path (Join-Path $installDir 'geezipx_shell.dll')) -or (Test-Path (Join-Path $installDir 'GeeZipXShell.msix')) -or (Test-Path $key) -or (Test-Path $shortcutDir)) { throw 'Uninstall did not clean application files and registration' }
           if (-not (Test-Path $keep)) { throw 'Uninstall removed an unrelated file' }
           ./scripts/test-egui-windows-integration.ps1 -Exe $exe -Uninstalled
           'Verified per-user install, licenses, revision, shortcuts, file associations, COM selection and uninstall.' >> $env:GITHUB_STEP_SUMMARY
@@ -179,6 +218,8 @@ jobs:
           printf 'Commit: %s\nPlatform: %s\n' "$GITHUB_SHA" '${{ matrix.platform }}' > release-package/build-info.txt
           archive="geezipx-egui-${{ matrix.platform }}.${{ matrix.archive_ext }}"
           if [ '${{ runner.os }}' = Windows ]; then
+            cp target/release/geezipx_shell.dll target/release/GeeZipXShell.msix release-package/
+            if [ -f target/release/GeeZipXShell-test.cer ]; then cp target/release/GeeZipXShell-test.cer release-package/; fi
             (cd release-package && 7z a "../release-dist/$archive" ./*)
             cp target/release/bundle/egui-nsis/*-setup.exe release-dist/
           else
@@ -205,6 +246,9 @@ jobs:
           if-no-files-found: error
           path: |
             target/release/geezipx-egui${{ matrix.suffix }}
+            target/release/geezipx_shell.dll
+            target/release/GeeZipXShell.msix
+            target/release/GeeZipXShell-test.cer
             crates/gui-egui/assets/*.txt
             docs/EGUI_GUI.md
             LICENSE

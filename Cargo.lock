@@ -2396,6 +2396,7 @@ dependencies = [
  "eframe",
  "fontdb",
  "geezipx-core",
+ "geezipx-shell",
  "objc2 0.6.4",
  "objc2-app-kit 0.3.2",
  "objc2-foundation 0.3.2",
@@ -2452,6 +2453,16 @@ dependencies = [
  "cap-std",
  "tempfile",
  "zip",
+]
+
+[[package]]
+name = "geezipx-shell"
+version = "0.7.4"
+dependencies = [
+ "tempfile",
+ "windows",
+ "windows-core 0.61.2",
+ "windows-registry",
 ]
 
 [[package]]

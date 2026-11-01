@@ -7,6 +7,7 @@ members = [
     "crates/core",
     "crates/cli",
     "crates/gui-egui",
+    "crates/shell",
     "crates/sfx-stub",
     "crates/vendor/unrar-sys",
 ]

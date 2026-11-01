@@ -1,5 +1,5 @@
 //! Bounded UTF-16 handoff for Explorer selections, including unpaired surrogates.
-use crate::launch::Action;
+use crate::Action;
 use std::{
     io::{Read, Write},
     path::{Path, PathBuf},
@@ -10,9 +10,12 @@ fn encode(action: Action, paths: &[Vec<u16>]) -> Result<Vec<u8>, String> {
     let tag = match action {
         Action::Compress => 1,
         Action::CompressZip => 2,
-        _ => return Err("Unsupported handoff action".into()),
+        Action::Extract => 3,
+        Action::ExtractHere => 4,
+        Action::ExtractFolder => 5,
+        Action::Open => return Err("Unsupported handoff action".into()),
     };
-    if paths.is_empty() || paths.len() > MAX_PATHS {
+    if paths.is_empty() || paths.len() > MAX_PATHS || (action.is_extraction() && paths.len() != 1) {
         return Err("Invalid selection size".into());
     }
     let mut bytes = b"GXSA\x01".to_vec();
@@ -37,6 +40,9 @@ fn decode(bytes: &[u8]) -> Result<(Action, Vec<Vec<u16>>), String> {
     let action = match bytes[5] {
         1 => Action::Compress,
         2 => Action::CompressZip,
+        3 => Action::Extract,
+        4 => Action::ExtractHere,
+        5 => Action::ExtractFolder,
         _ => return Err("Invalid action".into()),
     };
     let mut rest = &bytes[6..];
@@ -46,7 +52,11 @@ fn decode(bytes: &[u8]) -> Result<(Action, Vec<Vec<u16>>), String> {
         Ok(u32::from_le_bytes(bytes.try_into().unwrap()) as usize)
     }
     let count = length(&mut rest)?;
-    if count == 0 || count > MAX_PATHS || count > rest.len() / 6 {
+    if count == 0
+        || count > MAX_PATHS
+        || count > rest.len() / 6
+        || (action.is_extraction() && count != 1)
+    {
         return Err("Invalid selection size".into());
     }
     let mut paths = Vec::with_capacity(count);
@@ -154,6 +164,20 @@ mod tests {
         );
         assert!(!path.exists());
         assert!(read_in(&path, root.path()).is_err());
+    }
+    #[test]
+    fn extraction_round_trip_enforces_one_archive() {
+        for action in [Action::Extract, Action::ExtractHere, Action::ExtractFolder] {
+            let paths = vec![vec![65, 0xd800, 66]];
+            assert_eq!(
+                decode(&encode(action, &paths).unwrap()).unwrap(),
+                (action, paths)
+            );
+            assert!(encode(action, &[vec![65], vec![66]]).is_err());
+            let mut forged = encode(Action::Compress, &[vec![65], vec![66]]).unwrap();
+            forged[5] = 3;
+            assert!(decode(&forged).is_err());
+        }
     }
     #[test]
     fn rejects_malformed_oversize_and_foreign_files() {

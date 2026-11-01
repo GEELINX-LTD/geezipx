@@ -75,7 +75,7 @@ messages! {
     Done => ("完成", "Done"),
     SystemIntegration => ("系统集成", "System integration"),
     AssociationHint => ("选择用 GeeZipX 打开的格式。部分格式只支持读取；关联不会增加格式能力。", "Choose formats to open with GeeZipX. Some formats are read-only; associations do not add format support."),
-    WindowsAssociationHint => ("注册后请点击“系统默认应用”，在 Windows 中确认默认打开方式。", "After registering, open System default apps to confirm the default handler in Windows."),
+    WindowsAssociationHint => ("注册后请点击“系统默认应用”，在 Windows 中确认默认打开方式。Windows 11 安装包支持一级右键菜单。", "After registering, open System default apps to confirm the default handler. The Windows package supports the Windows 11 primary context menu."),
     LinuxAssociationHint => ("应用后设为当前用户的默认打开方式。右键操作支持 KDE 菜单和 Nautilus / Nemo 的“脚本”菜单。", "Applying sets defaults for the current user. Shortcuts appear in KDE menus and the Nautilus / Nemo Scripts menu."),
     MacAssociationHint => ("应用后注册启动器并设置默认打开方式；访达快捷操作位于“服务 / 快速操作”菜单。", "Applying registers a launcher and sets default handlers. Finder shortcuts appear under Services / Quick Actions."),
     AssociationDefault => ("默认", "Default"),

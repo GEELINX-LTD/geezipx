@@ -71,7 +71,7 @@ Linux release 在 Xvfb + Openbox 虚拟桌面实跑的界面截图：
 
 在“工具 → 设置… → 系统集成”展开格式列表，选择格式并勾选“启用系统右键快捷操作”，点击“应用系统集成”。界面显示“默认 / 已注册 / 未关联”，悬停格式名称可查看扩展名；“刷新状态”重新读取系统设置，“移除系统集成”清理本应用的入口。查询与更新在后台运行，关闭应用时等待清理。格式列表随 RAR/WIM/ZPAQ 编译特性变化；“默认”表示整组扩展名均指向本应用。Windows/macOS 选择 TAR.GZ 等复合扩展名时，会一并注册 GZIP 等外层格式，保证系统按最终后缀打开文件。关联不会扩展只读格式和变体的实际能力。SFX/NSIS 的 `.exe` 不进行全局关联，仍可从应用内打开。
 
-- **Windows**：仅写当前用户注册表，使用独立的 `GeeZipX.Native.*` ProgID、Capabilities 和 OpenWithProgids，无需管理员权限。注册后点击“系统默认应用”，由 Windows 确认打开方式；不改受保护的 `UserChoice`。Explorer 静态级联菜单在 Windows 11 通常位于“显示更多选项”。压缩使用 COM `IObjectWithSelection` 获取完整多选，以有界 UTF-16 临时文件交付新进程，支持中文、空格和超出普通命令行长度的选区；解压入口仅接受单个归档。安装器升级修复已有注册，初次安装保持可选，卸载先清理自身菜单、ProgID、Capabilities 和 COM CLSID。
+- **Windows**：文件关联与菜单按当前用户注册，使用独立的 `GeeZipX.Native.*` ProgID、Capabilities 和 OpenWithProgids。注册后点击“系统默认应用”，由 Windows 确认打开方式；不改受保护的 `UserChoice`。Windows 11 的一级右键菜单使用 `IExplorerCommand`，在“GeeZipX”子菜单内提供五种操作；Windows 10 和“显示更多选项”保留传统级联菜单。两种菜单均传递完整多选，支持中文、空格和超出普通命令行长度的选区；解压入口仅对单个受支持归档显示。一级菜单需要安装包或便携包内的已签名 `GeeZipXShell.msix` 与 `geezipx_shell.dll`，并要求签名链受系统信任。安装与身份注册无需管理员权限；首次安装保持可选，升级修复已有注册，卸载先移除身份包，再清理自身菜单、ProgID、Capabilities 和 COM CLSID。
 - **Linux**：需要 `xdg-mime` / `xdg-open`、`update-mime-database`（shared-mime-info）与 `update-desktop-database`（desktop-file-utils）。注册写入当前用户的 XDG 应用、MIME 和配置目录，仅为勾选格式添加文件名识别规则并设置默认程序；KDE 使用 ServiceMenu，Nautilus/Nemo 使用右键“脚本 → GeeZipX”。同组扩展名共用 MIME 默认设置。移除或取消所选格式时，只恢复仍指向本应用的默认项，保留后来选择的其它程序。
 - **macOS**：使用系统 `osacompile`、`codesign`、LaunchServices 生成并注册 `~/Applications/GeeZipX Native Launcher.app`，其 AppleScript `open` handler 将 Finder 文件事件交付原生程序；`~/Library/Services/GeeZipX Native *.workflow` 提供 Finder“服务 / 快速操作”。系统可能要求确认默认程序或启用服务。移除时恢复记录的原默认项；没有原默认项时回退到系统归档实用工具，并清理用户启动器和服务。该启动器引用当前 EXE 路径，移动程序后重新应用设置。
 
@@ -88,7 +88,7 @@ geezipx-egui --shell-action compress -- /path/to/file /path/to/folder
 geezipx-egui --shell-action extract-folder -- /path/to/archive.zip
 ```
 
-Windows 的真实 COM 多选、注册归属与卸载检查由 `scripts/test-egui-windows-integration.ps1` 接入 `gui-egui.yml`；工作流为临时验收目录下载并校验固定版本 Mesa 26.2.5 软件 OpenGL，完成后移除 DLL，不加入发布包。对应平台的默认应用确认、Explorer/Finder 菜单显示和交互仍需原生验收；检查项见 [发布清单](RELEASE_CHECKLIST.md)。
+Windows 的注册归属与卸载检查由 `scripts/test-egui-windows-integration.ps1` 接入 `gui-egui.yml`；`scripts/test-egui-windows-explorer.ps1` 通过已注册的身份包激活实际 COM 扩展，检查枚举、选区状态、中文多选 ZIP 与解压结果，安装器随后执行原位升级并重复验收。工作流为临时验收目录下载并校验固定版本 Mesa 26.2.5 软件 OpenGL，完成后移除 DLL，不加入发布包。对应平台的默认应用确认、Explorer/Finder 菜单显示和交互仍需原生验收；检查项见 [发布清单](RELEASE_CHECKLIST.md)。
 
 ## 格式范围
 
@@ -145,6 +145,18 @@ Linux release 在隔离 Xvfb 实窗中验证：仅有西文字体和无系统字
 
 `.github/workflows/gui-egui.yml` 在打包前重建对应平台的 x86_64 SFX stub，三平台均启用 RAR/WIM/ZPAQ 完整格式测试；macOS GUI 本身为 arm64，其自解压 stub 仍为 x86_64。工作流对 Linux x86_64（`ubuntu-24.04`）、Windows x86_64（`windows-latest`）、macOS arm64（`macos-latest`）执行检查、测试、release 编译，上传裸可执行文件、许可证和原生程序压缩包；artifact action 使用 Node.js 24 的 `actions/upload-artifact@v7`。压缩包分别为 `geezipx-egui-linux-x86_64.tar.gz`、`geezipx-egui-macos-arm64.tar.gz`、`geezipx-egui-windows-x86_64.zip`，附带许可证、字体许可、提交标识和 SHA-256。Windows 额外上传 `geezipx-egui-windows-x86_64-installer`，内含 `GeeZipX-Native_<version>_x64-setup.exe`、`SHA256SUMS.txt` 和标明提交的 `build-info.json`。可在 Actions 手动触发并选择测试分支；安装包 artifacts 保留 30 天。`release.yml` 通过可复用工作流构建相同原生压缩包和 Windows 安装器，经统一校验后纳入 Release 草稿；Linux/macOS 暂不提供安装器。
 
-Windows 安装器支持简体中文/英文，默认安装到 `%LOCALAPPDATA%\Programs\GeeZipX Native`，无需管理员权限；添加开始菜单入口和卸载项。安装目录内 `build-info.txt` 标明版本与提交；卸载先清理系统集成，再清理本安装器的文件和入口，保留应用偏好、最近记录及用户自行放入的文件。工作流在含中文与空格的目录执行静默安装/卸载，检查应用哈希、许可证、提交、快捷方式、注册项与无关文件保留。安装器脚本位于 `crates/gui-egui/windows/installer.nsi`，需要 NSIS 3；构建时传入 `APP_VERSION` 与 `APP_REVISION`。
+Windows 安装器支持简体中文/英文，默认安装到 `%LOCALAPPDATA%\Programs\GeeZipX Native`，无需管理员权限；添加开始菜单入口和卸载项。安装目录内 `build-info.txt` 标明版本与提交。安装器同时交付 EXE、Shell DLL 和稀疏 MSIX，不能单独移动 EXE 后期待一级菜单继续工作；移动完整便携目录后重新应用系统集成。升级在替换 DLL 前注销身份包，再按原设置注册；卸载先清理系统集成，再清理本安装器的文件和入口，保留应用偏好、最近记录及用户自行放入的文件。如果扩展仍被占用，安装/卸载返回失败并保留可重试的文件。安装器脚本位于 `crates/gui-egui/windows/installer.nsi`，需要 NSIS 3；构建时传入 `APP_VERSION` 与 `APP_REVISION`。
+
+Windows 构建需要 Windows SDK 的 MakeAppx、SignTool 和 `mt.exe`。签名身份必须在 Cargo 编译前配置，以确保 DLL 嵌入的身份与 MSIX 的 Publisher 一致。正式 tag 发布使用受信任的代码签名证书：GitHub secrets `WINDOWS_CERTIFICATE_PFX` 为 PFX 的 Base64，`WINDOWS_CERTIFICATE_PASSWORD` 为其密码。`release.yml` 要求正式发布使用这些凭据，缺失时构建失败；push、PR、手动测试及 release dry-run 使用临时测试证书，不向安装器加入证书信任操作。
+
+开发机测试构建（测试脚本显式将临时公钥导入本机 `TrustedPeople` 以及当前用户 `Root`，分别用于 MSIX 安装和 EXE/DLL 的 Authenticode 验证；前者需要管理员权限，只用于可清理的测试环境，安装器不会导入证书）：
+
+```powershell
+./scripts/configure-egui-windows-signing.ps1 -TestCertificate
+cargo build -p geezipx-egui -p geezipx-shell --release --locked
+./scripts/build-egui-windows-shell.ps1
+```
+
+测试 artifact 附带 `GeeZipXShell-test.cer`；在另一台测试机上先由测试者明确导入 `Cert:\LocalMachine\TrustedPeople`，再启用菜单，例如在管理员 PowerShell 执行 `Import-Certificate -FilePath .\GeeZipXShell-test.cer -CertStoreLocation Cert:\LocalMachine\TrustedPeople`。证书只供测试，正式用户包应使用受信任签名，安装器不自动修改证书存储。正式本地构建先运行 `configure-egui-windows-signing.ps1 -CertificateThumbprint <CurrentUser\My 中的受信任签名证书指纹>`，再执行相同的 Cargo 与打包命令。
 
 本阶段不含多标签并发、原生 Wayland 拖出、归档内重命名/删除、二进制预览、逐文件冲突询问/自动重命名、分卷创建、自动更新和 Linux/macOS 安装器。暂未提供屏幕阅读器验收或完整 DPI/输入法兼容性报告；正式发版前需在 Windows/macOS/Linux 实机验证拖放、系统文件选择器、输入法和显示缩放。

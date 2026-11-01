@@ -1,39 +1,7 @@
 //! OS launch requests. Paths retain their native encoding and never pass through a shell.
 use std::{ffi::OsString, path::PathBuf};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Action {
-    Open,
-    Compress,
-    CompressZip,
-    Extract,
-    ExtractHere,
-    ExtractFolder,
-}
-impl Action {
-    pub const MENU: [Self; 5] = [
-        Self::Compress,
-        Self::CompressZip,
-        Self::Extract,
-        Self::ExtractHere,
-        Self::ExtractFolder,
-    ];
-    pub fn argument(self) -> &'static str {
-        match self {
-            Self::Open => "open",
-            Self::Compress => "compress",
-            Self::CompressZip => "compress-zip",
-            Self::Extract => "extract",
-            Self::ExtractHere => "extract-here",
-            Self::ExtractFolder => "extract-folder",
-        }
-    }
-    pub fn parse(value: &str) -> Option<Self> {
-        std::iter::once(Self::Open)
-            .chain(Self::MENU)
-            .find(|action| action.argument() == value)
-    }
-}
+pub use geezipx_shell::Action;
 
 #[derive(Debug, Default)]
 pub enum Request {
