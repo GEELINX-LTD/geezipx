@@ -443,7 +443,7 @@ Reader/File → ProgressReader → Decoder/ArchiveReader → ProgressWriter → 
 
 ## 8. 原生 GUI 接入边界
 
-桌面界面通过后台任务与 `engine` 适配层调用 `geezipx-core`。界面负责操作状态、参数映射、进度和错误展示，格式编解码与安全提取留在 core。系统文件关联和 Explorer 右键注册尚未接入。
+桌面界面通过后台任务与 `engine` 适配层调用 `geezipx-core`。界面负责操作状态、参数映射、进度和错误展示，格式编解码与安全提取留在 core。系统集成由 `gui-egui/src/integration/` 按平台注册当前用户入口，`launch.rs` 保留原生路径编码并解析打开/压缩/解压动作；注册、状态查询和系统命令均在后台执行。Windows 使用 `windows-registry` 写入独立 ProgID、Capabilities 和静态级联菜单，压缩多选经 `IExecuteCommand` / `IObjectWithSelection` 本地 COM server 获取完整路径数组，再以有界 UTF-16 文件交付新 GUI 进程；该进程在 eframe/字体初始化之前处理 `-Embedding`。Linux 使用 XDG desktop/MIME、KDE ServiceMenu 和 Nautilus/Nemo 脚本；macOS 生成带 `open` handler 的 AppleScript 启动器，通过 LaunchServices 设置格式默认项并注册 Finder Automator 服务。系统入口都回到应用已有 engine 任务，界面层不实现编解码。
 
 ## 9. egui/eframe 桌面实现
 
@@ -461,7 +461,7 @@ Reader/File → ProgressReader → Decoder/ArchiveReader → ProgressWriter → 
 
 原生端 `export::DeferredExport` 按归档/选区快照生成描述和交付根映射，悬停不读取归档或创建目标。Windows `app/native_drag/windows.rs` 在工作线程跟踪释放，通过命中窗口所属的可见 Shell view、UI Automation 行及 Shell item 文件系统属性解析目标；不能可靠解析时使用目录选择器，放回源窗口或 Esc 取消。不再发布虚拟文件内容给 Explorer；结果通过 `DropOutcome::ExtractTo` 回到 `app/interaction.rs`，由普通 `Job` 调用 `DeferredExport::extract_to` → `engine::extract_mapped` → core `extract_entries` 直接落盘，统一进度、跳过、取消与记录。macOS 保留 `NSFilePromiseProvider`，Linux X11 保留 `XdndDrop` 后的 URI 请求及必要暂存；原生 Wayland 暂不支持。Explorer 标签页、桌面、不同视图与 DPI 需要原生验收，编译不等于目标解析已兼容全部窗口。目录双击按稳定条目 ID 配对点击，Windows 使用系统双击间隔；导航快捷键方向键由 Painter 绘制。底部提示不改变列表起点。
 
-`gui-egui.yml` 使用 `ubuntu-24.04`、`windows-latest`、`macos-latest`，覆盖 Linux x86_64、Windows x86_64、macOS arm64 的检查、测试、release 编译与原生程序压缩包；Windows 使用 `crates/gui-egui/windows/installer.nsi` 打包按用户安装的 NSIS，验证 EXE 校验和、许可证、提交标识、快捷方式和卸载清理。`release.yml` 复用该工作流并收集产物；系统右键菜单和文件关联尚未接入。使用说明、完整格式范围与已知限制见 [EGUI_GUI.md](EGUI_GUI.md)。
+`gui-egui.yml` 使用 `ubuntu-24.04`、`windows-latest`、`macos-latest`，覆盖 Linux x86_64、Windows x86_64、macOS arm64 的检查、测试、release 编译与原生程序压缩包；Windows 使用 `crates/gui-egui/windows/installer.nsi` 打包按用户安装的 NSIS，验证 EXE 校验和、许可证、提交标识、快捷方式、文件关联、COM 多选和卸载清理。`scripts/test-egui-windows-integration.ps1` 验证本地 COM server 以中文多选生成真实 ZIP、保留其他应用的注册和受保护的 UserChoice；升级修复与卸载清理由已安装 EXE 的维护参数执行。`release.yml` 复用该工作流并收集产物。使用说明、完整格式范围与已知限制见 [EGUI_GUI.md](EGUI_GUI.md)。
 
 ## 10. 当前实现限制
 
@@ -474,7 +474,7 @@ Reader/File → ProgressReader → Decoder/ArchiveReader → ProgressWriter → 
 | AES 容器 | `.enc` 支持经验证的非流式容器，拒绝不安全 schema 和超额 KDF；`.aes` 用 AES Crypt v0–v3 双遍认证后解密，非seek输入暂存密文。两者格式不兼容，创建 `.aes` 不会回退生成 `.enc` |
 | 新读取预算 | EGG累计索引64MiB；CFB打开前FAT估算64MiB（不含目录等总开销）；Lzip/LZMA Alone/TLZ解码256MiB。超过当前预算明确拒绝，并非所有合法大字典/容器均可读；可配置预算和其它累计元数据计费待补。互操作证据见[专项验收](FORMAT_PARITY_ACCEPTANCE.md) |
 | PEA读取 | `archive/pea.rs`及子模块实现单卷/单流未加密Store/块Deflate；Read+Seek、64KiB缓冲、64MiB元数据计费预算，打开时顺序验证后建立索引，提取按对象seek并复核。使用adler2、crc32fast及RustCrypto校验实现，不运行Pea工具；文件名支持UTF-8/ASCII；egui 已桥接该只读子集 |
-| 系统集成 | 文件关联与系统右键菜单注册尚未接入；直接传入归档路径可打开，多个普通文件或目录进入创建流程 |
+| 系统集成 | 当前用户格式关联与压缩/解压快捷操作；Windows 默认应用需系统确认，静态菜单在 Windows 11 通常位于“显示更多选项”；Linux 覆盖 KDE 与 Nautilus/Nemo，macOS 通过用户启动器及 Finder 服务；其它文件管理器和原生交互仍需平台验收 |
 | 组事务与持久性 | 多文件提取按条目发布，多卷不能整组原子提交；普通失败会清理，不保证强杀、断电或所有文件系统语义下的完整回滚 |
 | NSIS读取 | `archive/nsis.rs`及子模块实现现代NSIS 3 Unicode静态文件/目录映射，Store/Deflate/BZip2/LZMA的solid与non-solid；PE范围、可选CRC和精确流结束校验。64KiB I/O、64MiB元数据与LZMA字典预算，solid匿名磁盘暂存；有界编解码内存不随单项长度增长，临时磁盘随solid原文增长。ANSI/旧版/Park、BCJ、自定义打包stub、插件/运行时文件和卸载器重建不在范围；egui 已桥接该只读子集 |
 | 格式范围 | ALZ/EGG/PEA/NSIS部分只读；Z/PMA/TLZ/AES Crypt/Compound 已接入；BH/DAA1.0 暂缓。逐项证据、性能债务及后续方案见 [格式审查](FORMAT_PARITY_AUDIT.md)；egui 已桥接当前 core 格式，各格式的 core 子集限制仍适用 |

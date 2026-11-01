@@ -21,7 +21,7 @@ fn archive() -> Archive {
         bytes: 384,
     }
 }
-fn context() -> egui::Context {
+pub(super) fn context() -> egui::Context {
     let context = egui::Context::default();
     theme::fonts(&context, &crate::fonts::Selection::default());
     interaction::configure_pointer(&context);
@@ -772,7 +772,7 @@ fn a_new_draft_does_not_reuse_sources_or_passwords_and_accepts_archive_sources()
     assert!(!app.busy());
 }
 
-fn finish_job(app: &mut App, context: &egui::Context) {
+pub(super) fn finish_job(app: &mut App, context: &egui::Context) {
     let deadline = Instant::now() + Duration::from_secs(3);
     while app.busy() && Instant::now() < deadline {
         app.poll(context);

@@ -8,6 +8,7 @@ on:
       - 'crates/core/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
+      - 'scripts/test-egui-windows-integration.ps1'
       - '.github/workflows/gui-egui.yml'
   pull_request:
     paths:
@@ -15,6 +16,7 @@ on:
       - 'crates/core/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
+      - 'scripts/test-egui-windows-integration.ps1'
       - '.github/workflows/gui-egui.yml'
   workflow_dispatch:
   workflow_call:
@@ -140,13 +142,32 @@ jobs:
           if ((Get-ItemProperty $key).InstallLocation -ne $installDir) { throw 'Uninstall registration missing' }
           $shortcutDir = Join-Path ([Environment]::GetFolderPath('Programs')) 'GeeZipX Native'
           if (-not (Test-Path (Join-Path $shortcutDir 'GeeZipX Native.lnk'))) { throw 'Start menu shortcut missing' }
+          # Hosted Windows runners may expose only the legacy OpenGL driver.
+          # Keep the pinned software renderer local to this acceptance install.
+          $mesaArchive = Join-Path $env:RUNNER_TEMP 'mesa3d-26.2.5-release-msvc.7z'
+          Invoke-WebRequest 'https://github.com/pal1000/mesa-dist-win/releases/download/26.2.5/mesa3d-26.2.5-release-msvc.7z' -OutFile $mesaArchive
+          if ((Get-FileHash $mesaArchive -Algorithm SHA256).Hash -ne '997123ef4ce8896204ab912d5b54f19372c487ff9835bcefafa2fca23b8953c2') { throw 'Mesa checksum mismatch' }
+          $mesaDir = Join-Path $env:RUNNER_TEMP 'geezipx-mesa'
+          & 7z x $mesaArchive "-o$mesaDir" -y | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw 'Mesa extraction failed' }
+          $mesaDlls = @(Get-ChildItem (Join-Path $mesaDir 'x64') -Filter '*.dll' -File)
+          if ($mesaDlls.Name -notcontains 'opengl32.dll') { throw 'Mesa OpenGL runtime missing' }
+          try {
+            foreach ($dll in $mesaDlls) { Copy-Item -LiteralPath $dll.FullName -Destination $installDir }
+            $env:LIBGL_ALWAYS_SOFTWARE = 'true'
+            $env:GALLIUM_DRIVER = 'llvmpipe'
+            ./scripts/test-egui-windows-integration.ps1 -Exe $exe
+          } finally {
+            foreach ($dll in $mesaDlls) { Remove-Item -LiteralPath (Join-Path $installDir $dll.Name) -Force -ErrorAction SilentlyContinue }
+          }
           $keep = Join-Path $installDir 'keep-user-file.txt'
           Set-Content -Path $keep -Value 'Preserve unrelated files'
           $result = Start-Process (Join-Path $installDir 'uninstall.exe') -ArgumentList '/S' -Wait -PassThru
           if ($result.ExitCode -ne 0) { throw "Uninstaller failed: $($result.ExitCode)" }
           if ((Test-Path $exe) -or (Test-Path $key) -or (Test-Path $shortcutDir)) { throw 'Uninstall did not clean application files and registration' }
           if (-not (Test-Path $keep)) { throw 'Uninstall removed an unrelated file' }
-          'Verified per-user install, licenses, revision, shortcuts and uninstall.' >> $env:GITHUB_STEP_SUMMARY
+          ./scripts/test-egui-windows-integration.ps1 -Exe $exe -Uninstalled
+          'Verified per-user install, licenses, revision, shortcuts, file associations, COM selection and uninstall.' >> $env:GITHUB_STEP_SUMMARY
       - name: Package native release archives
         shell: bash
         run: |

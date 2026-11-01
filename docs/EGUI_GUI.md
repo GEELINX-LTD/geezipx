@@ -43,7 +43,7 @@ Linux 运行需要桌面显示服务、可用的 OpenGL 驱动，以及提供文
 - **选择与解压**：单击选中，Ctrl/Cmd 切换选择，Shift 连选，点击空白清空。从列表空白或未选行的大小/类型等区域拖动可框选，Ctrl/Cmd 框选切换命中条目，Shift 框选追加；靠近列表上下边缘会自动滚动。切换目录清空选择，排序/缩放保留选择，搜索保留选择并报告被筛选隐藏的项目数。目录选择包含全部后代。主按钮随选择显示“解压全部…”或“解压所选 (N)…”，`Ctrl/Cmd+E` 打开目标对话框；下拉菜单始终保留解压全部，并提供全部解压到同名文件夹或当前文件夹。
 - **拖出解压**：从名称区域或已选条目开始拖动，支持目录、空目录、多选和中文名称，不改写归档；松手前不读取内容。Windows 在松手后通过 Shell/辅助功能元数据解析 Explorer 当前可见文件夹、子目录和桌面；桌面空白处使用系统登记的真实桌面目录（含 OneDrive/重定向），桌面文件夹图标使用其实际目录，直接启动 GeeZipX 后台解压任务：目标写入、进度、跳过同名文件、取消和结果记录由应用负责，不再创建整组选区暂存目录或 Explorer 复制任务。放回源窗口或按 Esc 取消；位置为虚拟目录、普通应用或无法可靠解析时，显示目录选择器，确认后继续解压。macOS 保留 Finder 文件承诺，Linux X11/XWayland 保留 `XdndDrop` 后的 URI 交付，必要暂存保留至退出；原生 Wayland 暂不支持。Windows 的 Explorer 标签页、桌面、DPI 和辅助功能兼容性仍需实机验收。
 - **旧 ZIP 中文名称**：core 统一处理目录、预览定位与提取使用的名称，优先采用 Unicode 元数据/UTF-8；对未标编码、能无损解码且包含汉字的旧名称尝试 GB18030（含 GBK），其余保留 CP437 回退。旧 ZIP 不携带可靠代码页信息时，自动识别存在歧义；解码后重名会明确报错。
-- **目标与覆盖策略**：解压默认输出到归档旁的同名文件夹，可编辑路径或使用系统目录选择器；支持完成后打开目标文件夹。默认跳过同名目标，可明确选择替换。工具栏快捷解压直接执行并跳过已有文件；这属于应用内操作，尚未注册系统右键菜单。新建归档的替换开关位于“更多选项”。错误或取消不会把不完整临时文件替换为最终文件；解压失败会恢复原目标、选择快照和覆盖选项，直接修正后重试，密码重新输入。
+- **目标与覆盖策略**：解压默认输出到归档旁的同名文件夹，可编辑路径或使用系统目录选择器；支持完成后打开目标文件夹。默认跳过同名目标，可明确选择替换。工具栏快捷解压直接执行并跳过已有文件；系统右键快捷操作见下方“系统集成”。新建归档的替换开关位于“更多选项”。错误或取消不会把不完整临时文件替换为最终文件；解压失败会恢复原目标、选择快照和覆盖选项，直接修正后重试，密码重新输入。
 - **新建压缩包**：点击“新建”开始空白任务；拖入普通文件/文件夹直接进入创建对话框。来源摘要可展开编辑，“添加文件”“添加文件夹”分别调用系统选择器；对话框内拖入 ZIP 等归档也作为压缩来源。自动建议保存位置，可选择格式与后端支持的压缩偏好；ZIP/ZIPX/7z 按需展开密码与确认输入，AES `.enc` 必须设置密码；ZIP 另可选择当前构建具备的 Windows/Linux/macOS x86_64 自解压目标。单流和 IMG/BIN/ISZ 只接受一个普通文件。保留每个顶层来源名称，消除重叠来源；拒绝来自不同目录的同名根条目。按 Enter 提交，密码保护开启但密码为空时阻止创建；创建失败自动恢复原来源、目标和密码保护意图，密码内容仍已清空。
 - **验证与预览**：工具栏“测试”读取完整归档并验证引擎提供的校验，不写入解压目录。文本预览最多保留 512 KiB，显示截断说明；双击文件或使用右键菜单打开预览。不执行归档内程序。加密读取可在“工具”菜单填写下一次读取的密码，或在解压对话框启用密码输入；打开失败后支持输入密码重试。
 - **语言设置**：“工具 → 设置… → 界面语言”提供简体中文（默认）和 English，切换立即生效并在重启后保留；菜单、归档浏览、新建/解压对话框、进度和任务结果使用所选语言。任务文案使用任务启动时的语言；归档文件名、路径、用户文本和 core/系统错误详情保持原样。系统文件选择器的标准按钮沿用操作系统语言。
@@ -66,6 +66,29 @@ Linux release 在 Xvfb + Openbox 虚拟桌面实跑的界面截图：
 ![深色新建压缩包对话框](images/egui-create-dark.png)
 
 ![中文 ZIP 目录与鼠标框选](images/egui-marquee.png)
+
+## 系统集成
+
+在“工具 → 设置… → 系统集成”展开格式列表，选择格式并勾选“启用系统右键快捷操作”，点击“应用系统集成”。界面显示“默认 / 已注册 / 未关联”，悬停格式名称可查看扩展名；“刷新状态”重新读取系统设置，“移除系统集成”清理本应用的入口。查询与更新在后台运行，关闭应用时等待清理。格式列表随 RAR/WIM/ZPAQ 编译特性变化；“默认”表示整组扩展名均指向本应用。Windows/macOS 选择 TAR.GZ 等复合扩展名时，会一并注册 GZIP 等外层格式，保证系统按最终后缀打开文件。关联不会扩展只读格式和变体的实际能力。SFX/NSIS 的 `.exe` 不进行全局关联，仍可从应用内打开。
+
+- **Windows**：仅写当前用户注册表，使用独立的 `GeeZipX.Native.*` ProgID、Capabilities 和 OpenWithProgids，无需管理员权限。注册后点击“系统默认应用”，由 Windows 确认打开方式；不改受保护的 `UserChoice`。Explorer 静态级联菜单在 Windows 11 通常位于“显示更多选项”。压缩使用 COM `IObjectWithSelection` 获取完整多选，以有界 UTF-16 临时文件交付新进程，支持中文、空格和超出普通命令行长度的选区；解压入口仅接受单个归档。安装器升级修复已有注册，初次安装保持可选，卸载先清理自身菜单、ProgID、Capabilities 和 COM CLSID。
+- **Linux**：需要 `xdg-mime` / `xdg-open`、`update-mime-database`（shared-mime-info）与 `update-desktop-database`（desktop-file-utils）。注册写入当前用户的 XDG 应用、MIME 和配置目录，仅为勾选格式添加文件名识别规则并设置默认程序；KDE 使用 ServiceMenu，Nautilus/Nemo 使用右键“脚本 → GeeZipX”。同组扩展名共用 MIME 默认设置。移除或取消所选格式时，只恢复仍指向本应用的默认项，保留后来选择的其它程序。
+- **macOS**：使用系统 `osacompile`、`codesign`、LaunchServices 生成并注册 `~/Applications/GeeZipX Native Launcher.app`，其 AppleScript `open` handler 将 Finder 文件事件交付原生程序；`~/Library/Services/GeeZipX Native *.workflow` 提供 Finder“服务 / 快速操作”。系统可能要求确认默认程序或启用服务。移除时恢复记录的原默认项；没有原默认项时回退到系统归档实用工具，并清理用户启动器和服务。该启动器引用当前 EXE 路径，移动程序后重新应用设置。
+
+菜单提供“压缩到…”（完整选区进入创建对话框）、“压缩为 ZIP”（在选区首项旁以其名称创建，已有输出不会被覆盖）、“解压到…”（选择目标）、“解压到当前位置”和“解压到同名文件夹”。归档可作为压缩来源。解压先成功打开并索引所请求的归档，再提交已有提取任务；密码错误、目标冲突、失败恢复、进度和取消沿用应用内流程。
+
+维护参数在图形界面初始化前处理，可用于安装器和诊断：
+
+```sh
+geezipx-egui --shell-integration-status
+geezipx-egui --register-shell-integration  # 显式注册所有可用格式和菜单
+geezipx-egui --repair-shell-integration   # 仅修复已有注册
+geezipx-egui --remove-shell-integration
+geezipx-egui --shell-action compress -- /path/to/file /path/to/folder
+geezipx-egui --shell-action extract-folder -- /path/to/archive.zip
+```
+
+Windows 的真实 COM 多选、注册归属与卸载检查由 `scripts/test-egui-windows-integration.ps1` 接入 `gui-egui.yml`；工作流为临时验收目录下载并校验固定版本 Mesa 26.2.5 软件 OpenGL，完成后移除 DLL，不加入发布包。对应平台的默认应用确认、Explorer/Finder 菜单显示和交互仍需原生验收；检查项见 [发布清单](RELEASE_CHECKLIST.md)。
 
 ## 格式范围
 
@@ -122,6 +145,6 @@ Linux release 在隔离 Xvfb 实窗中验证：仅有西文字体和无系统字
 
 `.github/workflows/gui-egui.yml` 在打包前重建对应平台的 x86_64 SFX stub，三平台均启用 RAR/WIM/ZPAQ 完整格式测试；macOS GUI 本身为 arm64，其自解压 stub 仍为 x86_64。工作流对 Linux x86_64（`ubuntu-24.04`）、Windows x86_64（`windows-latest`）、macOS arm64（`macos-latest`）执行检查、测试、release 编译，上传裸可执行文件、许可证和原生程序压缩包；artifact action 使用 Node.js 24 的 `actions/upload-artifact@v7`。压缩包分别为 `geezipx-egui-linux-x86_64.tar.gz`、`geezipx-egui-macos-arm64.tar.gz`、`geezipx-egui-windows-x86_64.zip`，附带许可证、字体许可、提交标识和 SHA-256。Windows 额外上传 `geezipx-egui-windows-x86_64-installer`，内含 `GeeZipX-Native_<version>_x64-setup.exe`、`SHA256SUMS.txt` 和标明提交的 `build-info.json`。可在 Actions 手动触发并选择测试分支；安装包 artifacts 保留 30 天。`release.yml` 通过可复用工作流构建相同原生压缩包和 Windows 安装器，经统一校验后纳入 Release 草稿；Linux/macOS 暂不提供安装器。
 
-Windows 安装器支持简体中文/英文，默认安装到 `%LOCALAPPDATA%\Programs\GeeZipX Native`，无需管理员权限；添加开始菜单入口和卸载项。安装目录内 `build-info.txt` 标明版本与提交；卸载只清理本安装器的文件和入口，保留应用偏好、最近记录及用户自行放入的文件。工作流在含中文与空格的目录执行静默安装/卸载，检查应用哈希、许可证、提交、快捷方式、注册项与无关文件保留。安装器脚本位于 `crates/gui-egui/windows/installer.nsi`，需要 NSIS 3；构建时传入 `APP_VERSION` 与 `APP_REVISION`。
+Windows 安装器支持简体中文/英文，默认安装到 `%LOCALAPPDATA%\Programs\GeeZipX Native`，无需管理员权限；添加开始菜单入口和卸载项。安装目录内 `build-info.txt` 标明版本与提交；卸载先清理系统集成，再清理本安装器的文件和入口，保留应用偏好、最近记录及用户自行放入的文件。工作流在含中文与空格的目录执行静默安装/卸载，检查应用哈希、许可证、提交、快捷方式、注册项与无关文件保留。安装器脚本位于 `crates/gui-egui/windows/installer.nsi`，需要 NSIS 3；构建时传入 `APP_VERSION` 与 `APP_REVISION`。
 
-本阶段不含多标签并发、原生 Wayland 拖出、归档内重命名/删除、二进制预览、逐文件冲突询问/自动重命名、分卷创建、自动更新、文件关联/系统右键菜单注册和 Linux/macOS 安装器。暂未提供屏幕阅读器验收或完整 DPI/输入法兼容性报告；正式发版前需在 Windows/macOS/Linux 实机验证拖放、系统文件选择器、输入法和显示缩放。
+本阶段不含多标签并发、原生 Wayland 拖出、归档内重命名/删除、二进制预览、逐文件冲突询问/自动重命名、分卷创建、自动更新和 Linux/macOS 安装器。暂未提供屏幕阅读器验收或完整 DPI/输入法兼容性报告；正式发版前需在 Windows/macOS/Linux 实机验证拖放、系统文件选择器、输入法和显示缩放。

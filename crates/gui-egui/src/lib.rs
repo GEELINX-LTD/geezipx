@@ -3,4 +3,6 @@ pub mod browser;
 pub mod engine;
 pub mod export;
 pub mod i18n;
+pub mod integration;
 pub mod job;
+pub mod launch;

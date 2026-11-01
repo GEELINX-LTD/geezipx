@@ -6,6 +6,8 @@ mod interaction;
 mod native_drag;
 mod notices;
 mod settings;
+#[cfg(test)]
+mod shell_tests;
 mod tasks;
 #[cfg(test)]
 mod tests;
@@ -21,6 +23,7 @@ use geezipx_egui::{
     engine::{self, Archive, CompressRequest, Preview, ReadRequest, Summary},
     i18n::Language,
     job::{Job, CANCELLED},
+    launch::Action,
     tr,
 };
 use notices::Notice;
@@ -162,6 +165,7 @@ pub struct App {
     create_open: bool,
     extraction: Option<Extraction>,
     pending_extraction: Option<Extraction>,
+    shell_extraction: Option<(PathBuf, Action)>,
     tasks_open: bool,
     read_password: String,
     notice: Option<Notice>,
@@ -184,7 +188,7 @@ pub struct App {
     export: interaction::ExportState,
 }
 impl App {
-    pub fn new(cc: &eframe::CreationContext<'_>, paths: Vec<PathBuf>) -> Self {
+    pub fn new(cc: &eframe::CreationContext<'_>, action: Action, paths: Vec<PathBuf>) -> Self {
         interaction::configure_pointer(&cc.egui_ctx);
         let preferences = cc
             .storage
@@ -193,7 +197,7 @@ impl App {
         let mut app = Self::empty(preferences);
         app.settings.available = theme::fonts(&cc.egui_ctx, &app.preferences.font);
         theme::apply(&cc.egui_ctx, app.preferences.dark);
-        app.accept_paths(&cc.egui_ctx, paths);
+        app.accept_launch(&cc.egui_ctx, action, paths);
         app
     }
     fn empty(preferences: Preferences) -> Self {
@@ -208,6 +212,7 @@ impl App {
             create_open: false,
             extraction: None,
             pending_extraction: None,
+            shell_extraction: None,
             tasks_open: false,
             read_password: String::new(),
             notice: None,
@@ -231,7 +236,9 @@ impl App {
         }
     }
     fn busy(&self) -> bool {
-        self.active.is_some() || self.export.receiver.is_some()
+        self.active.is_some()
+            || self.export.receiver.is_some()
+            || self.settings.integration_job.is_some()
     }
     fn modal_open(&self) -> bool {
         self.create_open
@@ -293,6 +300,24 @@ impl App {
         }
         self.form_error = None;
         self.create_open = true;
+    }
+    fn accept_launch(&mut self, context: &egui::Context, action: Action, paths: Vec<PathBuf>) {
+        match action {
+            Action::Open => self.accept_paths(context, paths),
+            Action::Compress | Action::CompressZip => {
+                self.add_sources(paths);
+                if action == Action::CompressZip {
+                    // ZIP is the default draft format. Existing output is never replaced.
+                    self.create_archive(context);
+                }
+            }
+            Action::Extract | Action::ExtractHere | Action::ExtractFolder => {
+                if let Some(path) = paths.into_iter().next() {
+                    self.shell_extraction = Some((path.clone(), action));
+                    self.open_archive(context, path, None);
+                }
+            }
+        }
     }
     fn accept_paths(&mut self, context: &egui::Context, paths: Vec<PathBuf>) {
         if paths.is_empty() {
@@ -408,6 +433,20 @@ impl App {
                 self.typeahead.clear();
                 self.list_offset = 0.0;
                 self.tree_offset = 0.0;
+                if let Some((_, action)) = self.shell_extraction.take().filter(|(path, _)| {
+                    !self.close_when_finished
+                        && self
+                            .archive
+                            .as_ref()
+                            .is_some_and(|archive| archive.path == *path)
+                }) {
+                    match action {
+                        Action::Extract => self.show_extract(true),
+                        Action::ExtractHere => self.quick_extract(context, true),
+                        Action::ExtractFolder => self.quick_extract(context, false),
+                        _ => {}
+                    }
+                }
             }
             Ok(Outcome::Done(summary)) => {
                 self.notice = Some(Notice::new(summary.message.clone(), false));
@@ -909,6 +948,7 @@ impl eframe::App for App {
     }
 
     fn update(&mut self, context: &egui::Context, frame: &mut eframe::Frame) {
+        self.poll_integration(context);
         self.poll_native_drag(context);
         self.poll(context);
         if context.input(|i| i.viewport().close_requested()) && self.busy() {

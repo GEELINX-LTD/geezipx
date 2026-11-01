@@ -103,6 +103,16 @@ Section "GeeZipX Native" Main
   WriteRegDWORD HKCU "${UNINSTALL_KEY}" "NoRepair" 1
   ${GetSize} "$INSTDIR" "/S=0K" $0 $1 $2
   WriteRegDWORD HKCU "${UNINSTALL_KEY}" "EstimatedSize" $0
+
+  ; Preserve the user's chosen associations/menu when the install path changes.
+  ClearErrors
+  ExecWait '$\"$INSTDIR\${APP_EXE}$\" --repair-shell-integration' $0
+  ${If} ${Errors}
+  ${OrIf} $0 != 0
+    DetailPrint "Could not repair GeeZipX system integration. Retry from Settings."
+    SetErrorLevel 1
+    Abort
+  ${EndIf}
 SectionEnd
 
 Function un.onInit
@@ -112,6 +122,17 @@ Function un.onInit
 FunctionEnd
 
 Section "Uninstall"
+  ; The installed binary owns the extension/COM list; clean it before deleting it.
+  IfFileExists "$INSTDIR\${APP_EXE}" 0 integration_removed
+  ClearErrors
+  ExecWait '$\"$INSTDIR\${APP_EXE}$\" --remove-shell-integration' $0
+  ${If} ${Errors}
+  ${OrIf} $0 != 0
+    DetailPrint "Could not remove GeeZipX system integration. Application files retained."
+    SetErrorLevel 1
+    Abort
+  ${EndIf}
+  integration_removed:
   Delete "$SMPROGRAMS\${APP_NAME}\${APP_NAME}.lnk"
   Delete "$SMPROGRAMS\${APP_NAME}\Uninstall.lnk"
   RMDir "$SMPROGRAMS\${APP_NAME}"
