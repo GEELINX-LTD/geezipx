@@ -521,7 +521,7 @@ crates/gui-tauri/
 
 归档目录索引在后台建立，按名称、大小、压缩后大小和类型的排序结果预计算并共享 `Arc<Row>`；名称搜索只在条件变化时过滤当前目录缓存，绘制使用 29 逻辑像素的可见行虚拟列表。左侧目录树复用缓存目录索引，仅在展开/导航时以显式栈生成展开节点，虚拟绘制并自动展开当前路径的祖先；搜索和排序不改变树结构。子目录表格额外绘制 `..` 文件夹行，独立处理双击返回，不加入选择或解压模型；框选与滚动索引计入该行偏移。点击、Ctrl/Cmd、Shift 和键盘范围选择共享模型；切换目录清空选择，搜索保留选择并报告隐藏项。预览限制为 512 KiB，密码不进入持久化，外观与最多八条最近路径使用 eframe 存储。
 
-原生端 `engine` 只编排 core 的 reader/writer、进度、来源收集和安全输出。压缩通过同目录临时归档提交；解压复用 core `ExtractionDir`，预先拒绝危险名称与输入归档别名覆盖。格式清单以 `engine/formats.rs` 为准，RAR 默认启用，ZPAQ 可选且默认关闭以避开原生 C++ LTO 兼容性问题。
+原生端 `engine` 只编排 core 的 reader/writer、进度、来源收集和安全输出。压缩通过同目录临时归档提交；解压复用 core `ExtractionDir`，预先拒绝危险名称与输入归档别名覆盖。`engine/formats.rs` 覆盖 core 全部格式构造，RAR/WIM/ZPAQ 默认启用；Unix 工作流关闭 C++ LTO、Windows 使用静态 CRT。`engine/streams.rs` 把单流格式映射为一个条目并委托 core 编解码，先在匿名临时文件完整解码/认证，再提供真实长度与读取流，不实现格式算法。IMG/BIN 通过 core 光盘 reader 浏览 ISO/UDF，ISZ 经 core `IszImage` 接 ISO reader，完整性测试先使用 core `isz_verify` 校验全部外层块，避免仅遍历文件遗漏未访问的损坏块。创建列表包含全部可写格式，单流/镜像只接受单个普通文件；ZIP SFX 使用 core `write_zip_sfx` 在最终提交前生成，`SfxTarget::is_available` 控制缺失 stub 的目标不可选。
 
 原生端 `export::DeferredExport` 按归档/选区快照生成描述信息，不读取归档或创建暂存文件；只有系统确认放置、接收方请求内容后，才通过 `engine::extract` 准备一次并缓存结果。`app/interaction.rs` 管理内容坐标框选和拖放生命周期；`app/native_drag/windows.rs` 实现 OLE `IDataObject`、Unicode `FILEGROUPDESCRIPTORW`、`FILECONTENTS` 和 `IStream`，仅在 `IDropSource::QueryContinueDrag` 确认释放后提供内容；macOS 后端使用 `NSFilePromiseProvider` 与串行后台队列；Linux X11 后端在 `XdndDrop` 后响应 URI 请求。原生 Wayland 暂不支持。复制语义和暂存生命周期允许接收方异步读取。目录双击按稳定条目 ID 配对点击，Windows 使用系统双击间隔；导航快捷键方向键由 Painter 绘制。底部提示不改变列表起点。
 
@@ -537,11 +537,11 @@ crates/gui-tauri/
 | UDF支持库配置 | core/CLI使用同步std/read/write，独立27项单测及package通过；额外async/write组合与上游1.2.1同样因生成类型/时间方法冲突失败，待分离共享描述符和I/O绑定；workspace all-features不代表该被排除库的async组合已支持 |
 | AES 容器 | `.enc` 支持经验证的非流式容器，拒绝不安全 schema 和超额 KDF；`.aes` 用 AES Crypt v0–v3 双遍认证后解密，非seek输入暂存密文。两者格式不兼容，创建 `.aes` 不会回退生成 `.enc` |
 | 新读取预算 | EGG累计索引64MiB；CFB打开前FAT估算64MiB（不含目录等总开销）；Lzip/LZMA Alone/TLZ解码256MiB。超过当前预算明确拒绝，并非所有合法大字典/容器均可读；可配置预算和其它累计元数据计费待补。互操作证据见[专项验收](FORMAT_PARITY_ACCEPTANCE.md) |
-| PEA读取 | `archive/pea.rs`及子模块实现单卷/单流未加密Store/块Deflate；Read+Seek、64KiB缓冲、64MiB元数据计费预算，打开时顺序验证后建立索引，提取按对象seek并复核。使用adler2、crc32fast及RustCrypto校验实现，不运行Pea工具；文件名支持UTF-8/ASCII，两个GUI未接入 |
+| PEA读取 | `archive/pea.rs`及子模块实现单卷/单流未加密Store/块Deflate；Read+Seek、64KiB缓冲、64MiB元数据计费预算，打开时顺序验证后建立索引，提取按对象seek并复核。使用adler2、crc32fast及RustCrypto校验实现，不运行Pea工具；文件名支持UTF-8/ASCII；egui 已桥接该只读子集，Tauri 尚未接入 |
 | 系统关联恢复 | 多键注册尚无完整回滚；Linux 旧 handler 备份仅会话内有效，desktop ID 查找未完整遵循 XDG；安装关联表仍宽于 GUI 实际能力 |
 | 组事务与持久性 | 多文件提取按条目发布，多卷不能整组原子提交；普通失败会清理，不保证强杀、断电或所有文件系统语义下的完整回滚 |
-| NSIS读取 | `archive/nsis.rs`及子模块实现现代NSIS 3 Unicode静态文件/目录映射，Store/Deflate/BZip2/LZMA的solid与non-solid；PE范围、可选CRC和精确流结束校验。64KiB I/O、64MiB元数据与LZMA字典预算，solid匿名磁盘暂存；有界编解码内存不随单项长度增长，临时磁盘随solid原文增长。ANSI/旧版/Park、BCJ、自定义打包stub、插件/运行时文件和卸载器重建不在范围，两个GUI未接入 |
-| 格式范围 | ALZ/EGG/PEA/NSIS部分只读；Z/PMA/TLZ/AES Crypt/Compound 已接入；BH/DAA1.0 暂缓。逐项证据、性能债务及后续方案见 [格式审查](FORMAT_PARITY_AUDIT.md)；两个 GUI 的清单分别维护，均不等同于 core/CLI |
+| NSIS读取 | `archive/nsis.rs`及子模块实现现代NSIS 3 Unicode静态文件/目录映射，Store/Deflate/BZip2/LZMA的solid与non-solid；PE范围、可选CRC和精确流结束校验。64KiB I/O、64MiB元数据与LZMA字典预算，solid匿名磁盘暂存；有界编解码内存不随单项长度增长，临时磁盘随solid原文增长。ANSI/旧版/Park、BCJ、自定义打包stub、插件/运行时文件和卸载器重建不在范围；egui 已桥接该只读子集，Tauri 尚未接入 |
+| 格式范围 | ALZ/EGG/PEA/NSIS部分只读；Z/PMA/TLZ/AES Crypt/Compound 已接入；BH/DAA1.0 暂缓。逐项证据、性能债务及后续方案见 [格式审查](FORMAT_PARITY_AUDIT.md)；egui 已桥接当前 core 格式，Tauri 清单独立维护，各格式的 core 子集限制仍适用 |
 | 桌面性能与可访问性 | 尚无 Tauri/egui 同机耗时和 RSS 对照基准；仍需超大归档、键盘焦点与原生拖放实测 |
 
 Cargo workspace 成员、feature 与依赖版本以根目录及各 crate 的 `Cargo.toml`、`Cargo.lock` 为准；本文不复制完整配置。

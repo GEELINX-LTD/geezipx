@@ -55,7 +55,7 @@
 
 ## 第六轮：ASAR/LZH/ZPAQ 创建与 PEA/NSIS 读取
 
-依次完成ASAR、LZH、ZPAQ创建改造及PEA、NSIS只读子集，独立提交并保留原生工具语料。512MiB专项样本的创建峰值RSS分别由约1.51GiB降至8.1MiB、532MiB降至8.8MiB、1.01GiB降至8.5MiB；新增磁盘暂存，元数据和模型内存仍随其预算增长，单次实测不构成通用吞吐结论。PEA由官方Pea生成19份语料，NSIS由makensis生成7种Store/Deflate/BZip2/LZMA变体并以7-Zip独立提取核对。PEA加密/ECC/分卷、NSIS旧版/动态结果、ZPAQ journal提取和读取缓冲及macOS ZPAQ限制仍保留，两个GUI未接入新增格式。
+依次完成ASAR、LZH、ZPAQ创建改造及PEA、NSIS只读子集，独立提交并保留原生工具语料。512MiB专项样本的创建峰值RSS分别由约1.51GiB降至8.1MiB、532MiB降至8.8MiB、1.01GiB降至8.5MiB；新增磁盘暂存，元数据和模型内存仍随其预算增长，单次实测不构成通用吞吐结论。PEA由官方Pea生成19份语料，NSIS由makensis生成7种Store/Deflate/BZip2/LZMA变体并以7-Zip独立提取核对。PEA加密/ECC/分卷、NSIS旧版/动态结果、ZPAQ journal提取和读取缓冲及macOS ZPAQ限制仍保留，本轮 core 审查时两个 GUI 尚未接入；当前 egui 已桥接全部 core 格式，Tauri 仍独立维护，详见 [原生端格式表](EGUI_GUI.md#格式范围)。
 
 统一候选`76b65a60fa9478f2661256369968ee275d245501`的[CI 41201756766](https://github.com/GEELINX-LTD/geezipx/actions/runs/41201756766)与[Audit 41201760473](https://github.com/GEELINX-LTD/geezipx/actions/runs/41201760473)均成功。三平台最小/基础/扩展feature测试及Clippy通过，原生CLI/SFX验收Linux/Windows各77项、macOS73项；六份二进制/报告已下载，完整源码SHA、实际x86-64架构、二进制哈希与报告匹配，三平台共有73项内容哈希一致。下载LinuxCLI复跑77项通过。额外修复独立LZH新依赖解析和WIM损坏用例的偶发无修改，后者4096次重复通过；详细测试数、产物链接、SHA-256和测量范围见[第六轮专项验收](FORMAT_PARITY_ACCEPTANCE.md#三平台最终候选与产物复核)。CLI仍显示0.7.4，按源码SHA识别候选，产物保留7天。
 
@@ -96,14 +96,14 @@
 | WIM | 已复核，LZX/LZMS暂缓 | 资源按chunk范围解码、<=512KiB工作块、SHA1核验，37专项测试通过；独立 wimlib XPRESS两文件490003B通过。wimlib LZX样本仍复现 `encountered empty decode tree`，需核对 lzxd 的 LZXD头/状态与WIM变体差异，已修正模块能力说明；需WIM-specific LZX及E8处理/独立XPRESS-LZX-LZMS语料，不把内部roundtrip当互操作。LZMS、SWM、第一映像以外提取未实现；创建仅无压缩；元数据仍整体驻内存 |
 | Z / Unix Compress | 已实现读取 | 流式 LZW，9–16 位有界字典；修复 `.Z` 大小写检测并加入魔数；ncompress 10/12/16 位共 15 例互操作通过；格式无校验和，不能保证发现所有截断 |
 | ZPAQ | 创建已优化，读取仍有债务 | 使用维护支持库的named Read+Write接口，原文磁盘暂存、64KiB I/O、64MiB元数据预算，一个solid块跨文件保留模型；内置1–3，兼容4/5映射3，修复旧4/5运行时报错。新包写段SHA-1，路径读取修复原先读到校验和却未核对的问题；FFI末次写失败/析构、短Read/Interrupted、取消与输入长度有回归。读取仍整包fs::read并缓冲成员、批量操作重复解码；真实zpaq7.15 journal可列出input.txt但提取报not found，样本已保留。需journal-aware回调或fragment/index重建，不能以native extract绕过共享安全输出 |
-| PEA | 已接入单卷未加密子集 | PCOMPRESS0 Store、PCOMPRESS1–3块Deflate；13类校验及NOALGO覆盖对象/流/卷，64KiB缓冲和64MiB元数据预算，打开时顺序验证后建立索引。官方PeaZip11.4工具生成19份语料，原文哈希、截断/损坏/路径/取消/输出失败验证通过；仅UTF-8/ASCII名称，加密/HMAC、ECC、分卷、旧ANSI及属性恢复未实现，两个GUI未接入；详见专项验收第六轮 |
+| PEA | 已接入单卷未加密子集 | PCOMPRESS0 Store、PCOMPRESS1–3块Deflate；13类校验及NOALGO覆盖对象/流/卷，64KiB缓冲和64MiB元数据预算，打开时顺序验证后建立索引。官方PeaZip11.4工具生成19份语料，原文哈希、截断/损坏/路径/取消/输出失败验证通过；仅UTF-8/ASCII名称，加密/HMAC、ECC、分卷、旧ANSI及属性恢复未实现；egui 已桥接该只读子集，Tauri 尚未接入；详见专项验收第六轮 |
 | UU / UUE | 已优化 | CLI 编解码改为逐行流式，固定 45 字节输入块，最大 1024 字节行；保留需要返回 Vec 的兼容 API；校验截断和终止符 |
 | XXE | 已优化 | 复用有界逐行编解码器，CLI 不再整文件驻内存；截断回归测试通过 |
 | CPIO（额外既有格式） | 已优化创建内存并修复长度截断 | newc/odc 创建最多保留1MiB项数据，超过后磁盘暂存，头部长度超过32-bit返回错误而非截断；odc 使用 reader API 避免重新读为 Vec。3MiB生成流/有界读取双格式回归及既有CLI/特殊文件/路径/往返测试通过。读取/校验原为流式，但整包提取逐项重扫仍有I/O债务；bin/crc变体暂未接入 |
 | ARC / PAK（额外既有格式） | 已修复列表、密码和 CRC 元数据 | 列表显式 skip payload，支持 XOR 密码并在打开底层解码器前传入；CRC16 不再误标为 CRC32。带伪 header 的双文件/密码/损坏 CRC 回归及 CLI 加密 list/test/extract 通过；unarc 返回整项 Vec 和逐项重扫仍为债务 |
 | ASAR | 已优化读写 | 读取缓存64MiB内JSON索引，seek + take流式读payload，并验证可选全文件/分块SHA-256；保留unpacked/符号链接路径检查。创建以64KiB缓冲暂存匿名文件，索引预算64MiB，载荷按顺序输出；Electron官方工具双向互操作/校验信息一致。512MiB创建RSS约1.51GiB→8.1MiB，取消/失败保护通过，细节见专项验收第六轮 |
 | ZSTD | 已复核并修复溢出 | libzstd 流式、多帧读取、可选多线程编码；新增0..22等级验证，阻止u32MAX转换成负fast等级，jobs转u32不再静默截断。现有多线程/截断/级别/往返及新增溢出回归通过。创建默认不启用可选内容校验和，输入无checksum时不能保证检测所有位翻转；字典/worker占用依设置变化 |
-| NSIS | 已接入现代Unicode子集 | 原生makensis生成Store/Deflate/BZip2/LZMA共7种solid/non-solid样本，7-Zip独立提取哈希一致。PE边界/可选CRC、64MiB元数据/字典预算与严格流结束校验；solid单次解码到匿名磁盘，安全映射静态路径，不执行脚本。ANSI/旧版/Park、BCJ、自定义打包stub、运行时文件/插件及卸载器重建暂缓；两个GUI未接入，详见第六轮 |
+| NSIS | 已接入现代Unicode子集 | 原生makensis生成Store/Deflate/BZip2/LZMA共7种solid/non-solid样本，7-Zip独立提取哈希一致。PE边界/可选CRC、64MiB元数据/字典预算与严格流结束校验；solid单次解码到匿名磁盘，安全映射静态路径，不执行脚本。ANSI/旧版/Park、BCJ、自定义打包stub、运行时文件/插件及卸载器重建暂缓；egui 已桥接该只读子集，Tauri 尚未接入，详见第六轮 |
 | LZ4 | 已复核 | lz4_flex FrameEncoder/Decoder 固定块缓冲/流式，无按文件体积Vec；现有往返/空流/无效数据测试通过。创建默认无内容校验和，依赖输入frame可选checksum（启用时库验证）；CLI level/jobs未映射LZ4，保留当前fast编码行为，后续若引入HC应单独测吞吐/内存；skippable frame/legacy LZ4专项互操作待补 |
 
 ## 共享顺序处理
@@ -137,11 +137,11 @@
 - 已接入NSIS 3 Unicode Store及Deflate/BZip2/LZMA的solid/non-solid读取；通过PE节表定位后附NSIS头，校验范围、可选容器CRC及流结束。使用Apache-2.0的维护支持库`geezipx-nsis`（上游nsis0.6.0）解释有界解码头和NSIS BZip2块，core管理索引、取消和输出；不调用上游整包载入/提取接口。
 - solid载荷一次顺序解码至匿名文件，后续按偏移访问；non-solid按项seek。64KiB I/O、64MiB元数据/字典预算，先验证完整索引/载荷再允许提取。路径仅接受静态且相对`$INSTDIR`的可移植名称，拒绝穿越、设备名、别名冲突和未解析变量；关闭CRC的包明确报告未验证容器CRC。
 - 原生makensis生成7份样本并由7-Zip独立提取核对，覆盖空文件/目录、Unicode、不可压缩内容与重复数据；来源、许可和哈希见[fixture说明](../crates/core/tests/fixtures/nsis/README.md)。64/512MiB LZMA-solid单项用例的list/test/extract峰值RSS约16MiB，具体记录见第六轮专项验收。
-- ANSI、NSIS1/2、Park、BCJ-LZMA、自定义打包stub及卸载器重建尚未覆盖；任意分支/运行时变量、插件结果和安装时生成文件需要脚本执行语义，当前不模拟、不执行安装器。后续须先补对应独立语料及有界解码策略，不能把静态载荷读取宣称为完整安装结果还原。两个GUI需独立桥接。
+- ANSI、NSIS1/2、Park、BCJ-LZMA、自定义打包stub及卸载器重建尚未覆盖；任意分支/运行时变量、插件结果和安装时生成文件需要脚本执行语义，当前不模拟、不执行安装器。后续须先补对应独立语料及有界解码策略，不能把静态载荷读取宣称为完整安装结果还原。egui 已桥接该只读子集，Tauri 需独立桥接。
 
 ## ZIP / ZIPX
 
 - 创建：ZIP 保持 Deflate；`--format zipx` 或 `.zipx` 输出选择 XZ。`--level 0..9` 传给实际编码器，非法值在创建输出前拒绝。
 - 读取：启用 ZIP crate 的 XZ、LZMA、BZIP2、Deflate64、ZSTD、PPMd；不引入外部子进程，不整文件缓冲。
-- ZIPX 的 magic 仍为 ZIP，读取可走共用 reader；新 `ArchiveFormat::Zipx` 用于创建选择，GUI 尚未暴露此创建能力。
+- ZIPX 的 magic 仍为 ZIP，读取可走共用 reader；新 `ArchiveFormat::Zipx` 用于创建选择，egui 已暴露此创建能力，Tauri 尚未接入。
 - 验证：workspace fmt/clippy（`-D warnings`）/all-features tests 通过；7-Zip 生成的 LZMA/BZip2/Deflate64/PPMd ZIP 均正确提取；GeeZipX XZ ZIPX 经 `7z t` 验证通过。

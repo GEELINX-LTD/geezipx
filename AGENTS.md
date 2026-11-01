@@ -197,7 +197,7 @@ CLI 和两个 GUI 只负责：
 
 ALZ 支持单卷 Store/Deflate 与 ZipCrypto，修改版 BZip2/其它方法及分卷暂缓；Z / Unix Compress 支持有界流式 LZW 解码。
 
-CLI 已支持 `compress --split-size` 分卷创建。后续格式扩展由实际需求驱动，当前优先补齐 GUI 桥接与已知兼容性限制；core/CLI 已支持不代表 GUI 已接入，详见 `docs/GUI_MVP_PLAN.md` §3.1。
+CLI 已支持 `compress --split-size` 分卷创建。后续格式扩展由实际需求驱动，当前优先补齐 GUI 桥接与已知兼容性限制；core/CLI 已支持不代表 Tauri 已接入，详见 `docs/GUI_MVP_PLAN.md` §3.1；egui 已桥接当前 core 全部格式，默认启用 RAR/WIM/ZPAQ，创建/单流/镜像与只读变体限制见 `docs/EGUI_GUI.md`。
 
 Core/CLI 以用户给定的 Bandizip 清单为对齐目标，逐项实现/性能审查结果见 `docs/FORMAT_PARITY_AUDIT.md`。BH、DAA 1.0 本轮暂缓并记录具体证据及路线；PMA 已实现，EGG/PEA/NSIS 部分实现，不能继续列为永久排除。其它范围见 `docs/PRD.md` §5.2；RAR 写入仍受许可限制，ZIPX 专有方法及各格式变体的限制需分别说明。
 

@@ -21,9 +21,11 @@ cargo build -p geezipx-egui --release --locked
 # Linux/macOS: target/release/geezipx-egui
 # Windows: target/release/geezipx-egui.exe
 
-# 可选：去掉 RAR 后端
+# 可选：去掉 RAR、WIM、ZPAQ 后端
 cargo run -p geezipx-egui --no-default-features
 ```
+
+可选后端 `rar`、`wim`、`zpaq` 默认全部启用。Unix release 构建建议设置 `CXXFLAGS=-fno-lto` 避免 ZPAQ C++/Rust 跨语言 LTO 链接不兼容；Windows MSVC 构建前设置 `RUSTFLAGS=-C target-feature=+crt-static` 统一 C++ 运行库。独立工作流已包含这些设置。`--no-default-features` 同时关闭三个后端，可用 `--features rar,wim,zpaq` 按需启用。
 
 Linux 运行需要桌面显示服务、可用的 OpenGL 驱动，以及提供文件选择器的 XDG Desktop Portal。构建不依赖 GTK/WebKitGTK 开发包。Linux 同时启用 X11 和 Wayland。macOS/Windows 使用系统原生文件对话框。界面优先使用系统字体：Windows 的 Segoe UI/微软雅黑、macOS 的系统无衬线/苹方，Linux 按 Fontconfig 的无衬线与等宽字体配置查找。系统缺少的中文字形由内嵌 Noto Sans SC 2.004（SIL OFL 1.1）逐字补齐，因此无需联网或预装中文字体；字体只在启动时查找一次，系统字体不会打包或复制到安装目录。许可证及 egui 默认字体的版权/许可见 `crates/gui-egui/assets/*.txt`，也可在“帮助 → 关于 GeeZipX”查看。
 
@@ -42,7 +44,7 @@ Linux 运行需要桌面显示服务、可用的 OpenGL 驱动，以及提供文
 - **拖出解压**：从名称区域或已选条目开始拖动，立即向系统提供所选文件/目录的描述信息；仅在目标位置松开鼠标、接收方请求内容后，才复用安全提取引擎解压并交付，一次拖动即可完成。悬停、取消和未接收的放置不读取归档，不再预先解压或要求二次拖动。支持目录、空目录、多选和中文名称，不改写归档。Windows 使用 `FILEGROUPDESCRIPTORW` / `FILECONTENTS` 虚拟文件与 `IStream`，macOS 使用 Finder 文件承诺，Linux X11/XWayland 在 `XdndDrop` 后提供 URI；原生 Wayland 暂不支持。必要暂存保留至退出，兼容接收方延迟读取。
 - **旧 ZIP 中文名称**：core 统一处理目录、预览定位与提取使用的名称，优先采用 Unicode 元数据/UTF-8；对未标编码、能无损解码且包含汉字的旧名称尝试 GB18030（含 GBK），其余保留 CP437 回退。旧 ZIP 不携带可靠代码页信息时，自动识别存在歧义；解码后重名会明确报错。
 - **目标与覆盖策略**：解压默认输出到归档旁的同名文件夹，可编辑路径或使用系统目录选择器；支持完成后打开目标文件夹。默认跳过同名目标，可明确选择替换。工具栏快捷解压直接执行并跳过已有文件；这属于应用内操作，尚未注册系统右键菜单。新建归档的替换开关位于“更多选项”。错误或取消不会把不完整临时文件替换为最终文件；解压失败会恢复原目标、选择快照和覆盖选项，直接修正后重试，密码重新输入。
-- **新建压缩包**：点击“新建”开始空白任务；拖入普通文件/文件夹直接进入创建对话框。来源摘要可展开编辑，“添加文件”“添加文件夹”分别调用系统选择器；对话框内拖入 ZIP 等归档也作为压缩来源。自动建议保存位置，可选择格式与后端支持的压缩偏好；ZIP/7z 按需展开密码与确认输入。保留每个顶层来源名称，消除重叠来源；拒绝来自不同目录的同名根条目。按 Enter 提交，密码保护开启但密码为空时阻止创建；创建失败自动恢复原来源、目标和密码保护意图，密码内容仍已清空。
+- **新建压缩包**：点击“新建”开始空白任务；拖入普通文件/文件夹直接进入创建对话框。来源摘要可展开编辑，“添加文件”“添加文件夹”分别调用系统选择器；对话框内拖入 ZIP 等归档也作为压缩来源。自动建议保存位置，可选择格式与后端支持的压缩偏好；ZIP/ZIPX/7z 按需展开密码与确认输入，AES `.enc` 必须设置密码；ZIP 另可选择当前构建具备的 Windows/Linux/macOS x86_64 自解压目标。单流和 IMG/BIN/ISZ 只接受一个普通文件。保留每个顶层来源名称，消除重叠来源；拒绝来自不同目录的同名根条目。按 Enter 提交，密码保护开启但密码为空时阻止创建；创建失败自动恢复原来源、目标和密码保护意图，密码内容仍已清空。
 - **验证与预览**：工具栏“测试”读取完整归档并验证引擎提供的校验，不写入解压目录。文本预览最多保留 512 KiB，显示截断说明；双击文件或使用右键菜单打开预览。不执行归档内程序。加密读取可在“工具”菜单填写下一次读取的密码，或在解压对话框启用密码输入；打开失败后支持输入密码重试。
 - **字体设置**：“工具 → 设置…”可选择跟随系统、内置 Noto Sans SC 或已安装字体；下拉列表支持搜索，预览和界面即时更新，选择随偏好保存并在下次启动恢复，也可一键恢复默认。已保存字体被卸载或无法读取时自动回退到系统字体及中文后备。文本预览仍使用独立等宽字体。
 - **进度、提示与取消**：成功、失败和操作提示以浮动消息显示在页脚上方右下角，按内容收缩宽度，长消息自动换行；2 秒后自动消失，鼠标悬浮期间重置计时，也可点击关闭。提示独立于页面布局，出现、替换或关闭均不改变页脚、工具栏和文件行的位置。后台操作在底部就近展开阶段、进度、当前条目、吞吐与剩余时间估计。后台操作期间仍可浏览、搜索和选择已加载目录；一次只运行一个引擎任务。取消使用明确按钮，Esc 不取消任务。“任务记录”保留本次启动的结果、耗时和错误，并可打开输出文件夹。退出时若仍有任务，会询问是否取消并等待清理。
@@ -66,18 +68,20 @@ Linux release 在 Xvfb + Openbox 虚拟桌面实跑的界面截图：
 
 ## 格式范围
 
-原生端有自己的适配器清单，core/CLI 支持不代表原生端自动支持；Tauri 的清单也不代表原生端的清单。
+egui 已接入当前 core 的全部格式能力：可写格式出现在创建列表，只读格式提供浏览、提取和测试，密码与格式变体限制沿用 core。Tauri 的独立接入范围见 [GUI_MVP_PLAN.md](GUI_MVP_PLAN.md)。
 
 | 能力 | 格式 |
 | --- | --- |
-| 创建、浏览、解压、验证 | ZIP、7z、TAR、TAR.GZ、TAR.BZ2、TAR.BR、TAR.LZ4、TAR.XZ、TAR.ZST；启用 `zpaq` feature 后另含 ZPAQ |
-| 浏览、解压、验证 | RAR（默认 feature）、CAB、ASAR、CPIO、DEB、LZH/LHA、ISO、UDF、ARJ、ACE、ARC |
-| ZIP 别名 | zipx/jar/war/apk/ipa/xpi 等由 core 检测为 ZIP；不增加 WinZip 专有方法支持 |
-| 未接入 | 单流 gz/bz2/br/lz4/xz/lzma/lz/zst、AES `.enc`、WIM、ISZ、SFX 创建、IMG/BIN、UU/XXE、ALZ、Unix `.Z` |
+| 创建、浏览、解压、验证 | ZIP、ZIPX（XZ method 95）、7z、TAR、TAR.GZ、TAR.BZ2、TAR.BR、TAR.LZ4、TAR.XZ、TAR.ZST、CAB、ASAR、DEB、LZH/LHA、CPIO、ISO、UDF、WIM、ZPAQ |
+| 单文件创建、打开、提取、验证 | GZIP、BZIP2、Brotli、LZ4、XZ、LZMA、Lzip、Zstandard、UU/UUE、XXE、AES `.enc` |
+| 只读：浏览、提取、验证 | RAR、PMA、TLZ/TAR.LZMA/TAR.LZ、ALZ、Unix `.Z`、CFB/MSI/OLE、EGG、PEA、NSIS、ARJ、ACE、ARC；AES Crypt `.aes` 以一个文件显示 |
+| 镜像创建与内容浏览 | IMG/IMA、BIN 创建为原样复制已有镜像；ISZ 包装一个 ISO。打开时浏览/提取镜像中的 ISO/UDF 文件，ISZ 为 ISO，测试时校验全部外层数据块（包含 ISO 文件未引用的块）再验证内部文件；不制作 FAT/NTFS/分区盘 |
+| ZIP 自解压包 | ZIP 创建可选 SFX 平台，随后可直接打开、提取、测试；仅启用内嵌非空 stub 的目标，缺失的平台不可选。Linux/macOS 输出有执行权限 |
+| 格式别名 | jar/war/apk/ipa/xpi 共用 ZIP reader；`.pma` 共用 LZH reader。读取支持与 core 相同，不能据此推断支持 ZIPX 专有方法 |
 
-ZPAQ 是可选后端，默认关闭。其 C++ LTO 在部分 GCC/LLVM 组合上不兼容；需要该格式时可使用 `cargo run -p geezipx-egui --features zpaq`，release 构建在 Unix 上可能需要 `CXXFLAGS=-fno-lto cargo build -p geezipx-egui --release --features zpaq`。Windows MSVC 启用 ZPAQ 时需统一静态 C++ 运行库；PowerShell 中先设置 `$env:RUSTFLAGS="-C target-feature=+crt-static"` 再构建，与独立原生工作流一致。
+单流格式没有目录索引，打开时在后台完整解码至匿名临时文件以确定真实大小并验证完整性，再显示去掉外层扩展名的一个文件；预览、提取、测试与拖出复用常规归档交互。创建默认输出保留完整输入文件名（`说明.txt` → `说明.txt.gz`），单流默认解压目录使用 `说明.txt-extracted`，避免与原始输入文件重名。后续操作重新打开来源，因此大单流有额外解码与临时磁盘开销；`.enc` 仍继承 core 的整体缓冲，AES Crypt 在认证通过前不暴露明文。
 
-只提供 ZIP/7z 加密创建及 ZIP/7z/RAR 密码读取。7z 的 solid、字典和文件名加密等高级创建选项仍通过 CLI 使用。遇到未接入格式时，界面提示使用 CLI。
+密码创建支持 ZIP/ZIPX/7z/`.enc`，读取沿用 core 的 ZIP/ZIPX/7z/RAR/ALZ/ARJ/ACE/ARC/`.enc`/`.aes` 密码接口及各自兼容范围。7z 的 solid、字典和文件名加密等高级创建选项仍通过 CLI 使用。WIM 创建为无压缩，XPRESS 可读；LZX 互操作、LZMS、SWM 限制保留。ZPAQ 标准 journal 仅列出，不能重建文件内容。CAB 不保存独立空目录；LZH level-0 非 ASCII 名称读取时显示转义形式。EGG/PEA/NSIS/ALZ 的只读子集和其它 core 限制见 [格式审查](FORMAT_PARITY_AUDIT.md)。
 
 ## 性能和安全实现
 
@@ -105,13 +109,15 @@ cargo deny check
 
 Linux release 在隔离 Xvfb 实窗中验证：仅有西文字体和无系统字体两种环境均能离线显示中文；搜索并选择已安装字体及内置 Noto 即时生效，关闭并重启后保留选择；移走已选字体文件后，设置页说明字体不可用并显示系统/中文后备，恢复默认后清除此状态；760×480 深色设置页的预览和操作按钮完整可见。
 
-`crates/gui-egui/tests/operations.rs` 覆盖全部创建格式的 Unicode/空目录往返、ZIP/7z 密码、选中目录边界、Windows 分隔符、覆盖/跳过、重复/重叠来源、目标别名、取消清理、损坏 ZIP、预览上限及 Unix 链接防护。`crates/core/tests/streaming_visitor.rs` 覆盖 TAR 流式输入和 7z 多块停止。
+`crates/gui-egui/tests/operations.rs` 覆盖全部多文件创建格式的嵌套目录往返与格式支持的名称/空目录（CAB 不存空目录，LZH 使用 ASCII 名称）、ZIP/ZIPX/7z 密码、选中目录边界、Windows 分隔符、覆盖/跳过、重复/重叠来源、目标别名、取消清理、损坏 ZIP、预览上限及 Unix 链接防护。`crates/core/tests/streaming_visitor.rs` 覆盖 TAR 流式输入和 7z 多块停止。
+
+`crates/gui-egui/tests/format_parity.rs` 另覆盖全部可写单流的真实字节、名称与大小、预览、验证和所选提取，AES Crypt 官方 v3 认证失败时的原目标保护，PMA/EGG/PEA/NSIS/WIM XPRESS 外部语料，ISO → IMG/BIN/ISZ 内容浏览与提取、ISZ 未访问数据块损坏检测，以及当前构建可用 SFX 目标的生成与读取。单流/镜像创建拒绝目录输入和多来源；`.enc` 拒绝空密码；取消或校验失败保留原输出。
 
 `crates/gui-egui/src/app/tests.rs` 覆盖各对话框、压缩格式、深浅色和不同窗口尺寸的真实 egui 布局，检查最小尺寸下主按钮未被裁切、缩放保留选择、键盘范围选择与解压快照、Enter 密码校验、失败后恢复设置且不保留密码，以及 Esc 不取消后台任务；展开菜单的布局回归检查覆盖 Windows/macOS 快捷键格式、动作与快捷键间距、文本完整显示，以及 Esc 关闭菜单后保留文件选择；浮动提示回归检查覆盖短/长消息替换、首帧定位、页脚及文件行位置不变、空闲自动消失、静止悬浮重置计时和手动关闭保留选择。Linux release 在隔离 Xvfb 桌面实跑验证了目录导航/搜索、选择性提取排除同名前缀目录、760×480 布局，以及在保存路径输入框按 Enter 创建 ZIP；创建结果另通过 Python ZIP CRC/Unicode 内容与空目录检查。浮动提示另经浅/深色 release 实窗验收：消息只改变右下角的局部像素，自动消失或手动关闭后工作区截图与提示前一致；鼠标静止悬浮超过 5 秒仍保留消息，移开后重新倒计时，并检查 760×480 下提示位于页脚上方。
 
 文件行以归档路径/条目路径确定 ID，目录激活另按条目记录成对点击，避免 egui 全局三击计数影响连续导航；Windows 使用系统双击间隔，其余平台默认 500 ms。导航工具提示的方向键使用绘制图标。`crates/gui-egui/src/app/tests.rs` 覆盖超过 300 ms 的双击、快速进入嵌套目录、返回后再次进入、树展开与单击导航、过滤时保留父目录行、`..` 双击返回并定位原子目录、带父目录行的框选及拖动不启动解压；`tests/drag_export.rs` 覆盖松手前零读取、放置后只解压一次、中文目录和空目录。Windows COM 用例验证 Unicode 描述、取消、释放后 `IStream` 交付与重复读取；Linux Xvfb 通过一次 Xdnd 拖动交付多选，并核对接收内容。真实 Explorer/Finder 的大文件、覆盖提示、取消和 DPI 行为仍需实机验收。
 
-独立 `.github/workflows/gui-egui.yml` 对 Linux x86_64（`ubuntu-24.04`）、Windows x86_64（`windows-latest`）、macOS arm64（`macos-latest`）执行检查、测试、release 编译并上传裸可执行文件与许可证；artifact action 使用 Node.js 24 的 `actions/upload-artifact@v7`。Windows 额外上传 `geezipx-egui-windows-x86_64-installer`，内含 `GeeZipX-Native_<version>_x64-setup.exe`、`SHA256SUMS.txt` 和标明提交的 `build-info.json`。可在 Actions 手动触发并选择测试分支；安装包 artifacts 保留 30 天，不上传到正式 Release。
+独立 `.github/workflows/gui-egui.yml` 在打包前重建对应平台的 x86_64 SFX stub，三平台均启用 RAR/WIM/ZPAQ 完整格式测试；macOS GUI 本身为 arm64，其自解压 stub 仍为 x86_64。工作流对 Linux x86_64（`ubuntu-24.04`）、Windows x86_64（`windows-latest`）、macOS arm64（`macos-latest`）执行检查、测试、release 编译并上传裸可执行文件与许可证；artifact action 使用 Node.js 24 的 `actions/upload-artifact@v7`。Windows 额外上传 `geezipx-egui-windows-x86_64-installer`，内含 `GeeZipX-Native_<version>_x64-setup.exe`、`SHA256SUMS.txt` 和标明提交的 `build-info.json`。可在 Actions 手动触发并选择测试分支；安装包 artifacts 保留 30 天，不上传到正式 Release。
 
 Windows 安装器支持简体中文/英文，默认安装到 `%LOCALAPPDATA%\Programs\GeeZipX Native`，无需管理员权限；添加开始菜单入口和独立的卸载项，可与 Tauri 版并存。安装目录内 `build-info.txt` 标明版本与提交；卸载只清理本安装器的文件和入口，保留应用偏好、最近记录及用户自行放入的文件。工作流在含中文与空格的目录执行静默安装/卸载，检查应用哈希、许可证、提交、快捷方式、注册项与无关文件保留。安装器脚本位于 `crates/gui-egui/windows/installer.nsi`，需要 NSIS 3；构建时传入 `APP_VERSION` 与 `APP_REVISION`，不依赖 Tauri 工具链。
 

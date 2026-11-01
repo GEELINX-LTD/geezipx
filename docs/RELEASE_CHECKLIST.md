@@ -8,7 +8,7 @@
 - Windows：可配置右键菜单、COM 多选压缩、独立快捷解压窗口、窗口关闭权限和卸载清理。
 - GUI：并发任务隔离、密码提示、原生路径、ZIP 目录层级、7z 默认输出目录和稳定页面布局。
 - Core/CLI/SFX：失败或取消时保留已有输出、归档校验与错误传播，以及安全依赖更新。变更细节见 [CHANGELOG](../CHANGELOG.md)。
-- Core/CLI 格式对齐：完整清单已完成一轮逐项实现/性能审查，新增能力、独立样本结果、部分兼容范围与暂缓项见 [格式审查](FORMAT_PARITY_AUDIT.md)。新增读取能力不代表两个 GUI 已接入，也不代表已完成三平台发布验证。
+- Core/CLI 格式对齐：完整清单已完成一轮逐项实现/性能审查，新增能力、独立样本结果、部分兼容范围与暂缓项见 [格式审查](FORMAT_PARITY_AUDIT.md)。新增读取能力已桥接 egui，Tauri 接入范围仍独立维护；这不代表已完成三平台发布验证。
 
 Win11 一级菜单的实验 [PR #33](https://github.com/GEELINX-LTD/geezipx/pull/33) 独立评估。本轮安装包采用已接入的传统 Explorer 菜单。
 
@@ -82,6 +82,9 @@ Win11 的传统菜单位于“显示更多选项”（Shift+F10）。构建成�
 - [x] 字体与设置：无系统字体、仅西文字体的离线中文回退，字体搜索/选择/预览/恢复默认、旧偏好迁移、重启保留和已卸载字体回退；Linux release 实窗验证及 760×480 深色布局通过，默认 RAR feature 的 Windows GNU 编译检查通过。
 - [x] 自绘窗口：43 项 egui 回归通过，覆盖窗口命令、对话框上方的窗口按钮、忙碌关闭确认和 macOS 缩放计算；Linux release 在 Xvfb + Openbox 验证系统边框为零、标题栏移动、右侧/角缩放与 760×480 下限、最小化、最大化/还原、双击，以及最小窗口 Enter 创建/解压 ZIP，独立 CRC/内容核对通过。浅深色与对话框截图已同步。
 - [x] 窗口圆角：普通窗口使用 12 点圆角，最大化/全屏恢复直角；绘制网格回归覆盖浅深色、默认/最小尺寸和对话框遮罩，Linux release 在 Xvfb + Openbox + 支持透明度的合成器中验证四角透出桌面、最大化和还原。
+- [x] egui 全部 core 格式桥接：多文件创建往返、单流真实内容/名称/大小/预览/提取、官方 AES Crypt 认证失败保护，PMA/EGG/PEA/NSIS/WIM XPRESS 外部语料，IMG/BIN/ISZ 内容浏览、ISZ 全部块（含未访问块）损坏检测，以及可用目标的 ZIP SFX 创建/读取。
+- [x] Linux release 实际创建 GZIP（独立解码核对），打开后显示原文件名与真实大小，默认解压目录与原始文件不冲突且内容一致；760×480 下格式列表可滚动到末尾，选择 AES `.enc` 后实际创建，再用 CLI 独立解密核对内容。
+- [ ] 新候选三平台完整格式验收：RAR/WIM/ZPAQ 默认启用，确认 macOS arm64 ZPAQ 编译与运行、各目标 SFX stub 重建和打包后的创建/提取；验证新增格式在最小窗口下的选择、密码与失败恢复。
 - [ ] Windows/macOS/原生 Wayland 自绘窗口验收：拖动、边角缩放、高 DPI、最大化/全屏及还原、对话框打开时窗口控制，以及任务运行时关闭与清理；macOS 重点验证位置/尺寸更新的缩放路径与透明圆角。
 - [ ] 对候选提交运行更新后的 `gui-egui.yml`：确认 `macos-latest` 的 arm64 编译、测试与产物上传；检查移除 `macos-14` brownout、旧 artifact action 的 Node.js 20 警告和 `ubuntu-latest` 迁移提示后的 annotations。
 - [ ] Windows/macOS 字体验收：系统 UI/中文/等宽字体选择，手选安装字体的 TTC 字面索引、重启保留、卸载后回退，以及高 DPI 设置页显示。

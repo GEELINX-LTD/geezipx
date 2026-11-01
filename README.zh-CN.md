@@ -106,7 +106,9 @@ cargo run -p geezipx-egui -- /path/to/archive.zip
 cargo build -p geezipx-egui --release --locked
 ```
 
-原生端使用 Rust、egui/eframe 与 OpenGL，提供系统文件选择器和内嵌中文字体，无需 Node.js、Tauri 或 WebView。`cargo build` 默认只构建 core/CLI，桌面端需显式选择包。当前产物为独立可执行文件，安装器和文件关联尚未接入；尚无与 Tauri 的同机性能对照测量。
+原生端已接入当前 core 全部格式，可写格式出现在创建列表，只读格式可浏览、提取和测试，RAR/WIM/ZPAQ 默认启用；单流、镜像内容、ZIPX 与 ZIP SFX 的范围及 core 变体限制见[原生端格式表](docs/EGUI_GUI.md#格式范围)。Unix release 构建建议设置 `CXXFLAGS=-fno-lto`；Windows MSVC 先设置 `RUSTFLAGS=-C target-feature=+crt-static`。
+
+原生端使用 Rust、egui/eframe 与 OpenGL，提供系统文件选择器和内嵌中文字体，无需 Node.js、Tauri 或 WebView。`cargo build` 默认只构建 core/CLI，桌面端需显式选择包。当前产物包括独立可执行文件与 Windows 按用户安装的 NSIS 测试包，文件关联尚未接入；尚无与 Tauri 的同机性能对照测量。
 
 ---
 
@@ -456,7 +458,7 @@ SFX 功能需启用 `sfx` feature（CLI 默认包含），且所选目标必须�
 - **ISO 写入**：写入 ISO 9660 Level 1 + Joliet。扩展 Rock Ridge/Joliet 创建者元数据在复制时保留。UDF 写入请使用独立的 `udf` 格式。
 - **CPIO 写入**：支持 newc/odc。提取时不创建符号链接、设备、FIFO 或套接字。
 - **ZPAQ 写入**：磁盘暂存、有界 I/O，跨成员共享 solid 模型；模型 1–3 可用，兼容级别 4/5 映射到模型 3，不等于原生 CLI 的预处理方法 4/5。段 SHA-1 会验证；读取仍整体缓冲并可能逐项重复解码。标准 journal 仅列出逻辑文件，fragment/index 重建尚未接入；可提取 GeeZipX 的流式分段包。
-- **PEA / NSIS 读取**：均为有独立语料验证的只读子集，详见上表和[格式审查](docs/FORMAT_PARITY_AUDIT.md)。PEA 不支持加密/HMAC、ECC、分卷和旧 ANSI 名称；NSIS 不执行安装脚本/插件，不恢复运行时生成文件，旧版/ANSI/Park、BCJ、自定义打包 stub 及卸载器重建未覆盖。两个 GUI 需另行接入。
+- **PEA / NSIS 读取**：均为有独立语料验证的只读子集，详见上表和[格式审查](docs/FORMAT_PARITY_AUDIT.md)。PEA 不支持加密/HMAC、ECC、分卷和旧 ANSI 名称；NSIS 不执行安装脚本/插件，不恢复运行时生成文件，旧版/ANSI/Park、BCJ、自定义打包 stub 及卸载器重建未覆盖。egui 已接入这些只读子集；Tauri 仍需独立接入。
 - **ISZ**：围绕 ISO 数据的单流压缩封装。`list` 显示合成条目而非单个文件。
 - **AES `.enc`**：AES-256-GCM-SIV 加密 + Argon2id 密钥派生；打开时完成认证，`list` 和 `test` 同样验证完整容器。当前仍整体缓冲；尚未完整实现的流式容器明确拒绝。
 - **IMG / BIN**：透传身份复制——数据原样传递，无压缩或转换。

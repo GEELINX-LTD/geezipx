@@ -37,7 +37,7 @@ GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开�
 
 ### 5.1 已支持格式
 
-以下为 core/CLI 格式能力。Tauri 桌面端范围见 `docs/GUI_MVP_PLAN.md` §3.1，其 `get_formats` 根据创建解析器与读取工厂报告能力；egui 桌面端使用独立的适配清单，范围见 `docs/EGUI_GUI.md`。
+以下为 core/CLI 格式能力。Tauri 桌面端范围见 `docs/GUI_MVP_PLAN.md` §3.1，其 `get_formats` 根据创建解析器与读取工厂报告能力；egui 桌面端已桥接当前 core 的全部格式，RAR/WIM/ZPAQ 默认启用，可写格式进入创建列表，只读格式提供浏览/提取/测试，兼容性和单流/镜像限制见 `docs/EGUI_GUI.md`。
 
 | 格式 | 能力 | 备注 |
 |------|------|------|
