@@ -47,6 +47,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Native GUI — Windows desktop drag-out**: Resolve desktop background drops through the redirected Desktop known folder instead of treating the merged virtual desktop as a filesystem directory. Recognize Explorer-owned desktop hosts and resolve desktop folder icons through their real Shell items, retaining explicit folder selection for unknown or virtual targets.
+
 - **LZH support package — Dependency compatibility**: Require `oxiarc-core` 0.3.6 and handle future non-exhaustive decoder states explicitly, so a fresh standalone package resolution and the application lockfile compile against the same API.
 
 - **Core/CLI — Format correctness**: Validate compression levels and worker conversions before codec use; add `.bz` and `.Z` handling; repair ACE/ARJ/ARC payload traversal and pass passwords when opening their actual decoders. Normalize ACE CRC metadata and stop exposing ARC CRC16 as CRC32. Preserve CAB empty-archive validity and reject CPIO size truncation. Match the public ISZ byte-based block layout while retaining compatibility with older GeeZipX files; reject unsupported variants explicitly.

@@ -31,6 +31,8 @@ use windows::{
     },
 };
 
+mod desktop;
+
 pub(super) fn start(
     frame: &eframe::Frame,
     export: Arc<DeferredExport>,
@@ -117,7 +119,6 @@ fn destination(point: POINT) -> Result<Option<PathBuf>> {
     unsafe {
         CoInitializeEx(None, COINIT_APARTMENTTHREADED).ok()?;
         let _apartment = Apartment;
-        let windows: IShellWindows = CoCreateInstance(&ShellWindows, None, CLSCTX_ALL)?;
         let automation: IUIAutomation =
             CoCreateInstance(&CUIAutomation8, None, CLSCTX_INPROC_SERVER)?;
         if let Ok(options) = automation.cast::<IUIAutomation2>() {
@@ -125,6 +126,10 @@ fn destination(point: POINT) -> Result<Option<PathBuf>> {
             let _ = options.SetTransactionTimeout(1500);
         }
         let hit = WindowFromPoint(point);
+        if let Some(host) = desktop::host(hit) {
+            return desktop::destination(&automation, point, host);
+        }
+        let windows: IShellWindows = CoCreateInstance(&ShellWindows, None, CLSCTX_ALL)?;
         for index in 0..windows.Count()? {
             let Ok(dispatch) = windows.Item(&VARIANT::from(index)) else {
                 continue;
@@ -133,18 +138,41 @@ fn destination(point: POINT) -> Result<Option<PathBuf>> {
                 return Ok(Some(path));
             }
         }
-        // Desktop views are not included in every IShellWindows enumeration.
-        let mut desktop = 0;
-        if let Ok(dispatch) = windows.FindWindowSW(
-            &VARIANT::default(),
-            &VARIANT::default(),
-            SWC_DESKTOP,
-            &mut desktop,
-            SWFO_NEEDDISPATCH,
-        ) {
-            return destination_in_view(&dispatch, &automation, point, hit);
-        }
         Ok(None)
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum ViewHit {
+    Item(String),
+    Background,
+    Unknown,
+}
+
+unsafe fn view_hit(
+    automation: &IUIAutomation,
+    point: POINT,
+    is_background: impl Fn(HWND) -> bool,
+) -> Result<ViewHit> {
+    // SAFETY: All automation interfaces stay on their initialized worker STA.
+    unsafe {
+        let mut element = automation.ElementFromPoint(point)?;
+        let walker = automation.ControlViewWalker()?;
+        for _ in 0..32 {
+            let kind = element.CurrentControlType()?;
+            // Resolve an icon/row before recognizing its containing desktop view.
+            if kind == UIA_ListItemControlTypeId || kind == UIA_DataItemControlTypeId {
+                return Ok(ViewHit::Item(element.CurrentName()?.to_string()));
+            }
+            if is_background(element.CurrentNativeWindowHandle()?) {
+                return Ok(ViewHit::Background);
+            }
+            let Ok(parent) = walker.GetParentElement(&element) else {
+                break;
+            };
+            element = parent;
+        }
+        Ok(ViewHit::Unknown)
     }
 }
 
@@ -166,48 +194,10 @@ unsafe fn destination_in_view(
             return Ok(None);
         }
         let folder: IFolderView2 = view.cast()?;
-        let mut element = automation.ElementFromPoint(point)?;
-        let walker = automation.ControlViewWalker()?;
-        let mut row = None;
-        let mut reached_view = false;
-        for _ in 0..32 {
-            let kind = element.CurrentControlType()?;
-            if kind == UIA_ListItemControlTypeId || kind == UIA_DataItemControlTypeId {
-                row = Some(element.CurrentName()?.to_string());
-                break;
-            }
-            if element.CurrentNativeWindowHandle()? == window {
-                reached_view = true;
-                break;
-            }
-            let Ok(parent) = walker.GetParentElement(&element) else {
-                break;
-            };
-            element = parent;
-        }
-        if let Some(row) = row {
-            let items: IShellItemArray = folder.Items(SVGIO_ALLVIEW)?;
-            let mut target = None;
-            for index in 0..items.GetCount()? {
-                let item = items.GetItemAt(index)?;
-                if item_name(&item, SIGDN_NORMALDISPLAY)? == row {
-                    // Duplicate display names are ambiguous (e.g. hidden extensions).
-                    if target.is_some() {
-                        return Ok(None);
-                    }
-                    let attributes = item.GetAttributes(SFGAO_FOLDER | SFGAO_FILESYSTEM)?;
-                    if attributes & (SFGAO_FOLDER | SFGAO_FILESYSTEM)
-                        != SFGAO_FOLDER | SFGAO_FILESYSTEM
-                    {
-                        return Ok(None);
-                    }
-                    target = Some(PathBuf::from(item_name(&item, SIGDN_FILESYSPATH)?));
-                }
-            }
-            return Ok(target.filter(|path| path.is_dir()));
-        }
-        if !reached_view {
-            return Ok(None);
+        match view_hit(automation, point, |native| native == window)? {
+            ViewHit::Item(row) => return directory_item(&folder, &row),
+            ViewHit::Unknown => return Ok(None),
+            ViewHit::Background => {}
         }
         let persist: IPersistFolder2 = folder.GetFolder()?;
         let pidl = persist.GetCurFolder()?;
@@ -215,6 +205,30 @@ unsafe fn destination_in_view(
         CoTaskMemFree(Some(pidl.cast()));
         let path = PathBuf::from(item_name(&item?, SIGDN_FILESYSPATH)?);
         Ok(path.is_dir().then_some(path))
+    }
+}
+
+unsafe fn directory_item(folder: &IFolderView2, row: &str) -> Result<Option<PathBuf>> {
+    // SAFETY: Shell interfaces and strings remain on the initialized apartment.
+    unsafe {
+        let items: IShellItemArray = folder.Items(SVGIO_ALLVIEW)?;
+        let mut target = None;
+        for index in 0..items.GetCount()? {
+            let item = items.GetItemAt(index)?;
+            if item_name(&item, SIGDN_NORMALDISPLAY)? == row {
+                // Desktop merges user/public items; never guess duplicate names.
+                if target.is_some() {
+                    return Ok(None);
+                }
+                let attributes = item.GetAttributes(SFGAO_FOLDER | SFGAO_FILESYSTEM)?;
+                if attributes & (SFGAO_FOLDER | SFGAO_FILESYSTEM) != SFGAO_FOLDER | SFGAO_FILESYSTEM
+                {
+                    return Ok(None);
+                }
+                target = Some(PathBuf::from(item_name(&item, SIGDN_FILESYSPATH)?));
+            }
+        }
+        Ok(target.filter(|path| path.is_dir()))
     }
 }
 
