@@ -1,5 +1,6 @@
 //! Blocking filesystem orchestration. Called exclusively by background jobs.
 pub mod formats;
+pub mod streams;
 use crate::{browser, job::Control};
 use geezipx_core::{
     archive::{extraction::ExtractionDir, is_entry_path_dangerous, Entry},
@@ -25,10 +26,11 @@ pub struct Archive {
 pub fn list(path: PathBuf, password: Option<String>, control: &Control) -> Result<Archive, String> {
     control.update(|p| p.stage = "正在读取归档目录…".into());
     control.check()?;
-    let mut reader = formats::open_reader(&path, password.as_deref())?;
-    let format = reader.format();
-    let entries = reader.entries().map_err(|e| e.to_string())?;
+    let mut reader = formats::open_reader(&path, password.as_deref(), control)?;
+    let format = formats::detect(&path)?;
+    let entries = reader.entries();
     control.check()?;
+    let entries = entries.map_err(|e| e.to_string())?;
     let bytes = entries
         .iter()
         .fold(0u64, |total, entry| total.saturating_add(entry.size));
@@ -49,6 +51,7 @@ pub struct CompressRequest {
     pub format: ArchiveFormat,
     pub options: CompressOptions,
     pub replace: bool,
+    pub sfx_target: Option<geezipx_core::sfx::SfxTarget>,
 }
 
 #[derive(Debug)]
@@ -95,11 +98,52 @@ fn validate_output(request: &CompressRequest) -> Result<(), String> {
     if request.sources.is_empty() {
         return Err("请先添加文件或文件夹。".into());
     }
-    if geezipx_core::detect::detect_from_extension(&request.output) != Some(request.format) {
+    if let Some(target) = request.sfx_target {
+        if !target.is_available() {
+            return Err(format!(
+                "此构建未包含 {target:?} 自解压程序，请选择其它目标平台。"
+            ));
+        }
+        if request.format != ArchiveFormat::Zip {
+            return Err("自解压包只能使用 ZIP 格式。".into());
+        }
+        if target == geezipx_core::sfx::SfxTarget::Windows
+            && request
+                .output
+                .extension()
+                .is_none_or(|e| !e.eq_ignore_ascii_case("exe"))
+        {
+            return Err("Windows 自解压包应使用 .exe 扩展名。".into());
+        }
+    } else if geezipx_core::detect::detect_from_extension(&request.output) != Some(request.format) {
         return Err(format!(
             "输出文件名应使用 .{} 扩展名，请检查格式和保存位置。",
-            request.format
+            formats::extension(request.format)
         ));
+    }
+    if request.options.password.as_deref() == Some("") {
+        return Err("密码不能为空。".into());
+    }
+    if request.options.password.is_some() && !formats::write_password(request.format) {
+        return Err(format!("{} 不支持密码加密。", request.format));
+    }
+    if request.format == ArchiveFormat::Aes && request.options.password.is_none() {
+        return Err("AES 加密容器需要设置密码。".into());
+    }
+    if streams::single_input(request.format) {
+        if request.sources.len() != 1 {
+            return Err(format!(
+                "{} 仅支持一个普通文件，请改用多文件归档格式。",
+                request.format
+            ));
+        }
+        let metadata = fs::symlink_metadata(&request.sources[0]).map_err(|e| e.to_string())?;
+        if !metadata.is_file() || is_link(&metadata) {
+            return Err(format!(
+                "{} 的来源必须是一个普通文件，不能是文件夹或链接。",
+                request.format
+            ));
+        }
     }
     let output_parent = fs::canonicalize(parent(&request.output))
         .map_err(|e| format!("输出文件夹不存在或无法访问：{e}"))?;
@@ -222,35 +266,82 @@ pub fn compress(request: CompressRequest, control: &Control) -> Result<Summary, 
     });
     let temp =
         tempfile::NamedTempFile::new_in(parent(&request.output)).map_err(|e| e.to_string())?;
-    let file = temp.reopen().map_err(|e| e.to_string())?;
-    let mut writer = formats::create_writer(file, request.format, request.options)?;
-    let mut bytes = 0u64;
-    for (index, entry) in inputs.iter().enumerate() {
+    let mut file = temp.reopen().map_err(|e| e.to_string())?;
+    if streams::single_input(request.format) {
+        let entry = &inputs[0];
+        control.update(|p| p.entry = entry.name.display().to_string());
+        let mut input = ProgressReader::new(BufReader::new(
+            File::open(&entry.real).map_err(|e| e.to_string())?,
+        ))
+        .with_total(entry.size)
+        .with_callback(control.callback(0));
+        let result = streams::encode(
+            &mut input,
+            formats::TaskFile::new(file, control),
+            request.format,
+            request.options,
+            &entry.name.to_string_lossy(),
+        );
         control.check()?;
+        result.map_err(|e| e.to_string())?;
         control.update(|p| {
-            p.entry = entry.name.display().to_string();
-            p.completed = index;
+            p.bytes = entry.size;
+            p.completed = 1;
         });
-        let result = if entry.is_dir {
-            writer.add_directory(&entry.name)
-        } else {
-            let file = File::open(&entry.real)
-                .map_err(|e| format!("无法读取 {}：{e}", entry.real.display()))?;
-            let mut input = ProgressReader::new(BufReader::new(file))
-                .with_total(entry.size)
-                .with_callback(control.callback(bytes));
-            writer.add_entry_with_size(&entry.name, &mut input, entry.size)
-        };
+    } else {
+        let mut writer = formats::create_writer(file, request.format, request.options, control)?;
+        let mut bytes = 0u64;
+        for (index, entry) in inputs.iter().enumerate() {
+            control.check()?;
+            control.update(|p| {
+                p.entry = entry.name.display().to_string();
+                p.completed = index;
+            });
+            let result = if entry.is_dir {
+                writer.add_directory(&entry.name)
+            } else {
+                let file = File::open(&entry.real)
+                    .map_err(|e| format!("无法读取 {}：{e}", entry.real.display()))?;
+                let mut input = ProgressReader::new(BufReader::new(file))
+                    .with_total(entry.size)
+                    .with_callback(control.callback(bytes));
+                writer.add_entry_with_size(&entry.name, &mut input, entry.size)
+            };
+            control.check()?;
+            result.map_err(|e| format!("{}：{e}", entry.name.display()))?;
+            bytes = bytes.saturating_add(entry.size);
+            control.update(|p| {
+                p.bytes = bytes;
+                p.completed = index + 1;
+            });
+        }
+        control.update(|p| p.stage = "正在完成归档，请稍候…".into());
+        let result = writer.finish();
         control.check()?;
-        result.map_err(|e| format!("{}：{e}", entry.name.display()))?;
-        bytes = bytes.saturating_add(entry.size);
-        control.update(|p| {
-            p.bytes = bytes;
-            p.completed = index + 1;
-        });
+        result.map_err(|e| e.to_string())?;
     }
-    control.update(|p| p.stage = "正在完成归档，请稍候…".into());
-    writer.finish().map_err(|e| e.to_string())?;
+    let temp = if let Some(target) = request.sfx_target {
+        control.update(|p| p.stage = "正在生成自解压包…".into());
+        let sfx =
+            tempfile::NamedTempFile::new_in(parent(&request.output)).map_err(|e| e.to_string())?;
+        file = temp.reopen().map_err(|e| e.to_string())?;
+        geezipx_core::sfx::write_zip_sfx(
+            formats::TaskFile::new(file, control),
+            formats::TaskFile::new(sfx.reopen().map_err(|e| e.to_string())?, control),
+            target,
+        )
+        .map_err(|e| e.to_string())?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            sfx.as_file()
+                .set_permissions(fs::Permissions::from_mode(0o755))
+                .map_err(|e| e.to_string())?;
+        }
+        sfx
+    } else {
+        temp
+    };
     control.check()?;
     temp.as_file().sync_all().map_err(|e| e.to_string())?;
     if request.replace {
@@ -281,15 +372,27 @@ pub fn extract(request: ReadRequest, control: &Control) -> Result<Summary, Strin
     read_entries(request, control, false)
 }
 pub fn verify(request: ReadRequest, control: &Control) -> Result<Summary, String> {
+    control.check()?;
+    if formats::detect(&request.archive)? == ArchiveFormat::Isz {
+        // Traversing ISO files can leave padding/unreferenced ISZ chunks unread.
+        // Validate the entire outer container before checking its filesystem.
+        control.update(|p| p.stage = "正在验证全部 ISZ 数据块…".into());
+        let file = File::open(&request.archive).map_err(|e| e.to_string())?;
+        let mut file = formats::TaskFile::new(file, control);
+        let result = geezipx_core::archive::isz::isz_verify(&mut file);
+        control.check()?;
+        result.map_err(|e| e.to_string())?;
+    }
     read_entries(request, control, true)
 }
 
 fn read_entries(request: ReadRequest, control: &Control, verify: bool) -> Result<Summary, String> {
     control.update(|p| p.stage = "正在读取归档…".into());
     control.check()?;
-    let mut reader = formats::open_reader(&request.archive, request.password.as_deref())?;
-    let entries: Vec<_> = reader
-        .entries()
+    let mut reader = formats::open_reader(&request.archive, request.password.as_deref(), control)?;
+    let entries = reader.entries();
+    control.check()?;
+    let entries: Vec<_> = entries
         .map_err(|e| e.to_string())?
         .into_iter()
         .filter(|entry| {
@@ -442,7 +545,7 @@ pub fn preview(
     control: &Control,
 ) -> Result<Preview, String> {
     control.check()?;
-    let mut reader = formats::open_reader(&archive, password.as_deref())?;
+    let mut reader = formats::open_reader(&archive, password.as_deref(), control)?;
     let mut buffer = PreviewBuffer {
         bytes: Vec::new(),
         truncated: false,
@@ -511,7 +614,14 @@ pub fn default_destination(archive: &Path) -> PathBuf {
     let name = archive.file_name().unwrap_or_default().to_string_lossy();
     let lower = name.to_ascii_lowercase();
     let suffix = [
-        ".tar.gz", ".tar.bz2", ".tar.xz", ".tar.zst", ".tar.br", ".tar.lz4",
+        ".tar.gz",
+        ".tar.bz2",
+        ".tar.xz",
+        ".tar.zst",
+        ".tar.br",
+        ".tar.lz4",
+        ".tar.lzma",
+        ".tar.lz",
     ]
     .iter()
     .find(|suffix| lower.ends_with(**suffix));
@@ -525,5 +635,14 @@ pub fn default_destination(archive: &Path) -> PathBuf {
         },
         |suffix| name[..name.len() - suffix.len()].to_owned(),
     );
-    parent(archive).join(if stem.is_empty() { "extracted" } else { &stem })
+    let directory =
+        if geezipx_core::detect::detect_from_extension(archive).is_some_and(streams::is_stream) {
+            // Removing .gz/.enc commonly lands on the original input file.
+            format!("{stem}-extracted")
+        } else if stem.is_empty() {
+            "extracted".to_owned()
+        } else {
+            stem
+        };
+    parent(archive).join(directory)
 }

@@ -38,6 +38,7 @@ fn create(
             ..Default::default()
         },
         replace,
+        sfx_target: None,
     }
 }
 fn read(archive: &Path, destination: &Path) -> ReadRequest {
@@ -60,12 +61,25 @@ fn zip(path: &Path, entries: &[(&str, &[u8])]) {
 }
 
 #[test]
-fn every_creation_format_roundtrips_unicode_nested_and_empty_directories() {
+fn every_creation_format_roundtrips_nested_files_and_supported_names() {
     for &(format, _) in engine::formats::WRITE_FORMATS {
+        if engine::streams::single_input(format) {
+            continue;
+        }
         let temp = TempDir::new().unwrap();
-        let source = temp.path().join("资料");
-        write(&source, "子目录/hello.txt", "归档测试\n".as_bytes());
-        fs::create_dir_all(source.join("空文件夹")).unwrap();
+        // LZH level-0 uses escaped display names for non-ASCII paths in core.
+        let (root, nested, empty) = if format == ArchiveFormat::Lzh {
+            ("docs", "nested", "empty")
+        } else {
+            ("资料", "子目录", "空文件夹")
+        };
+        let source = temp.path().join(root);
+        write(
+            &source,
+            &format!("{nested}/hello.txt"),
+            "归档测试\n".as_bytes(),
+        );
+        fs::create_dir_all(source.join(empty)).unwrap();
         let archive = temp.path().join(format!("sample.{format}"));
         engine::compress(
             create(vec![source], &archive, format, None, false),
@@ -75,10 +89,10 @@ fn every_creation_format_roundtrips_unicode_nested_and_empty_directories() {
         let listing = engine::list(archive.clone(), None, &Control::default()).unwrap();
         assert_eq!(listing.format, format);
         assert!(
-            listing
-                .entries
-                .iter()
-                .any(|entry| entry.path.replace('\\', "/").contains("子目录/hello.txt")),
+            listing.entries.iter().any(|entry| entry
+                .path
+                .replace('\\', "/")
+                .contains(&format!("{nested}/hello.txt"))),
             "{format}"
         );
         let output = temp.path().join("out");
@@ -87,17 +101,23 @@ fn every_creation_format_roundtrips_unicode_nested_and_empty_directories() {
         engine::extract(read(&archive, &output), &Control::default())
             .unwrap_or_else(|error| panic!("{format}: {error}"));
         assert_eq!(
-            fs::read(output.join("资料/子目录/hello.txt")).unwrap(),
+            fs::read(output.join(root).join(nested).join("hello.txt")).unwrap(),
             "归档测试\n".as_bytes(),
             "{format}"
         );
-        assert!(output.join("资料/空文件夹").is_dir(), "{format}");
+        if format != ArchiveFormat::Cab {
+            assert!(output.join(root).join(empty).is_dir(), "{format}");
+        }
     }
 }
 
 #[test]
 fn encrypted_zip_and_seven_zip_require_the_right_password() {
-    for format in [ArchiveFormat::Zip, ArchiveFormat::SevenZip] {
+    for format in [
+        ArchiveFormat::Zip,
+        ArchiveFormat::Zipx,
+        ArchiveFormat::SevenZip,
+    ] {
         let temp = TempDir::new().unwrap();
         let input = write(temp.path(), "secret.txt", b"private content");
         let archive = temp.path().join(format!("secret.{format}"));

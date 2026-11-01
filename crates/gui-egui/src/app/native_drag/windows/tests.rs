@@ -86,6 +86,7 @@ fn windows_file_contents_are_streamed_once_after_mouse_release() {
             format: ArchiveFormat::Zip,
             options: CompressOptions::default(),
             replace: false,
+            sfx_target: None,
         },
         &Control::default(),
     )

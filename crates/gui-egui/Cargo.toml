@@ -9,12 +9,13 @@ publish = false
 description = "GeeZipX native desktop archive manager powered by egui"
 
 [features]
-default = ["rar"]
+default = ["rar", "zpaq", "wim"]
 rar = ["geezipx-core/rar"]
 zpaq = ["geezipx-core/zpaq"]
+wim = ["geezipx-core/wim"]
 
 [dependencies]
-geezipx-core.workspace = true
+geezipx-core = { workspace = true, features = ["sfx"] }
 eframe = { version = "0.33.3", default-features = false, features = ["accesskit", "default_fonts", "glow", "wayland", "x11", "persistence"] }
 fontdb = "0.24"
 ab_glyph = "0.2"

@@ -141,19 +141,20 @@ impl App {
                         ui.columns(2, |columns| {
                             theme::caption(&mut columns[0], "格式");
                             let width = columns[0].available_width();
+                            let parent_layer = columns[0].layer_id();
                             egui::ComboBox::from_id_salt("compression-format")
                                 .width(width)
+                                .height(200.0)
                                 .selected_text(formats[self.draft.format].1)
                                 .show_ui(&mut columns[0], |ui| {
+                                    context.set_sublayer(parent_layer, ui.layer_id());
                                     for (index, (_, name)) in formats.iter().enumerate() {
                                         ui.selectable_value(&mut self.draft.format, index, *name);
                                     }
                                 });
                             theme::caption(&mut columns[1], "压缩偏好");
-                            let adjustable = !matches!(
-                                formats[self.draft.format].0,
-                                ArchiveFormat::Zip | ArchiveFormat::Tar | ArchiveFormat::TarLz4
-                            );
+                            let adjustable =
+                                engine::formats::adjustable(formats[self.draft.format].0);
                             columns[1].add_enabled_ui(adjustable, |ui| {
                                 egui::ComboBox::from_id_salt("compression-preset")
                                     .width(ui.available_width())
@@ -178,13 +179,83 @@ impl App {
                         if previous != self.draft.format {
                             self.change_format(previous);
                         }
-                        let encryption = matches!(
-                            formats[self.draft.format].0,
-                            ArchiveFormat::Zip | ArchiveFormat::SevenZip
-                        );
+                        let format = formats[self.draft.format].0;
+                        if format == ArchiveFormat::Zip {
+                            let previous = self.draft.sfx_target;
+                            let mut enabled = previous.is_some();
+                            if widgets::check(ui, &mut enabled, "生成自解压包 (SFX)").changed()
+                            {
+                                self.draft.sfx_target = if enabled {
+                                    [
+                                        geezipx_core::sfx::SfxTarget::host(),
+                                        geezipx_core::sfx::SfxTarget::Windows,
+                                        geezipx_core::sfx::SfxTarget::Linux,
+                                        geezipx_core::sfx::SfxTarget::MacOS,
+                                    ]
+                                    .into_iter()
+                                    .find(|target| target.is_available())
+                                } else {
+                                    None
+                                };
+                            }
+                            if let Some(target) = &mut self.draft.sfx_target {
+                                egui::ComboBox::from_id_salt("sfx-target")
+                                    .selected_text(format!("{target:?} x86_64"))
+                                    .show_ui(ui, |ui| {
+                                        for (value, label) in [
+                                            (
+                                                geezipx_core::sfx::SfxTarget::Windows,
+                                                "Windows x86_64",
+                                            ),
+                                            (geezipx_core::sfx::SfxTarget::Linux, "Linux x86_64"),
+                                            (geezipx_core::sfx::SfxTarget::MacOS, "macOS x86_64"),
+                                        ] {
+                                            ui.add_enabled_ui(value.is_available(), |ui| {
+                                                ui.selectable_value(target, value, label);
+                                            });
+                                        }
+                                    });
+                            }
+                            if previous != self.draft.sfx_target {
+                                let old_suffix =
+                                    previous.map_or(".zip", |target| target.extension());
+                                self.replace_output_suffix(old_suffix);
+                            }
+                        }
+                        if engine::streams::single_input(format) {
+                            theme::caption(
+                                ui,
+                                "此格式仅接受一个普通文件，不支持文件夹或多个来源。",
+                            );
+                        }
+                        if matches!(format, ArchiveFormat::Img | ArchiveFormat::Bin) {
+                            theme::caption(
+                                ui,
+                                "原样复制镜像；不会将普通文件或文件夹制作成磁盘镜像。",
+                            );
+                        }
+                        if format == ArchiveFormat::Lzh {
+                            theme::caption(
+                                ui,
+                                "LZH 使用 level-0 文件名，非 ASCII 名称读取时显示转义形式。",
+                            );
+                        }
+                        if format == ArchiveFormat::Cab {
+                            theme::caption(ui, "CAB 不保存独立空目录；仅有空目录时不能创建。");
+                        }
+                        if format == ArchiveFormat::Wim {
+                            theme::caption(ui, "WIM 创建使用无压缩存储。");
+                        }
+                        if format == ArchiveFormat::Isz {
+                            theme::caption(ui, "来源应为 ISO 镜像；打开时浏览其中的 ISO 文件。");
+                        }
+                        let encryption = engine::formats::write_password(format);
+                        if format == ArchiveFormat::Aes {
+                            self.draft.show_password = true;
+                        }
                         ui.add_space(3.0);
                         ui.horizontal(|ui| {
-                            ui.add_enabled_ui(encryption, |ui| {
+                            ui.add_enabled_ui(encryption && format != ArchiveFormat::Aes, |ui| {
                                 if widgets::check(ui, &mut self.draft.show_password, "密码保护")
                                     .changed()
                                     && !self.draft.show_password
@@ -283,32 +354,81 @@ impl App {
             self.create_archive(context);
         }
     }
-    fn change_format(&mut self, previous: usize) {
+    pub(super) fn change_format(&mut self, previous: usize) {
         let formats = engine::formats::WRITE_FORMATS;
-        let old_suffix = format!(".{}", formats[previous].0);
-        if !self.draft.output.path.as_os_str().is_empty() {
-            let name = self
-                .draft
-                .output
-                .path
-                .file_name()
-                .unwrap_or_default()
-                .to_string_lossy();
-            let stem = name.strip_suffix(&old_suffix).unwrap_or(&name);
-            self.draft.output.set(
-                self.draft
-                    .output
-                    .path
-                    .with_file_name(format!("{stem}.{}", formats[self.draft.format].0)),
-            );
+        let old_suffix = self.draft.sfx_target.map_or_else(
+            || format!(".{}", engine::formats::extension(formats[previous].0)),
+            |target| target.extension().to_owned(),
+        );
+        let automatic = self
+            .suggested_output(formats[previous].0, &old_suffix)
+            .as_ref()
+            == Some(&self.draft.output.path);
+        self.draft.sfx_target = None;
+        if automatic {
+            if let Some(path) =
+                self.suggested_output(formats[self.draft.format].0, &self.output_suffix())
+            {
+                self.draft.output.set(path);
+            }
+        } else {
+            self.replace_output_suffix(&old_suffix);
         }
-        if !matches!(
-            formats[self.draft.format].0,
-            ArchiveFormat::Zip | ArchiveFormat::SevenZip
-        ) {
+        if !engine::formats::write_password(formats[self.draft.format].0) {
             self.draft.password.clear();
             self.draft.confirm.clear();
             self.draft.show_password = false;
+        } else if formats[self.draft.format].0 == ArchiveFormat::Aes {
+            self.draft.show_password = true;
         }
+    }
+    pub(super) fn suggested_output(
+        &self,
+        format: ArchiveFormat,
+        suffix: &str,
+    ) -> Option<std::path::PathBuf> {
+        let first = self.draft.sources.first()?;
+        let name = if engine::streams::is_stream(format) {
+            first.file_name()
+        } else {
+            first.file_stem()
+        }?
+        .to_string_lossy();
+        let suggested = first.with_file_name(format!("{name}{suffix}"));
+        Some(if suggested == *first {
+            first.with_file_name(format!("{name}-archive{suffix}"))
+        } else {
+            suggested
+        })
+    }
+    pub(super) fn output_suffix(&self) -> String {
+        self.draft.sfx_target.map_or_else(
+            || {
+                format!(
+                    ".{}",
+                    engine::formats::extension(engine::formats::WRITE_FORMATS[self.draft.format].0)
+                )
+            },
+            |target| target.extension().to_owned(),
+        )
+    }
+    fn replace_output_suffix(&mut self, previous: &str) {
+        if self.draft.output.path.as_os_str().is_empty() {
+            return;
+        }
+        let name = self
+            .draft
+            .output
+            .path
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy();
+        let stem = name.strip_suffix(previous).unwrap_or(&name);
+        let path = self
+            .draft
+            .output
+            .path
+            .with_file_name(format!("{stem}{}", self.output_suffix()));
+        self.draft.output.set(path);
     }
 }

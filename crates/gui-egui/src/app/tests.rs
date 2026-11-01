@@ -131,6 +131,36 @@ fn mesh_alpha_at(primitives: &[egui::ClippedPrimitive], point: egui::Pos2) -> f3
 }
 
 #[test]
+fn format_changes_preserve_single_stream_names_and_require_aes_passwords() {
+    let mut app = App::empty(Preferences::default());
+    app.add_sources(vec![PathBuf::from("/input/说明.txt")]);
+    assert_eq!(app.draft.output.path, PathBuf::from("/input/说明.zip"));
+    let choose = |app: &mut App, format| {
+        let previous = app.draft.format;
+        app.draft.format = engine::formats::WRITE_FORMATS
+            .iter()
+            .position(|&(value, _)| value == format)
+            .unwrap();
+        app.change_format(previous);
+    };
+    choose(&mut app, ArchiveFormat::Gzip);
+    assert_eq!(app.draft.output.path, PathBuf::from("/input/说明.txt.gz"));
+    choose(&mut app, ArchiveFormat::Aes);
+    assert_eq!(app.draft.output.path, PathBuf::from("/input/说明.txt.enc"));
+    assert!(app.draft.show_password);
+    app.draft.password = "temporary secret".into();
+    app.draft.confirm = "temporary secret".into();
+    choose(&mut app, ArchiveFormat::Tar);
+    assert_eq!(app.draft.output.path, PathBuf::from("/input/说明.tar"));
+    assert!(app.draft.password.is_empty());
+    assert!(app.draft.confirm.is_empty());
+    assert!(!app.draft.show_password);
+    app.draft.output.set(PathBuf::from("/output/custom.tar"));
+    choose(&mut app, ArchiveFormat::Gzip);
+    assert_eq!(app.draft.output.path, PathBuf::from("/output/custom.gz"));
+}
+
+#[test]
 fn window_corners_stay_transparent_with_dialogs_and_fill_when_expanded() {
     for dark in [false, true] {
         for size in [[1000.0, 680.0], [760.0, 480.0]] {
@@ -369,6 +399,92 @@ fn font_preferences_restore_across_restarts_and_migrate_existing_preferences() {
         assert!(restored.dark);
         assert_eq!(restored.recent, preferences.recent);
     }
+}
+
+#[test]
+fn creation_format_picker_reaches_last_options_at_minimum_size() {
+    let context = context();
+    let mut app = App::empty(Preferences::default());
+    app.add_sources(vec![PathBuf::from("说明.txt")]);
+    let frame = |app: &mut App, events| {
+        context.run(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(760.0, 480.0),
+                )),
+                events,
+                ..Default::default()
+            },
+            |context| app.render(context),
+        )
+    };
+    let center = |output: &egui::FullOutput, label: &str| {
+        output
+            .shapes
+            .iter()
+            .rev()
+            .find_map(|shape| match &shape.shape {
+                egui::Shape::Text(text) if text.galley.text() == label => {
+                    Some(text.galley.rect.translate(text.pos.to_vec2()).center())
+                }
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("missing option: {label}"))
+    };
+    let click = |app: &mut App, position| {
+        for pressed in [true, false] {
+            frame(
+                app,
+                vec![
+                    egui::Event::PointerMoved(position),
+                    egui::Event::PointerButton {
+                        pos: position,
+                        button: egui::PointerButton::Primary,
+                        pressed,
+                        modifiers: egui::Modifiers::NONE,
+                    },
+                ],
+            );
+        }
+    };
+    for _ in 0..3 {
+        frame(&mut app, Vec::new());
+    }
+    let output = frame(&mut app, Vec::new());
+    click(&mut app, center(&output, "ZIP"));
+    for _ in 0..3 {
+        frame(&mut app, Vec::new());
+    }
+    let output = frame(&mut app, Vec::new());
+    let option = center(&output, "TAR.GZ");
+    assert_ne!(
+        context.layer_id_at(option).unwrap().id,
+        egui::Id::new("create-archive"),
+        "creation dialog covers its format menu"
+    );
+    frame(
+        &mut app,
+        vec![
+            egui::Event::PointerMoved(option),
+            egui::Event::MouseWheel {
+                unit: egui::MouseWheelUnit::Point,
+                delta: egui::vec2(0.0, -5000.0),
+                modifiers: egui::Modifiers::NONE,
+            },
+        ],
+    );
+    for _ in 0..20 {
+        frame(&mut app, Vec::new());
+    }
+    let output = frame(&mut app, Vec::new());
+    let label = "AES 加密容器 (.enc)";
+    assert_action_visible(&output, [760.0, 480.0], label);
+    click(&mut app, center(&output, label));
+    assert_eq!(
+        engine::formats::WRITE_FORMATS[app.draft.format].0,
+        ArchiveFormat::Aes
+    );
 }
 
 #[test]

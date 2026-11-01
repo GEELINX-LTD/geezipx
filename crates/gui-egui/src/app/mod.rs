@@ -15,10 +15,7 @@ use crate::{
     widgets::{self, Icon},
 };
 use eframe::egui::{self, Color32, RichText};
-use geezipx_core::{
-    config::CompressOptions,
-    detect::{detect_from_extension, ArchiveFormat},
-};
+use geezipx_core::{config::CompressOptions, detect::ArchiveFormat};
 use geezipx_egui::{
     browser::SortColumn,
     engine::{self, Archive, CompressRequest, Preview, ReadRequest, Summary},
@@ -70,6 +67,7 @@ enum Outcome {
     Done(Summary),
     Preview(Preview),
     Paths(Dialog, Vec<PathBuf>),
+    Incoming(PathBuf, bool),
 }
 struct Active {
     kind: Kind,
@@ -112,6 +110,7 @@ struct Draft {
     sources: Vec<PathBuf>,
     output: PathField,
     format: usize,
+    sfx_target: Option<geezipx_core::sfx::SfxTarget>,
     preset: usize,
     password: String,
     confirm: String,
@@ -126,6 +125,7 @@ impl Default for Draft {
             sources: Vec::new(),
             output: PathField::default(),
             format: 0,
+            sfx_target: None,
             preset: 1,
             password: String::new(),
             confirm: String::new(),
@@ -283,15 +283,9 @@ impl App {
             .sources
             .extend(paths.into_iter().filter(|path| seen.insert(path.clone())));
         if self.draft.output.path.as_os_str().is_empty() {
-            if let Some(first) = self.draft.sources.first() {
-                let stem = first.file_stem().unwrap_or_default().to_string_lossy();
-                let format = engine::formats::WRITE_FORMATS[self.draft.format].0;
-                let suggested = first.with_file_name(format!("{stem}.{format}"));
-                self.draft.output.set(if suggested == *first {
-                    first.with_file_name(format!("{stem}-archive.{format}"))
-                } else {
-                    suggested
-                });
+            let format = engine::formats::WRITE_FORMATS[self.draft.format].0;
+            if let Some(path) = self.suggested_output(format, &self.output_suffix()) {
+                self.draft.output.set(path);
             }
         }
         self.form_error = None;
@@ -315,8 +309,12 @@ impl App {
         {
             return;
         }
-        if paths.len() == 1 && detect_from_extension(&paths[0]).is_some() && !self.create_open {
-            self.open_archive(context, paths[0].clone(), None);
+        if paths.len() == 1 && !self.create_open {
+            let path = paths.into_iter().next().unwrap();
+            self.start(context, Kind::Dialog, move |_| {
+                let archive = engine::formats::detect(&path).is_ok();
+                Ok(Outcome::Incoming(path, archive))
+            });
         } else {
             self.add_sources(paths);
         }
@@ -417,6 +415,9 @@ impl App {
                 }
             }
             Ok(Outcome::Preview(preview)) => self.preview = Some(preview),
+            Ok(Outcome::Incoming(_, _)) if self.close_when_finished => {}
+            Ok(Outcome::Incoming(path, true)) => self.open_archive(context, path, None),
+            Ok(Outcome::Incoming(path, false)) => self.add_sources(vec![path]),
             Ok(Outcome::Paths(_, _)) if self.close_when_finished => {}
             Ok(Outcome::Paths(dialog, paths)) => match dialog {
                 Dialog::Open => {
@@ -541,18 +542,17 @@ impl App {
             return;
         }
         let format = engine::formats::WRITE_FORMATS[self.draft.format].0;
-        let level = match (format, self.draft.preset) {
-            (ArchiveFormat::Zip | ArchiveFormat::Tar | ArchiveFormat::TarLz4, _) => None,
-            (_, 1) => None,
-            (ArchiveFormat::Zpaq, 0) => Some(1),
-            (ArchiveFormat::Zpaq, _) => Some(5),
-            (ArchiveFormat::TarZst, 0) => Some(1),
-            (ArchiveFormat::TarZst, _) => Some(19),
-            (ArchiveFormat::TarBr, 0) => Some(1),
-            (ArchiveFormat::TarBr, _) => Some(11),
-            (_, 0) => Some(1),
-            (_, _) => Some(9),
-        };
+        if format == ArchiveFormat::Aes && self.draft.password.is_empty() {
+            self.form_error = Some("AES 加密容器需要设置密码。".into());
+            self.draft.show_password = true;
+            return;
+        }
+        if engine::streams::single_input(format) && self.draft.sources.len() != 1 {
+            self.form_error =
+                Some("此格式只能保存一个普通文件，请选择一个文件或改用 ZIP 等归档格式。".into());
+            return;
+        }
+        let level = engine::formats::preset_level(format, self.draft.preset);
         let password = std::mem::take(&mut self.draft.password);
         self.draft.confirm.clear();
         let request = CompressRequest {
@@ -569,6 +569,7 @@ impl App {
                 seven_zip: None,
             },
             replace: self.draft.replace,
+            sfx_target: self.draft.sfx_target,
         };
         self.create_open = false;
         self.form_error = None;

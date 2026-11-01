@@ -18,6 +18,7 @@ fn drag_export_contains_only_selected_roots_and_keeps_unicode_and_empty_folders(
     engine::compress(
         CompressRequest {
             sources: vec![source, other],
+            sfx_target: None,
             output: archive.clone(),
             format: ArchiveFormat::Zip,
             options: CompressOptions::default(),
@@ -65,6 +66,7 @@ fn deferred_drag_reads_nothing_until_drop_and_materializes_only_once() {
     engine::compress(
         CompressRequest {
             sources: vec![source],
+            sfx_target: None,
             output: archive.clone(),
             format: ArchiveFormat::Zip,
             options: CompressOptions::default(),

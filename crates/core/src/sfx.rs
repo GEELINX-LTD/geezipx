@@ -33,6 +33,11 @@ impl SfxTarget {
         }
     }
 
+    /// Whether this build embeds a nonempty executable stub for the target.
+    pub fn is_available(&self) -> bool {
+        get_stub(*self).is_some_and(|stub| !stub.is_empty())
+    }
+
     /// Recommended output file extension for this target.
     pub fn extension(&self) -> &'static str {
         match self {
