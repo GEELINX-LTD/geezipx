@@ -11,9 +11,14 @@ cli_archives=(
   geezipx-macos-x86_64.tar.gz
   geezipx-windows-x86_64.zip
 )
-assets=("${cli_archives[@]}")
+gui_archives=(
+  geezipx-egui-linux-x86_64.tar.gz
+  geezipx-egui-macos-arm64.tar.gz
+  geezipx-egui-windows-x86_64.zip
+)
+assets=("${cli_archives[@]}" "${gui_archives[@]}")
 
-for asset in "${cli_archives[@]}"; do
+for asset in "${assets[@]}"; do
   if [[ ! -f "$asset" || ! -s "$asset" || ! -s "$asset.sha256" ]]; then
     echo "::error::$asset or its checksum is missing/empty"
     errors=$((errors + 1))
@@ -23,7 +28,7 @@ for asset in "${cli_archives[@]}"; do
   fi
 done
 
-for pattern in '*.AppImage' '*.deb' '*.dmg' '*-setup.exe'; do
+for pattern in 'GeeZipX-Native_*_x64-setup.exe'; do
   mapfile -t matches < <(compgen -G "$pattern" || true)
   if [[ ${#matches[@]} -eq 0 ]]; then
     echo "::error::Required GUI bundle missing: $pattern"
@@ -31,8 +36,11 @@ for pattern in '*.AppImage' '*.deb' '*.dmg' '*-setup.exe'; do
     continue
   fi
   for asset in "${matches[@]}"; do
-    if [[ ! -f "$asset" || ! -s "$asset" ]]; then
-      echo "::error::GUI bundle is missing/empty: $asset"
+    if [[ ! -f "$asset" || ! -s "$asset" || ! -s "$asset.sha256" ]]; then
+      echo "::error::GUI bundle or checksum is missing/empty: $asset"
+      errors=$((errors + 1))
+    elif ! sha256sum --check --strict "$asset.sha256"; then
+      echo "::error::$asset checksum verification failed"
       errors=$((errors + 1))
     fi
     assets+=("$asset")
@@ -44,7 +52,7 @@ if [[ "$errors" -gt 0 ]]; then
   exit 1
 fi
 
-# Only write checksums after every required artifact and original CLI checksum
+# Only write checksums after every required artifact and original checksum
 # has passed. Include GUI bundles in individual and combined checksum files.
 for asset in "${assets[@]}"; do
   sha256sum -- "$asset" > "$asset.sha256"

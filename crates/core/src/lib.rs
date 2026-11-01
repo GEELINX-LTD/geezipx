@@ -2,7 +2,7 @@
 //!
 //! This crate provides the platform-independent core for archive and
 //! compression operations. It is designed to be consumed by both the
-//! CLI (`geezipx`) and future Tauri GUI.
+//! CLI (`geezipx`) and native egui desktop GUI (`geezipx-egui`).
 //!
 //! ## Roadmap
 //!

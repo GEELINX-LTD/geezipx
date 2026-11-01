@@ -1,111 +1,64 @@
-# 下一版发布验收清单
+# 原生桌面发布验收清单
 
-目标版本建议为 **v0.7.5**，以最终发布决定为准。当前正式版是 [v0.7.4](https://github.com/GEELINX-LTD/geezipx/releases/tag/v0.7.4)，已发布三平台 CLI 与 GUI 产物；本清单用于验收后续未发布修复。
+本清单面向下一候选版本。当前正式版本为 v0.7.4；当前源码使用 egui/eframe 作为唯一 GUI，包名与可执行文件名为 `geezipx-egui`。历史版本的发布记录保留在 CHANGELOG 中，不作为当前候选已验收的证据。
 
-## 1. 本轮范围
+每次验收记录完整源码 SHA、workflow run URL、系统版本与架构、产物 SHA-256、逐项结果及未完成项。编译、单元测试和安装器静默检查通过后，仍需完成对应平台的原生交互验收。
 
-- 启动交接：主窗口创建后、前端订阅前到达的归档或右键动作保留至确认；连续启动不覆盖，重复通知不重复执行。
-- Windows：可配置右键菜单、COM 多选压缩、独立快捷解压窗口、窗口关闭权限和卸载清理。
-- GUI：并发任务隔离、密码提示、原生路径、ZIP 目录层级、7z 默认输出目录和稳定页面布局。
-- Core/CLI/SFX：失败或取消时保留已有输出、归档校验与错误传播，以及安全依赖更新。变更细节见 [CHANGELOG](../CHANGELOG.md)。
-- Core/CLI 格式对齐：完整清单已完成一轮逐项实现/性能审查，新增能力、独立样本结果、部分兼容范围与暂缓项见 [格式审查](FORMAT_PARITY_AUDIT.md)。新增读取能力已桥接 egui，Tauri 接入范围仍独立维护；这不代表已完成三平台发布验证。
+## 本地质量门禁
 
-Win11 一级菜单的实验 [PR #33](https://github.com/GEELINX-LTD/geezipx/pull/33) 独立评估。本轮安装包采用已接入的传统 Explorer 菜单。
+```sh
+cargo fmt --all --check
+cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+cargo test --workspace --all-features --locked
+cargo test -p geezipx-egui --no-default-features --locked
+cargo deny check
+```
 
-## 2. 本地质量检查
+- [ ] 以上检查在候选提交通过，记录命令与结果。
+- [ ] 使用优化构建验证实际文件操作：`cargo build -p geezipx-egui --release --locked`。Unix 设置 `CXXFLAGS=-fno-lto`；Windows 使用静态 CRT，详见 [原生端指南](EGUI_GUI.md)。
+- [ ] 核对 core/CLI 格式子集、独立样本结果与暂缓项，见 [格式审查](FORMAT_PARITY_AUDIT.md)；GUI 格式能力见 [原生端格式表](EGUI_GUI.md#格式范围)。
 
-当前候选使用 Rust 1.99.0（workspace MSRV 为 1.99）；先在仓库根目录确认 `rustc --version` 与 `cargo clippy --version`，确保标准 `rust-toolchain.toml` 已生效并与 CI 一致。
+## 三平台构建与产物
 
-本轮启动交接修复已通过以下检查；若候选代码继续变化，按影响范围重新验证：
+- [ ] 针对候选提交触发 `.github/workflows/gui-egui.yml`，确认 Linux x86_64、Windows x86_64、macOS arm64 的检查、测试、SFX stub 与 release 构建通过。
+- [ ] 核对 `geezipx-egui-<platform>` artifact 中的可执行文件、许可证及 `docs/EGUI_GUI.md`。
+- [ ] 核对 `geezipx-egui-<platform>-release` artifact 中的原生程序压缩包与原始 SHA-256；解包确认程序、LICENSE、NOTICE、字体许可和提交标识完整。
+- [ ] Windows 安装包 artifact `geezipx-egui-windows-x86_64-installer` 包含非空 `GeeZipX-Native_<version>_x64-setup.exe`、`SHA256SUMS.txt` 与 `build-info.json`，提交 SHA 与候选一致。
+- [ ] macOS GUI 为 arm64，内嵌自解压 stub 仍为 x86_64；将二者的测试范围分别记录，不把 GUI 架构作为 SFX 架构证据。
 
-- [x] `cargo fmt --all --check`
-- [x] `cargo clippy --workspace --exclude geezipx-gui --all-targets --all-features -- -D warnings`
-- [x] `cargo test --workspace --exclude geezipx-gui --all-features`
-- [x] `cargo clippy -p geezipx-gui --all-targets --all-features -- -D warnings`
-- [x] `cargo test -p geezipx-gui --lib --all-features`（194 项通过）
-- [x] 在 `crates/gui-tauri` 执行 `npm test`（112 项通过）
-- [x] 同目录执行 `npx tsc --noEmit`、`npm run build`
-- [x] Svelte autofixer 检查，无新增问题
+## Windows 安装与卸载
 
-启动交接回归包含两个先失败、再修复的场景：订阅前通知已丢失但队列仍有请求；查询失败时已经收到下一次通知。另覆盖重复通知、确认失败、独立请求、异步压缩与销毁后的迟到结果。实现约束见 [GUI 规划](GUI_MVP_PLAN.md#33-代码复查后的行为约束)。
+- [ ] 安装器简体中文/英文可用，按用户安装无需管理员权限；默认目录为 `%LOCALAPPDATA%\Programs\GeeZipX Native`。
+- [ ] 在含中文与空格的安装目录运行，确认应用哈希、LICENSE、字体许可、提交标识、开始菜单入口和卸载项正确。
+- [ ] 通过开始菜单或 EXE 启动，打开 Unicode 路径归档；升级后仍可启动并保留外观与最近路径。
+- [ ] 卸载清理自身程序、入口和注册项，保留用户偏好及用户自行放入的文件。
 
-## 3. 候选包构建与追溯
+工作流已有静默安装/卸载检查；可交互安装、启动与系统拖放仍需 Windows 实机验证。当前 GUI 不注册系统文件关联或 Explorer 右键菜单。
 
-格式对齐分支已完成六轮实现/专项验收，最新候选`76b65a60fa9478f2661256369968ee275d245501`依次完成ASAR/LZH/ZPAQ创建内存改造及PEA/NSIS只读子集。[CI](https://github.com/GEELINX-LTD/geezipx/actions/runs/41201756766)及[Audit](https://github.com/GEELINX-LTD/geezipx/actions/runs/41201760473)均成功；x86-64三平台最小/基础/扩展feature测试、Clippy及原生CLI/SFX验收通过，Linux/Windows各77项、macOS73项。macOS扩展配置为RAR/WIM/SFX，沿用ZPAQ限制。六份产物/报告已下载，完整源码SHA/实际架构/二进制哈希与报告匹配，共有73项提取内容跨平台一致，Linux下载包复跑全部77项通过。测试数量、产物链接、SHA-256及各格式内存/独立互操作实测见[第六轮专项验收](FORMAT_PARITY_ACCEPTANCE.md#三平台最终候选与产物复核)。忽略项不计为通过；最终发布源码/依赖变更后仍应按影响范围重验。后续发布验收项如下：
+## 原生交互与归档操作
 
-- [x] 对格式对齐候选`76b65a6`执行Windows/macOS/Linux CLI构建与新增格式抽查，覆盖ZIPX/XZ、AES Crypt、PMA/TLZ、ALZ/EGG子集、UU/UUE/XXE、IMG/BIN/ISZ内容视图、ISO/UDF及ASAR/LZH/ZPAQ创建改造，以及PEA/NSIS只读子集。
-- [x] AES Crypt官方CLI交叉核验63份v0–v2向量及官方新建v3；7份真实EGG通过上游记录，其中6份/22个文件与独立Go工具哈希一致；UltraISO默认zlib ISZ还原结果与官方逐字节一致。未覆盖变体和样本来源见专项验收。
-- [x] CI构建时重建并嵌入三平台目标stub，实际创建/执行ZIP SFX；下载Linux候选包再次执行通过。后续stub源码/依赖变化仍需重验。
+以下项目分别在 Windows、macOS、Linux 桌面记录结果：
 
-- [x] 修复已整理为独立提交，并将`feature/core-format-parity`候选分支推送远端；本次验证源码为`76b65a6`。
-- [ ] 针对候选分支触发 `.github/workflows/gui-windows.yml`，记录 run URL 与完整 `head_sha`，确认 GUI Rust 测试及 NSIS 构建通过。
-- [ ] 核对 artifact `geezipx-gui-windows-x86_64` 同时包含非空的 NSIS 安装程序和独立 `geezipx-gui.exe`。
-- [ ] 下载本次 run 的产物并计算 SHA256；确认运行提交与候选提交一致。
-- [ ] 对同一候选提交运行 `.github/workflows/release.yml`，保持 `dry_run: true`；核对三平台 CLI、GUI 产物及 `SHA256SUMS`。
+- [ ] 默认及最小窗口、浅/深主题、高 DPI：标题栏拖动、双击最大化、还原、四边/四角缩放、关闭与任务退出确认正常；对话框和下拉选择不遮住主要按钮。
+- [ ] 中文字体与输入法：缺少系统中文字形时离线后备可用；搜索/选择字体、重启保留与已卸载字体回退正常。
+- [ ] 打开归档、目录树、连续双击目录与 `..`、面包屑、返回/前进、搜索和排序正常；大归档列表滚动与选择响应可用。
+- [ ] 鼠标框选、Ctrl/Cmd 切换、Shift 连选及键盘范围选择正常；选择性提取不误含同名前缀目录。
+- [ ] 拖入文件/目录创建归档，ZIP/ZIPX/7z 密码与确认输入正确；Enter 提交、来源编辑、错误后重试正常，密码不持久化。
+- [ ] 全部/选择性提取、默认跳过与明确覆盖、中文名称/空目录正常；错误密码、损坏输入和取消保留已有目标并清理临时文件。
+- [ ] 单流、ISO/UDF/IMG/BIN/ISZ、只读格式与可用 SFX 目标在声明范围内通过真实文件验证，不把原样复制计为镜像内容提取。
+- [ ] 文本预览上限、完整性验证、阶段进度、吞吐、取消、任务记录与完成通知正常；通知不移动列表布局。
+- [ ] Windows Explorer 虚拟文件、macOS Finder 文件承诺、Linux X11/XWayland Xdnd：一次拖动在目标松手后才解压，取消或未接收时不读取归档；覆盖提示、大文件、多选与中文目录内容一致。
+- [ ] 原生文件选择器、OpenGL 驱动、输入法和显示缩放正常；Linux 同时验证 X11 与 Wayland 的常规窗口操作。
 
-测试记录至少包含：提交 SHA、Actions run URL、产物文件名与 SHA256、系统版本、逐项结果及失败复现步骤。版本抬升前的测试包可能仍显示 v0.7.4，应按提交 SHA 和构建记录识别。
+原生 Wayland 拖出、系统文件关联/右键菜单、Linux/macOS 安装器、英文界面、屏幕阅读器验收及其它未实现项见 [原生端限制](EGUI_GUI.md)。只读格式和部分格式变体继续受 core 限制，不把本清单计为全格式互操作保证。
 
-## 4. Windows 10 / 11 原生验收
+## 发布演练与正式发布
 
-在独立测试目录准备包含中文、空格的路径、多个文件与文件夹、普通 ZIP/7z，以及带密码的 ZIP/7z。写入类用例使用新的目标路径。
+- [ ] 使用 `.github/workflows/release.yml` 的 `workflow_dispatch`、`dry_run: true`，记录 run URL 与源码 SHA；确认它复用原生 GUI 工作流。
+- [ ] 校验三份 CLI 压缩包、三份 egui 压缩包、Windows NSIS 安装器及各自 SHA-256，`scripts/verify-release-artifacts.sh` 成功生成 `SHA256SUMS`。当前 egui 产物是 Linux/macOS `.tar.gz` 与 Windows `.zip`/NSIS `.exe`。
+- [ ] 下载 `geezipx-release-artifacts`，重新核对压缩包内可执行文件、许可证、提交标识及实际运行结果。
+- [ ] 统一 workspace、core 依赖、原生 GUI 与支持库版本以及 `Cargo.lock`，将 CHANGELOG 内容归入正式版本与日期。
+- [ ] 按需先发布 core 所依赖的独立支持库，再发布 core/CLI；流程见仓库发布约定。
+- [ ] 获得发布授权后创建 `v*` tag；工作流生成 GitHub Release 草稿，人工核对文件与校验和后再发布。
 
-| 场景 | 操作与通过标准 | 结果 |
-| --- | --- | --- |
-| 冷启动连续打开 | 完全退出后连续双击多个不同归档；每个归档都出现，条目内容正确 | 待验收 |
-| 挂载期间交接 | 启动应用后立即双击归档或执行右键压缩，多次重复；不漏接、不重复压缩 | 待验收 |
-| 热启动连续动作 | 主窗口已打开时连续打开归档并使用“压缩为…”；动作均接收，文件列表完整 | 待验收 |
-| COM 混合多选 | 同时选择文件、文件夹并执行“压缩为 ZIP”和“压缩为…”；所有选区项都进入归档，中文路径正确 | 待验收 |
-| 快捷解压 | 应用关闭与已运行两种状态下执行“解压到当前文件夹”；显示独立进度窗口，目标目录正确，完成后可关闭 | 待验收 |
-| 加密与错误 | 正确密码成功；错误密码、损坏归档显示错误；关闭密码提示不会残留运行中的任务 | 待验收 |
-| 取消与并发 | 同时运行两个不同任务，取消或关闭其中一个；另一任务继续，已有输出不被失败操作破坏 | 待验收 |
-| 目录与导航 | Windows 分隔符 ZIP 保持目录层级；7z 单顶层目录不多套一层；选择目录时提取全部后代 | 待验收 |
-| 设置与升级 | 关闭菜单或单项后立即生效；从旧版覆盖安装仍保留选择；主窗口几何可恢复 | 待验收 |
-| 卸载 | 菜单、GeeZipX COM CLSID、sentinel 与关联清理；其他应用的扩展名注册保留；Explorer 菜单刷新 | 待验收 |
-
-Win11 的传统菜单位于“显示更多选项”（Shift+F10）。构建成功与上述 Explorer/安装实测分别记录。
-
-## 5. macOS / Linux 桌面验收
-
-- [ ] macOS：安装 DMG，验证 Finder 双击/打开方式、拖到 Dock、冷/热启动连续打开、中文路径与原生文件选择。
-- [ ] Linux：运行候选 AppImage 或安装 deb，验证桌面启动、文件关联、拖入/拖出、原生文件选择与窗口恢复。
-- [ ] 三平台：抽查普通与加密 ZIP/7z、取消、独立任务进度和错误提示；记录具体系统与架构。
-
-### 独立 egui 桌面端
-
-本次紧凑文件管理器改造在 Linux 本地工作区完成以下验证；独立 `gui-egui.yml` 与 Windows/macOS 原生交互仍需对候选提交执行：
-
-- [x] 工作区 fmt、Clippy、全部 feature 测试，以及 `cargo test -p geezipx-egui --no-default-features --locked`。
-- [x] `cargo build -p geezipx-egui --release --locked`。
-- [x] Xvfb 实跑目录导航/搜索、浅深色、760×480 窗口；选择文件夹提取包含后代且排除同名前缀目录。
-- [x] 组件细节：菜单/右键菜单/工具提示的快捷键分栏、搜索清除、表单对齐、最小窗口对话框；回归覆盖 Windows/macOS 快捷键格式，Esc 关闭菜单保留选择，下拉框内 Enter 不提交任务。
-- [x] 创建对话框的保存路径输入框按 Enter 生成 ZIP，独立检查 CRC、中文文件内容和空目录；同名输出失败后保留原文件和来源，修改目标后可直接重试。
-- [x] 字体与设置：无系统字体、仅西文字体的离线中文回退，字体搜索/选择/预览/恢复默认、旧偏好迁移、重启保留和已卸载字体回退；Linux release 实窗验证及 760×480 深色布局通过，默认 RAR feature 的 Windows GNU 编译检查通过。
-- [x] 自绘窗口：43 项 egui 回归通过，覆盖窗口命令、对话框上方的窗口按钮、忙碌关闭确认和 macOS 缩放计算；Linux release 在 Xvfb + Openbox 验证系统边框为零、标题栏移动、右侧/角缩放与 760×480 下限、最小化、最大化/还原、双击，以及最小窗口 Enter 创建/解压 ZIP，独立 CRC/内容核对通过。浅深色与对话框截图已同步。
-- [x] 窗口圆角：普通窗口使用 12 点圆角，最大化/全屏恢复直角；绘制网格回归覆盖浅深色、默认/最小尺寸和对话框遮罩，Linux release 在 Xvfb + Openbox + 支持透明度的合成器中验证四角透出桌面、最大化和还原。
-- [x] egui 全部 core 格式桥接：多文件创建往返、单流真实内容/名称/大小/预览/提取、官方 AES Crypt 认证失败保护，PMA/EGG/PEA/NSIS/WIM XPRESS 外部语料，IMG/BIN/ISZ 内容浏览、ISZ 全部块（含未访问块）损坏检测，以及可用目标的 ZIP SFX 创建/读取。
-- [x] Linux release 实际创建 GZIP（独立解码核对），打开后显示原文件名与真实大小，默认解压目录与原始文件不冲突且内容一致；760×480 下格式列表可滚动到末尾，选择 AES `.enc` 后实际创建，再用 CLI 独立解密核对内容。
-- [ ] 新候选三平台完整格式验收：RAR/WIM/ZPAQ 默认启用，确认 macOS arm64 ZPAQ 编译与运行、各目标 SFX stub 重建和打包后的创建/提取；验证新增格式在最小窗口下的选择、密码与失败恢复。
-- [ ] Windows/macOS/原生 Wayland 自绘窗口验收：拖动、边角缩放、高 DPI、最大化/全屏及还原、对话框打开时窗口控制，以及任务运行时关闭与清理；macOS 重点验证位置/尺寸更新的缩放路径与透明圆角。
-- [ ] 对候选提交运行更新后的 `gui-egui.yml`：确认 `macos-latest` 的 arm64 编译、测试与产物上传；检查移除 `macos-14` brownout、旧 artifact action 的 Node.js 20 警告和 `ubuntu-latest` 迁移提示后的 annotations。
-- [ ] Windows/macOS 字体验收：系统 UI/中文/等宽字体选择，手选安装字体的 TTC 字面索引、重启保留、卸载后回退，以及高 DPI 设置页显示。
-- [ ] Windows/macOS：验证系统文件/目录选择器、Ctrl/Cmd/Shift 选择、键盘焦点、DPI 缩放和最小窗口对话框。
-- [ ] 目标桌面：验证超大归档的打开、滚动、搜索，以及任务运行期间的导航响应。
-
-- [x] 旧 GBK ZIP 的中文目录显示、双击导航、空白处框选；release 在 Xvfb 将三项选区通过 Xdnd 交给独立接收窗口，复制后的中文内容、空目录及其余所选文件核对通过。
-- [x] 新增系统拖放依赖后的 Windows GNU 目标编译检查（关闭默认 RAR feature）；不能替代 Windows 原生工作流和 Explorer 交互验收。
-- [x] 目录独立双击识别、快速嵌套/返回导航、拖动前零解压读取和放置后只解压一次的回归；Linux Xvfb 一次 Xdnd 拖动交付多选并核对内容；Windows COM 描述与释放后内容流用例在 Wine 通过，macOS 文件承诺模块已做 Apple 目标接口编译检查。
-- [x] 左侧目录树展开/收起与单击导航、历史/面包屑同步、搜索时保持树和 `..`；`..` 双击返回并定位原目录，不参与框选/全选/解压。release 在 Xvfb 连续五轮进出子目录、760×480 窗口布局和单次拖出验证通过，截图已更新。
-- [ ] Windows/macOS 原生验证：一次拖出单文件/多项/空目录、悬停不解压、取消拖动、松手后大文件交付、中文路径、覆盖提示及退出清理。
-
-系统文件关联和 Explorer 右键注册尚未接入 egui；原生 Wayland 拖出暂不支持。上述 Tauri 系统集成验收不能替代独立 egui 能力验收。
-
-## 6. 正式发布
-
-在候选构建、原生验收及版本发布决定完成后执行：
-
-1. 统一 workspace、core 依赖版本、GUI `package.json` / lockfile、Tauri 配置与 `Cargo.lock`，把 CHANGELOG 的本轮内容归入正式版本及日期。
-2. 核对发布提交、必要检查和验收记录；需要crates.io发布时先确认`geezipx-iso`、`geezipx-udf`、`geezipx-lzhuf`、`geezipx-zpaq`和`geezipx-nsis`所需版本已发布并可从registry解析（对应`crates/vendor/hadris-iso/Cargo.toml`、`crates/vendor/hadris-udf/Cargo.toml`、`crates/vendor/oxiarc-lzhuf/Cargo.toml`、`crates/vendor/zpaq-rs/Cargo.toml`和`crates/vendor/nsis/Cargo.toml`独立发布），再按core → CLI的依赖顺序执行。支持库使用独立版本号；不能仅依赖本地path或workspace patch来验证发布可用性。
-3. 创建版本 tag，跟踪 release workflow，核对三平台产物和校验文件并验证下载。
-4. 将构建/验收记录与已知限制放入 release notes，更新规划中的正式版本。
-
-保留的能力限制见 [技术架构](TECH_ARCHITECTURE.md#10-当前实现限制)，GUI 格式范围见 [GUI 规划](GUI_MVP_PLAN.md#31-支持的格式)。
+记录具体候选的证据后再勾选；本清单不表示候选已经通过验收。剩余边界见 [技术架构](TECH_ARCHITECTURE.md#10-当前实现限制)。

@@ -2,7 +2,7 @@
 
 ## 1. 产品定位
 
-GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开发。CLI 已进入成熟阶段，桌面端采用两条并行路线：保留现有 Tauri GUI，新增独立设计的 egui/eframe 原生 GUI；两者都复用 Rust core 引擎。当前正式版本为 v0.7.4，egui 桌面端为未发布功能，详见 [原生桌面端说明](EGUI_GUI.md)。原生端以减少 WebView 依赖和界面开销为目标，尚未完成同机性能对照测量。
+GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开发。CLI 已进入成熟阶段，桌面端统一采用 egui/eframe 原生 GUI，复用 Rust core 引擎。当前正式版本为 v0.7.4，egui 桌面端尚未正式发布，详见 [原生桌面端说明](EGUI_GUI.md)。
 
 > **核心理念**：压缩操作通常位于自动化脚本、服务器运维、CI/CD 流水线中，CLI 是先发价值；GUI 提供附加便捷，不牺牲底层性能。
 
@@ -18,11 +18,11 @@ GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开�
 
 | 平台 | CLI | GUI |
 |------|-----|-----|
-| Linux (x86_64, aarch64) | 原生二进制 | Tauri .AppImage/.deb |
-| macOS (x86_64, arm64) | 原生二进制 / Homebrew | Tauri .dmg |
-| Windows (x86_64) | 原生二进制 / winget | Tauri .exe (NSIS 安装器) |
+| Linux (x86_64, aarch64) | 原生二进制 | egui x86_64 `.tar.gz` |
+| macOS (x86_64, arm64) | 原生二进制 / Homebrew（规划） | egui arm64 `.tar.gz` |
+| Windows (x86_64) | 原生二进制 / winget（规划） | egui `.zip` 与 NSIS `.exe` 安装器 |
 
-另提供 `geezipx-egui` 原生桌面可执行文件，目标为 Windows/macOS/Linux；当前配置 Linux x86_64、Windows x86_64、macOS arm64 独立 CI 编译，Windows 另提供按用户安装的 NSIS 测试安装包。原生工作区支持可调整宽度的左侧归档目录树、文件列表顶部的 `..` 父目录入口、鼠标框选与选区拖出解压；拖出在目标松手后才解压，一次拖动完成，拖出使用 Windows/macOS 系统拖放或 Linux X11/XWayland，原生 Wayland 拖出暂不支持。文件关联和系统右键菜单尚未接入。字体默认跟随系统，缺失中文字形由内置 Noto Sans SC 离线补齐；“工具 → 设置…”支持选择、搜索已安装字体或使用内置 Noto，修改即时生效并保留到下次启动。
+桌面端使用 `geezipx-egui` 原生可执行文件，目标为 Windows/macOS/Linux；当前配置 Linux x86_64、Windows x86_64、macOS arm64 独立 CI 编译，Windows 另提供按用户安装的 NSIS 测试安装包。原生工作区支持可调整宽度的左侧归档目录树、文件列表顶部的 `..` 父目录入口、鼠标框选与选区拖出解压；拖出在目标松手后才解压，一次拖动完成，拖出使用 Windows/macOS 系统拖放或 Linux X11/XWayland，原生 Wayland 拖出暂不支持。文件关联和系统右键菜单尚未接入。字体默认跟随系统，缺失中文字形由内置 Noto Sans SC 离线补齐；“工具 → 设置…”支持选择、搜索已安装字体或使用内置 Noto，修改即时生效并保留到下次启动。
 
 ## 4. 核心场景
 
@@ -37,7 +37,7 @@ GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开�
 
 ### 5.1 已支持格式
 
-以下为 core/CLI 格式能力。Tauri 桌面端范围见 `docs/GUI_MVP_PLAN.md` §3.1，其 `get_formats` 根据创建解析器与读取工厂报告能力；egui 桌面端已桥接当前 core 的全部格式，RAR/WIM/ZPAQ 默认启用，可写格式进入创建列表，只读格式提供浏览/提取/测试，兼容性和单流/镜像限制见 `docs/EGUI_GUI.md`。
+以下为 core/CLI 格式能力。egui 桌面端已桥接当前 core 的全部格式，RAR/WIM/ZPAQ 默认启用，可写格式进入创建列表，只读格式提供浏览/提取/测试，兼容性和单流/镜像限制见 `docs/EGUI_GUI.md`。
 
 | 格式 | 能力 | 备注 |
 |------|------|------|
@@ -169,16 +169,15 @@ TTY 下默认显示进度条（文件名、处理大小、百分比、速度、E
 Phase 1 (CLI MVP)                已完成并成熟
 
 Phase 2 (Desktop GUI)            当前阶段（正式版 v0.7.4，下一版准备中）
-├── Tauri：归档浏览、压缩/解压、预览、进度、取消、设置与系统集成
-├── Tauri：AppImage / deb / DMG / NSIS 打包及下一版原生验收
-├── egui：独立原生交互、后台任务与共享 core 格式适配
-└── egui：Linux x86_64、Windows x86_64、macOS arm64 独立构建
+├── egui：归档浏览、压缩/解压、预览、进度、取消与字体设置
+├── egui：原生交互、后台任务与共享 core 格式适配
+└── egui：Linux x86_64、Windows x86_64、macOS arm64 构建与发布
 
 Phase 3 (生态与分发)
 └── Homebrew / winget / APT 仓库
 ```
 
-近期重点是桌面端迭代、候选包构建与 Windows/macOS 原生验收，以及按需求补齐 GUI 格式桥接。启动动作交接回归已实现，候选提交仍需按 [发布验收清单](RELEASE_CHECKLIST.md) 验证；Win11 一级菜单未接入，不作为本轮发布前置。
+近期重点是原生桌面端迭代、候选包构建与 Windows/macOS 验收，按 [发布验收清单](RELEASE_CHECKLIST.md) 验证具体候选提交。系统文件关联和 Explorer 右键菜单尚未接入。
 
 ## 10. 成功指标
 
@@ -196,5 +195,5 @@ Phase 3 (生态与分发)
 |------|------|---------------|
 | `tar` + `gzip` | 生态标准，功能完整 | 跨平台一致体验、进度、格式统一 CLI、单一二进制 |
 | `unzip` / `zip` | 广泛使用 | 一个工具搞定所有格式，进度 + 流式 |
-| `7z` / `p7zip` | 高压缩率 | Rust 安全内存、现代 CLI 设计、Tauri GUI |
+| `7z` / `p7zip` | 高压缩率 | Rust 安全内存、现代 CLI 设计、egui 原生 GUI |
 | `bandizip` / `keka` | GUI 体验好 | 免费开源、跨平台 CLI + GUI |

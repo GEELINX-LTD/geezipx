@@ -1,8 +1,8 @@
 # GeeZipX Native（egui 桌面端）
 
-GeeZipX Native 是与 Tauri 桌面端并行的独立 Rust 应用，包名和可执行文件名为 `geezipx-egui`。它使用 egui/eframe 0.33.3、Glow/OpenGL 渲染器和系统文件对话框，直接调用 `geezipx-core`；构建和运行不需要 Node.js、Tauri、WebView2 或 WebKitGTK。
+GeeZipX Native 是项目唯一的桌面应用，包名和可执行文件名为 `geezipx-egui`。它使用 egui/eframe 0.33.3、Glow/OpenGL 渲染器和系统文件对话框，直接调用 `geezipx-core`。
 
-本阶段目标是形成可实际使用的原生归档工作空间，完成基础压缩、解压、浏览、预览、验证和取消操作。性能收益尚未做与 Tauri 的同机对照测量，不宣称固定的内存、启动时间或吞吐提升。
+本阶段目标是形成可实际使用的原生归档工作空间，完成基础压缩、解压、浏览、预览、验证和取消操作。
 
 ## 运行和构建
 
@@ -29,7 +29,7 @@ cargo run -p geezipx-egui --no-default-features
 
 Linux 运行需要桌面显示服务、可用的 OpenGL 驱动，以及提供文件选择器的 XDG Desktop Portal。构建不依赖 GTK/WebKitGTK 开发包。Linux 同时启用 X11 和 Wayland。macOS/Windows 使用系统原生文件对话框。界面优先使用系统字体：Windows 的 Segoe UI/微软雅黑、macOS 的系统无衬线/苹方，Linux 按 Fontconfig 的无衬线与等宽字体配置查找。系统缺少的中文字形由内嵌 Noto Sans SC 2.004（SIL OFL 1.1）逐字补齐，因此无需联网或预装中文字体；字体只在启动时查找一次，系统字体不会打包或复制到安装目录。许可证及 egui 默认字体的版权/许可见 `crates/gui-egui/assets/*.txt`，也可在“帮助 → 关于 GeeZipX”查看。
 
-根目录 `cargo build` / `cargo test` 默认只选择 core、CLI，保持无桌面依赖的命令行构建。原生 GUI 通过 `-p geezipx-egui` 显式选择；`--workspace` 仍会包含两个 GUI 包。
+根目录 `cargo build` / `cargo test` 默认只选择 core、CLI，保持无桌面依赖的命令行构建。原生 GUI 通过 `-p geezipx-egui` 显式选择；`--workspace` 会包含 egui GUI。
 
 ## 界面与操作
 
@@ -68,7 +68,7 @@ Linux release 在 Xvfb + Openbox 虚拟桌面实跑的界面截图：
 
 ## 格式范围
 
-egui 已接入当前 core 的全部格式能力：可写格式出现在创建列表，只读格式提供浏览、提取和测试，密码与格式变体限制沿用 core。Tauri 的独立接入范围见 [GUI_MVP_PLAN.md](GUI_MVP_PLAN.md)。
+egui 已接入当前 core 的全部格式能力：可写格式出现在创建列表，只读格式提供浏览、提取和测试，密码与格式变体限制沿用 core。
 
 | 能力 | 格式 |
 | --- | --- |
@@ -96,8 +96,8 @@ egui 已接入当前 core 的全部格式能力：可写格式出现在创建列
 
 ```sh
 cargo fmt --all --check
-cargo clippy --workspace --exclude geezipx-gui --all-targets --all-features -- -D warnings
-cargo test --workspace --exclude geezipx-gui --all-features
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+cargo test --workspace --all-features
 cargo test -p geezipx-egui --no-default-features
 cargo build -p geezipx-egui --release --locked
 cargo deny check
@@ -117,8 +117,8 @@ Linux release 在隔离 Xvfb 实窗中验证：仅有西文字体和无系统字
 
 文件行以归档路径/条目路径确定 ID，目录激活另按条目记录成对点击，避免 egui 全局三击计数影响连续导航；Windows 使用系统双击间隔，其余平台默认 500 ms。导航工具提示的方向键使用绘制图标。`crates/gui-egui/src/app/tests.rs` 覆盖超过 300 ms 的双击、快速进入嵌套目录、返回后再次进入、树展开与单击导航、过滤时保留父目录行、`..` 双击返回并定位原子目录、带父目录行的框选及拖动不启动解压；`tests/drag_export.rs` 覆盖松手前零读取、放置后只解压一次、中文目录和空目录。Windows COM 用例验证 Unicode 描述、取消、释放后 `IStream` 交付与重复读取；Linux Xvfb 通过一次 Xdnd 拖动交付多选，并核对接收内容。真实 Explorer/Finder 的大文件、覆盖提示、取消和 DPI 行为仍需实机验收。
 
-独立 `.github/workflows/gui-egui.yml` 在打包前重建对应平台的 x86_64 SFX stub，三平台均启用 RAR/WIM/ZPAQ 完整格式测试；macOS GUI 本身为 arm64，其自解压 stub 仍为 x86_64。工作流对 Linux x86_64（`ubuntu-24.04`）、Windows x86_64（`windows-latest`）、macOS arm64（`macos-latest`）执行检查、测试、release 编译并上传裸可执行文件与许可证；artifact action 使用 Node.js 24 的 `actions/upload-artifact@v7`。Windows 额外上传 `geezipx-egui-windows-x86_64-installer`，内含 `GeeZipX-Native_<version>_x64-setup.exe`、`SHA256SUMS.txt` 和标明提交的 `build-info.json`。可在 Actions 手动触发并选择测试分支；安装包 artifacts 保留 30 天，不上传到正式 Release。
+`.github/workflows/gui-egui.yml` 在打包前重建对应平台的 x86_64 SFX stub，三平台均启用 RAR/WIM/ZPAQ 完整格式测试；macOS GUI 本身为 arm64，其自解压 stub 仍为 x86_64。工作流对 Linux x86_64（`ubuntu-24.04`）、Windows x86_64（`windows-latest`）、macOS arm64（`macos-latest`）执行检查、测试、release 编译，上传裸可执行文件、许可证和原生程序压缩包；artifact action 使用 Node.js 24 的 `actions/upload-artifact@v7`。压缩包分别为 `geezipx-egui-linux-x86_64.tar.gz`、`geezipx-egui-macos-arm64.tar.gz`、`geezipx-egui-windows-x86_64.zip`，附带许可证、字体许可、提交标识和 SHA-256。Windows 额外上传 `geezipx-egui-windows-x86_64-installer`，内含 `GeeZipX-Native_<version>_x64-setup.exe`、`SHA256SUMS.txt` 和标明提交的 `build-info.json`。可在 Actions 手动触发并选择测试分支；安装包 artifacts 保留 30 天。`release.yml` 通过可复用工作流构建相同原生压缩包和 Windows 安装器，经统一校验后纳入 Release 草稿；Linux/macOS 暂不提供安装器。
 
-Windows 安装器支持简体中文/英文，默认安装到 `%LOCALAPPDATA%\Programs\GeeZipX Native`，无需管理员权限；添加开始菜单入口和独立的卸载项，可与 Tauri 版并存。安装目录内 `build-info.txt` 标明版本与提交；卸载只清理本安装器的文件和入口，保留应用偏好、最近记录及用户自行放入的文件。工作流在含中文与空格的目录执行静默安装/卸载，检查应用哈希、许可证、提交、快捷方式、注册项与无关文件保留。安装器脚本位于 `crates/gui-egui/windows/installer.nsi`，需要 NSIS 3；构建时传入 `APP_VERSION` 与 `APP_REVISION`，不依赖 Tauri 工具链。
+Windows 安装器支持简体中文/英文，默认安装到 `%LOCALAPPDATA%\Programs\GeeZipX Native`，无需管理员权限；添加开始菜单入口和卸载项。安装目录内 `build-info.txt` 标明版本与提交；卸载只清理本安装器的文件和入口，保留应用偏好、最近记录及用户自行放入的文件。工作流在含中文与空格的目录执行静默安装/卸载，检查应用哈希、许可证、提交、快捷方式、注册项与无关文件保留。安装器脚本位于 `crates/gui-egui/windows/installer.nsi`，需要 NSIS 3；构建时传入 `APP_VERSION` 与 `APP_REVISION`。
 
 本阶段不含多标签并发、原生 Wayland 拖出、归档内重命名/删除、二进制预览、逐文件冲突询问/自动重命名、分卷创建、自动更新、文件关联/系统右键菜单注册和 Linux/macOS 安装器。暂未提供英文界面、屏幕阅读器验收或完整 DPI/输入法兼容性报告；正式发版前需在 Windows/macOS/Linux 实机验证拖放、系统文件选择器、输入法和显示缩放。

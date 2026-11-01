@@ -1,41 +1,6 @@
 # AGENTS.md
 
-> **Tauri 前端：Svelte 5 + AI Tools**: `crates/gui-tauri` 使用 Svelte 5 和官方 Svelte AI 工具。创建/编辑 Svelte 文件时，优先使用 `svelte-file-editor` subagent。独立原生 GUI 位于 `crates/gui-egui`，使用 egui/eframe + Rust，不适用下述 Svelte 专用规则。
-
-## Svelte MCP 工具使用指南
-
-本项目已配置 Svelte MCP server (`@sveltejs/mcp`)，可通过 MCP 工具访问官方 Svelte 5 文档和代码分析。
-
-### 可用 Svelte MCP 工具
-
-1. **list-sections** — 首先使用此工具发现所有可用的 Svelte 5 文档章节。在涉及 Svelte 话题时，始终先调用此工具查找相关章节。
-
-2. **get-documentation** — 获取特定章节的完整文档。调用 `list-sections` 后，分析返回的文档章节（特别是 `use_cases` 字段），然后使用此工具获取与当前任务相关的所有章节。
-   示例：`get-documentation("$state,$derived,$effect")`
-
-3. **svelte-autofixer** — 分析 Svelte 代码并返回问题和建议。在编写 Svelte 代码后**必须**使用此工具，持续调用直到没有新问题。
-
-4. **playground-link** — 生成 Svelte Playground 链接。仅在用户确认后调用，绝不用于已写入项目文件的代码。
-
-### Svelte 5 关键规则（runes 模式，compilerOptions: { runes: true }）
-
-- 仅对需要响应式的变量使用 `$state` rune；普通变量不加。
-- 使用 `$derived` 而非 `$effect` 进行计算派生。
-- 使用 `$derived.by(() => {...})` 处理复杂表达式。
-- 始终使用 keyed `{#each items as item (item.id)}`。
-- 使用 `$props()` 替代 Svelte 4 的 `export let`。
-- 事件处理：`onclick={handler}`（无 `:` 前缀）。
-- 大对象仅被重新赋值时，使用 `$state.raw` 替代 `$state`（避免深度代理开销）。
-- `$effect` 中修改 state 无需额外处理，但注意避免无限循环。
-- 组件样式自动 scoped；全局样式放在 `app.css`。
-
-### 何时使用 svelte-file-editor subagent
-
-以下情况**必须**使用 `svelte-file-editor` subagent（在独立上下文中运行，有 MCP 工具访问权限）：
-- 创建新的 `.svelte` 组件
-- 编辑现有 `.svelte` 文件
-- 创建/编辑 `.svelte.ts` 或 `.svelte.js` 模块
-- 审查 Svelte 代码质量
+> 桌面 GUI 统一使用 `crates/gui-egui` 的 egui/eframe + Rust，复用 `geezipx-core`。
 
 ---
 
@@ -52,7 +17,7 @@ GeeZipX 是一个使用 Rust 开发的跨平台压缩/解压缩工具。
    - 重点支持 macOS、Linux 终端、Windows 终端。
    - 核心目标是性能、可靠性、流式处理和跨平台一致性。
 2. **第二阶段：桌面 GUI（当前阶段）**
-   - 保留现有 Tauri GUI，另提供独立设计的 egui/eframe 原生 GUI（`crates/gui-egui`，说明见 `docs/EGUI_GUI.md`）。
+   - 以 egui/eframe 原生 GUI（`crates/gui-egui`）作为唯一桌面端，说明见 `docs/EGUI_GUI.md`。
    - GUI 应复用已有 Rust core 引擎，不应重复实现压缩逻辑。
    - 桌面目标平台为 macOS、Linux 桌面、Windows。
 
@@ -60,8 +25,7 @@ GeeZipX 是一个使用 Rust 开发的跨平台压缩/解压缩工具。
 
 - `docs/PRD.md`：产品需求文档。
 - `docs/TECH_ARCHITECTURE.md`：技术架构文档。
-- `docs/GUI_MVP_PLAN.md`：Tauri 桌面 GUI MVP 规划和任务拆分。
-- `docs/EGUI_GUI.md`：独立 egui 原生桌面端的运行、能力范围、架构和限制。
+- `docs/EGUI_GUI.md`：egui 原生桌面端的运行、能力范围、架构和限制。
 
 在实现功能前，应优先阅读以上文档。
 
@@ -71,7 +35,7 @@ GeeZipX 是一个使用 Rust 开发的跨平台压缩/解压缩工具。
 
 - 主语言：Rust。
 - 第一阶段（CLI）：已在 v0.1.0 达成并保持成熟稳定；当前正式版本为 v0.7.4，后续修复见 `CHANGELOG.md` 的 Unreleased。
-- 第二阶段（GUI）：Tauri 与独立 egui/eframe 两条路线，共享 Rust core；界面和格式适配清单分别维护。
+- 第二阶段（GUI）：唯一桌面端使用 egui/eframe，复用 Rust core；界面与格式范围见 `docs/EGUI_GUI.md`。
 - 目标平台：
   - macOS
   - Linux 终端
@@ -88,8 +52,7 @@ geezipx/
 ├── crates/
 │   ├── core/        # 压缩/解压缩核心引擎库
 │   ├── cli/         # 命令行入口
-│   ├── gui-tauri/   # Tauri 桌面应用
-│   └── gui-egui/    # 独立 egui/eframe 原生桌面应用
+│   └── gui-egui/    # egui/eframe 原生桌面应用
 ├── docs/
 └── AGENTS.md
 ```
@@ -113,7 +76,7 @@ GUI 不应成为 core 或 CLI 的前置依赖。
 
 压缩/解压缩逻辑必须放在 core 层。
 
-CLI 和两个 GUI 只负责：
+CLI 和 GUI 只负责：
 
 - 参数解析；
 - 用户交互；
@@ -197,7 +160,7 @@ CLI 和两个 GUI 只负责：
 
 ALZ 支持单卷 Store/Deflate 与 ZipCrypto，修改版 BZip2/其它方法及分卷暂缓；Z / Unix Compress 支持有界流式 LZW 解码。
 
-CLI 已支持 `compress --split-size` 分卷创建。后续格式扩展由实际需求驱动，当前优先补齐 GUI 桥接与已知兼容性限制；core/CLI 已支持不代表 Tauri 已接入，详见 `docs/GUI_MVP_PLAN.md` §3.1；egui 已桥接当前 core 全部格式，默认启用 RAR/WIM/ZPAQ，创建/单流/镜像与只读变体限制见 `docs/EGUI_GUI.md`。
+CLI 已支持 `compress --split-size` 分卷创建。后续格式扩展由实际需求驱动，当前优先处理 GUI 迭代与已知兼容性限制。egui 已桥接当前 core 全部格式，默认启用 RAR/WIM/ZPAQ，创建/单流/镜像与只读变体限制见 `docs/EGUI_GUI.md`。
 
 Core/CLI 以用户给定的 Bandizip 清单为对齐目标，逐项实现/性能审查结果见 `docs/FORMAT_PARITY_AUDIT.md`。BH、DAA 1.0 本轮暂缓并记录具体证据及路线；PMA 已实现，EGG/PEA/NSIS 部分实现，不能继续列为永久排除。其它范围见 `docs/PRD.md` §5.2；RAR 写入仍受许可限制，ZIPX 专有方法及各格式变体的限制需分别说明。
 
@@ -254,18 +217,18 @@ cli/src/
 
 实现代码后，应按变更范围执行检查：
 
-**core / CLI 默认质量门禁**
+**workspace 质量门禁（包含原生 GUI）**
 
 ```bash
 cargo fmt --all --check
-cargo clippy --workspace --exclude geezipx-gui --all-targets --all-features -- -D warnings
-cargo test --workspace --exclude geezipx-gui --all-features
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+cargo test --workspace --all-features
 ```
 
 **GUI 变更额外关注**
 
-- `.github/workflows/gui-windows.yml`：独立 Windows GUI build workflow；
-- `.github/workflows/release.yml`：已配置三平台 GUI bundle 构建与上传（`.AppImage` / `.dmg` / `.exe (NSIS)`），如涉及发布链路应结合 tag release 进行实战验证。
+- `.github/workflows/gui-egui.yml`：三平台原生 GUI 检查、构建与 Windows NSIS 安装/卸载验证；
+- `.github/workflows/release.yml`：复用 GUI 工作流，发布三平台原生程序压缩包和 Windows NSIS 安装器；如涉及发布链路应进行 release dry-run 验证。
 
 核心测试要求：
 
@@ -474,7 +437,7 @@ PR 描述应包含：
    - CLI 实现；
    - 测试；
    - CI / 发布；
-   - 桌面 GUI（Tauri / egui）。
+   - 桌面 GUI（egui/eframe）。
 3. 如果需求不明确，应先提出具体澄清问题。
 
 ### 修改代码时
@@ -483,7 +446,7 @@ PR 描述应包含：
 2. 不要一次性重写无关文件。
 3. 不要引入与任务无关的大型依赖。
 4. 不要把 GUI 依赖引入 core。
-5. 不要让 core 依赖 CLI 或 Tauri。
+5. 不要让 core 依赖 CLI 或 GUI。
 6. 新增功能必须考虑测试。
 
 ### 完成任务后
@@ -497,28 +460,22 @@ PR 描述应包含：
 
 如果运行测试失败，应明确说明失败命令、错误摘要和可能原因。
 
-## Tauri GUI 接入原则（当前阶段）
+## GUI 接入原则（当前阶段）
 
-Tauri GUI 阶段的核心原则：
-
-- CLI 已稳定，core API 足够清晰。
-- 进度事件应可以被 GUI 消费。
-- 任务应可以取消。
-- 错误类型可以序列化为用户友好的消息。
-
-Tauri 只应作为桌面壳层：
+- CLI 已稳定，GUI 复用 core API，不重复实现编解码。
+- 阻塞操作放在后台任务，进度通过共享快照和限频唤醒传递。
+- 取消属于具体任务，退出时等待清理；错误转换成用户可理解的消息。
+- 密码仅在当前操作内使用，不进入持久化。
 
 ```text
-Tauri frontend
+egui/eframe 界面
       │
-Tauri command bridge
+后台任务与 engine 适配
       │
-Rust core task API
+Rust core API
       │
 archive/compress pipeline
 ```
-
-不要让 Tauri frontend 直接处理压缩格式细节。
 
 ## 非目标提醒（GUI 阶段明确不做）
 
@@ -534,9 +491,8 @@ archive/compress pipeline
 
 当前最高优先级：
 
-1. **GUI 迭代（Tauri + egui）** — 当前正式版本为 v0.7.4，两个桌面端都复用 core 引擎。Tauri 发布验收见 `docs/GUI_MVP_PLAN.md` 与 `docs/RELEASE_CHECKLIST.md`；egui 独立设计、构建与能力范围见 `docs/EGUI_GUI.md`。
-   - egui：`cargo run -p geezipx-egui`；默认 Cargo 包仍是 core/CLI。独立三平台构建工作流为 `gui-egui.yml`。
-   - list_archive 流式分页推送（通过 Tauri IPC Channel 分批发送，500 条/块）— 已完成
+1. **GUI 迭代（egui）** — 当前正式版本为 v0.7.4，当前源码的唯一桌面端为 egui/eframe，复用 core 引擎。运行、构建与能力范围见 `docs/EGUI_GUI.md`，候选验收见 `docs/RELEASE_CHECKLIST.md`。
+   - `cargo run -p geezipx-egui`；默认 Cargo 包仍是 core/CLI。三平台构建工作流为 `gui-egui.yml`，正式发布复用该工作流。
 2. **GUI 相关测试** — 仅针对 GUI 实现添加必要的测试；不主动推进 core/CLI 基准测试基线或覆盖率补测。
 3. **文档同步** — GUI 实现过程中的文档跟随更新。
 
@@ -548,7 +504,7 @@ archive/compress pipeline
 ### 任何时候修改代码仍需遵守
 
 - `cargo fmt --all --check`
-- `cargo clippy --workspace --exclude geezipx-gui --all-targets --all-features -- -D warnings`
-- `cargo test --workspace --exclude geezipx-gui --all-features`
-- GUI 改动需额外关注 `gui-windows.yml` 与 `release.yml` 的构建/发布链路
+- `cargo clippy --workspace --all-targets --all-features -- -D warnings`
+- `cargo test --workspace --all-features`
+- GUI 改动需额外关注 `gui-egui.yml` 与 `release.yml` 的构建/发布链路
 - Core/CLI 解耦原则（core 不依赖 GUI，GUI 不实现压缩逻辑）

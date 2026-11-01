@@ -17,12 +17,13 @@ on:
       - 'Cargo.lock'
       - '.github/workflows/gui-egui.yml'
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
 
 concurrency:
-  group: egui-desktop-${{ github.ref }}
+  group: ${{ github.workflow }}-egui-desktop-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -34,14 +35,17 @@ jobs:
           - os: ubuntu-24.04
             platform: linux-x86_64
             suffix: ''
+            archive_ext: tar.gz
             test_features: '--all-features'
           - os: windows-latest
             platform: windows-x86_64
             suffix: '.exe'
+            archive_ext: zip
             test_features: '--all-features'
           - os: macos-latest
             platform: macos-arm64
             suffix: ''
+            archive_ext: tar.gz
             test_features: '--all-features'
     runs-on: ${{ matrix.os }}
     steps:
@@ -143,6 +147,29 @@ jobs:
           if ((Test-Path $exe) -or (Test-Path $key) -or (Test-Path $shortcutDir)) { throw 'Uninstall did not clean application files and registration' }
           if (-not (Test-Path $keep)) { throw 'Uninstall removed an unrelated file' }
           'Verified per-user install, licenses, revision, shortcuts and uninstall.' >> $env:GITHUB_STEP_SUMMARY
+      - name: Package native release archives
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release-package/licenses release-dist
+          cp target/release/geezipx-egui${{ matrix.suffix }} release-package/
+          cp LICENSE NOTICE.md release-package/
+          cp crates/gui-egui/assets/*.txt release-package/licenses/
+          printf 'Commit: %s\nPlatform: %s\n' "$GITHUB_SHA" '${{ matrix.platform }}' > release-package/build-info.txt
+          archive="geezipx-egui-${{ matrix.platform }}.${{ matrix.archive_ext }}"
+          if [ '${{ runner.os }}' = Windows ]; then
+            (cd release-package && 7z a "../release-dist/$archive" ./*)
+            cp target/release/bundle/egui-nsis/*-setup.exe release-dist/
+          else
+            tar -czf "release-dist/$archive" -C release-package .
+          fi
+          (cd release-dist && for asset in *; do sha256sum "$asset" > "$asset.sha256"; done)
+      - name: Upload native release archives
+        uses: actions/upload-artifact@v7
+        with:
+          name: geezipx-egui-${{ matrix.platform }}-release
+          if-no-files-found: error
+          path: release-dist/*
       - name: Upload Windows installer
         if: runner.os == 'Windows'
         uses: actions/upload-artifact@v7

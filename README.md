@@ -92,15 +92,14 @@
 ## Status
 
 Phase 1 (CLI MVP) is **complete and mature**. All formats listed in the Format Support table support their applicable subcommands. The `completions` command is also complete.
-Phase 2 (Desktop GUIs) is **the active development focus**. Two independent frontends share the Rust core: the existing Tauri desktop app and **GeeZipX Native**, a new egui/eframe app with a separate design, no webview, archive browsing, drag/drop, selective extraction, ZIP/7z encryption, bounded text preview, integrity checks, task cancellation, and light/dark themes. See [`docs/GUI_MVP_PLAN.md`](docs/GUI_MVP_PLAN.md) for Tauri and [`docs/EGUI_GUI.md`](docs/EGUI_GUI.md) for the native frontend and its format scope.
+Phase 2 (Desktop GUI) is **the active development focus**. **GeeZipX Native** is the sole desktop frontend, built with egui/eframe and the shared Rust core. It provides archive browsing, drag/drop, selective extraction, ZIP/7z encryption, bounded text preview, integrity checks, task cancellation, and light/dark themes. See [`docs/EGUI_GUI.md`](docs/EGUI_GUI.md) for its features and format scope.
 
 | Phase | Theme | Status |
 |-------|-------|--------|
 | 1 | CLI MVP | **Complete** -- crates.io releases `geezipx` (v0.7.4) and `geezipx-core` are available |
-| 2 | Desktop GUI (Tauri) | **In development** -- v0.7.4 includes archive browsing, drag/drop, progress reporting, selective extraction, text/hex preview, sidebar navigation, settings panel, Toast notifications, and Windows right-click context-menu integration |
 | 2 | Desktop GUI (egui) | **Unreleased** -- independent native app; build with `cargo run -p geezipx-egui`; standalone three-platform build workflow |
 
-See [`docs/GUI_MVP_PLAN.md`](docs/GUI_MVP_PLAN.md) and [`docs/EGUI_GUI.md`](docs/EGUI_GUI.md) for each frontend's features and remaining work.
+See [`docs/EGUI_GUI.md`](docs/EGUI_GUI.md) and the [release checklist](docs/RELEASE_CHECKLIST.md) for features and remaining work.
 
 ### Native GUI (egui)
 
@@ -112,23 +111,9 @@ cargo build -p geezipx-egui --release --locked
 
 The native frontend exposes every current core format: writable formats appear in creation, read-only formats can be browsed/extracted/tested, and RAR/WIM/ZPAQ are enabled by default. Single-stream files, disk-image contents, ZIPX and ZIP SFX creation use the same core limits; see the [native format table](docs/EGUI_GUI.md#格式范围). On Unix, set `CXXFLAGS=-fno-lto` for release builds; on Windows MSVC, set `RUSTFLAGS=-C target-feature=+crt-static` before building.
 
-The native frontend uses Rust, egui/eframe and OpenGL, with system file dialogs and an embedded Chinese font. Its compact file manager provides sortable, resizable columns, conventional mouse/keyboard selection, creation and extraction dialogs, and inline task progress; `Ctrl/Cmd+O`, `N`, `E` and `F` open archives, create, extract and search. It requires no Node.js, Tauri, WebView2 or WebKitGTK. `cargo build` defaults to core/CLI; select a GUI package explicitly. Native build artifacts include standalone executables and a separate per-user NSIS test installer for Windows; file associations remain future work. Performance improvements over Tauri have not yet been measured on the same hardware.
+The native frontend uses Rust, egui/eframe and OpenGL, with system file dialogs and an embedded Chinese font. Its compact file manager provides sortable, resizable columns, conventional mouse/keyboard selection, creation and extraction dialogs, and inline task progress; `Ctrl/Cmd+O`, `N`, `E` and `F` open archives, create, extract and search. `cargo build` defaults to core/CLI; select `geezipx-egui` explicitly for the desktop app. Native release builds provide Linux x86_64, macOS arm64 and Windows x86_64 archives, plus a per-user NSIS installer for Windows. System file associations and Explorer context menus remain future work.
 
-### Tauri GUI Settings
-
-The desktop GUI exposes the following settings (persisted locally via the Tauri store):
-
-| Setting | Scope | Description |
-|---------|-------|-------------|
-| Language | General | UI language; applied immediately after saving. |
-| Default output directory | General | Base directory used to suggest compress/extract output paths. Empty = next to the source. |
-| Overwrite strategy | General | `Ask each time` (prompts before overwriting), `Skip`, or `Overwrite`. |
-| Behavior after completion | General | `Do nothing` or `Open output directory` after a successful task. |
-| Default format / level | Compression | Pre-selected archive format and compression level. |
-| Add directories recursively | Compression | When off, a folder source contributes only its immediate files (subfolders are skipped). |
-| Theme | Appearance | `Follow system`, `Light`, or `Dark`. |
-
-Unsaved setting changes are flagged; navigating away from the Settings tab prompts for confirmation before discarding.
+The Tools → Settings dialog offers a searchable system-font picker and an embedded Noto Sans SC fallback. Font preferences, light/dark appearance and recent paths persist locally; passwords are kept within the current operation.
 
 ## Install
 
@@ -401,7 +386,6 @@ geezipx/
 ├── crates/
 │   ├── core/               # Shared archive engine, detection, safe I/O and progress
 │   ├── cli/                # Commands, terminal output and integration tests
-│   ├── gui-tauri/          # Svelte 5 frontend and Tauri Rust bridge
 │   ├── gui-egui/           # Independent egui/eframe native desktop app
 │   ├── sfx-stub/           # Self-extracting ZIP executable
 │   └── vendor/             # Patched native dependencies
@@ -410,11 +394,11 @@ geezipx/
 └── .github/workflows/      # CI, audit, desktop builds and releases
 ```
 
-The CLI and both desktop frontends depend on the shared Rust core. Archive logic lives in core; frontends handle interaction, parameter mapping and progress. The desktop apps are independent of each other.
+The CLI and native desktop frontend depend on the shared Rust core. Archive logic lives in core; frontends handle interaction, parameter mapping and progress.
 
 - [Product scope and format support](docs/PRD.md)
 - [Architecture and implementation limits](docs/TECH_ARCHITECTURE.md)
-- [Tauri desktop guide](docs/GUI_MVP_PLAN.md) / [Native desktop guide](docs/EGUI_GUI.md)
+- [Native desktop guide](docs/EGUI_GUI.md)
 - [Release acceptance checklist](docs/RELEASE_CHECKLIST.md)
 
 ---
@@ -432,8 +416,8 @@ The CLI and both desktop frontends depend on the shared Rust core. Archive logic
 # Build core and CLI (default workspace members)
 cargo build
 
-# Run workspace tests without the Tauri desktop dependencies
-cargo test --workspace --exclude geezipx-gui --all-features
+# Run workspace tests, including the native desktop frontend
+cargo test --workspace --all-features
 
 # Release build
 cargo build --release
@@ -441,8 +425,8 @@ cargo build --release
 # Check formatting
 cargo fmt --all --check
 
-# Run clippy (strict mode, without Tauri)
-cargo clippy --workspace --exclude geezipx-gui --all-targets --all-features -- -D warnings
+# Run clippy (strict mode)
+cargo clippy --workspace --all-targets --all-features -- -D warnings
 
 # Generate documentation
 cargo doc --no-deps
@@ -502,10 +486,10 @@ Most format limitations are documented in the Format Support table above. Key de
 - **BIN**: CLI extracts ISO/UDF optical files from 2048-byte cooked or 2352-byte Mode 1/Mode 2 Form 1 images. Audio/CUE/mixed tracks and partitioned disk filesystems are unsupported. Core copy helpers and creation retain explicit identity-copy behavior.
 - **IMG/IMA**: Uses the same optical filesystem reader as BIN; FAT, NTFS and partitioned disks remain unsupported. Explicit stdin copy helpers retain identity behavior.
 - **UU / UUE / XXE**: Legacy text-encoding formats. Both decode (list/decompress/test) and encode (compress) are supported.
-- **PEA**: Reads one unencrypted stream/volume using Store or block Deflate (PCOMPRESS0–3). Verifies declared object, stream and volume checksums, with bounded 64 KiB buffers and a 64 MiB metadata budget. Opening verifies the archive before exposing entries; extraction seeks to indexed records. UTF-8/ASCII names are supported. Encryption/HMAC, split volumes, ECC and legacy ANSI code pages are unsupported; stored dates and attributes are not restored. NOALGO omits the corresponding integrity check. The native egui adapter shares this subset; Tauri integration remains separate.
+- **PEA**: Reads one unencrypted stream/volume using Store or block Deflate (PCOMPRESS0–3). Verifies declared object, stream and volume checksums, with bounded 64 KiB buffers and a 64 MiB metadata budget. Opening verifies the archive before exposing entries; extraction seeks to indexed records. UTF-8/ASCII names are supported. Encryption/HMAC, split volumes, ECC and legacy ANSI code pages are unsupported; stored dates and attributes are not restored. NOALGO omits the corresponding integrity check. The native egui adapter shares this subset.
 - **RAR**: Read-only by licensing limitation. Decryption is supported via password flags.
 
-- **NSIS**: Reads validated NSIS 3 Unicode PE installers using Store/Deflate/BZip2/LZMA, solid or non-solid, with static paths relative to `$INSTDIR` and optional container CRC. Solid payloads are decoded once to anonymous disk storage; metadata and dictionaries have 64 MiB limits. No installer script or plugin is executed. ANSI/legacy/Park, BCJ LZMA, custom packed stubs, runtime-generated files and uninstaller reconstruction are unsupported. The native egui adapter shares this subset; Tauri integration remains separate.
+- **NSIS**: Reads validated NSIS 3 Unicode PE installers using Store/Deflate/BZip2/LZMA, solid or non-solid, with static paths relative to `$INSTDIR` and optional container CRC. Solid payloads are decoded once to anonymous disk storage; metadata and dictionaries have 64 MiB limits. No installer script or plugin is executed. ANSI/legacy/Park, BCJ LZMA, custom packed stubs, runtime-generated files and uninstaller reconstruction are unsupported. The native egui adapter shares this subset.
 
 The complete core/CLI pass against the Bandizip format list, including performance debt and deferred work, is recorded in [FORMAT_PARITY_AUDIT.md](docs/FORMAT_PARITY_AUDIT.md). BH and DAA 1.0 extraction remain unimplemented. ALZ, EGG, PEA, NSIS, optical disk images, WIM and executable SFX have the subset limits recorded there; a matching extension alone does not imply full compatibility. The follow-up [parser and interoperability acceptance report](docs/FORMAT_PARITY_ACCEPTANCE.md) records real EGG, UltraISO ISZ and AES Crypt samples, independent tool comparisons, resource budgets and remaining cases.
 
@@ -542,9 +526,9 @@ Code coverage is tracked via [cargo-tarpaulin](https://github.com/xd009642/tarpa
 ```sh
 # Full quality gate (run before committing)
 cargo fmt --all --check && \
-cargo clippy --workspace --exclude geezipx-gui --all-targets --all-features -- -D warnings && \
-cargo test --workspace --exclude geezipx-gui --all-features && \
-cargo build --release --workspace --exclude geezipx-gui
+cargo clippy --workspace --all-targets --all-features -- -D warnings && \
+cargo test --workspace --all-features && \
+cargo build --release
 ```
 
 ### Release Artifact Dry-Run
@@ -561,7 +545,7 @@ and the combined `SHA256SUMS` file.
 
 ## Roadmap
 
-The CLI is mature. Current work focuses on the Tauri desktop app and the independent egui app, their format adapters, and native desktop acceptance for the next release. See the [Tauri guide](docs/GUI_MVP_PLAN.md), [native guide](docs/EGUI_GUI.md), and [release checklist](docs/RELEASE_CHECKLIST.md).
+The CLI is mature. Current work focuses on the egui native desktop app, its format adapters, and native desktop acceptance for the next release. See the [native guide](docs/EGUI_GUI.md) and [release checklist](docs/RELEASE_CHECKLIST.md).
 
 Future distribution channels include Homebrew, winget and APT. Format expansion follows user requests and community feedback.
 
@@ -579,8 +563,8 @@ Contributions are welcome! Please read [AGENTS.md](AGENTS.md) for development co
 
 Before submitting a PR:
 
-1. Ensure tests pass: `cargo test --workspace --exclude geezipx-gui --all-features`
-2. Run clippy with no warnings: `cargo clippy --workspace --exclude geezipx-gui --all-targets --all-features -- -D warnings`
+1. Ensure tests pass: `cargo test --workspace --all-features`
+2. Run clippy with no warnings: `cargo clippy --workspace --all-targets --all-features -- -D warnings`
 3. Check formatting: `cargo fmt --all --check`
 4. Update documentation if your change affects the public API or CLI behavior
 

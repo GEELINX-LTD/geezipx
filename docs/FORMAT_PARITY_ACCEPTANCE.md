@@ -94,8 +94,8 @@ GNU Lzip1.25独立生成levels0/6/9，各262182字节明文以及拼接成员均
 本轮代码/样本提交为`670bfe2`、`66cb7a7`、`cd0e31a`、`8221139`、`07931bc`、`c5b03dc`、`77cd3b4`、`5ea7fa6`。最终Linux工作区检查通过：
 
 - `cargo fmt --all --check`。
-- `cargo clippy --workspace --exclude geezipx-gui --all-targets --all-features -- -D warnings`。
-- `cargo test --workspace --exclude geezipx-gui --all-features`：**1135通过、9忽略、0失败**；逐目标检查了实际执行数量。专项core命令使用`-p geezipx-core`，CLI包`-p geezipx`的零匹配测试不计为core验证。
+- workspace Clippy（当时的 core/CLI 范围，all-targets/all-features，`-D warnings`）。
+- workspace all-features 测试（当时的 core/CLI 范围）：**1135通过、9忽略、0失败**；逐目标检查了实际执行数量。专项core命令使用`-p geezipx-core`，CLI包`-p geezipx`的零匹配测试不计为core验证。
 - 重建`cargo build -p geezipx --all-features`后，用实际CLI完成独立EGG文件树比较；另外复核63份AES官方明文输出、ISZ官方ISO逐字节一致以及19个样本校验值。
 
 本轮性能措施是有界流式I/O、固定缓冲、在分配前检查字典/FAT/索引预算、按扇区缓存和避免重复解码。未建立统一性能基线，不宣称速度提升百分比或总进程内存硬上限。

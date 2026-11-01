@@ -90,12 +90,11 @@
 ## 项目状态
 
 第一阶段（CLI MVP）已经**全部完成并进入成熟阶段**。所有支持格式均已实现对应子命令。`completions` 子命令也已完成。crates.io 上已发布 `geezipx` 和 `geezipx-core` 包。
-第二阶段（桌面 GUI）**是当前开发重心**。Tauri 桌面端和独立的 **GeeZipX Native**（egui/eframe）共用 Rust core。Tauri 的功能和格式范围见 [GUI 指南](docs/GUI_MVP_PLAN.md)，原生端的独立设计、构建和能力范围见 [原生端指南](docs/EGUI_GUI.md)。
+第二阶段（桌面 GUI）**是当前开发重心**。**GeeZipX Native**（egui/eframe）是唯一桌面端，复用 Rust core。功能、构建和格式范围见 [原生端指南](docs/EGUI_GUI.md)。
 
 | 阶段 | 主题 | 状态 |
 |------|------|------|
 | 1 | CLI MVP | **已完成** -- crates.io 上已发布 `geezipx`（v0.7.4）与 `geezipx-core` |
-| 2 | 桌面 GUI (Tauri) | **开发中** -- v0.7.4 已包含归档浏览器、拖拽、进度显示、选择性提取、文本/十六进制预览、侧边栏导航、设置面板、Toast 通知、Windows 右键菜单 |
 | 2 | 桌面 GUI (egui) | **未发布** -- 独立原生应用；使用 `cargo run -p geezipx-egui` 启动，独立三平台构建工作流 |
 
 ### 原生 GUI（egui）
@@ -108,7 +107,7 @@ cargo build -p geezipx-egui --release --locked
 
 原生端已接入当前 core 全部格式，可写格式出现在创建列表，只读格式可浏览、提取和测试，RAR/WIM/ZPAQ 默认启用；单流、镜像内容、ZIPX 与 ZIP SFX 的范围及 core 变体限制见[原生端格式表](docs/EGUI_GUI.md#格式范围)。Unix release 构建建议设置 `CXXFLAGS=-fno-lto`；Windows MSVC 先设置 `RUSTFLAGS=-C target-feature=+crt-static`。
 
-原生端使用 Rust、egui/eframe 与 OpenGL，提供系统文件选择器和内嵌中文字体，无需 Node.js、Tauri 或 WebView。`cargo build` 默认只构建 core/CLI，桌面端需显式选择包。当前产物包括独立可执行文件与 Windows 按用户安装的 NSIS 测试包，文件关联尚未接入；尚无与 Tauri 的同机性能对照测量。
+原生端使用 Rust、egui/eframe 与 OpenGL，提供系统文件选择器和内嵌中文字体。`cargo build` 默认只构建 core/CLI，桌面端使用 `-p geezipx-egui` 显式选择。发布构建提供 Linux x86_64、macOS arm64、Windows x86_64 原生程序压缩包，以及 Windows 按用户安装的 NSIS 安装器；系统文件关联和 Explorer 右键菜单尚未接入。
 
 ---
 
@@ -386,7 +385,6 @@ geezipx/
 ├── crates/
 │   ├── core/               # 共享归档引擎、格式检测、安全 I/O 与进度
 │   ├── cli/                # 命令、终端输出与集成测试
-│   ├── gui-tauri/          # Svelte 5 前端与 Tauri Rust 桥接
 │   ├── gui-egui/           # 独立 egui/eframe 原生桌面端
 │   ├── sfx-stub/           # 自解压 ZIP 可执行程序
 │   └── vendor/             # 本地修补的原生依赖
@@ -395,11 +393,11 @@ geezipx/
 └── .github/workflows/      # CI、审计、桌面构建与发布
 ```
 
-CLI 与两个桌面端单向依赖共享 Rust core。格式逻辑由 core 实现，前端负责交互、参数映射和进度展示；两个桌面端互相独立。
+CLI 与原生桌面端单向依赖共享 Rust core。格式逻辑由 core 实现，前端负责交互、参数映射和进度展示。
 
 - [产品范围与格式支持](docs/PRD.md)
 - [技术架构与实现限制](docs/TECH_ARCHITECTURE.md)
-- [Tauri 桌面端指南](docs/GUI_MVP_PLAN.md) / [原生桌面端指南](docs/EGUI_GUI.md)
+- [原生桌面端指南](docs/EGUI_GUI.md)
 - [发布验收清单](docs/RELEASE_CHECKLIST.md)
 
 ---
@@ -458,7 +456,7 @@ SFX 功能需启用 `sfx` feature（CLI 默认包含），且所选目标必须�
 - **ISO 写入**：写入 ISO 9660 Level 1 + Joliet。扩展 Rock Ridge/Joliet 创建者元数据在复制时保留。UDF 写入请使用独立的 `udf` 格式。
 - **CPIO 写入**：支持 newc/odc。提取时不创建符号链接、设备、FIFO 或套接字。
 - **ZPAQ 写入**：磁盘暂存、有界 I/O，跨成员共享 solid 模型；模型 1–3 可用，兼容级别 4/5 映射到模型 3，不等于原生 CLI 的预处理方法 4/5。段 SHA-1 会验证；读取仍整体缓冲并可能逐项重复解码。标准 journal 仅列出逻辑文件，fragment/index 重建尚未接入；可提取 GeeZipX 的流式分段包。
-- **PEA / NSIS 读取**：均为有独立语料验证的只读子集，详见上表和[格式审查](docs/FORMAT_PARITY_AUDIT.md)。PEA 不支持加密/HMAC、ECC、分卷和旧 ANSI 名称；NSIS 不执行安装脚本/插件，不恢复运行时生成文件，旧版/ANSI/Park、BCJ、自定义打包 stub 及卸载器重建未覆盖。egui 已接入这些只读子集；Tauri 仍需独立接入。
+- **PEA / NSIS 读取**：均为有独立语料验证的只读子集，详见上表和[格式审查](docs/FORMAT_PARITY_AUDIT.md)。PEA 不支持加密/HMAC、ECC、分卷和旧 ANSI 名称；NSIS 不执行安装脚本/插件，不恢复运行时生成文件，旧版/ANSI/Park、BCJ、自定义打包 stub 及卸载器重建未覆盖。egui 已接入这些只读子集。
 - **ISZ**：围绕 ISO 数据的单流压缩封装。`list` 显示合成条目而非单个文件。
 - **AES `.enc`**：AES-256-GCM-SIV 加密 + Argon2id 密钥派生；打开时完成认证，`list` 和 `test` 同样验证完整容器。当前仍整体缓冲；尚未完整实现的流式容器明确拒绝。
 - **IMG / BIN**：透传身份复制——数据原样传递，无压缩或转换。
@@ -471,8 +469,8 @@ SFX 功能需启用 `sfx` feature（CLI 默认包含），且所选目标必须�
 # 构建 core 与 CLI（默认 workspace 成员）
 cargo build
 
-# 运行不需要 Tauri 桌面依赖的 workspace 测试
-cargo test --workspace --exclude geezipx-gui --all-features
+# 运行 workspace 测试，包含原生桌面端
+cargo test --workspace --all-features
 
 # Release 构建
 cargo build --release
@@ -480,8 +478,8 @@ cargo build --release
 # 检查代码格式化
 cargo fmt --all --check
 
-# 运行 clippy（严格模式，不含 Tauri）
-cargo clippy --workspace --exclude geezipx-gui --all-targets --all-features -- -D warnings
+# 运行 clippy（严格模式）
+cargo clippy --workspace --all-targets --all-features -- -D warnings
 
 # 生成文档
 cargo doc --no-deps
@@ -513,9 +511,9 @@ GEEZIPX_INTEROP_STRESS=1 bash scripts/check-interop.sh
 ```sh
 # 提交前质量门禁
 cargo fmt --all --check && \
-cargo clippy --workspace --exclude geezipx-gui --all-targets --all-features -- -D warnings && \
-cargo test --workspace --exclude geezipx-gui --all-features && \
-cargo build --release --workspace --exclude geezipx-gui
+cargo clippy --workspace --all-targets --all-features -- -D warnings && \
+cargo test --workspace --all-features && \
+cargo build --release
 ```
 
 ### Release 产物预检
@@ -526,7 +524,7 @@ cargo build --release --workspace --exclude geezipx-gui
 
 ## 路线图
 
-CLI 已进入成熟阶段。当前重点是 Tauri 桌面端与独立 egui 桌面端、格式适配，以及下一版的原生桌面验收。具体范围和待办分别见 [Tauri 指南](docs/GUI_MVP_PLAN.md)、[原生端指南](docs/EGUI_GUI.md) 和 [发布验收清单](docs/RELEASE_CHECKLIST.md)。
+CLI 已进入成熟阶段。当前重点是 egui 原生桌面端、格式适配，以及下一版的原生桌面验收。具体范围和待办见 [原生端指南](docs/EGUI_GUI.md) 和 [发布验收清单](docs/RELEASE_CHECKLIST.md)。
 
 后续分发渠道包括 Homebrew、winget 和 APT；格式扩展由用户需求与社区反馈驱动。
 
@@ -544,8 +542,8 @@ GeeZipX 遵循 [XDG 基础目录规范](https://specifications.freedesktop.org/b
 
 提交 PR 前请确认：
 
-1. 测试通过：`cargo test --workspace --exclude geezipx-gui --all-features`
-2. Clippy 零警告：`cargo clippy --workspace --exclude geezipx-gui --all-targets --all-features -- -D warnings`
+1. 测试通过：`cargo test --workspace --all-features`
+2. Clippy 零警告：`cargo clippy --workspace --all-targets --all-features -- -D warnings`
 3. 代码格式正确：`cargo fmt --all --check`
 4. 如果变更影响公共 API 或 CLI 行为，同步更新文档
 

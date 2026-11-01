@@ -32,20 +32,6 @@ geezipx/
 │   │   │   ├── job.rs        # 后台线程、取消与进度快照
 │   │   │   └── theme.rs      # 独立浅/深色主题
 │   │   └── tests/            # 原生端实际文件操作回归
-│   └── gui-tauri/
-│       ├── src/
-│       │   ├── App.svelte     # 主窗口布局
-│       │   ├── pages/         # 压缩、解压、设置等页面
-│       │   ├── stores/        # 归档、任务与设置状态
-│       │   ├── bridge.ts      # Tauri API
-│       │   ├── main.ts        # 窗口入口
-│       │   └── app.css        # 全局样式
-│       └── src-tauri/
-│           ├── src/
-│           │   ├── commands/
-│           │   ├── lib.rs
-│           │   └── state.rs
-│           └── tauri.conf.json
 ├── docs/
 ├── scripts/
 └── .github/workflows/
@@ -53,19 +39,18 @@ geezipx/
 
 ### 分层原则
 
-CLI、Tauri GUI 和 egui GUI 分别是独立前端，都单向依赖 core；两个 GUI 互不依赖。原生 egui 使用 eframe/Glow 直接绘制，不经过 WebView 或 Tauri IPC。根目录默认 Cargo 成员为 core/CLI，桌面端必须显式选择包。
+CLI 与 egui GUI 是两个独立前端，都单向依赖 core。原生 GUI 使用 eframe/Glow 直接绘制。根目录默认 Cargo 成员为 core/CLI，桌面端使用 `-p geezipx-egui` 显式选择。
 
 ```text
-CLI ──────────┐
-Tauri GUI ────┼──→ core（归档、压缩、检测、错误、进度与安全 I/O）
-egui GUI ─────┘
+CLI ──────┐
+          ├──→ core（归档、压缩、检测、错误、进度与安全 I/O）
+egui GUI ─┘
 ```
 
 设计目标：
 
 - core 只保留格式逻辑、I/O 包装、错误模型与安全检查；
 - CLI 负责参数解析、TTY 进度、stdout/stderr 呈现；
-- Tauri GUI 负责图形交互、任务管理、事件桥接；
 - egui GUI 负责独立的原生交互、共享进度快照与后台任务；不实现压缩编解码；
 - RAR 在当前版本中保持只读语义（UnRAR 许可限制）。WIM 支持无压缩写入与 XPRESS 读取；LZX 保留实验实现，但尚未通过 wimlib 样本互操作验证，LZMS 返回不支持错误。ISZ 为块压缩 ISO 包装，使用单流引擎读写。
 - ARJ/ACE/ARC/ALZ/Z 创建不在当前目标内；ALZ 通过 MIT `unalz` 索引加自有 `File` 接入单卷 Store/Deflate/ZipCrypto，保持 `ArchiveReader: Send` 与有界提取；Unix compress `.Z` 支持流式 LZW 解码；UU/UUE/XXE 支持流式编码与解码。
@@ -382,14 +367,14 @@ Reader/File → ProgressReader → Decoder/ArchiveReader → ProgressWriter → 
 
 - CLI 在 TTY 下默认显示进度条；`--no-progress` 可禁用；
 - 非 TTY / pipe 输出默认不渲染 ANSI 进度条；
-- GUI 后端将 core 事件转换成 `task:progress` 事件；
-- GUI 事件节流由 `TaskProgressEmitter` 负责（时间与字节步长双阈值）。
+- GUI 后台任务把 core 进度更新到 `Arc<Mutex<Progress>>` 最新快照；
+- 界面按有限频率唤醒并读取快照，不按读取块积累事件。
 
 ### 用户取消
 
 - CLI：`signal.rs` 中的取消令牌与 core 的 `is_cancelled()` 联动；
 - core：`extract_all_with_cancel()` 在处理 entry 之前检查取消，并使用 `CancellableWriter` 在写入阶段再次检查；
-- GUI：`AppState::register_task` 拒绝空白或重复任务 ID，取消仅更新现有令牌，结束时按令牌身份移除，防止旧任务误删新任务；前端收到终态事件后收束 UI。
+- GUI：每个 `Job<T>` 持有独立取消状态；界面一次只运行一个后台操作，取消和退出等待任务清理完成。
 - I/O 包装用可识别的 `GeeZipError::Cancelled` 作为 `io::Error` 载荷，避免 `Interrupted` 被 `io::copy` / `read_to_end` 自动重试；错误转换保留取消语义，压缩终结和 flush 同样检查取消。
 
 ## 5. 跨平台文件系统策略
@@ -420,100 +405,40 @@ Reader/File → ProgressReader → Decoder/ArchiveReader → ProgressWriter → 
 
 - 触发：`main` push、`v*` tag push、`pull_request`、`workflow_dispatch`；
 - `fmt`：`cargo fmt --all --check`；
-- `doc`：`cargo doc --workspace --exclude geezipx-gui --no-deps --document-private-items`；
-- `clippy`：三平台矩阵执行 `cargo clippy --workspace --exclude geezipx-gui --all-targets --all-features -- -D warnings`；
-- `test`：三平台矩阵执行 `cargo test --workspace --exclude geezipx-gui --all-features`；
-- `build`：三平台矩阵执行 `cargo build --release --workspace --exclude geezipx-gui`；
+- `doc`：`cargo doc --workspace --no-deps --document-private-items`；
+- `clippy`：三平台矩阵执行 `cargo clippy --workspace --all-targets --all-features -- -D warnings`；
+- `test`：三平台矩阵执行 `cargo test --workspace --all-features`；macOS 主 CI 使用 `--no-default-features -F rar,wim,sfx`，完整 GUI 后端另由原生工作流验证；
+- `build`：三平台矩阵构建 CLI 候选并执行原生 CLI/SFX 验收；
 - `interop`、`streaming-smoke`、`bench-compile`、`bench-regression` 为补充质量检查；
-- GUI Rust 不在主 CI 的 clippy/test/build 门禁里；`gui-build` 运行前端 `npm test`、TypeScript 检查和生产构建，原生 Windows GUI 测试与打包由独立 workflow 负责。
+- egui 参与主 CI workspace 检查与测试；三平台优化构建、SFX 与 Windows 安装器验证由 `gui-egui.yml` 负责。
 
 ### 7.2 其他工作流
 
 - `deny.yml`：`cargo-deny` 安全审计；
 - `coverage.yml`：覆盖率观测（informational-only）；
 - `bench.yml`：基准基线 / 手动 benchmark；
-- `gui-windows.yml`：独立 Tauri Windows GUI 手动构建工作流；
-- `gui-egui.yml`：独立 egui 三平台检查、测试与可执行文件构建；
+- `gui-egui.yml`：egui 三平台检查、测试、优化构建、归档打包与 Windows 安装器验证；支持手动运行和发布流程复用；
 - `release.yml`：CLI + GUI bundles 发布构建工作流。
 
-安全依赖基线：ZIP 在 workspace 中统一为 9.1.3+，`unarc-rs` 升至 0.8，消除旧 ZIP 的传递依赖；Zstandard 升至 0.14.3+，同时更新 `zstd-safe` / `zstd-sys`。GUI 的 Tokio 最低版本为 1.53.3，`Cargo.lock` 同步更新 `ctutils` 等传递依赖。Audit 继续执行 `deny.toml` 的安全公告、许可证、来源和依赖规则，`advisories.ignore` 保持为空。
+安全依赖基线：ZIP 在 workspace 中统一为 9.1.3+，`unarc-rs` 升至 0.8，消除旧 ZIP 的传递依赖；Zstandard 升至 0.14.3+，同时更新 `zstd-safe` / `zstd-sys`。Tokio 最低版本为 1.53.3，`Cargo.lock` 同步更新 `ctutils` 等传递依赖。Audit 继续执行 `deny.toml` 的安全公告、许可证、来源和依赖规则，`advisories.ignore` 保持为空。
 
 ### 7.3 Release / GUI bundle workflow
 
 `.github/workflows/release.yml` 当前已配置：
 
 - CLI 三平台产物：`.tar.gz` / `.zip` + `.sha256`；
-- GUI 三平台 bundle：Linux `.AppImage` / `.deb`、macOS `.dmg`、Windows `.exe (NSIS 安装器)`；
-- `consolidate` job 会校验所需 artifacts 并生成 `SHA256SUMS`；
-- `release` job 在 `v*` tag push 时把 CLI 与 GUI artifacts 上传到 GitHub Release；
-- v0.7.4 已实际发布上述三平台 CLI 与 GUI 产物；每个候选版本仍应通过 `workflow_dispatch` 的 `dry_run: true` 重新构建和校验，之后再决定发布，见 `docs/RELEASE_CHECKLIST.md`。
+- GUI 复用 `gui-egui.yml`：Linux x86_64、macOS arm64 `.tar.gz`，Windows x86_64 `.zip` 与 NSIS 安装器；压缩包附带许可证、字体许可和提交标识；
+- `consolidate` job 检查六份 CLI/GUI 压缩包的原始摘要与 Windows 安装器，再生成 `SHA256SUMS`；
+- `v*` tag push 创建包含 CLI 与 GUI 产物的 GitHub Release 草稿；
+- 每个候选版本仍应通过 `workflow_dispatch` 的 `dry_run: true` 构建和校验，再完成原生验收，见 `docs/RELEASE_CHECKLIST.md`。
 
-## 8. Tauri GUI 接入方式（Phase 2 当前阶段）
+## 8. 原生 GUI 接入边界
 
-```text
-crates/gui-tauri/
-├── src/
-│   ├── App.svelte
-│   ├── QuickExtract.svelte
-│   ├── pages/
-│   ├── stores/
-│   ├── bridge.ts
-│   ├── main.ts
-│   └── app.css
-└── src-tauri/
-    ├── src/
-    │   ├── commands/
-    │   │   ├── app.rs
-    │   │   ├── associations.rs
-    │   │   ├── cancel.rs
-    │   │   ├── compress.rs
-    │   │   ├── drag.rs
-    │   │   ├── extract.rs
-    │   │   ├── extract_entries.rs
-    │   │   ├── formats.rs
-    │   │   ├── list.rs
-    │   │   ├── preview_entry.rs
-    │   │   ├── progress.rs
-    │   │   ├── shell_menu.rs
-    │   │   └── test.rs
-    │   ├── lib.rs
-    │   └── state.rs
-    └── tauri.conf.json
-```
+桌面界面通过后台任务与 `engine` 适配层调用 `geezipx-core`。界面负责操作状态、参数映射、进度和错误展示，格式编解码与安全提取留在 core。系统文件关联和 Explorer 右键注册尚未接入。
 
-当前接入要点：
+## 9. egui/eframe 桌面实现
 
-- GUI Rust 后端是 thin bridge：暴露 Tauri commands，调用 `geezipx-core`；
-- `get_formats` 只报告当前 GUI 桥接能力：创建标志使用 `parse_gui_compress_format`，读取标志和 `open_reader` 共用 `reader_factory`。可选 feature 关闭时不会误报支持，回归测试逐一验证所有标记可创建的格式能通过 GUI 读取工厂解出原内容。core/CLI 的完整格式清单独立维护。
-- 进度通过 `task:progress` 事件推送。主窗口启动交接采用 `LaunchAction` / `LaunchRequest` 进程内队列：`dispatch_resolved_action` 在检查或创建主窗口前入队，热启动只发送 `launch-requests-pending` 唤醒；前端注册通知与进度监听后调用 `get_launch_requests`，按请求 ID 去重并在处理或显示错误后调用 `acknowledge_launch_request`。快照读取不清空数据，确认仅影响调用窗口的对应请求；查询失败仍处理查询期间已收到的唤醒。队列不跨进程退出持久化。
-- `list_archive_stream` — 流式归档条目列表（通过 Tauri IPC Channel 分批推送，500 条/块）；
-- 右键“解压缩到当前文件夹”由 `dispatch_resolved_action` 在冷/热启动统一路由到 `extract-here-*` 独立进度窗口，`src/main.ts` 根据窗口 URL 挂载 `QuickExtract.svelte`；`main` 使用 `create: false`，仅普通动作按需创建。启动动作按窗口标签暂存，`get_shell_action` 只消费调用窗口的动作；进度继续用显式任务 UUID 隔离，独立窗口具备密码提示、取消及失败确认。窗口状态插件仅持久化主窗口几何，前端挂载后再显示对应窗口。快捷窗口 capability 同时授予 `core:window:allow-close` 和 `core:window:allow-destroy`：注册 `onCloseRequested` 后，Tauri 在未阻止关闭时会通过 `destroy` 完成销毁；运行中关闭仍先取消本窗口的任务，等待执行结束后关闭。
-- 前端由 `src/main.ts` 挂载 `App.svelte` 或 `QuickExtract.svelte`，页面组件位于 `pages/`，归档、任务与设置状态由 `stores/` 管理；
-- 归档浏览器每层只显示直接子项；对旧 ZIP 的 `\` 分隔符在目录索引和选择匹配时按 `/` 处理，文件预览/读取继续保留原始条目名称，避免破坏旧包的精确查找。
-- 选择性提取、条目预览、拖出归档条目等 GUI 专属交互都建立在 core 的只读/提取能力之上；
-- 前端已内置 i18n 支持（`en.json` / `zh-CN.json` 双语），由 `i18n/index.ts` 管理语言切换；
-- 偏好设置/默认行为配置已在 v0.7.0 中实现（默认输出目录、覆盖策略等）。
-- **Windows 右键菜单运行时管理**（已合入主线，待下一版发布和原生交互验收）— `commands/shell_menu.rs` 通过 `HKCU\Software\Classes` 动态管理四项 Explorer 右键动词。压缩父键注册于 `AllFilesystemObjects`（文件/目录/混合多选均支持），父子均声明 `MultiSelectModel=Player`；提取仍使用 `SystemFileAssociations` + `"%1"` 单归档路径。
-  - **COM DelegateExecute 多选**（已合入主线）：压缩动词（`Compress`、`CompressZip`）通过 `DelegateExecute` 委托获得完整 `IShellItemArray`，而非静态 `"%*"` 命令——`%*` 在实机测试中确认传递空参数列表，不可作为支持方案。
-  - **LocalServer32 双 CLSID**：两个稳定 GUID 各自注册 `HKCU\Software\Classes\CLSID\{...}\LocalServer32` 指向同一 `geezipx-gui.exe`。Explorer 通过 COM 启动时传入 `-Embedding`，程序跳过 Tauri 进入 STA 消息泵，实例化 `IExecuteCommand` + `IObjectWithSelection` 实现类，接收 `IShellItemArray`，将选中路径写入版本化二进制 action 文件（`.gzsa`, UTF-16LE，限 `%LOCALAPPDATA%\GeeZipX\ShellActions\` 目录内，上限 1 MiB / 10 000 条 / 32 767 码元），然后以 `--shell-action-file` 参数启动正常 GUI 进程消费。cold/warm 共用 `resolve_shell_action` 解析路径。action 文件读取后 best-effort 删除。
-  - **提取动词**继续保持 `SystemFileAssociations` + `"%1"` 静态命令，不涉及 COM，无多选需求。
-  - **Sentinel 保护**保持：`HKCU\Software\Classes\GeeZipX\ShellMenu\Configured=1`，NSIS fresh-install/uninstall 维护注册状态，upgrade 检测 sentinel 跳过默认注册保留用户选择。
-  - **验证状态**：协议单元测试以及原生 Windows GUI 测试/NSIS 构建已有成功记录；下一候选版仍需按提交 SHA 重跑构建，并完成 Explorer、安装升级和卸载实测。禁止 cfg stub 冒充 Windows 通过 CI。
-  - 非 Windows 平台返回 `supported: false`。Win11 限制：传统菜单项显示于"显示更多选项"(Shift+F10)。
-- **Windows 文件关联**（待下一版发布）— `commands/associations.rs` 的 Windows 平台模块同样迁移至 `windows-registry`，通过程序化 API 管理 ProgID、`OpenWithProgids`、`Capabilities` 与 `RegisteredApplications`，不再依赖外部 `reg.exe` 进程。
-
-| 风险 | 影响 | 当前缓解 |
-|------|------|----------|
-| 下一候选版尚未完成三平台发布演练 | 新变更仍可能暴露平台编译或打包问题 | 按候选提交运行 release dry-run，并核对 artifacts、SHA256 与原生验收记录 |
-| 大文件压缩进度依赖预扫描总量 | 首次开始任务前会有扫描延迟 | UI 上明确扫描阶段 |
-| Windows 长路径/符号链接差异 | 个别归档场景行为与 Unix 不完全一致 | 持续测试 + 文档限制说明 |
-| RAR / ARJ / ACE / ARC / Z 只读，ALZ 部分只读 | GUI 不能创建这些格式，且桥接范围小于 core/CLI | 以 PRD 和各 GUI 格式表分别说明范围 |
-| WIM / ISZ writer 为标准模式外的实现 | WIM 为无压缩写入、ISZ 为单流引擎（非 ArchiveWriter trait） | 在文档中明确能力边界 |
-| LZH/LHA writer按项磁盘暂存 | 创建支持lh0/lh4–lh7，有界输入/编码缓冲；临时磁盘需要当前成员原文及候选压缩结果，不支持>4GiB成员、加密、多卷与extended header | 连续字典/位流避免任意分块独立编码；7-Zip互操作、输入后取消和CRC失败保护回归；限制见专项记录 |
-| Windows COM DelegateExecute 右键菜单仍需完整原生验收 | 已通过原生编译和 NSIS 构建，Explorer 选区传递、升级与卸载仍需实机确认 | 按 `docs/RELEASE_CHECKLIST.md` 记录候选提交与逐项验收结果 |
-## 9. 独立 egui 原生 GUI
-
-`crates/gui-egui` 使用 egui/eframe 0.33.3 + Glow、rfd 系统文件选择器，独立于 Tauri/Svelte。所有阻塞文件工作在 `Job<T>` 后台线程执行；结果通过容量 1 的 channel 返回，进度使用 `Arc<Mutex<Progress>>` 最新快照和限频唤醒，不积累读取块事件。取消状态属于每个任务，界面一次只启动一个后台操作；退出时等待取消清理。
+`crates/gui-egui` 使用 egui/eframe 0.33.3 + Glow、rfd 系统文件选择器。所有阻塞文件工作在 `Job<T>` 后台线程执行；结果通过容量 1 的 channel 返回，进度使用 `Arc<Mutex<Progress>>` 最新快照和限频唤醒，不积累读取块事件。取消状态属于每个任务，界面一次只启动一个后台操作；退出时等待取消清理。
 
 原生端通过 `fonts.rs` 的 fontdb 在启动时发现系统字体并缓存目录及默认字面，`app/settings.rs` 提供“跟随系统 / 内置 Noto / 已安装字体”的可搜索选择器，保存在现有 `native-preferences` 中；用户选择只在启动及变更时加载，已卸载/不可读的字体回退至默认字体链。Windows 优先 Segoe UI/微软雅黑、macOS 优先系统无衬线/苹方、Linux 使用 Fontconfig 的通用字体配置。等宽文本保留独立的系统等宽字面；缺失中文字形逐字回退到内嵌 Noto Sans SC 2.004（SIL OFL 1.1）。加载前使用与 egui 相同的 ab_glyph 解析器验证字面，保留 TTC 字面索引，不可读/不可解析的字体自动跳过；字体发现与磁盘读取不进入重绘路径。系统字体仅在本机使用，不随应用重新分发。
 
@@ -525,7 +450,7 @@ crates/gui-tauri/
 
 原生端 `export::DeferredExport` 按归档/选区快照生成描述信息，不读取归档或创建暂存文件；只有系统确认放置、接收方请求内容后，才通过 `engine::extract` 准备一次并缓存结果。`app/interaction.rs` 管理内容坐标框选和拖放生命周期；`app/native_drag/windows.rs` 实现 OLE `IDataObject`、Unicode `FILEGROUPDESCRIPTORW`、`FILECONTENTS` 和 `IStream`，仅在 `IDropSource::QueryContinueDrag` 确认释放后提供内容；macOS 后端使用 `NSFilePromiseProvider` 与串行后台队列；Linux X11 后端在 `XdndDrop` 后响应 URI 请求。原生 Wayland 暂不支持。复制语义和暂存生命周期允许接收方异步读取。目录双击按稳定条目 ID 配对点击，Windows 使用系统双击间隔；导航快捷键方向键由 Painter 绘制。底部提示不改变列表起点。
 
-独立 `gui-egui.yml` 使用 `ubuntu-24.04`、`windows-latest`、`macos-latest`，覆盖 Linux x86_64、Windows x86_64、macOS arm64 的检查、测试、release 编译与裸可执行文件 artifacts；Windows 使用 `crates/gui-egui/windows/installer.nsi` 额外打包按用户安装的 NSIS，安装后验证 EXE 校验和、许可证、提交标识、快捷方式和卸载清理。独立安装目录与卸载注册项允许和 Tauri 并存；当前不接入正式 Release、系统右键菜单或文件关联。使用说明、完整格式范围与已知限制见 [EGUI_GUI.md](EGUI_GUI.md)。
+`gui-egui.yml` 使用 `ubuntu-24.04`、`windows-latest`、`macos-latest`，覆盖 Linux x86_64、Windows x86_64、macOS arm64 的检查、测试、release 编译与原生程序压缩包；Windows 使用 `crates/gui-egui/windows/installer.nsi` 打包按用户安装的 NSIS，验证 EXE 校验和、许可证、提交标识、快捷方式和卸载清理。`release.yml` 复用该工作流并收集产物；系统右键菜单和文件关联尚未接入。使用说明、完整格式范围与已知限制见 [EGUI_GUI.md](EGUI_GUI.md)。
 
 ## 10. 当前实现限制
 
@@ -537,11 +462,11 @@ crates/gui-tauri/
 | UDF支持库配置 | core/CLI使用同步std/read/write，独立27项单测及package通过；额外async/write组合与上游1.2.1同样因生成类型/时间方法冲突失败，待分离共享描述符和I/O绑定；workspace all-features不代表该被排除库的async组合已支持 |
 | AES 容器 | `.enc` 支持经验证的非流式容器，拒绝不安全 schema 和超额 KDF；`.aes` 用 AES Crypt v0–v3 双遍认证后解密，非seek输入暂存密文。两者格式不兼容，创建 `.aes` 不会回退生成 `.enc` |
 | 新读取预算 | EGG累计索引64MiB；CFB打开前FAT估算64MiB（不含目录等总开销）；Lzip/LZMA Alone/TLZ解码256MiB。超过当前预算明确拒绝，并非所有合法大字典/容器均可读；可配置预算和其它累计元数据计费待补。互操作证据见[专项验收](FORMAT_PARITY_ACCEPTANCE.md) |
-| PEA读取 | `archive/pea.rs`及子模块实现单卷/单流未加密Store/块Deflate；Read+Seek、64KiB缓冲、64MiB元数据计费预算，打开时顺序验证后建立索引，提取按对象seek并复核。使用adler2、crc32fast及RustCrypto校验实现，不运行Pea工具；文件名支持UTF-8/ASCII；egui 已桥接该只读子集，Tauri 尚未接入 |
-| 系统关联恢复 | 多键注册尚无完整回滚；Linux 旧 handler 备份仅会话内有效，desktop ID 查找未完整遵循 XDG；安装关联表仍宽于 GUI 实际能力 |
+| PEA读取 | `archive/pea.rs`及子模块实现单卷/单流未加密Store/块Deflate；Read+Seek、64KiB缓冲、64MiB元数据计费预算，打开时顺序验证后建立索引，提取按对象seek并复核。使用adler2、crc32fast及RustCrypto校验实现，不运行Pea工具；文件名支持UTF-8/ASCII；egui 已桥接该只读子集 |
+| 系统集成 | 文件关联与系统右键菜单注册尚未接入；直接传入归档路径可打开，多个普通文件或目录进入创建流程 |
 | 组事务与持久性 | 多文件提取按条目发布，多卷不能整组原子提交；普通失败会清理，不保证强杀、断电或所有文件系统语义下的完整回滚 |
-| NSIS读取 | `archive/nsis.rs`及子模块实现现代NSIS 3 Unicode静态文件/目录映射，Store/Deflate/BZip2/LZMA的solid与non-solid；PE范围、可选CRC和精确流结束校验。64KiB I/O、64MiB元数据与LZMA字典预算，solid匿名磁盘暂存；有界编解码内存不随单项长度增长，临时磁盘随solid原文增长。ANSI/旧版/Park、BCJ、自定义打包stub、插件/运行时文件和卸载器重建不在范围；egui 已桥接该只读子集，Tauri 尚未接入 |
-| 格式范围 | ALZ/EGG/PEA/NSIS部分只读；Z/PMA/TLZ/AES Crypt/Compound 已接入；BH/DAA1.0 暂缓。逐项证据、性能债务及后续方案见 [格式审查](FORMAT_PARITY_AUDIT.md)；egui 已桥接当前 core 格式，Tauri 清单独立维护，各格式的 core 子集限制仍适用 |
-| 桌面性能与可访问性 | 尚无 Tauri/egui 同机耗时和 RSS 对照基准；仍需超大归档、键盘焦点与原生拖放实测 |
+| NSIS读取 | `archive/nsis.rs`及子模块实现现代NSIS 3 Unicode静态文件/目录映射，Store/Deflate/BZip2/LZMA的solid与non-solid；PE范围、可选CRC和精确流结束校验。64KiB I/O、64MiB元数据与LZMA字典预算，solid匿名磁盘暂存；有界编解码内存不随单项长度增长，临时磁盘随solid原文增长。ANSI/旧版/Park、BCJ、自定义打包stub、插件/运行时文件和卸载器重建不在范围；egui 已桥接该只读子集 |
+| 格式范围 | ALZ/EGG/PEA/NSIS部分只读；Z/PMA/TLZ/AES Crypt/Compound 已接入；BH/DAA1.0 暂缓。逐项证据、性能债务及后续方案见 [格式审查](FORMAT_PARITY_AUDIT.md)；egui 已桥接当前 core 格式，各格式的 core 子集限制仍适用 |
+| 桌面性能与可访问性 | 仍需超大归档、键盘焦点、屏幕阅读器与原生拖放实测 |
 
 Cargo workspace 成员、feature 与依赖版本以根目录及各 crate 的 `Cargo.toml`、`Cargo.lock` 为准；本文不复制完整配置。

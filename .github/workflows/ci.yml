@@ -28,7 +28,7 @@ jobs:
         with:
           toolchain: "1.99.0"
           cache: true
-      - run: cargo doc --workspace --exclude geezipx-gui --no-deps --document-private-items
+      - run: cargo doc --workspace --no-deps --document-private-items
 
   fmt:
     runs-on: ubuntu-24.04
@@ -46,24 +46,6 @@ jobs:
         run: cargo fmt --manifest-path crates/vendor/oxiarc-lzhuf/Cargo.toml --check
       - name: Check maintained NSIS support library formatting
         run: cargo fmt --manifest-path crates/vendor/nsis/Cargo.toml --check
-
-  gui-build:
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-node@v6
-        with:
-          node-version: 20
-          cache: npm
-          cache-dependency-path: crates/gui-tauri/package-lock.json
-      - working-directory: crates/gui-tauri
-        run: npm ci
-      - working-directory: crates/gui-tauri
-        run: npm test
-      - working-directory: crates/gui-tauri
-        run: npx tsc --noEmit
-      - working-directory: crates/gui-tauri
-        run: npm run build
 
   clippy:
     needs: fmt
@@ -88,10 +70,10 @@ jobs:
         run: cargo check -p geezipx --no-default-features
       - name: Clippy (macOS, exclude zpaq for LLVM compat)
         if: runner.os == 'macOS'
-        run: cargo clippy --workspace --exclude geezipx-gui --all-targets --no-default-features -F rar,wim,sfx -- -D warnings
+        run: cargo clippy --workspace --all-targets --no-default-features -F rar,wim,sfx -- -D warnings
       - name: Clippy (Linux / Windows)
         if: runner.os != 'macOS'
-        run: cargo clippy --workspace --exclude geezipx-gui --all-targets --all-features -- -D warnings
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
   test:
     needs: fmt
@@ -144,10 +126,10 @@ jobs:
         run: cargo test --locked -p geezipx-core -p geezipx --no-default-features -F rar,sfx
       - name: Test (macOS, exclude zpaq for LLVM compat)
         if: runner.os == 'macOS'
-        run: cargo test --locked --workspace --exclude geezipx-gui --no-default-features -F rar,wim,sfx
+        run: cargo test --locked --workspace --no-default-features -F rar,wim,sfx
       - name: Test (Linux / Windows)
         if: runner.os != 'macOS'
-        run: cargo test --locked --workspace --exclude geezipx-gui --all-features
+        run: cargo test --locked --workspace --all-features
 
   build:
     needs: [fmt, clippy, test]

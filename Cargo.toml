@@ -6,7 +6,6 @@ exclude = ["crates/vendor/hadris-iso", "crates/vendor/hadris-udf", "crates/vendo
 members = [
     "crates/core",
     "crates/cli",
-    "crates/gui-tauri/src-tauri",
     "crates/gui-egui",
     "crates/sfx-stub",
     "crates/vendor/unrar-sys",
