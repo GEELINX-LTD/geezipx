@@ -42,7 +42,7 @@ jobs:
           - os: macos-latest
             platform: macos-arm64
             suffix: ''
-            test_features: '' # Match the existing macOS exclusion of ZPAQ (C++/LLVM compatibility).
+            test_features: '--all-features'
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v6
@@ -55,6 +55,27 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: '"RUSTFLAGS=$env:RUSTFLAGS -C target-feature=+crt-static" >> $env:GITHUB_ENV'
+      - name: Avoid cross-language C++ LTO
+        if: runner.os != 'Windows'
+        run: echo 'CXXFLAGS=-fno-lto' >> "$GITHUB_ENV"
+      - name: Refresh embedded SFX stub
+        shell: bash
+        run: |
+          case '${{ runner.os }}' in
+            Linux)
+              cargo build -p geezipx-sfx-stub --release --locked
+              cp target/release/sfx-stub crates/core/stubs/linux-x86_64/sfx-stub
+              ;;
+            Windows)
+              cargo build -p geezipx-sfx-stub --release --locked
+              cp target/release/sfx-stub.exe crates/core/stubs/windows-x86_64/sfx-stub.exe
+              ;;
+            macOS)
+              rustup target add x86_64-apple-darwin
+              cargo build -p geezipx-sfx-stub --release --target x86_64-apple-darwin --locked
+              cp target/x86_64-apple-darwin/release/sfx-stub crates/core/stubs/macos-x86_64/sfx-stub
+              ;;
+          esac
       - name: Check native frontend
         run: cargo clippy -p geezipx-egui --all-targets ${{ matrix.test_features }} --locked -- -D warnings
       - name: Test archive operations
