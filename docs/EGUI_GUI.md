@@ -149,7 +149,7 @@ Windows 安装器支持简体中文/英文，默认安装到 `%LOCALAPPDATA%\Pro
 
 Windows 构建需要 Windows SDK 的 MakeAppx、SignTool 和 `mt.exe`。签名身份必须在 Cargo 编译前配置，以确保 DLL 嵌入的身份与 MSIX 的 Publisher 一致。正式 tag 发布使用受信任的代码签名证书：GitHub secrets `WINDOWS_CERTIFICATE_PFX` 为 PFX 的 Base64，`WINDOWS_CERTIFICATE_PASSWORD` 为其密码。`release.yml` 要求正式发布使用这些凭据，缺失时构建失败；push、PR、手动测试及 release dry-run 使用临时测试证书，不向安装器加入证书信任操作。
 
-开发机测试构建（测试脚本显式将临时公钥导入本机 `TrustedPeople` 以及当前用户 `Root`，分别用于 MSIX 安装和 EXE/DLL 的 Authenticode 验证；前者需要管理员权限，只用于可清理的测试环境，安装器不会导入证书）：
+开发机测试构建（测试脚本显式将临时公钥导入本机 `TrustedPeople` 和 `Root`，分别用于 MSIX 安装和 EXE/DLL 的 Authenticode 验证；两者均需要管理员权限，只用于可清理的测试环境，安装器不会导入证书。使用本机 `Root` 可避免当前用户根证书导入时弹出的确认窗口阻塞无人值守构建；工作流中的签名配置步骤限时 5 分钟）：
 
 ```powershell
 ./scripts/configure-egui-windows-signing.ps1 -TestCertificate

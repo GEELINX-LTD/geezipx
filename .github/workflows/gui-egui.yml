@@ -70,6 +70,7 @@ jobs:
           cache: true
       - name: Configure Windows shell signing identity
         if: runner.os == 'Windows'
+        timeout-minutes: 5
         shell: pwsh
         env:
           GEEZIPX_WINDOWS_CERTIFICATE_PFX: ${{ inputs.production_signing && secrets.WINDOWS_CERTIFICATE_PFX || '' }}

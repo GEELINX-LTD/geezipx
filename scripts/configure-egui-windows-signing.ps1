@@ -6,12 +6,16 @@ $release = Join-Path $repo 'target/release'
 New-Item -ItemType Directory -Force -Path $release | Out-Null
 if ($TestCertificate) {
   if ($CertificateThumbprint -or $env:GEEZIPX_WINDOWS_CERTIFICATE_PFX) { throw 'Test signing must not use a production certificate' }
+  Write-Host 'Creating temporary Windows shell signing certificate'
   $certificate = New-SelfSignedCertificate -Type CodeSigningCert -Subject 'CN=GeeZipX Native Test' -CertStoreLocation 'Cert:\CurrentUser\My' -NotAfter (Get-Date).AddDays(30)
   Export-Certificate -Cert $certificate -FilePath (Join-Path $release 'GeeZipXShell-test.cer') | Out-Null
   # This opt-in script is for disposable CI/developer profiles only. Installers never trust certificates.
+  Write-Host 'Trusting MSIX test certificate in LocalMachine\TrustedPeople'
   Import-Certificate -FilePath (Join-Path $release 'GeeZipXShell-test.cer') -CertStoreLocation 'Cert:\LocalMachine\TrustedPeople' | Out-Null
-  # MSIX uses TrustedPeople; Authenticode verification of the EXE/DLL also needs a trust anchor.
-  Import-Certificate -FilePath (Join-Path $release 'GeeZipXShell-test.cer') -CertStoreLocation 'Cert:\CurrentUser\Root' | Out-Null
+  # CurrentUser\Root can show a blocking security dialog on unattended runners.
+  # This script already requires elevation for TrustedPeople; use the machine root store too.
+  Write-Host 'Trusting Authenticode test certificate in LocalMachine\Root'
+  Import-Certificate -FilePath (Join-Path $release 'GeeZipXShell-test.cer') -CertStoreLocation 'Cert:\LocalMachine\Root' | Out-Null
 } elseif ($CertificateThumbprint) {
   $certificate = Get-Item -LiteralPath "Cert:\CurrentUser\My\$CertificateThumbprint"
 } elseif ($env:GEEZIPX_WINDOWS_CERTIFICATE_PFX) {
