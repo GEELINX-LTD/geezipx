@@ -16,7 +16,7 @@ wim = ["geezipx-core/wim"]
 
 [dependencies]
 geezipx-core = { workspace = true, features = ["sfx"] }
-geezipx-shell = { path = "../shell" }
+geezipx-shell = { version = "0.7.4", path = "../shell" }
 eframe = { version = "0.33.3", default-features = false, features = ["accesskit", "default_fonts", "glow", "wayland", "x11", "persistence"] }
 fontdb = "0.24"
 ab_glyph = "0.2"
