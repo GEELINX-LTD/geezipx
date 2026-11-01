@@ -138,7 +138,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path $output | Out-Null
           & $nsis /WX /INPUTCHARSET UTF8 "/DREPO_ROOT=$env:GITHUB_WORKSPACE" "/DOUTPUT_DIR=$output" "/DAPP_VERSION=$version" "/DAPP_REVISION=$env:GITHUB_SHA" crates/gui-egui/windows/installer.nsi
           if ($LASTEXITCODE -ne 0) { throw 'NSIS packaging failed' }
-          $installer = Join-Path $output "GeeZipX-Native_${version}_x64-setup.exe"
+          $installer = Join-Path $output "GeeZipX_${version}_x64-setup.exe"
           if (-not (Test-Path $installer)) { throw 'Windows installer missing' }
           if (Test-Path target/release/GeeZipXShell-test.cer) { Copy-Item target/release/GeeZipXShell-test.cer $output }
           $build = @{
@@ -162,12 +162,13 @@ jobs:
           $installers = @(Get-ChildItem target/release/bundle/egui-nsis/*-setup.exe)
           if ($installers.Count -ne 1) { throw 'Expected one Windows installer' }
           $installer = $installers[0]
-          $installDir = Join-Path $env:RUNNER_TEMP 'GeeZipX Native 安装测试'
+          $installDir = Join-Path $env:RUNNER_TEMP 'GeeZipX 安装测试'
           $result = Start-Process $installer.FullName -ArgumentList "/S /D=$installDir" -Wait -PassThru
           if ($result.ExitCode -ne 0) { throw "Installer failed: $($result.ExitCode)" }
           $exe = Join-Path $installDir 'geezipx-egui.exe'
           $expected = (Get-FileHash target/release/geezipx-egui.exe -Algorithm SHA256).Hash
           if ((Get-FileHash $exe -Algorithm SHA256).Hash -ne $expected) { throw 'Installed executable differs from build' }
+          ./scripts/test-egui-windows-resources.ps1 -Exe $exe
           foreach ($file in @('geezipx_shell.dll', 'GeeZipXShell.msix')) {
             if ((Get-FileHash (Join-Path $installDir $file) -Algorithm SHA256).Hash -ne (Get-FileHash "target/release/$file" -Algorithm SHA256).Hash) { throw "Installed shell file differs: $file" }
           }
@@ -177,8 +178,9 @@ jobs:
           if (-not (Select-String -Path (Join-Path $installDir 'build-info.txt') -SimpleMatch $env:GITHUB_SHA -Quiet)) { throw 'Installed build revision differs from run' }
           $key = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\GeeZipXNative'
           if ((Get-ItemProperty $key).InstallLocation -ne $installDir) { throw 'Uninstall registration missing' }
-          $shortcutDir = Join-Path ([Environment]::GetFolderPath('Programs')) 'GeeZipX Native'
-          if (-not (Test-Path (Join-Path $shortcutDir 'GeeZipX Native.lnk'))) { throw 'Start menu shortcut missing' }
+          if ((Get-ItemProperty $key).DisplayName -ne 'GeeZipX') { throw 'Wrong product display name' }
+          $shortcutDir = Join-Path ([Environment]::GetFolderPath('Programs')) 'GeeZipX'
+          if (-not (Test-Path (Join-Path $shortcutDir 'GeeZipX.lnk'))) { throw 'Start menu shortcut missing' }
           # Hosted Windows runners may expose only the legacy OpenGL driver.
           # Keep the pinned software renderer local to this acceptance install.
           $mesaArchive = Join-Path $env:RUNNER_TEMP 'mesa3d-26.2.5-release-msvc.7z'

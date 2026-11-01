@@ -783,7 +783,7 @@ impl App {
                         theme::logo(ui, 34.0);
                         ui.heading(format!("GeeZipX {}", env!("CARGO_PKG_VERSION")));
                     });
-                    theme::caption(ui, tr!(language, NativeTagline));
+                    theme::caption(ui, tr!(language, Tagline));
                     ui.hyperlink_to(tr!(language, ProjectLink), env!("CARGO_PKG_REPOSITORY"));
                     ui.label(tr!(language, Licenses));
                     ui.collapsing(tr!(language, FontLicenses), |ui| {

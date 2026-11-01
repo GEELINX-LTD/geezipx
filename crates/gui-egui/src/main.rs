@@ -95,7 +95,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         Request::Empty => (Action::Open, Vec::new()),
         Request::Paths(action, paths) => (action, paths),
         Request::Help => {
-            println!("GeeZipX Native {}\n\n用法：geezipx-egui [--] [归档 | 文件或文件夹…]\n单个归档会打开浏览，其他输入会加入新建压缩包。\n\n系统快捷操作：\n  --shell-action <compress|compress-zip|extract|extract-here|extract-folder> -- <路径…>\n\n系统集成维护（当前用户，无需启动窗口）：\n  --shell-integration-status\n  --register-shell-integration\n  --repair-shell-integration\n  --remove-shell-integration", env!("CARGO_PKG_VERSION"));
+            println!("GeeZipX {}\n\n用法：geezipx-egui [--] [归档 | 文件或文件夹…]\n单个归档会打开浏览，其他输入会加入新建压缩包。\n\n系统快捷操作：\n  --shell-action <compress|compress-zip|extract|extract-here|extract-folder> -- <路径…>\n\n系统集成维护（当前用户，无需启动窗口）：\n  --shell-integration-status\n  --register-shell-integration\n  --repair-shell-integration\n  --remove-shell-integration", env!("CARGO_PKG_VERSION"));
             return Ok(());
         }
         Request::Version => {
@@ -125,7 +125,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     };
     let options = eframe::NativeOptions {
         viewport: eframe::egui::ViewportBuilder::default()
-            .with_title("GeeZipX · Native")
+            .with_title("GeeZipX")
             .with_decorations(false)
             .with_transparent(true)
             .with_app_id(integration::APP_ID)
@@ -136,7 +136,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         ..Default::default()
     };
     eframe::run_native(
-        "GeeZipX Native",
+        "GeeZipX",
         options,
         Box::new(move |cc| Ok(Box::new(app::App::new(cc, action, paths)))),
     )?;

@@ -10,7 +10,7 @@ bash scripts/verify-release-artifacts.sh artifacts
 
 Requires nonempty Linux/macOS/Windows CLI archives and egui archives, each
 with matching original `.sha256` files, plus a nonempty Windows NSIS installer
-(`GeeZipX-Native_*_x64-setup.exe`) and its matching `.sha256`. Native archives use the names
+(`GeeZipX_*_x64-setup.exe`) and its matching `.sha256`. Native archives use the names
 `geezipx-egui-linux-x86_64.tar.gz`, `geezipx-egui-macos-arm64.tar.gz` and
 `geezipx-egui-windows-x86_64.zip`. Missing files, empty files and checksum
 mismatches fail the command. After validation, it writes individual checksums

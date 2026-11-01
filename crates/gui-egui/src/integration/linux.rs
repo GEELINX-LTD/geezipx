@@ -91,7 +91,7 @@ fn desktop_entry(exe: &Path, menu: bool) -> Result<String, String> {
         .map(|f| f.mime)
         .collect::<Vec<_>>()
         .join(";");
-    let mut text = format!("[Desktop Entry]\nType=Application\nName=GeeZipX Native\nComment=Archive manager\nExec=/usr/bin/env {exe} -- %F\nIcon=package-x-generic\nTerminal=false\nCategories=Utility;Archiving;\nMimeType={mimes};\n");
+    let mut text = format!("[Desktop Entry]\nType=Application\nName=GeeZipX\nComment=Archive manager\nExec=/usr/bin/env {exe} -- %F\nIcon=package-x-generic\nTerminal=false\nCategories=Utility;Archiving;\nMimeType={mimes};\n");
     if menu {
         text.push_str("Actions=compress;compress-zip;extract;extract-here;extract-folder;\n");
         for action in Action::MENU {

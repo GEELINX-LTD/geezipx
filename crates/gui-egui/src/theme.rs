@@ -164,28 +164,24 @@ pub fn logo(ui: &mut egui::Ui, size: f32) {
 }
 
 pub(crate) fn paint_logo(painter: &egui::Painter, rect: egui::Rect) {
-    painter.rect_filled(rect, rect.width() * 0.28, ACCENT);
-    let s = rect.width() / 32.0;
-    let origin = rect.min;
-    for index in 0..5 {
-        let x = if index % 2 == 0 { 12.0 } else { 16.0 };
-        painter.rect_filled(
-            egui::Rect::from_min_size(
-                origin + egui::vec2(x * s, (5.0 + index as f32 * 3.5) * s),
-                egui::vec2(4.0 * s, 2.5 * s),
-            ),
-            0.5,
-            Color32::WHITE,
+    let context = painter.ctx();
+    let id = egui::Id::new("geezipx-logo");
+    let texture = context.data(|data| data.get_temp::<egui::TextureHandle>(id));
+    let texture = texture.unwrap_or_else(|| {
+        let icon = icon();
+        let image = egui::ColorImage::from_rgba_unmultiplied(
+            [icon.width as usize, icon.height as usize],
+            &icon.rgba,
         );
-    }
-    painter.rect_stroke(
-        egui::Rect::from_min_size(
-            origin + egui::vec2(12.0 * s, 23.0 * s),
-            egui::vec2(8.0 * s, 5.0 * s),
-        ),
-        1.5,
-        Stroke::new(1.7 * s, Color32::WHITE),
-        egui::StrokeKind::Inside,
+        let texture = context.load_texture("geezipx-logo", image, egui::TextureOptions::LINEAR);
+        context.data_mut(|data| data.insert_temp(id, texture.clone()));
+        texture
+    });
+    painter.image(
+        texture.id(),
+        rect,
+        egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0)),
+        Color32::WHITE,
     );
 }
 
@@ -200,27 +196,8 @@ pub fn bytes(value: u64) -> String {
 }
 
 pub fn icon() -> Arc<egui::IconData> {
-    let mut rgba = vec![0; 32 * 32 * 4];
-    for y in 0..32 {
-        for x in 0..32 {
-            let offset = (y * 32 + x) * 4;
-            let teeth = (5..22).contains(&y)
-                && if ((y - 5) / 4) % 2 == 0 {
-                    (12..16).contains(&x)
-                } else {
-                    (16..20).contains(&x)
-                };
-            let pull = (23..28).contains(&y) && (12..20).contains(&x);
-            rgba[offset..offset + 4].copy_from_slice(&if teeth || pull {
-                [255; 4]
-            } else {
-                ACCENT.to_array()
-            });
-        }
-    }
-    Arc::new(egui::IconData {
-        rgba,
-        width: 32,
-        height: 32,
-    })
+    Arc::new(
+        eframe::icon_data::from_png_bytes(include_bytes!("../assets/icon.png"))
+            .expect("Bundled GeeZipX icon must be a valid PNG"),
+    )
 }

@@ -92,6 +92,9 @@ fn home() -> Result<PathBuf, String> {
         .ok_or("HOME is unset".into())
 }
 fn bundle() -> Result<PathBuf, String> {
+    Ok(home()?.join("Applications/GeeZipX.app"))
+}
+fn legacy_bundle() -> Result<PathBuf, String> {
     Ok(home()?.join("Applications/GeeZipX Native Launcher.app"))
 }
 fn backups() -> Result<PathBuf, String> {
@@ -99,7 +102,7 @@ fn backups() -> Result<PathBuf, String> {
 }
 fn service(action: Action) -> Result<PathBuf, String> {
     Ok(home()?.join(format!(
-        "Library/Services/GeeZipX Native {}.workflow",
+        "Library/Services/GeeZipX {}.workflow",
         action.argument()
     )))
 }
@@ -168,7 +171,7 @@ fn launcher(exe: &Path) -> Result<(), String> {
         .flat_map(|f| f.extensions)
         .map(|e| format!("<string>{e}</string>"))
         .collect::<String>();
-    let info = format!("<?xml version=\"1.0\" encoding=\"UTF-8\"?><!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\"><plist version=\"1.0\"><dict><key>CFBundleIdentifier</key><string>{APP_ID}</string><key>CFBundleName</key><string>GeeZipX Native</string><key>CFBundleExecutable</key><string>applet</string><key>CFBundlePackageType</key><string>APPL</string><key>CFBundleVersion</key><string>1</string><key>NSAppleScriptEnabled</key><true/><key>CFBundleDocumentTypes</key><array><dict><key>CFBundleTypeName</key><string>GeeZipX Archive</string><key>CFBundleTypeRole</key><string>Viewer</string><key>LSHandlerRank</key><string>Alternate</string><key>CFBundleTypeExtensions</key><array>{extensions}</array></dict></array></dict></plist>");
+    let info = format!("<?xml version=\"1.0\" encoding=\"UTF-8\"?><!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\"><plist version=\"1.0\"><dict><key>CFBundleIdentifier</key><string>{APP_ID}</string><key>CFBundleName</key><string>GeeZipX</string><key>CFBundleExecutable</key><string>applet</string><key>CFBundlePackageType</key><string>APPL</string><key>CFBundleVersion</key><string>1</string><key>NSAppleScriptEnabled</key><true/><key>CFBundleDocumentTypes</key><array><dict><key>CFBundleTypeName</key><string>GeeZipX Archive</string><key>CFBundleTypeRole</key><string>Viewer</string><key>LSHandlerRank</key><string>Alternate</string><key>CFBundleTypeExtensions</key><array>{extensions}</array></dict></array></dict></plist>");
     write(&compiled.join("Contents/Info.plist"), &info)?;
     // Re-sign after changing the generated applet's plist.
     command(
@@ -195,13 +198,17 @@ fn launcher(exe: &Path) -> Result<(), String> {
     }
     let status = unsafe { LSRegisterURL(url.0, 1) };
     if status == 0 {
-        Ok(())
+        remove_dir(&legacy_bundle()?)
     } else {
         Err(format!("Register launcher: {status}"))
     }
 }
 fn install_services(exe: &Path, enabled: bool, language: Language) -> Result<(), String> {
     for action in Action::MENU {
+        remove_dir(&home()?.join(format!(
+            "Library/Services/GeeZipX Native {}.workflow",
+            action.argument()
+        )))?;
         let path = service(action)?;
         remove_dir(&path)?;
         if !enabled {
@@ -226,7 +233,8 @@ fn install_services(exe: &Path, enabled: bool, language: Language) -> Result<(),
     Ok(())
 }
 pub fn inspect() -> Result<Snapshot, String> {
-    let registered = bundle()?.join("Contents/MacOS/applet").is_file();
+    let registered = bundle()?.join("Contents/MacOS/applet").is_file()
+        || legacy_bundle()?.join("Contents/MacOS/applet").is_file();
     let associations = FORMATS
         .iter()
         .map(|f| {
@@ -242,10 +250,19 @@ pub fn inspect() -> Result<Snapshot, String> {
         .collect::<Result<_, String>>()?;
     let menu = Action::MENU
         .iter()
-        .map(|a| service(*a))
-        .collect::<Result<Vec<_>, _>>()?
-        .iter()
-        .all(|p| p.join("Contents/document.wflow").is_file());
+        .map(|a| {
+            Ok(service(*a)?.join("Contents/document.wflow").is_file()
+                || home()?
+                    .join(format!(
+                        "Library/Services/GeeZipX Native {}.workflow",
+                        a.argument()
+                    ))
+                    .join("Contents/document.wflow")
+                    .is_file())
+        })
+        .collect::<Result<Vec<bool>, String>>()?
+        .into_iter()
+        .all(|installed| installed);
     Ok(Snapshot { associations, menu })
 }
 pub fn apply(selected: &[bool], enabled: bool, language: Language) -> Result<(), String> {
@@ -291,6 +308,7 @@ pub fn remove() -> Result<(), String> {
     }
     install_services(&executable()?, false, Language::English)?;
     remove_dir(&bundle()?)?;
+    remove_dir(&legacy_bundle()?)?;
     match fs::remove_file(backups()?) {
         Ok(()) => Ok(()),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
@@ -298,5 +316,11 @@ pub fn remove() -> Result<(), String> {
     }
 }
 pub fn open_defaults() -> Result<(), String> {
-    open::that(bundle()?).map_err(|e| e.to_string())
+    let path = bundle()?;
+    open::that(if path.exists() {
+        path
+    } else {
+        legacy_bundle()?
+    })
+    .map_err(|e| e.to_string())
 }

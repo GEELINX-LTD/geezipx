@@ -23,12 +23,15 @@ cargo deny check
 - [ ] 针对候选提交触发 `.github/workflows/gui-egui.yml`，确认 Linux x86_64、Windows x86_64、macOS arm64 的检查、测试、SFX stub 与 release 构建通过。
 - [ ] 核对 `geezipx-egui-<platform>` artifact 中的可执行文件、许可证及 `docs/EGUI_GUI.md`。
 - [ ] 核对 `geezipx-egui-<platform>-release` artifact 中的原生程序压缩包与原始 SHA-256；解包确认程序、LICENSE、NOTICE、字体许可和提交标识完整。
-- [ ] Windows 安装包 artifact `geezipx-egui-windows-x86_64-installer` 包含非空 `GeeZipX-Native_<version>_x64-setup.exe`、`SHA256SUMS.txt` 与 `build-info.json`，提交 SHA 与候选一致。
+- [ ] Windows 安装包 artifact `geezipx-egui-windows-x86_64-installer` 包含非空 `GeeZipX_<version>_x64-setup.exe`、`SHA256SUMS.txt` 与 `build-info.json`，提交 SHA 与候选一致。
 - [ ] macOS GUI 为 arm64，内嵌自解压 stub 仍为 x86_64；将二者的测试范围分别记录，不把 GUI 架构作为 SFX 架构证据。
 
 ## Windows 安装与卸载
 
-- [ ] 安装器简体中文/英文可用，按用户安装无需管理员权限；默认目录为 `%LOCALAPPDATA%\Programs\GeeZipX Native`。
+- [ ] EXE 含真实的 PE 图标组/图标资源，产品名和文件描述为 GeeZipX；安装后资源管理器、开始菜单、任务栏和归档关联图标显示正确。运行 `scripts/test-egui-windows-resources.ps1 -Exe <path>` 核对资源。
+- [ ] 设置两页在 760×480 下操作栏完整可见；外观即时生效，系统集成搜索不丢勾选、刷新/失败保留选择，移除与放弃修改需确认。
+
+- [ ] 安装器简体中文/英文可用，按用户安装无需管理员权限；默认目录为 `%LOCALAPPDATA%\Programs\GeeZipX`，升级复用已登记路径并移除旧名称快捷方式。
 - [ ] 在含中文与空格的安装目录运行，确认应用哈希、LICENSE、字体许可、提交标识、开始菜单入口和卸载项正确。
 - [ ] 通过开始菜单或 EXE 启动，打开 Unicode 路径归档；升级后仍可启动并保留外观与最近路径。
 - [ ] “工具 → 设置… → 系统集成”按所选格式注册 Open With/默认应用，手动在 Windows 默认应用确认后双击打开；注册/移除不写受保护的 `UserChoice`，保留其他应用的 OpenWith 值。

@@ -11,11 +11,12 @@ if ($Uninstalled) {
   foreach ($path in @($menu, $capabilities, "$classes\GeeZipX.Native.zip") + @($clsids | ForEach-Object { "$classes\CLSID\$_" })) {
     if (Test-Path -LiteralPath $path) { throw "Integration survived uninstall: $path" }
   }
-  $registered = (Get-ItemProperty -LiteralPath 'HKCU:\Software\RegisteredApplications' -ErrorAction SilentlyContinue).'GeeZipX Native'
-  if ($registered) { throw 'RegisteredApplications survived uninstall' }
+  $registered = Get-ItemProperty -LiteralPath 'HKCU:\Software\RegisteredApplications' -ErrorAction SilentlyContinue
+  if ($registered.GeeZipX -or $registered.'GeeZipX Native') { throw 'RegisteredApplications survived uninstall' }
   Write-Host 'Native shell integration uninstall passed'
   return
 }
+./scripts/test-egui-windows-resources.ps1 -Exe $Exe
 function Invoke-Integration([string]$Action) {
   $process = Start-Process -FilePath $Exe -ArgumentList $Action -PassThru -Wait
   if ($process.ExitCode -ne 0) { throw "$Action failed: $($process.ExitCode)" }
@@ -26,6 +27,9 @@ $before = Get-ItemProperty -LiteralPath $choicePath -ErrorAction SilentlyContinu
 Invoke-Integration '--register-shell-integration'
 Invoke-Integration '--register-shell-integration'
 $after = Get-ItemProperty -LiteralPath $choicePath -ErrorAction SilentlyContinue
+if ((Get-ItemProperty -LiteralPath $capabilities).ApplicationName -ne 'GeeZipX') { throw 'Wrong default-app display name' }
+$registered = Get-ItemProperty -LiteralPath 'HKCU:\Software\RegisteredApplications'
+if (-not $registered.GeeZipX -or $registered.'GeeZipX Native') { throw 'Default-app name migration failed' }
 if ($before.ProgId -ne $after.ProgId -or $before.Hash -ne $after.Hash) { throw 'Registration changed UserChoice' }
 $command = (Get-Item -LiteralPath "$classes\GeeZipX.Native.zip\shell\open\command").GetValue('')
 if ($command -ne "`"$Exe`" -- `"%1`"") { throw "Wrong archive launch command: $command" }

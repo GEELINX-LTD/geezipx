@@ -25,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **GUI — Name and settings**: Use GeeZipX for application, installer and system display names. Split Settings into Appearance and System integration, add theme selection and searchable format rows, keep actions visible, preserve pending selections on refresh/failure and confirm removal or discarding system changes. Migrate old launcher/shortcut names while retaining association and preference identifiers.
 - **Native GUI — Direct extraction**: Resolve Windows drop destinations after release and run extraction through the application's normal background job, progress, cancellation and history. Use a folder chooser for destinations that cannot be resolved reliably; remove Explorer virtual-file copying and whole-selection drag staging on Windows. Preserve safe per-file commits and selected-root paths.
 - **Core/GUI — Extraction I/O**: Add selection-aware direct output and cancellable metadata APIs. Seek over TAR/LZH/CPIO payloads while listing, extract CPIO selections in one pass, reuse GUI metadata instead of relisting compressed streams, and share decoded unencrypted single streams across preview/extraction. Reject stale source indexes and reread original content for verification. Keep authentication, solid-format staging and documented third-party buffering limits.
 
@@ -48,6 +49,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Upgrade ZIP to 9.1.3, `unarc-rs` to 0.8 and Zstandard to 0.14.3; refresh transitive dependencies to resolve audit advisories.
 
 ### Fixed
+
+- **GUI — Windows icon**: Embed the multi-resolution application ICO and GeeZipX version metadata into the EXE so Explorer, shortcuts and file associations can resolve its icon. Check the real PE icon resources and product metadata during Windows installation acceptance.
 
 - **Native GUI — Windows desktop drag-out**: Resolve desktop background drops through the redirected Desktop known folder instead of treating the merged virtual desktop as a filesystem directory. Recognize Explorer-owned desktop hosts and resolve desktop folder icons through their real Shell items, retaining explicit folder selection for unknown or virtual targets.
 

@@ -92,7 +92,7 @@
 ## Status
 
 Phase 1 (CLI MVP) is **complete and mature**. All formats listed in the Format Support table support their applicable subcommands. The `completions` command is also complete.
-Phase 2 (Desktop GUI) is **the active development focus**. **GeeZipX Native** is the sole desktop frontend, built with egui/eframe and the shared Rust core. It provides archive browsing, drag/drop, selective extraction, ZIP/7z encryption, bounded text preview, integrity checks, task cancellation, and light/dark themes. See [`docs/EGUI_GUI.md`](docs/EGUI_GUI.md) for its features and format scope.
+Phase 2 (Desktop GUI) is **the active development focus**. **GeeZipX** is the sole desktop frontend, built with egui/eframe and the shared Rust core. It provides archive browsing, drag/drop, selective extraction, ZIP/7z encryption, bounded text preview, integrity checks, task cancellation, and light/dark themes. See [`docs/EGUI_GUI.md`](docs/EGUI_GUI.md) for its features and format scope.
 
 | Phase | Theme | Status |
 |-------|-------|--------|
@@ -113,7 +113,7 @@ The native frontend exposes every current core format: writable formats appear i
 
 The native frontend uses Rust, egui/eframe and OpenGL, with system file dialogs and an embedded Chinese font. Its compact file manager provides sortable, resizable columns, conventional mouse/keyboard selection, creation and extraction dialogs, and inline task progress; `Ctrl/Cmd+O`, `N`, `E` and `F` open archives, create, extract and search. `cargo build` defaults to core/CLI; select `geezipx-egui` explicitly for the desktop app. Native release builds provide Linux x86_64, macOS arm64 and Windows x86_64 archives, plus a per-user NSIS installer for Windows. Tools → Settings → System integration registers supported file types and compression/extraction shortcuts for the current user. Windows confirms default handlers in System default apps; Linux uses MIME associations and KDE/Nautilus/Nemo entries, and macOS uses a LaunchServices launcher and Finder services.
 
-The Tools → Settings dialog offers a searchable system-font picker and an embedded Noto Sans SC fallback. Font preferences, light/dark appearance and recent paths persist locally; passwords are kept within the current operation.
+The Tools → Settings dialog has separate Appearance and System integration pages. Appearance offers language, light/dark theme, a searchable system-font picker and a font preview, with changes applied immediately. Integration offers format/extension search, full-row selection, association status and an explicit Apply action; refreshes and failures preserve pending selections, and removal or discarding changes requires confirmation. Font preferences, appearance, language and recent paths persist locally; passwords are kept within the current operation. Windows EXEs embed the application icon and GeeZipX product metadata, and the installer is named `GeeZipX_<version>_x64-setup.exe`.
 
 ## Install
 

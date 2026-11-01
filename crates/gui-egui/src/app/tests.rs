@@ -28,7 +28,7 @@ pub(super) fn context() -> egui::Context {
     theme::apply(&context, false);
     context
 }
-fn draw(app: &mut App, context: &egui::Context, size: [f32; 2]) -> egui::FullOutput {
+pub(super) fn draw(app: &mut App, context: &egui::Context, size: [f32; 2]) -> egui::FullOutput {
     let output = context.run(
         egui::RawInput {
             screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, size.into())),
@@ -59,7 +59,7 @@ fn key(app: &mut App, context: &egui::Context, key: egui::Key, modifiers: egui::
         |context| app.render(context),
     );
 }
-fn assert_action_visible(output: &egui::FullOutput, size: [f32; 2], action: &str) {
+pub(super) fn assert_action_visible(output: &egui::FullOutput, size: [f32; 2], action: &str) {
     let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, size.into());
     let text = output
         .shapes
@@ -78,7 +78,7 @@ fn assert_action_visible(output: &egui::FullOutput, size: [f32; 2], action: &str
     );
 }
 
-fn click_text(app: &mut App, context: &egui::Context, label: &str) {
+pub(super) fn click_text(app: &mut App, context: &egui::Context, label: &str) {
     draw(app, context, [1000.0, 680.0]);
     let output = draw(app, context, [1000.0, 680.0]);
     let position = output

@@ -23,15 +23,15 @@ ManifestDPIAware true
   !define OUTPUT_DIR "${REPO_ROOT}\target\release\bundle\egui-nsis"
 !endif
 
-!define APP_NAME "GeeZipX Native"
+!define APP_NAME "GeeZipX"
 !define APP_EXE "geezipx-egui.exe"
 !define UNINSTALL_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\GeeZipXNative"
 
 Name "${APP_NAME}"
-OutFile "${OUTPUT_DIR}\GeeZipX-Native_${APP_VERSION}_x64-setup.exe"
+OutFile "${OUTPUT_DIR}\GeeZipX_${APP_VERSION}_x64-setup.exe"
 InstallDir "$LOCALAPPDATA\Programs\${APP_NAME}"
 InstallDirRegKey HKCU "${UNINSTALL_KEY}" "InstallLocation"
-BrandingText "GeeZipX · Native"
+BrandingText "GeeZipX"
 VIProductVersion "${APP_VERSION}.0"
 VIAddVersionKey /LANG=1033 "ProductName" "${APP_NAME}"
 VIAddVersionKey /LANG=1033 "FileDescription" "${APP_NAME} installer (x64)"
@@ -62,17 +62,17 @@ Function .onInit
   SetRegView 64
   SetShellVarContext current
   ${IfNot} ${RunningX64}
-    MessageBox MB_OK|MB_ICONSTOP "GeeZipX Native requires 64-bit Windows."
+    MessageBox MB_OK|MB_ICONSTOP "GeeZipX requires 64-bit Windows."
     Abort
   ${EndIf}
   ${IfNot} ${AtLeastWin10}
-    MessageBox MB_OK|MB_ICONSTOP "GeeZipX Native requires Windows 10 or later."
+    MessageBox MB_OK|MB_ICONSTOP "GeeZipX requires Windows 10 or later."
     Abort
   ${EndIf}
   !insertmacro MUI_LANGDLL_DISPLAY
 FunctionEnd
 
-Section "GeeZipX Native" Main
+Section "GeeZipX" Main
   ; Deactivate the old surrogate before replacing a DLL that Windows may still host.
   ; Older, classic-menu-only versions have no DLL and do not know this maintenance flag.
   IfFileExists "$INSTDIR\geezipx_shell.dll" 0 shell_upgrade_ready
@@ -103,10 +103,14 @@ Section "GeeZipX Native" Main
   File "${REPO_ROOT}\crates\gui-egui\assets\*.txt"
   SetOutPath "$INSTDIR"
   FileOpen $0 "$INSTDIR\build-info.txt" w
-  FileWrite $0 "GeeZipX Native ${APP_VERSION}$\r$\nCommit: ${APP_REVISION}$\r$\n"
+  FileWrite $0 "GeeZipX ${APP_VERSION}$\r$\nCommit: ${APP_REVISION}$\r$\n"
   FileClose $0
   WriteUninstaller "$INSTDIR\uninstall.exe"
 
+  ; Migrate shortcuts created by the previous display name.
+  Delete "$SMPROGRAMS\GeeZipX Native\GeeZipX Native.lnk"
+  Delete "$SMPROGRAMS\GeeZipX Native\Uninstall.lnk"
+  RMDir "$SMPROGRAMS\GeeZipX Native"
   CreateDirectory "$SMPROGRAMS\${APP_NAME}"
   CreateShortcut "$SMPROGRAMS\${APP_NAME}\${APP_NAME}.lnk" "$INSTDIR\${APP_EXE}"
   CreateShortcut "$SMPROGRAMS\${APP_NAME}\Uninstall.lnk" "$INSTDIR\uninstall.exe"
@@ -166,6 +170,9 @@ Section "Uninstall"
   Delete "$SMPROGRAMS\${APP_NAME}\${APP_NAME}.lnk"
   Delete "$SMPROGRAMS\${APP_NAME}\Uninstall.lnk"
   RMDir "$SMPROGRAMS\${APP_NAME}"
+  Delete "$SMPROGRAMS\GeeZipX Native\GeeZipX Native.lnk"
+  Delete "$SMPROGRAMS\GeeZipX Native\Uninstall.lnk"
+  RMDir "$SMPROGRAMS\GeeZipX Native"
   Delete "$INSTDIR\${APP_EXE}"
   Delete "$INSTDIR\GeeZipXShell.msix"
   Delete "$INSTDIR\LICENSE"

@@ -90,7 +90,7 @@
 ## 项目状态
 
 第一阶段（CLI MVP）已经**全部完成并进入成熟阶段**。所有支持格式均已实现对应子命令。`completions` 子命令也已完成。crates.io 上已发布 `geezipx` 和 `geezipx-core` 包。
-第二阶段（桌面 GUI）**是当前开发重心**。**GeeZipX Native**（egui/eframe）是唯一桌面端，复用 Rust core。功能、构建和格式范围见 [原生端指南](docs/EGUI_GUI.md)。
+第二阶段（桌面 GUI）**是当前开发重心**。**GeeZipX**（egui/eframe）是唯一桌面端，复用 Rust core。功能、构建和格式范围见 [原生端指南](docs/EGUI_GUI.md)。
 
 | 阶段 | 主题 | 状态 |
 |------|------|------|
@@ -107,7 +107,7 @@ cargo build -p geezipx-egui --release --locked
 
 原生端已接入当前 core 全部格式，可写格式出现在创建列表，只读格式可浏览、提取和测试，RAR/WIM/ZPAQ 默认启用；单流、镜像内容、ZIPX 与 ZIP SFX 的范围及 core 变体限制见[原生端格式表](docs/EGUI_GUI.md#格式范围)。Unix release 构建建议设置 `CXXFLAGS=-fno-lto`；Windows MSVC 先设置 `RUSTFLAGS=-C target-feature=+crt-static`。
 
-原生端使用 Rust、egui/eframe 与 OpenGL，提供系统文件选择器和内嵌中文字体。`cargo build` 默认只构建 core/CLI，桌面端使用 `-p geezipx-egui` 显式选择。发布构建提供 Linux x86_64、macOS arm64、Windows x86_64 原生程序压缩包，以及 Windows 按用户安装的 NSIS 安装器；系统文件关联和 Explorer 右键菜单尚未接入。
+原生端使用 Rust、egui/eframe 与 OpenGL，提供系统文件选择器和内嵌中文字体。`cargo build` 默认只构建 core/CLI，桌面端使用 `-p geezipx-egui` 显式选择。发布构建提供 Linux x86_64、macOS arm64、Windows x86_64 原生程序压缩包，以及 Windows 按用户安装的 NSIS 安装器 `GeeZipX_<version>_x64-setup.exe`，EXE 内嵌应用图标与产品信息。设置分为“外观”和“系统集成”：语言、浅深色与可搜索的字体选择即时生效；文件关联支持格式/扩展名搜索、整行勾选和状态显示，点击应用后写入系统。刷新或失败保留待应用选择，移除及放弃修改需确认。系统集成提供格式关联和压缩/解压右键快捷操作，平台范围见[原生端指南](docs/EGUI_GUI.md#系统集成)。
 
 ---
 

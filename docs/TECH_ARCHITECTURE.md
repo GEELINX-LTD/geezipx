@@ -447,6 +447,10 @@ Reader/File → ProgressReader → Decoder/ArchiveReader → ProgressWriter → 
 
 ## 9. egui/eframe 桌面实现
 
+产品显示名统一为 GeeZipX；已有 `APP_ID`、ProgID、MSIX 身份及 `native-preferences` 保留以兼容既有关联和偏好。Windows `gui-egui/build.rs` 使用仅构建时依赖 `winresource` 0.1.34 将多尺寸 ICO 与版本信息写入 EXE；安装器、Shell 菜单和 DefaultIcon 共用该资源，`test-egui-windows-resources.ps1` 直接验证图标组/图标资源与名称。
+
+`app/settings.rs` 将外观与系统集成分为独立页面，各页使用单层有界滚动并保留固定提示/操作栏。外观即时更新偏好；系统集成分别持有 OS `Snapshot` 与用户待应用选择，刷新与失败只更新状态，成功应用/移除才同步选择。格式按名称/扩展名过滤，整行点击保留辅助功能与键盘响应，搜索不修改隐藏选项。关闭未应用修改及移除注册使用页内确认，后台任务运行时禁用重复操作。
+
 `crates/gui-egui` 使用 egui/eframe 0.33.3 + Glow、rfd 系统文件选择器。所有阻塞文件工作在 `Job<T>` 后台线程执行；结果通过容量 1 的 channel 返回，进度使用 `Arc<Mutex<Progress>>` 最新快照和限频唤醒，不积累读取块事件。取消状态属于每个任务，界面一次只启动一个后台操作；退出时等待取消清理。
 
 `i18n.rs` 维护简体中文/English 文案与 `Language` 枚举；`tr!` 在编译期检查键及两种语言的格式参数。设置页即时切换语言，保存到 `native-preferences`；旧设置缺失语言或语言值未知时使用简体中文。后台 `Control` 持有任务启动时的语言，避免依赖全局可变语言或改变 core。归档文件名、路径和 core/系统错误详情不参与翻译。

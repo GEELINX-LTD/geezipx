@@ -28,7 +28,7 @@ for asset in "${assets[@]}"; do
   fi
 done
 
-for pattern in 'GeeZipX-Native_*_x64-setup.exe'; do
+for pattern in 'GeeZipX_*_x64-setup.exe'; do
   mapfile -t matches < <(compgen -G "$pattern" || true)
   if [[ ${#matches[@]} -eq 0 ]]; then
     echo "::error::Required GUI bundle missing: $pattern"

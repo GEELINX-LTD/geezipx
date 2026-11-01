@@ -6,13 +6,16 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 publish = false
-description = "GeeZipX native desktop archive manager powered by egui"
+description = "GeeZipX desktop archive manager powered by egui"
 
 [features]
 default = ["rar", "zpaq", "wim"]
 rar = ["geezipx-core/rar"]
 zpaq = ["geezipx-core/zpaq"]
 wim = ["geezipx-core/wim"]
+
+[build-dependencies]
+winresource = { version = "0.1.34", default-features = false }
 
 [dependencies]
 geezipx-core = { workspace = true, features = ["sfx"] }

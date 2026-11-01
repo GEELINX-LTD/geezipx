@@ -52,7 +52,7 @@ fn extension(ext: &str, enabled: bool, exe: &std::path::Path) -> Result<(), Stri
     let open_with = format!(r"{ROOT}\.{ext}\OpenWithProgids");
     let associations = format!(r"{CAPABILITIES}\FileAssociations");
     if enabled {
-        set(&format!(r"{ROOT}\{id}"), "", "GeeZipX Native Archive")?;
+        set(&format!(r"{ROOT}\{id}"), "", "GeeZipX Archive")?;
         set(
             &format!(r"{ROOT}\{id}\DefaultIcon"),
             "",
@@ -186,17 +186,15 @@ pub fn inspect() -> Result<Snapshot, String> {
 pub fn apply(selected: &[bool], enabled: bool, language: Language) -> Result<(), String> {
     let exe = executable()?;
     open_command(&exe)?;
-    set(CAPABILITIES, "ApplicationName", "GeeZipX Native")?;
+    set(CAPABILITIES, "ApplicationName", "GeeZipX")?;
     set(
         CAPABILITIES,
         "ApplicationDescription",
-        "GeeZipX native archive manager",
+        "GeeZipX archive manager",
     )?;
-    set(
-        r"Software\RegisteredApplications",
-        "GeeZipX Native",
-        CAPABILITIES,
-    )?;
+    set(r"Software\RegisteredApplications", "GeeZipX", CAPABILITIES)?;
+    // Keep ProgIDs and capability paths stable so existing defaults still work.
+    remove_value(r"Software\RegisteredApplications", "GeeZipX Native")?;
     for (format, selected) in FORMATS.iter().zip(selected) {
         for ext in format.extensions {
             extension(ext, *selected && format.available(), &exe)?;
@@ -214,14 +212,14 @@ pub fn remove() -> Result<(), String> {
         }
     }
     menu(false, Language::English, &exe)?;
+    remove_value(r"Software\RegisteredApplications", "GeeZipX")?;
     remove_value(r"Software\RegisteredApplications", "GeeZipX Native")?;
     remove_tree(r"Software\GeeZipXNative\Capabilities")?;
     notify();
     Ok(())
 }
 pub fn open_defaults() -> Result<(), String> {
-    open::that("ms-settings:defaultapps?registeredAppUser=GeeZipX%20Native")
-        .map_err(|e| e.to_string())
+    open::that("ms-settings:defaultapps?registeredAppUser=GeeZipX").map_err(|e| e.to_string())
 }
 #[cfg(test)]
 mod tests {
