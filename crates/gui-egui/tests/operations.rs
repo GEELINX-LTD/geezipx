@@ -43,6 +43,7 @@ fn create(
 }
 fn read(archive: &Path, destination: &Path) -> ReadRequest {
     ReadRequest {
+        index: None,
         archive: archive.to_owned(),
         destination: destination.to_owned(),
         password: None,

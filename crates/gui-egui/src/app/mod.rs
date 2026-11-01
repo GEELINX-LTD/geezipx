@@ -491,6 +491,7 @@ impl App {
         let archive = self.archive.as_ref()?;
         let password = std::mem::take(&mut self.read_password);
         Some(ReadRequest {
+            index: archive.index.clone(),
             archive: archive.path.clone(),
             password: (!password.is_empty()).then_some(password),
             selection: if all {
@@ -523,12 +524,14 @@ impl App {
             return;
         };
         let path = archive.path.clone();
+        let index = archive.index.clone();
         let password = std::mem::take(&mut self.read_password);
         self.start(context, Kind::Preview, move |control| {
-            engine::preview(
+            engine::preview_cached(
                 path,
                 (!password.is_empty()).then_some(password),
                 entry,
+                index,
                 control,
             )
             .map(Outcome::Preview)

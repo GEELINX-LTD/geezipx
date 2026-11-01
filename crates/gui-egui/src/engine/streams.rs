@@ -11,7 +11,11 @@ use std::{
     fs::File,
     io::{self, BufReader, Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
+    sync::{Arc, Mutex},
 };
+
+/// An anonymous file shared only by operations on one unchanged, unencrypted source.
+pub type DecodedStream = Arc<Mutex<Option<File>>>;
 
 pub fn is_stream(format: ArchiveFormat) -> bool {
     matches!(
@@ -77,7 +81,7 @@ pub struct StreamReader {
     format: ArchiveFormat,
     password: Option<String>,
     control: Control,
-    decoded: Option<File>,
+    decoded: DecodedStream,
 }
 impl StreamReader {
     pub fn new(path: &Path, format: ArchiveFormat, control: &Control) -> Self {
@@ -86,11 +90,16 @@ impl StreamReader {
             format,
             password: None,
             control: control.clone(),
-            decoded: None,
+            decoded: Arc::default(),
         }
     }
+    pub fn with_cache(mut self, cache: DecodedStream) -> Self {
+        self.decoded = cache;
+        self
+    }
     fn prepare(&mut self) -> GeeZipResult<()> {
-        if self.decoded.is_none() {
+        let mut decoded = self.decoded.lock().unwrap_or_else(|e| e.into_inner());
+        if decoded.is_none() {
             let mut staged = tempfile::tempfile()?;
             {
                 let mut output =
@@ -98,7 +107,7 @@ impl StreamReader {
                 self.decode(&mut output)?;
             }
             staged.rewind()?;
-            self.decoded = Some(staged);
+            *decoded = Some(staged);
         }
         Ok(())
     }
@@ -144,7 +153,14 @@ impl ArchiveReader for StreamReader {
             .unwrap_or("data");
         Ok(vec![Entry {
             path: name.to_owned(),
-            size: self.decoded.as_ref().unwrap().metadata()?.len(),
+            size: self
+                .decoded
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .as_ref()
+                .unwrap()
+                .metadata()?
+                .len(),
             compressed_size: self.path.metadata()?.len(),
             crc32: None,
             modified: None,
@@ -153,7 +169,8 @@ impl ArchiveReader for StreamReader {
     }
     fn set_password(&mut self, password: &str) -> GeeZipResult<()> {
         self.password = Some(password.to_owned());
-        self.decoded = None;
+        // Password changes start a new authentication scope, without shared plaintext.
+        self.decoded = Arc::default();
         Ok(())
     }
     fn extract(&mut self, entry: &Entry, output: &mut dyn Write) -> GeeZipResult<u64> {
@@ -163,7 +180,8 @@ impl ArchiveReader for StreamReader {
                 self.format,
             ));
         }
-        let file = self.decoded.as_mut().unwrap();
+        let mut decoded = self.decoded.lock().unwrap_or_else(|e| e.into_inner());
+        let file = decoded.as_mut().unwrap();
         file.rewind()?;
         io::copy(file, output).map_err(|e| GeeZipError::io(e, "reading decoded stream"))
     }
@@ -179,7 +197,8 @@ impl ArchiveReader for StreamReader {
         if is_cancelled() {
             return Err(GeeZipError::Cancelled);
         }
-        let file = self.decoded.as_mut().unwrap();
+        let mut decoded = self.decoded.lock().unwrap_or_else(|e| e.into_inner());
+        let file = decoded.as_mut().unwrap();
         file.seek(SeekFrom::Start(0))?;
         visitor(&entry, file)?;
         Ok(())

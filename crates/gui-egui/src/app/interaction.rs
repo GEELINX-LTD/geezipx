@@ -51,7 +51,7 @@ pub(super) struct ExportState {
     pub pending: Option<Arc<DeferredExport>>,
     // Some receivers read after the native callback; retain successful sources.
     pub retained: Vec<Arc<DeferredExport>>,
-    pub receiver: Option<mpsc::Receiver<Result<bool, String>>>,
+    pub receiver: Option<mpsc::Receiver<Result<native_drag::DropOutcome, String>>>,
     pub cancel: Option<Arc<std::sync::atomic::AtomicBool>>,
 }
 impl App {
@@ -76,7 +76,9 @@ impl App {
             (!password.is_empty()).then_some(password),
             control,
         ) {
-            Ok(export) => self.export.pending = Some(Arc::new(export)),
+            Ok(export) => {
+                self.export.pending = Some(Arc::new(export.with_index(archive.index.clone())))
+            }
             Err(error) => self.notice = Some(Notice::new(error, true)),
         }
     }
@@ -123,9 +125,17 @@ impl App {
         };
         self.export.receiver = None;
         self.export.cancel = None;
-        if !matches!(result, Ok(true)) {
-            self.export.retained.pop();
-        }
+        #[cfg(not(target_os = "windows"))]
+        let delivered = matches!(result, Ok(native_drag::DropOutcome::Delivered));
+        #[cfg(target_os = "windows")]
+        let delivered = false;
+        let export = if delivered {
+            None
+        } else {
+            self.export.retained.pop()
+        };
+        #[cfg(not(target_os = "windows"))]
+        let _ = export;
         if self.close_when_finished {
             context.send_viewport_cmd(egui::ViewportCommand::Close);
         }
@@ -134,13 +144,24 @@ impl App {
         context.input_mut(|input| input.pointer = Default::default());
         self.row_activation.reset();
         match result {
-            Ok(true) => {
+            #[cfg(not(target_os = "windows"))]
+            Ok(native_drag::DropOutcome::Delivered) => {
                 self.notice = Some(Notice::new(
                     tr!(self.preferences.language, DragDelivered),
                     false,
                 ))
             }
-            Ok(false) => {}
+            Ok(native_drag::DropOutcome::Cancelled) => {}
+            #[cfg(target_os = "windows")]
+            Ok(native_drag::DropOutcome::ExtractTo(destination)) => {
+                if !self.close_when_finished {
+                    if let Some(export) = export {
+                        self.start(context, Kind::Extract, move |control| {
+                            export.extract_to(destination, control).map(Outcome::Done)
+                        });
+                    }
+                }
+            }
             Err(error) => {
                 self.notice = Some(Notice::new(
                     tr!(self.preferences.language, DragFailed, error),

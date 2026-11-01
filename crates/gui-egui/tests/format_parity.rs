@@ -23,6 +23,7 @@ fn create(input: &Path, output: &Path, format: ArchiveFormat) -> CompressRequest
 }
 fn read(archive: &Path, destination: &Path) -> ReadRequest {
     ReadRequest {
+        index: None,
         archive: archive.to_owned(),
         destination: destination.to_owned(),
         selection: BTreeSet::new(),

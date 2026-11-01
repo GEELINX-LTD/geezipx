@@ -150,6 +150,11 @@ pub struct ExtractReport {
 /// It may consume all, some, or none of the current entry's payload.
 pub type EntryVisitor<'a> = dyn FnMut(&Entry, &mut dyn Read) -> GeeZipResult<bool> + 'a;
 
+/// Writes one selected entry directly to a caller-owned destination.
+/// The callback may decline an entry without opening or decoding its payload.
+pub type EntryOutput<'a> = dyn FnMut(&Entry, &mut dyn FnMut(&mut dyn Write) -> GeeZipResult<u64>) -> GeeZipResult<bool>
+    + 'a;
+
 /// Archive reader trait — list entries and extract data.
 ///
 /// Implementations are expected to be object-safe so callers can work
@@ -160,6 +165,19 @@ pub trait ArchiveReader: Send {
 
     /// Return the list of entries in the archive.
     fn entries(&mut self) -> GeeZipResult<Vec<Entry>>;
+
+    /// Enumerate metadata with cooperative cancellation. Readers which perform
+    /// their own file I/O can override this to check between header records.
+    fn entries_with_cancel(&mut self, is_cancelled: &dyn Fn() -> bool) -> GeeZipResult<Vec<Entry>> {
+        if is_cancelled() {
+            return Err(GeeZipError::Cancelled);
+        }
+        let result = self.entries();
+        if is_cancelled() {
+            return Err(GeeZipError::Cancelled);
+        }
+        result
+    }
 
     /// Extract a single entry's content into `writer`.
     ///
@@ -182,7 +200,7 @@ pub trait ArchiveReader: Send {
         is_cancelled: &dyn Fn() -> bool,
     ) -> GeeZipResult<()> {
         use std::io::{Seek, SeekFrom};
-        for entry in self.entries()? {
+        for entry in self.entries_with_cancel(is_cancelled)? {
             if is_cancelled() {
                 return Err(GeeZipError::Cancelled);
             }
@@ -197,6 +215,61 @@ pub trait ArchiveReader: Send {
             }
             file.seek(SeekFrom::Start(0))?;
             if !visitor(&entry, &mut file)? {
+                break;
+            }
+        }
+        Ok(())
+    }
+
+    /// Extract a known selection without compatibility-reader disk staging.
+    /// Streaming readers visit once; indexed compatibility readers write only the
+    /// requested entries. `entries` must come from this archive's metadata index.
+    fn extract_entries(
+        &mut self,
+        entries: &[Entry],
+        output: &mut EntryOutput<'_>,
+        is_cancelled: &dyn Fn() -> bool,
+    ) -> GeeZipResult<()> {
+        if is_cancelled() {
+            return Err(GeeZipError::Cancelled);
+        }
+        if self.has_direct_visitor() {
+            let names: std::collections::HashSet<_> =
+                entries.iter().map(|entry| entry.path.as_str()).collect();
+            return self.visit_entries(
+                &mut |entry, input| {
+                    if is_cancelled() {
+                        return Err(GeeZipError::Cancelled);
+                    }
+                    if !names.contains(entry.path.as_str()) {
+                        return Ok(true);
+                    }
+                    output(entry, &mut |writer| {
+                        let mut writer = CancellableWriter::new(writer, is_cancelled);
+                        let result = std::io::copy(input, &mut writer);
+                        if writer.was_cancelled() || is_cancelled() {
+                            return Err(GeeZipError::Cancelled);
+                        }
+                        result.map_err(Into::into)
+                    })
+                },
+                is_cancelled,
+            );
+        }
+        for entry in entries {
+            if is_cancelled() {
+                return Err(GeeZipError::Cancelled);
+            }
+            let mut write = |writer: &mut dyn Write| {
+                let mut writer = CancellableWriter::new(writer, is_cancelled);
+                let result = self.extract(entry, &mut writer);
+                if writer.was_cancelled() || is_cancelled() {
+                    Err(GeeZipError::Cancelled)
+                } else {
+                    result
+                }
+            };
+            if !output(entry, &mut write)? {
                 break;
             }
         }
@@ -248,40 +321,37 @@ pub(crate) fn extract_all_safely<R: ArchiveReader + ?Sized>(
     if reader.has_direct_visitor() {
         return extract_all_streaming(reader, dest, overwrite, is_cancelled);
     }
-    let entries = reader.entries()?;
+    let entries = reader.entries_with_cancel(is_cancelled)?;
     let output = extraction::ExtractionDir::new(dest)?;
     let mut report = ExtractReport::default();
-    for entry in &entries {
-        if is_cancelled() {
-            return Err(GeeZipError::Cancelled);
-        }
-        let result = if entry.is_dir {
-            output.create_dir(&entry.path).map(|()| 0)
-        } else {
-            output.write_file(&entry.path, overwrite, |writer| {
-                let mut writer = CancellableWriter::new(writer, is_cancelled);
-                let result = reader.extract(entry, &mut writer);
-                if writer.was_cancelled() {
-                    Err(GeeZipError::Cancelled)
-                } else {
-                    result
-                }
-            })
-        };
-        match result {
-            Ok(bytes) => {
-                report.files_extracted += 1;
-                report.bytes_extracted += bytes;
+    reader.extract_entries(
+        &entries,
+        &mut |entry, extract| {
+            if is_cancelled() {
+                return Err(GeeZipError::Cancelled);
             }
-            Err(GeeZipError::Cancelled) => return Err(GeeZipError::Cancelled),
-            Err(err) => {
-                if matches!(err, GeeZipError::ClobberDenied { .. }) {
-                    report.files_skipped += 1;
+            let result = if entry.is_dir {
+                output.create_dir(&entry.path).map(|()| 0)
+            } else {
+                output.write_file(&entry.path, overwrite, |writer| extract(writer))
+            };
+            match result {
+                Ok(bytes) => {
+                    report.files_extracted += 1;
+                    report.bytes_extracted += bytes;
                 }
-                report.errors.push((entry.path.clone(), err));
+                Err(GeeZipError::Cancelled) => return Err(GeeZipError::Cancelled),
+                Err(err) => {
+                    if matches!(err, GeeZipError::ClobberDenied { .. }) {
+                        report.files_skipped += 1;
+                    }
+                    report.errors.push((entry.path.clone(), err));
+                }
             }
-        }
-    }
+            Ok(true)
+        },
+        is_cancelled,
+    )?;
     Ok(report)
 }
 

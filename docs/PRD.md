@@ -22,7 +22,7 @@ GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开�
 | macOS (x86_64, arm64) | 原生二进制 / Homebrew（规划） | egui arm64 `.tar.gz` |
 | Windows (x86_64) | 原生二进制 / winget（规划） | egui `.zip` 与 NSIS `.exe` 安装器 |
 
-桌面端使用 `geezipx-egui` 原生可执行文件，目标为 Windows/macOS/Linux；当前配置 Linux x86_64、Windows x86_64、macOS arm64 独立 CI 编译，Windows 另提供按用户安装的 NSIS 测试安装包。原生工作区支持可调整宽度的左侧归档目录树、文件列表顶部的 `..` 父目录入口、鼠标框选与选区拖出解压；拖出在目标松手后才解压，一次拖动完成，拖出使用 Windows/macOS 系统拖放或 Linux X11/XWayland，原生 Wayland 拖出暂不支持。文件关联和系统右键菜单尚未接入。字体默认跟随系统，缺失中文字形由内置 Noto Sans SC 离线补齐；“工具 → 设置…”支持简体中文（默认）/English 界面语言，以及选择、搜索已安装字体或使用内置 Noto，修改即时生效并保留到下次启动。
+桌面端使用 `geezipx-egui` 原生可执行文件，目标为 Windows/macOS/Linux；当前配置 Linux x86_64、Windows x86_64、macOS arm64 独立 CI 编译，Windows 另提供按用户安装的 NSIS 测试安装包。原生工作区支持可调整宽度的左侧归档目录树、文件列表顶部的 `..` 父目录入口、鼠标框选与选区拖出解压；拖出在目标松手后才解压；Windows 由软件解析真实目标目录并启动自身解压任务，路径无法可靠识别时显示目录选择器，进度、取消与写入不交给 Explorer 复制；macOS 使用文件承诺，Linux 使用 X11/XWayland，原生 Wayland 拖出暂不支持。文件关联和系统右键菜单尚未接入。字体默认跟随系统，缺失中文字形由内置 Noto Sans SC 离线补齐；“工具 → 设置…”支持简体中文（默认）/English 界面语言，以及选择、搜索已安装字体或使用内置 Noto，修改即时生效并保留到下次启动。
 
 ## 4. 核心场景
 

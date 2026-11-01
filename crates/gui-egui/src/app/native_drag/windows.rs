@@ -1,273 +1,230 @@
-//! Explorer virtual files: metadata while hovering, file streams only after drop.
-use geezipx_egui::{export::DeferredExport, tr};
+//! Application-owned Windows drag extraction. No FILECONTENTS/Explorer copy job.
+//! Only destination metadata is queried after release; all payload I/O uses Job.
+use super::DropOutcome;
+use geezipx_egui::export::DeferredExport;
+use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use std::{
-    mem::{size_of, ManuallyDrop},
+    path::PathBuf,
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc,
     },
+    time::Duration,
 };
 use windows::{
     core::*,
     Win32::{
-        Foundation::*,
-        Storage::FileSystem::{FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_NORMAL},
+        Foundation::{HWND, POINT},
         System::{
-            Com::{Urlmon::E_PENDING, *},
-            DataExchange::RegisterClipboardFormatW,
-            Memory::*,
-            Ole::*,
-            SystemServices::{MK_LBUTTON, MODIFIERKEYS_FLAGS},
+            Com::*,
+            SystemServices::{SFGAO_FILESYSTEM, SFGAO_FOLDER},
+            Variant::VARIANT,
         },
-        UI::Shell::{
-            SHCreateStdEnumFmtEtc, SHCreateStreamOnFileEx, CFSTR_FILECONTENTS,
-            CFSTR_FILEDESCRIPTORW, FD_ATTRIBUTES, FD_FILESIZE, FD_PROGRESSUI, FD_UNICODE,
-            FILEDESCRIPTORW,
+        UI::{
+            Accessibility::*,
+            Input::KeyboardAndMouse::{GetAsyncKeyState, VK_ESCAPE, VK_LBUTTON},
+            Shell::*,
+            WindowsAndMessaging::{
+                GetAncestor, GetCursorPos, IsChild, IsWindowVisible, WindowFromPoint, GA_ROOT,
+            },
         },
     },
 };
 
-#[implement(IDataObject)]
-struct VirtualFiles {
-    export: Arc<DeferredExport>,
-    descriptor: u16,
-    contents: u16,
-}
-impl VirtualFiles {
-    fn new(export: Arc<DeferredExport>) -> Result<Self> {
-        for item in &export.items {
-            if item.name.encode_utf16().count() >= 260 {
-                return Err(Error::new(
-                    E_INVALIDARG,
-                    tr!(export.control.language, DragPathTooLong),
-                ));
-            }
-        }
-        // SAFETY: Clipboard format names are static, terminated UTF-16 strings.
-        let (descriptor, contents) = unsafe {
-            (
-                RegisterClipboardFormatW(CFSTR_FILEDESCRIPTORW),
-                RegisterClipboardFormatW(CFSTR_FILECONTENTS),
-            )
-        };
-        if descriptor == 0 || contents == 0 {
-            return Err(Error::from_win32());
-        }
-        Ok(Self {
-            export,
-            descriptor: descriptor as u16,
-            contents: contents as u16,
-        })
-    }
-    fn formats(&self) -> [FORMATETC; 2] {
-        [
-            FORMATETC {
-                cfFormat: self.descriptor,
-                dwAspect: DVASPECT_CONTENT.0,
-                lindex: -1,
-                tymed: TYMED_HGLOBAL.0 as u32,
-                ..Default::default()
-            },
-            FORMATETC {
-                cfFormat: self.contents,
-                dwAspect: DVASPECT_CONTENT.0,
-                lindex: -1,
-                tymed: TYMED_ISTREAM.0 as u32,
-                ..Default::default()
-            },
-        ]
-    }
-    fn query(&self, format: &FORMATETC) -> HRESULT {
-        if format.dwAspect != DVASPECT_CONTENT.0 {
-            return DV_E_DVASPECT;
-        }
-        if format.cfFormat == self.descriptor && format.tymed & TYMED_HGLOBAL.0 as u32 != 0 {
-            return S_OK;
-        }
-        if format.cfFormat == self.contents && format.tymed & TYMED_ISTREAM.0 as u32 != 0 {
-            if format.lindex < 0
-                || self
-                    .export
-                    .items
-                    .get(format.lindex as usize)
-                    .is_some_and(|item| !item.is_dir)
-            {
-                return S_OK;
-            }
-            return DV_E_LINDEX;
-        }
-        DV_E_FORMATETC
-    }
-    fn descriptors(&self) -> Result<STGMEDIUM> {
-        let count =
-            u32::try_from(self.export.items.len()).map_err(|_| Error::from(E_OUTOFMEMORY))?;
-        let size = self
-            .export
-            .items
-            .len()
-            .checked_mul(size_of::<FILEDESCRIPTORW>())
-            .and_then(|n| n.checked_add(size_of::<u32>()))
-            .ok_or_else(|| Error::from(E_OUTOFMEMORY))?;
-        // SAFETY: Allocate exactly count + packed descriptors, copy within the allocation,
-        // unlock before publishing; the receiver owns and frees the resulting STGMEDIUM.
-        unsafe {
-            let handle = GlobalAlloc(GMEM_MOVEABLE | GMEM_ZEROINIT, size)?;
-            let data = GlobalLock(handle).cast::<u8>();
-            if data.is_null() {
-                let _ = GlobalFree(Some(handle));
-                return Err(Error::from_win32());
-            }
-            data.cast::<u32>().write_unaligned(count);
-            for (index, item) in self.export.items.iter().enumerate() {
-                let mut descriptor = FILEDESCRIPTORW {
-                    dwFlags: (FD_ATTRIBUTES.0
-                        | FD_UNICODE.0
-                        | FD_PROGRESSUI.0
-                        | if item.is_dir { 0 } else { FD_FILESIZE.0 })
-                        as u32,
-                    dwFileAttributes: if item.is_dir {
-                        FILE_ATTRIBUTE_DIRECTORY.0
-                    } else {
-                        FILE_ATTRIBUTE_NORMAL.0
-                    },
-                    nFileSizeHigh: (item.size >> 32) as u32,
-                    nFileSizeLow: item.size as u32,
-                    ..Default::default()
-                };
-                let mut name = [0u16; 260];
-                for (slot, value) in name
-                    .iter_mut()
-                    .zip(item.name.replace('/', "\\").encode_utf16())
-                {
-                    *slot = value;
-                }
-                descriptor.cFileName = name;
-                data.add(size_of::<u32>() + index * size_of::<FILEDESCRIPTORW>())
-                    .cast::<FILEDESCRIPTORW>()
-                    .write_unaligned(descriptor);
-            }
-            let _ = GlobalUnlock(handle);
-            Ok(STGMEDIUM {
-                tymed: TYMED_HGLOBAL.0 as u32,
-                u: STGMEDIUM_0 { hGlobal: handle },
-                pUnkForRelease: ManuallyDrop::new(None),
-            })
-        }
-    }
-}
-#[allow(non_snake_case)]
-impl IDataObject_Impl for VirtualFiles_Impl {
-    fn GetData(&self, format: *const FORMATETC) -> Result<STGMEDIUM> {
-        // SAFETY: COM passes a borrowed FORMATETC; reject null before reading.
-        let format = unsafe { format.as_ref() }.ok_or_else(|| Error::from(E_POINTER))?;
-        self.query(format).ok()?;
-        if format.cfFormat == self.descriptor {
-            return self.descriptors();
-        }
-        if format.lindex < 0 {
-            return Err(Error::from(DV_E_LINDEX));
-        }
-        if !self.export.is_dropped() {
-            return Err(Error::from(E_PENDING));
-        }
-        let path = self
-            .export
-            .file_path(format.lindex as usize)
-            .map_err(|e| Error::new(E_FAIL, e))?;
-        let path = HSTRING::from(path.as_os_str());
-        // SAFETY: path is a live, terminated string. The returned stream owns its file
-        // handle; retain the staging directory in the app until receivers finish.
-        let stream = unsafe {
-            SHCreateStreamOnFileEx(&path, (STGM_READ | STGM_SHARE_DENY_WRITE).0, 0, false, None)
-        }?;
-        Ok(STGMEDIUM {
-            tymed: TYMED_ISTREAM.0 as u32,
-            u: STGMEDIUM_0 {
-                pstm: ManuallyDrop::new(Some(stream)),
-            },
-            pUnkForRelease: ManuallyDrop::new(None),
-        })
-    }
-    fn GetDataHere(&self, _: *const FORMATETC, _: *mut STGMEDIUM) -> Result<()> {
-        Err(Error::from(E_NOTIMPL))
-    }
-    fn QueryGetData(&self, format: *const FORMATETC) -> HRESULT {
-        // SAFETY: Only borrow a nonnull format for the duration of this call.
-        unsafe { format.as_ref() }.map_or(E_POINTER, |format| self.query(format))
-    }
-    fn GetCanonicalFormatEtc(&self, _: *const FORMATETC, output: *mut FORMATETC) -> HRESULT {
-        // SAFETY: Clear the optional caller-owned output target-device pointer.
-        if let Some(output) = unsafe { output.as_mut() } {
-            output.ptd = std::ptr::null_mut();
-        }
-        DATA_S_SAMEFORMATETC
-    }
-    fn SetData(&self, _: *const FORMATETC, _: *const STGMEDIUM, _: BOOL) -> Result<()> {
-        Err(Error::from(E_NOTIMPL))
-    }
-    fn EnumFormatEtc(&self, direction: u32) -> Result<IEnumFORMATETC> {
-        if direction != DATADIR_GET.0 as u32 {
-            return Err(Error::from(E_NOTIMPL));
-        }
-        // SAFETY: shell copies the stack-owned descriptors into the enumerator.
-        unsafe { SHCreateStdEnumFmtEtc(&self.formats()) }
-    }
-    fn DAdvise(&self, _: *const FORMATETC, _: u32, _: Ref<'_, IAdviseSink>) -> Result<u32> {
-        Err(Error::from(OLE_E_ADVISENOTSUPPORTED))
-    }
-    fn DUnadvise(&self, _: u32) -> Result<()> {
-        Err(Error::from(OLE_E_ADVISENOTSUPPORTED))
-    }
-    fn EnumDAdvise(&self) -> Result<IEnumSTATDATA> {
-        Err(Error::from(OLE_E_ADVISENOTSUPPORTED))
-    }
-}
-
-#[implement(IDropSource)]
-struct Source {
-    export: Arc<DeferredExport>,
-    cancel: Arc<AtomicBool>,
-}
-#[allow(non_snake_case)]
-impl IDropSource_Impl for Source_Impl {
-    fn QueryContinueDrag(&self, escape: BOOL, keys: MODIFIERKEYS_FLAGS) -> HRESULT {
-        if escape.as_bool() || self.cancel.load(Ordering::Relaxed) {
-            return DRAGDROP_S_CANCEL;
-        }
-        if keys & MK_LBUTTON == MODIFIERKEYS_FLAGS(0) {
-            self.export.confirm_drop();
-            return DRAGDROP_S_DROP;
-        }
-        S_OK
-    }
-    fn GiveFeedback(&self, _: DROPEFFECT) -> HRESULT {
-        DRAGDROP_S_USEDEFAULTCURSORS
-    }
-}
 pub(super) fn start(
+    frame: &eframe::Frame,
     export: Arc<DeferredExport>,
-    finished: impl Fn(std::result::Result<bool, String>) + Send + 'static,
+    finished: impl Fn(std::result::Result<DropOutcome, String>) + Send + 'static,
     cancel: Arc<AtomicBool>,
 ) -> std::result::Result<(), String> {
-    let files: IDataObject = VirtualFiles::new(export.clone())
-        .map_err(|e| e.to_string())?
-        .into();
-    let source: IDropSource = Source { export, cancel }.into();
-    // SAFETY: Called on eframe's Windows UI thread. Every successful OleInitialize
-    // (including S_FALSE) is balanced, and COM objects outlive the modal drag loop.
-    unsafe {
-        OleInitialize(None).map_err(|e| e.to_string())?;
-        let mut effect = DROPEFFECT_NONE;
-        let result = DoDragDrop(&files, &source, DROPEFFECT_COPY, &mut effect);
-        OleUninitialize();
-        finished(if result.is_err() {
-            Err(result.to_string())
-        } else {
-            Ok(result == DRAGDROP_S_DROP && effect == DROPEFFECT_COPY)
-        });
-    }
+    let source = match frame.window_handle().map_err(|e| e.to_string())?.as_raw() {
+        RawWindowHandle::Win32(window) => window.hwnd.get() as usize,
+        _ => return Err("Windows window handle unavailable".into()),
+    };
+    std::thread::Builder::new()
+        .name("geezipx-drop-target".into())
+        .spawn(move || {
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                track_drop(source, &export, &cancel)
+            }))
+            .unwrap_or_else(|_| Err("Windows drop target lookup failed".into()));
+            finished(result);
+        })
+        .map_err(|e| e.to_string())?;
     Ok(())
 }
 
-#[cfg(test)]
-mod tests;
+fn track_drop(
+    source: usize,
+    export: &DeferredExport,
+    cancel: &AtomicBool,
+) -> std::result::Result<DropOutcome, String> {
+    // SAFETY: Key-state queries use fixed virtual-key constants. No COM or data
+    // reads occur while the button is down, and Escape never opens a chooser.
+    while unsafe { GetAsyncKeyState(VK_LBUTTON.0 as i32) } < 0 {
+        if cancel.load(Ordering::Relaxed)
+            || export.control.is_cancelled()
+            || unsafe { GetAsyncKeyState(VK_ESCAPE.0 as i32) } < 0
+        {
+            return Ok(DropOutcome::Cancelled);
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    if cancel.load(Ordering::Relaxed)
+        || export.control.is_cancelled()
+        || unsafe { GetAsyncKeyState(VK_ESCAPE.0 as i32) } < 0
+    {
+        return Ok(DropOutcome::Cancelled);
+    }
+    let mut point = POINT::default();
+    // SAFETY: point is writable; HWNDs are borrowed for read-only hit testing.
+    unsafe {
+        GetCursorPos(&mut point).map_err(|e| e.to_string())?;
+        if GetAncestor(WindowFromPoint(point), GA_ROOT).0 as usize == source {
+            return Ok(DropOutcome::Cancelled);
+        }
+    }
+    let target = destination(point).ok().flatten();
+    if cancel.load(Ordering::Relaxed) || export.control.is_cancelled() {
+        return Ok(DropOutcome::Cancelled);
+    }
+    // A virtual/unknown destination is explicitly chosen in GeeZipX's dialog.
+    // Never guess the active Explorer path or silently delegate a shell copy.
+    let target = target.or_else(|| rfd::FileDialog::new().pick_folder());
+    if cancel.load(Ordering::Relaxed) || export.control.is_cancelled() {
+        return Ok(DropOutcome::Cancelled);
+    }
+    Ok(match target {
+        Some(path) => {
+            export.confirm_drop();
+            DropOutcome::ExtractTo(path)
+        }
+        None => DropOutcome::Cancelled,
+    })
+}
+
+struct Apartment;
+impl Drop for Apartment {
+    fn drop(&mut self) {
+        // SAFETY: Exactly balances this thread's successful CoInitializeEx.
+        unsafe { CoUninitialize() };
+    }
+}
+
+fn destination(point: POINT) -> Result<Option<PathBuf>> {
+    // SAFETY: All interfaces are created, used and dropped on this worker STA.
+    // The guard is declared first so COM resources drop before uninitializing.
+    unsafe {
+        CoInitializeEx(None, COINIT_APARTMENTTHREADED).ok()?;
+        let _apartment = Apartment;
+        let windows: IShellWindows = CoCreateInstance(&ShellWindows, None, CLSCTX_ALL)?;
+        let automation: IUIAutomation =
+            CoCreateInstance(&CUIAutomation8, None, CLSCTX_INPROC_SERVER)?;
+        if let Ok(options) = automation.cast::<IUIAutomation2>() {
+            let _ = options.SetConnectionTimeout(1500);
+            let _ = options.SetTransactionTimeout(1500);
+        }
+        let hit = WindowFromPoint(point);
+        for index in 0..windows.Count()? {
+            let Ok(dispatch) = windows.Item(&VARIANT::from(index)) else {
+                continue;
+            };
+            if let Ok(Some(path)) = destination_in_view(&dispatch, &automation, point, hit) {
+                return Ok(Some(path));
+            }
+        }
+        // Desktop views are not included in every IShellWindows enumeration.
+        let mut desktop = 0;
+        if let Ok(dispatch) = windows.FindWindowSW(
+            &VARIANT::default(),
+            &VARIANT::default(),
+            SWC_DESKTOP,
+            &mut desktop,
+            SWFO_NEEDDISPATCH,
+        ) {
+            return destination_in_view(&dispatch, &automation, point, hit);
+        }
+        Ok(None)
+    }
+}
+
+unsafe fn destination_in_view(
+    dispatch: &IDispatch,
+    automation: &IUIAutomation,
+    point: POINT,
+    hit: HWND,
+) -> Result<Option<PathBuf>> {
+    // SAFETY: Called in the initialized apartment; all returned COM pointers and
+    // allocated shell strings/PIDLs have bounded ownership in this function.
+    unsafe {
+        let provider: IServiceProvider = dispatch.cast()?;
+        let browser: IShellBrowser = provider.QueryService(&SID_STopLevelBrowser)?;
+        let view = browser.QueryActiveShellView()?;
+        let window = view.GetWindow()?;
+        if !IsWindowVisible(window).as_bool() || !(window == hit || IsChild(window, hit).as_bool())
+        {
+            return Ok(None);
+        }
+        let folder: IFolderView2 = view.cast()?;
+        let mut element = automation.ElementFromPoint(point)?;
+        let walker = automation.ControlViewWalker()?;
+        let mut row = None;
+        let mut reached_view = false;
+        for _ in 0..32 {
+            let kind = element.CurrentControlType()?;
+            if kind == UIA_ListItemControlTypeId || kind == UIA_DataItemControlTypeId {
+                row = Some(element.CurrentName()?.to_string());
+                break;
+            }
+            if element.CurrentNativeWindowHandle()? == window {
+                reached_view = true;
+                break;
+            }
+            let Ok(parent) = walker.GetParentElement(&element) else {
+                break;
+            };
+            element = parent;
+        }
+        if let Some(row) = row {
+            let items: IShellItemArray = folder.Items(SVGIO_ALLVIEW)?;
+            let mut target = None;
+            for index in 0..items.GetCount()? {
+                let item = items.GetItemAt(index)?;
+                if item_name(&item, SIGDN_NORMALDISPLAY)? == row {
+                    // Duplicate display names are ambiguous (e.g. hidden extensions).
+                    if target.is_some() {
+                        return Ok(None);
+                    }
+                    let attributes = item.GetAttributes(SFGAO_FOLDER | SFGAO_FILESYSTEM)?;
+                    if attributes & (SFGAO_FOLDER | SFGAO_FILESYSTEM)
+                        != SFGAO_FOLDER | SFGAO_FILESYSTEM
+                    {
+                        return Ok(None);
+                    }
+                    target = Some(PathBuf::from(item_name(&item, SIGDN_FILESYSPATH)?));
+                }
+            }
+            return Ok(target.filter(|path| path.is_dir()));
+        }
+        if !reached_view {
+            return Ok(None);
+        }
+        let persist: IPersistFolder2 = folder.GetFolder()?;
+        let pidl = persist.GetCurFolder()?;
+        let item: Result<IShellItem> = SHCreateItemFromIDList(pidl);
+        CoTaskMemFree(Some(pidl.cast()));
+        let path = PathBuf::from(item_name(&item?, SIGDN_FILESYSPATH)?);
+        Ok(path.is_dir().then_some(path))
+    }
+}
+
+unsafe fn item_name(item: &IShellItem, kind: SIGDN) -> Result<String> {
+    // SAFETY: GetDisplayName returns a task-allocated UTF-16 string; free it even
+    // when conversion fails, before returning the owned Rust string.
+    unsafe {
+        let name = item.GetDisplayName(kind)?;
+        let value = name.to_string();
+        CoTaskMemFree(Some(name.0.cast()));
+        Ok(value?)
+    }
+}

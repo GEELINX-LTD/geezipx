@@ -68,6 +68,7 @@ impl App {
         };
         let password = std::mem::take(&mut self.read_password);
         let request = ReadRequest {
+            index: archive.index.clone(),
             archive: archive.path.clone(),
             password: (!password.is_empty()).then_some(password),
             selection: options.selection.clone(),

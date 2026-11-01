@@ -145,7 +145,16 @@ pub fn open_reader(
     password: Option<&str>,
     control: &Control,
 ) -> Result<Box<dyn ArchiveReader>, String> {
-    let result = build_reader(path, password, control);
+    open_reader_cached(path, password, control, None)
+}
+
+pub(super) fn open_reader_cached(
+    path: &Path,
+    password: Option<&str>,
+    control: &Control,
+    cache: Option<streams::DecodedStream>,
+) -> Result<Box<dyn ArchiveReader>, String> {
+    let result = build_reader(path, password, control, cache);
     control.check()?;
     result
 }
@@ -154,6 +163,7 @@ fn build_reader(
     path: &Path,
     password: Option<&str>,
     control: &Control,
+    cache: Option<streams::DecodedStream>,
 ) -> Result<Box<dyn ArchiveReader>, String> {
     let language = control.language;
     let format = detect_in(path, language)?;
@@ -218,7 +228,12 @@ fn build_reader(
             Box::new(archive::wim::WimReader::open(path).map_err(|e| e.to_string())?)
         }
         stream if streams::is_stream(stream) => {
-            Box::new(streams::StreamReader::new(path, stream, control))
+            let reader = streams::StreamReader::new(path, stream, control);
+            Box::new(if stream != ArchiveFormat::Aes {
+                reader.with_cache(cache.unwrap_or_default())
+            } else {
+                reader
+            })
         }
         _ => return Err(tr!(language, FormatNotEnabled, format)),
     };

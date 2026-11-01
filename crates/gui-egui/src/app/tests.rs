@@ -13,6 +13,7 @@ fn archive() -> Archive {
         })
         .to_vec();
     Archive {
+        index: None,
         path: "设计.zip".into(),
         format: ArchiveFormat::Zip,
         browser: geezipx_egui::browser::Browser::new(&entries),

@@ -1,5 +1,7 @@
 //! Blocking filesystem orchestration. Called exclusively by background jobs.
 pub mod formats;
+mod index;
+pub use index::ArchiveIndex;
 pub mod streams;
 use crate::{browser, i18n::Language, job::Control, tr};
 use geezipx_core::{
@@ -16,6 +18,7 @@ use std::{
 };
 
 pub struct Archive {
+    pub index: Option<ArchiveIndex>,
     pub path: PathBuf,
     pub format: ArchiveFormat,
     pub entries: Vec<Entry>,
@@ -27,9 +30,14 @@ pub fn list(path: PathBuf, password: Option<String>, control: &Control) -> Resul
     let language = control.language;
     control.update(|p| p.stage = tr!(language, ReadingDirectory).into());
     control.check()?;
-    let mut reader = formats::open_reader(&path, password.as_deref(), control)?;
+    let mut index = ArchiveIndex::capture(&path)?;
     let format = formats::detect_in(&path, language)?;
-    let entries = reader.entries();
+    if streams::is_stream(format) && format != ArchiveFormat::Aes {
+        index.stream = Some(Default::default());
+    }
+    let mut reader =
+        formats::open_reader_cached(&path, password.as_deref(), control, index.stream.clone())?;
+    let entries = reader.entries_with_cancel(&|| control.is_cancelled());
     control.check()?;
     let entries = entries.map_err(|e| e.to_string())?;
     let bytes = entries
@@ -37,7 +45,12 @@ pub fn list(path: PathBuf, password: Option<String>, control: &Control) -> Resul
         .fold(0u64, |total, entry| total.saturating_add(entry.size));
     let browser = browser::Browser::new(&entries);
     control.check()?;
+    if !index.matches(&path) {
+        return Err(tr!(language, ArchiveChanged).into());
+    }
+    index.entries = entries.clone().into();
     Ok(Archive {
+        index: Some(index),
         path,
         format,
         entries,
@@ -353,6 +366,8 @@ pub fn compress(request: CompressRequest, control: &Control) -> Result<Summary, 
 }
 
 pub struct ReadRequest {
+    /// Metadata from the opened source; checked for replacement and modification.
+    pub index: Option<ArchiveIndex>,
     pub archive: PathBuf,
     pub password: Option<String>,
     /// Empty means extract everything; folder selections include descendants.
@@ -362,7 +377,16 @@ pub struct ReadRequest {
 }
 
 pub fn extract(request: ReadRequest, control: &Control) -> Result<Summary, String> {
-    read_entries(request, control, false)
+    read_entries(request, control, false, None)
+}
+
+/// Writes selected archive paths under independently validated output names.
+pub fn extract_to_paths(
+    request: ReadRequest,
+    paths: &BTreeMap<String, String>,
+    control: &Control,
+) -> Result<Summary, String> {
+    read_entries(request, control, false, Some(paths))
 }
 pub fn verify(request: ReadRequest, control: &Control) -> Result<Summary, String> {
     control.check()?;
@@ -376,18 +400,46 @@ pub fn verify(request: ReadRequest, control: &Control) -> Result<Summary, String
         control.check()?;
         result.map_err(|e| e.to_string())?;
     }
-    read_entries(request, control, true)
+    read_entries(request, control, true, None)
 }
 
-fn read_entries(request: ReadRequest, control: &Control, verify: bool) -> Result<Summary, String> {
+fn read_entries(
+    request: ReadRequest,
+    control: &Control,
+    verify: bool,
+    paths: Option<&BTreeMap<String, String>>,
+) -> Result<Summary, String> {
     let language = control.language;
     control.update(|p| p.stage = tr!(language, ReadingArchive).into());
     control.check()?;
-    let mut reader = formats::open_reader(&request.archive, request.password.as_deref(), control)?;
-    let entries = reader.entries();
+    if request
+        .index
+        .as_ref()
+        .is_some_and(|index| !index.matches(&request.archive))
+    {
+        return Err(tr!(language, ArchiveChanged).into());
+    }
+    let mut reader = formats::open_reader_cached(
+        &request.archive,
+        request.password.as_deref(),
+        control,
+        if verify {
+            None
+        } else {
+            request
+                .index
+                .as_ref()
+                .and_then(|index| index.stream.clone())
+        },
+    )?;
+    let entries = match &request.index {
+        Some(index) => index.entries.to_vec(),
+        None => reader
+            .entries_with_cancel(&|| control.is_cancelled())
+            .map_err(|e| e.to_string())?,
+    };
     control.check()?;
     let entries: Vec<_> = entries
-        .map_err(|e| e.to_string())?
         .into_iter()
         .filter(|entry| {
             verify
@@ -404,11 +456,19 @@ fn read_entries(request: ReadRequest, control: &Control, verify: bool) -> Result
         let root = resolved(&request.destination, language)?;
         let archive = fs::canonicalize(&request.archive).map_err(|e| e.to_string())?;
         for entry in &entries {
-            let entry_path = browser::normalized(&entry.path);
+            control.check()?;
+            let source_path = browser::normalized(&entry.path);
+            let entry_path = match paths {
+                Some(paths) => paths
+                    .get(&source_path)
+                    .cloned()
+                    .ok_or(tr!(language, ArchiveChanged))?,
+                None => source_path,
+            };
             if is_entry_path_dangerous(Path::new(&entry_path)) {
                 return Err(tr!(language, UnsafePath, entry.path));
             }
-            let target = root.join(browser::normalized(&entry.path));
+            let target = root.join(&entry_path);
             if target == archive || same_file::is_same_file(&archive, &target).unwrap_or(false) {
                 return Err(tr!(language, ExtractionOverwritesArchive).into());
             }
@@ -434,29 +494,34 @@ fn read_entries(request: ReadRequest, control: &Control, verify: bool) -> Result
     let mut bytes = 0u64;
     let mut skipped = 0;
     let mut files = 0;
-    let names: HashSet<_> = entries.iter().map(|entry| entry.path.as_str()).collect();
     let source = fs::canonicalize(&request.archive).map_err(|e| e.to_string())?;
     let root = if verify {
         None
     } else {
         Some(resolved(&request.destination, language)?)
     };
+    let reader_format = reader.format();
     let mut completed = 0;
-    let result = reader.visit_entries(
-        &mut |entry, input| {
+    let result = reader.extract_entries(
+        &entries,
+        &mut |entry, extract| {
             if control.is_cancelled() {
                 return Err(GeeZipError::Cancelled);
-            }
-            if !names.contains(entry.path.as_str()) {
-                return Ok(true);
             }
             control.update(|p| {
                 p.entry = entry.path.clone();
                 p.completed = completed;
             });
-            let entry_path = browser::normalized(&entry.path);
+            let source_path = browser::normalized(&entry.path);
+            let entry_path = match paths {
+                Some(paths) => paths
+                    .get(&source_path)
+                    .cloned()
+                    .ok_or(GeeZipError::EntryNotFound { name: source_path })?,
+                None => source_path,
+            };
             if let Some(root) = &root {
-                let target = root.join(browser::normalized(&entry.path));
+                let target = root.join(&entry_path);
                 if target == source || same_file::is_same_file(&source, &target).unwrap_or(false) {
                     return Err(GeeZipError::io(
                         io::Error::other(tr!(language, OverwritesInput)),
@@ -468,12 +533,15 @@ fn read_entries(request: ReadRequest, control: &Control, verify: bool) -> Result
                 let mut output = ProgressWriter::new(output)
                     .with_total(entry.size)
                     .with_callback(control.callback(bytes));
-                let result = io::copy(input, &mut output)
-                    .map_err(|e| GeeZipError::io(e, tr!(language, ReadingEntry, entry.path)));
+                let result = extract(&mut output);
                 if control.is_cancelled() {
                     Err(GeeZipError::Cancelled)
                 } else {
-                    result
+                    let bytes = result?;
+                    if bytes != entry.size {
+                        return Err(GeeZipError::format("entry size mismatch", reader_format));
+                    }
+                    Ok(bytes)
                 }
             };
             let result = match (&destination, entry.is_dir) {
@@ -542,25 +610,40 @@ pub fn preview(
     entry: Entry,
     control: &Control,
 ) -> Result<Preview, String> {
+    preview_cached(archive, password, entry, None, control)
+}
+
+pub fn preview_cached(
+    archive: PathBuf,
+    password: Option<String>,
+    entry: Entry,
+    index: Option<ArchiveIndex>,
+    control: &Control,
+) -> Result<Preview, String> {
     let language = control.language;
     control.check()?;
-    let mut reader = formats::open_reader(&archive, password.as_deref(), control)?;
+    if index.as_ref().is_some_and(|index| !index.matches(&archive)) {
+        return Err(tr!(language, ArchiveChanged).into());
+    }
+    let mut reader = formats::open_reader_cached(
+        &archive,
+        password.as_deref(),
+        control,
+        index.as_ref().and_then(|index| index.stream.clone()),
+    )?;
     let mut buffer = PreviewBuffer {
         bytes: Vec::new(),
         truncated: false,
     };
     let mut found = false;
-    let result = reader.visit_entries(
-        &mut |candidate, input| {
-            if candidate.path != entry.path {
-                return Ok(true);
-            }
+    let result = reader.extract_entries(
+        std::slice::from_ref(&entry),
+        &mut |_, extract| {
             found = true;
             let result = {
                 let mut writer =
                     ProgressWriter::new(&mut buffer).with_callback(control.callback(0));
-                io::copy(input, &mut writer)
-                    .map_err(|e| GeeZipError::io(e, tr!(language, ReadingPreview)))
+                extract(&mut writer)
             };
             if !buffer.truncated {
                 result?;

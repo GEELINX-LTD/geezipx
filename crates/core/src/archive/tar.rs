@@ -60,12 +60,26 @@ impl TarReader<std::io::Cursor<Vec<u8>>> {
 }
 
 /// Collect entries from a tar archive, skipping metadata entries.
-fn collect_tar_entries<R: Read>(archive: &mut tar::Archive<R>) -> GeeZipResult<Vec<Entry>> {
+fn collect_tar_entries<R: Read + Seek>(
+    archive: &mut tar::Archive<R>,
+    length: u64,
+) -> GeeZipResult<Vec<Entry>> {
     let mut entries = Vec::new();
 
-    for result in archive.entries().map_err(convert_tar_error)? {
+    for result in archive.entries_with_seek().map_err(convert_tar_error)? {
         let tar_entry = result.map_err(convert_tar_error)?;
         let header = tar_entry.header();
+        // Seeking must not make truncated payloads look like valid directories.
+        if tar_entry
+            .raw_file_position()
+            .checked_add(header.entry_size()?)
+            .is_none_or(|end| end > length)
+        {
+            return Err(GeeZipError::format(
+                "truncated TAR entry",
+                ArchiveFormat::Tar,
+            ));
+        }
 
         // The tar crate transparently handles GNU long name / PAX extended
         // headers, but we still filter them explicitly for safety.
@@ -153,9 +167,10 @@ impl<R: Read + Seek + Send> ArchiveReader for TarReader<R> {
     }
 
     fn entries(&mut self) -> GeeZipResult<Vec<Entry>> {
+        let length = self.inner.seek(SeekFrom::End(0))?;
         self.inner.seek(SeekFrom::Start(0))?;
         let mut archive = tar::Archive::new(&mut self.inner);
-        collect_tar_entries(&mut archive)
+        collect_tar_entries(&mut archive, length)
     }
 
     fn has_direct_visitor(&self) -> bool {
@@ -168,14 +183,35 @@ impl<R: Read + Seek + Send> ArchiveReader for TarReader<R> {
         is_cancelled: &dyn Fn() -> bool,
     ) -> GeeZipResult<()> {
         self.inner.seek(SeekFrom::Start(0))?;
-        visit_tar_archive(tar::Archive::new(&mut self.inner), visitor, is_cancelled)
+        let mut archive = tar::Archive::new(&mut self.inner);
+        for item in archive.entries_with_seek()? {
+            if is_cancelled() {
+                return Err(GeeZipError::Cancelled);
+            }
+            let mut data = item?;
+            let header = data.header();
+            let entry = Entry {
+                path: data.path()?.to_string_lossy().into_owned(),
+                size: data.size(),
+                compressed_size: 0,
+                crc32: None,
+                modified: header.mtime().ok(),
+                is_dir: header.entry_type().is_dir(),
+            };
+            if !visitor(&entry, &mut data)? {
+                break;
+            }
+            // The next iterator step seeks over unread payloads. Compressed TAR
+            // readers retain visit_tar_archive's cancellable codec draining.
+        }
+        Ok(())
     }
 
     fn extract(&mut self, entry: &Entry, writer: &mut dyn Write) -> GeeZipResult<u64> {
         self.inner.seek(SeekFrom::Start(0))?;
         let mut archive = tar::Archive::new(&mut self.inner);
 
-        for result in archive.entries().map_err(convert_tar_error)? {
+        for result in archive.entries_with_seek().map_err(convert_tar_error)? {
             let mut tar_entry = result.map_err(convert_tar_error)?;
             let path = tar_entry
                 .path()

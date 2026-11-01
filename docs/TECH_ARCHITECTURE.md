@@ -66,7 +66,14 @@ egui GUI ─┘
 pub trait ArchiveReader: Send {
     fn format(&self) -> ArchiveFormat;
     fn entries(&mut self) -> GeeZipResult<Vec<Entry>>;
+    fn entries_with_cancel(&mut self, is_cancelled: &dyn Fn() -> bool) -> GeeZipResult<Vec<Entry>>;
     fn extract(&mut self, entry: &Entry, writer: &mut dyn Write) -> GeeZipResult<u64>;
+    fn extract_entries(
+        &mut self,
+        entries: &[Entry],
+        output: &mut EntryOutput<'_>,
+        is_cancelled: &dyn Fn() -> bool,
+    ) -> GeeZipResult<()>;
     fn extract_all(&mut self, dest: &Path, overwrite: bool) -> GeeZipResult<ExtractReport>;
     fn visit_entries(
         &mut self,
@@ -98,7 +105,9 @@ pub trait ArchiveWriter: Send {
 - 文件先流式写入同目录临时文件，读取或取消失败会清理临时文件；成功后才替换目标。禁止覆盖模式在发布文件时再次以原子方式保护已存在的目标。
 - `finish(self: Box<Self>) -> GeeZipResult<u64>` 负责结束写入并返回写出的总字节数。
 - `extract_all(..., overwrite)` 与 `extract_all_with_cancel(..., overwrite, ...)` 是当前真实批量提取入口。
-- `visit_entries` 是 object-safe 顺序访问接口，visitor 返回 `false` 可停止。具备直接覆盖的 reader 通过 `has_direct_visitor` 声明；共享整包提取/校验选择单次顺序处理，随机访问 reader 保留原有路径。默认 visitor 用临时文件适配旧 reader，部分后端本身仍有整项缓冲。
+- `entries_with_cancel` 允许 path-based reader 在元数据扫描期间检查取消；CPIO 复用上游 newc/odc 头解析，seek 跳过内容并验证声明区间，TAR/LZH 同样按头和位置扫描。
+- `visit_entries` 是 object-safe 顺序访问接口，visitor 返回 `false` 可停止；兼容默认实现仍用临时文件适配旧 reader。提取、预览和 GUI 验证改用 `extract_entries`：已知选区通过 `EntryOutput` 提供写入闭包，顺序 reader 一次访问，兼容 reader 只调用所选条目的 `extract` 并直接写入，避免为了筛选而解码全部条目。CPIO 单次打开选区提取。部分底层库仍有整项缓冲。
+- GUI `ArchiveIndex` 共享元数据、源文件身份/长度/修改时间与未加密单流解码缓存；后续提取/预览复用索引，来源变化要求重新打开，验证绕过解码缓存重新读取原文件。加密单流不跨操作缓存明文。
 - `add_entry_with_size` 默认委托原有输入 API，TAR 系列覆盖为已知长度流式写入；`ExactSizeReader` 拒绝来源在处理过程中缩短或增长。
 - 读取路径的密码接口由各 reader 覆盖；写入加密当前由 ZIP 与 7z writer 分别支持 AES-256。
 
@@ -450,7 +459,7 @@ Reader/File → ProgressReader → Decoder/ArchiveReader → ProgressWriter → 
 
 原生端 `engine` 只编排 core 的 reader/writer、进度、来源收集和安全输出。压缩通过同目录临时归档提交；解压复用 core `ExtractionDir`，预先拒绝危险名称与输入归档别名覆盖。`engine/formats.rs` 覆盖 core 全部格式构造，RAR/WIM/ZPAQ 默认启用；Unix 工作流关闭 C++ LTO、Windows 使用静态 CRT。`engine/streams.rs` 把单流格式映射为一个条目并委托 core 编解码，先在匿名临时文件完整解码/认证，再提供真实长度与读取流，不实现格式算法。IMG/BIN 通过 core 光盘 reader 浏览 ISO/UDF，ISZ 经 core `IszImage` 接 ISO reader，完整性测试先使用 core `isz_verify` 校验全部外层块，避免仅遍历文件遗漏未访问的损坏块。创建列表包含全部可写格式，单流/镜像只接受单个普通文件；ZIP SFX 使用 core `write_zip_sfx` 在最终提交前生成，`SfxTarget::is_available` 控制缺失 stub 的目标不可选。
 
-原生端 `export::DeferredExport` 按归档/选区快照生成描述信息，不读取归档或创建暂存文件；只有系统确认放置、接收方请求内容后，才通过 `engine::extract` 准备一次并缓存结果。`app/interaction.rs` 管理内容坐标框选和拖放生命周期；`app/native_drag/windows.rs` 实现 OLE `IDataObject`、Unicode `FILEGROUPDESCRIPTORW`、`FILECONTENTS` 和 `IStream`，仅在 `IDropSource::QueryContinueDrag` 确认释放后提供内容；macOS 后端使用 `NSFilePromiseProvider` 与串行后台队列；Linux X11 后端在 `XdndDrop` 后响应 URI 请求。原生 Wayland 暂不支持。复制语义和暂存生命周期允许接收方异步读取。目录双击按稳定条目 ID 配对点击，Windows 使用系统双击间隔；导航快捷键方向键由 Painter 绘制。底部提示不改变列表起点。
+原生端 `export::DeferredExport` 按归档/选区快照生成描述和交付根映射，悬停不读取归档或创建目标。Windows `app/native_drag/windows.rs` 在工作线程跟踪释放，通过命中窗口所属的可见 Shell view、UI Automation 行及 Shell item 文件系统属性解析目标；不能可靠解析时使用目录选择器，放回源窗口或 Esc 取消。不再发布虚拟文件内容给 Explorer；结果通过 `DropOutcome::ExtractTo` 回到 `app/interaction.rs`，由普通 `Job` 调用 `DeferredExport::extract_to` → `engine::extract_mapped` → core `extract_entries` 直接落盘，统一进度、跳过、取消与记录。macOS 保留 `NSFilePromiseProvider`，Linux X11 保留 `XdndDrop` 后的 URI 请求及必要暂存；原生 Wayland 暂不支持。Explorer 标签页、桌面、不同视图与 DPI 需要原生验收，编译不等于目标解析已兼容全部窗口。目录双击按稳定条目 ID 配对点击，Windows 使用系统双击间隔；导航快捷键方向键由 Painter 绘制。底部提示不改变列表起点。
 
 `gui-egui.yml` 使用 `ubuntu-24.04`、`windows-latest`、`macos-latest`，覆盖 Linux x86_64、Windows x86_64、macOS arm64 的检查、测试、release 编译与原生程序压缩包；Windows 使用 `crates/gui-egui/windows/installer.nsi` 打包按用户安装的 NSIS，验证 EXE 校验和、许可证、提交标识、快捷方式和卸载清理。`release.yml` 复用该工作流并收集产物；系统右键菜单和文件关联尚未接入。使用说明、完整格式范围与已知限制见 [EGUI_GUI.md](EGUI_GUI.md)。
 

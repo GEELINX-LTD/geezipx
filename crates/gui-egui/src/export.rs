@@ -34,6 +34,7 @@ pub struct DeferredExport {
 }
 struct DeferredState {
     password: Option<String>,
+    index: Option<engine::ArchiveIndex>,
     prepared: Option<Result<PreparedExport, String>>,
 }
 impl DeferredExport {
@@ -116,9 +117,52 @@ impl DeferredExport {
             dropped: AtomicBool::new(false),
             state: Mutex::new(DeferredState {
                 password,
+                index: None,
                 prepared: None,
             }),
         })
+    }
+    pub fn with_index(mut self, index: Option<engine::ArchiveIndex>) -> Self {
+        self.state
+            .get_mut()
+            .unwrap_or_else(|e| e.into_inner())
+            .index = index;
+        self
+    }
+    /// Write the selected roots directly, without a drag staging directory.
+    pub fn extract_to(
+        &self,
+        destination: PathBuf,
+        control: &Control,
+    ) -> Result<engine::Summary, String> {
+        if !self.is_dropped() {
+            return Err(tr!(control.language, DropNotConfirmed).into());
+        }
+        control.check()?;
+        let (password, index) = {
+            let mut state = self
+                .state
+                .lock()
+                .map_err(|_| tr!(control.language, ExportStateDamaged))?;
+            (state.password.take(), state.index.clone())
+        };
+        let paths = self
+            .items
+            .iter()
+            .map(|item| (item.archive_path.clone(), item.name.clone()))
+            .collect();
+        engine::extract_to_paths(
+            ReadRequest {
+                archive: self.key.archive.clone(),
+                index,
+                password,
+                selection: self.key.selection.clone(),
+                destination,
+                overwrite: false,
+            },
+            &paths,
+            control,
+        )
     }
     /// Called by the native drop protocol after releasing over an accepting target.
     pub fn confirm_drop(&self) {
@@ -259,6 +303,7 @@ pub fn prepare(
         .map_err(|e| tr!(language, PrepareExportError, e))?;
     engine::extract(
         ReadRequest {
+            index: None,
             archive: key.archive.clone(),
             password,
             selection: key.selection.clone(),

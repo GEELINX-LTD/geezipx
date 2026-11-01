@@ -29,8 +29,8 @@ use std::path::{Path, PathBuf};
 use cpio_archive::{CpioHeader, OdcBuilder};
 
 use crate::archive::{
-    check_entry_path_safety, normalize_path, ArchiveReader, ArchiveWriter, CancellableWriter,
-    CountWriter, Entry, ExtractReport,
+    normalize_path, ArchiveReader, ArchiveWriter, CancellableWriter, CountWriter, Entry,
+    ExtractReport,
 };
 use crate::detect::ArchiveFormat;
 use crate::error::{GeeZipError, GeeZipResult};
@@ -119,17 +119,7 @@ impl CpioReader {
     }
 
     fn scan_records(&self) -> GeeZipResult<Vec<CpioEntryRecord>> {
-        let mut reader = self.open_archive()?;
-        let mut records = Vec::new();
-
-        while let Some(header) = reader
-            .read_next()
-            .map_err(|err| convert_cpio_error(err, format!("reading '{}'", self.path.display())))?
-        {
-            records.push(cpio_header_to_record(&*header)?);
-        }
-
-        Ok(records)
+        scan_cpio_records(&mut File::open(&self.path)?, &|| false)
     }
 
     fn collect_entries(&self) -> GeeZipResult<Vec<Entry>> {
@@ -141,6 +131,65 @@ impl CpioReader {
     }
 }
 
+/// Parse upstream headers while seeking over payloads instead of asking the
+/// forward-only reader to read and discard every byte during a directory scan.
+fn scan_cpio_records<R: Read + Seek>(
+    reader: &mut R,
+    is_cancelled: &dyn Fn() -> bool,
+) -> GeeZipResult<Vec<CpioEntryRecord>> {
+    let length = reader.seek(SeekFrom::End(0))?;
+    reader.seek(SeekFrom::Start(0))?;
+    let mut records = Vec::new();
+    loop {
+        if is_cancelled() {
+            return Err(GeeZipError::Cancelled);
+        }
+        let mut magic = [0; 6];
+        reader.read_exact(&mut magic)?;
+        let (header, alignment): (Box<dyn CpioHeader>, u64) = if magic == cpio_archive::newc::MAGIC
+        {
+            (
+                Box::new(
+                    cpio_archive::NewcHeader::from_reader(reader)
+                        .map_err(|error| convert_cpio_error(error, "reading CPIO metadata"))?,
+                ),
+                4,
+            )
+        } else if magic == cpio_archive::odc::MAGIC {
+            (
+                Box::new(
+                    cpio_archive::OdcHeader::from_reader(reader)
+                        .map_err(|error| convert_cpio_error(error, "reading CPIO metadata"))?,
+                ),
+                1,
+            )
+        } else {
+            return Err(convert_cpio_error(
+                cpio_archive::Error::BadMagic,
+                "reading CPIO metadata",
+            ));
+        };
+        if header.name() == "TRAILER!!!" {
+            break;
+        }
+        let size = header.file_size();
+        let padding = (alignment - size % alignment) % alignment;
+        let next = reader
+            .stream_position()?
+            .checked_add(size)
+            .and_then(|offset| offset.checked_add(padding));
+        let Some(next) = next.filter(|next| *next <= length) else {
+            return Err(GeeZipError::io(
+                std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "truncated CPIO payload"),
+                "reading CPIO metadata",
+            ));
+        };
+        records.push(cpio_header_to_record(&*header)?);
+        reader.seek(SeekFrom::Start(next))?;
+    }
+    Ok(records)
+}
+
 impl ArchiveReader for CpioReader {
     fn format(&self) -> ArchiveFormat {
         self.format
@@ -148,6 +197,15 @@ impl ArchiveReader for CpioReader {
 
     fn entries(&mut self) -> GeeZipResult<Vec<Entry>> {
         self.collect_entries()
+    }
+
+    fn entries_with_cancel(&mut self, is_cancelled: &dyn Fn() -> bool) -> GeeZipResult<Vec<Entry>> {
+        Ok(
+            scan_cpio_records(&mut File::open(&self.path)?, is_cancelled)?
+                .into_iter()
+                .map(|record| record.entry)
+                .collect(),
+        )
     }
 
     fn extract(&mut self, entry: &Entry, writer: &mut dyn Write) -> GeeZipResult<u64> {
@@ -176,6 +234,54 @@ impl ArchiveReader for CpioReader {
         })
     }
 
+    fn extract_entries(
+        &mut self,
+        entries: &[Entry],
+        output: &mut super::EntryOutput<'_>,
+        is_cancelled: &dyn Fn() -> bool,
+    ) -> GeeZipResult<()> {
+        let names: std::collections::HashSet<_> = entries.iter().map(|e| e.path.as_str()).collect();
+        let mut reader = self.open_archive()?;
+        loop {
+            if is_cancelled() {
+                return Err(GeeZipError::Cancelled);
+            }
+            let Some(header) = reader
+                .read_next()
+                .map_err(|err| convert_cpio_error(err, "reading CPIO header"))?
+            else {
+                break;
+            };
+            let record = cpio_header_to_record(&*header)?;
+            if names.contains(record.entry.path.as_str()) {
+                let mut write = |writer: &mut dyn Write| {
+                    if !record.kind.is_extractable() {
+                        return Err(unsupported_extract_error(&record.entry.path, record.kind));
+                    }
+                    let mut writer = CancellableWriter::new(writer, is_cancelled);
+                    let result = std::io::copy(&mut reader, &mut writer);
+                    if writer.was_cancelled() || is_cancelled() {
+                        return Err(GeeZipError::Cancelled);
+                    }
+                    result.map_err(Into::into)
+                };
+                if !output(&record.entry, &mut write)? {
+                    return Ok(());
+                }
+            }
+            // Drain here rather than inside read_next so skipping a large entry
+            // remains cancellable. The archive is opened only once per selection.
+            let mut sink = std::io::sink();
+            let mut sink = CancellableWriter::new(&mut sink, is_cancelled);
+            let result = std::io::copy(&mut reader, &mut sink);
+            if sink.was_cancelled() || is_cancelled() {
+                return Err(GeeZipError::Cancelled);
+            }
+            result?;
+        }
+        Ok(())
+    }
+
     fn extract_all(&mut self, dest: &Path, overwrite: bool) -> GeeZipResult<ExtractReport> {
         self.extract_all_with_cancel(dest, overwrite, &|| false)
     }
@@ -186,124 +292,7 @@ impl ArchiveReader for CpioReader {
         overwrite: bool,
         is_cancelled: &dyn Fn() -> bool,
     ) -> GeeZipResult<ExtractReport> {
-        let records = self.scan_records()?;
-        let mut report = ExtractReport::default();
-        let dest = normalize_path(dest);
-
-        for record in &records {
-            if is_cancelled() {
-                return Err(GeeZipError::Cancelled);
-            }
-
-            let entry = &record.entry;
-            let entry_path = Path::new(&entry.path);
-            let target = match check_entry_path_safety(entry_path, &entry.path, &dest) {
-                Ok(target) => target,
-                Err((name, err)) => {
-                    report.errors.push((name, err));
-                    continue;
-                }
-            };
-
-            if record.kind.is_directory() {
-                if let Err(err) = std::fs::create_dir_all(&target) {
-                    report.errors.push((
-                        entry.path.clone(),
-                        GeeZipError::io(err, "creating directory"),
-                    ));
-                    continue;
-                }
-                report.files_extracted += 1;
-                continue;
-            }
-
-            if !record.kind.is_extractable() {
-                report.errors.push((
-                    entry.path.clone(),
-                    unsupported_extract_error(&entry.path, record.kind),
-                ));
-                continue;
-            }
-
-            if let Some(parent) = target.parent() {
-                if !parent.exists() {
-                    if let Err(err) = std::fs::create_dir_all(parent) {
-                        report.errors.push((
-                            entry.path.clone(),
-                            GeeZipError::io(err, "creating parent directory"),
-                        ));
-                        continue;
-                    }
-                }
-            }
-
-            let output = if overwrite {
-                match std::fs::File::create(&target) {
-                    Ok(file) => file,
-                    Err(err) => {
-                        report.errors.push((
-                            entry.path.clone(),
-                            GeeZipError::io(
-                                err,
-                                format!("creating output file '{}'", target.display()),
-                            ),
-                        ));
-                        continue;
-                    }
-                }
-            } else {
-                match std::fs::OpenOptions::new()
-                    .write(true)
-                    .create_new(true)
-                    .open(&target)
-                {
-                    Ok(file) => file,
-                    Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => {
-                        report.files_skipped += 1;
-                        report.errors.push((
-                            entry.path.clone(),
-                            GeeZipError::clobber_denied(target.display().to_string()),
-                        ));
-                        continue;
-                    }
-                    Err(err) => {
-                        report.errors.push((
-                            entry.path.clone(),
-                            GeeZipError::io(
-                                err,
-                                format!("creating output file '{}'", target.display()),
-                            ),
-                        ));
-                        continue;
-                    }
-                }
-            };
-
-            let mut output = CancellableWriter::new(output, is_cancelled);
-            let extract_result = self.extract(entry, &mut output);
-            let was_cancelled = output.was_cancelled();
-            drop(output);
-
-            match extract_result {
-                Ok(bytes) => {
-                    if was_cancelled {
-                        let _ = std::fs::remove_file(&target);
-                        return Err(GeeZipError::Cancelled);
-                    }
-                    report.files_extracted += 1;
-                    report.bytes_extracted += bytes;
-                }
-                Err(err) => {
-                    let _ = std::fs::remove_file(&target);
-                    if was_cancelled {
-                        return Err(GeeZipError::Cancelled);
-                    }
-                    report.errors.push((entry.path.clone(), err));
-                }
-            }
-        }
-
-        Ok(report)
+        super::extract_all_safely(self, dest, overwrite, is_cancelled)
     }
 }
 
@@ -805,6 +794,60 @@ fn convert_odc_write_error(err: cpio_archive::Error, entry_name: &str) -> GeeZip
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn metadata_scan_seeks_over_payload_and_checks_cancellation() {
+        use std::cell::Cell;
+        use std::io::{Cursor, Read, Seek, SeekFrom};
+        struct Counted {
+            input: Cursor<Vec<u8>>,
+            read: usize,
+        }
+        impl Read for Counted {
+            fn read(&mut self, bytes: &mut [u8]) -> std::io::Result<usize> {
+                let n = self.input.read(bytes)?;
+                self.read += n;
+                Ok(n)
+            }
+        }
+        impl Seek for Counted {
+            fn seek(&mut self, position: SeekFrom) -> std::io::Result<u64> {
+                self.input.seek(position)
+            }
+        }
+        for odc in [false, true] {
+            let mut data = Vec::new();
+            let mut writer = if odc {
+                super::CpioWriter::new_odc(&mut data)
+            } else {
+                super::CpioWriter::new(&mut data)
+            };
+            crate::archive::ArchiveWriter::add_entry_from_reader(
+                &mut writer,
+                std::path::Path::new("large.bin"),
+                &mut std::io::repeat(0).take(2 * 1024 * 1024),
+            )
+            .unwrap();
+            crate::archive::ArchiveWriter::finish(Box::new(writer)).unwrap();
+            let mut reader = Counted {
+                input: Cursor::new(data),
+                read: 0,
+            };
+            let entries = super::scan_cpio_records(&mut reader, &|| false).unwrap();
+            assert_eq!(entries.len(), 1);
+            assert_eq!(entries[0].entry.size, 2 * 1024 * 1024);
+            assert!(
+                reader.read < 4096,
+                "metadata read payload bytes: {}",
+                reader.read
+            );
+            let polls = Cell::new(0);
+            let result = super::scan_cpio_records(&mut reader, &|| {
+                polls.set(polls.get() + 1);
+                polls.get() > 1
+            });
+            assert!(matches!(result, Err(crate::error::GeeZipError::Cancelled)));
+        }
+    }
     use super::*;
 
     use cpio_archive::OdcBuilder;

@@ -654,7 +654,7 @@ fn scan_lzh_entries<R: Read + Seek + Send>(inner: &mut R) -> GeeZipResult<Vec<En
         });
 
         if !reader
-            .next_file()
+            .seek_next_file()
             .map_err(|err| convert_lha_decode_error(err, "reading LZH archive"))?
         {
             break;
@@ -699,9 +699,6 @@ impl<R: Read + Seek + Send> ArchiveReader for LzhReader<R> {
                 modified: lzh_modified_timestamp(header),
                 is_dir: header.is_directory(),
             };
-            if !entry.is_dir && !reader.is_decoder_supported() {
-                return Err(unsupported_method_error(reader.header(), &entry.path));
-            }
             struct Verified<'a, R>(&'a mut LhaDecodeReader<R>);
             impl<R: Read> Read for Verified<'_, R> {
                 fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
@@ -717,7 +714,7 @@ impl<R: Read + Seek + Send> ArchiveReader for LzhReader<R> {
                 if !visitor(&entry, &mut data)? {
                     return Ok(());
                 }
-                if !entry.is_dir {
+                if !entry.is_dir && data.0.len() < entry.size {
                     let mut sink = std::io::sink();
                     let mut output = super::CancellableWriter::new(&mut sink, is_cancelled);
                     let result = std::io::copy(&mut data, &mut output);
@@ -728,7 +725,7 @@ impl<R: Read + Seek + Send> ArchiveReader for LzhReader<R> {
                 }
             }
             if !reader
-                .next_file()
+                .seek_next_file()
                 .map_err(|err| convert_lha_decode_error(err, "reading LZH archive"))?
             {
                 break;
@@ -772,7 +769,7 @@ impl<R: Read + Seek + Send> ArchiveReader for LzhReader<R> {
             }
 
             if !reader
-                .next_file()
+                .seek_next_file()
                 .map_err(|err| convert_lha_decode_error(err, "reading LZH archive"))?
             {
                 break;
