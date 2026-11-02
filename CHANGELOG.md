@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-Current development version: **0.10.1**. Latest published stable release: **0.7.4**.
+Current development version: **0.10.2**. Latest published stable release: **0.7.4**.
 
 ### Added
 
@@ -56,6 +56,8 @@ Current development version: **0.10.1**. Latest published stable release: **0.7.
 - Upgrade ZIP to 9.1.3, `unarc-rs` to 0.8 and Zstandard to 0.14.3; refresh transitive dependencies to resolve audit advisories.
 
 ### Fixed
+
+- **Native GUI — Shell extraction**: Show a standalone compact progress window for all three context-menu extraction actions, without opening the archive manager or restoring its saved size. Choose destinations and retry password/errors in the small window, close automatically after success, and wait for worker cleanup when cancelled. Read existing appearance preferences without overwriting the manager's settings or recent archives.
 
 - **Windows installer commands**: Manage test trust through the .NET certificate-store API without requiring PowerShell's `Cert:` provider; preserve exact ownership and recheck trust after elevation. Start certificate management with native 64-bit Windows PowerShell and capture certificate/menu command output; failed operations retain a diagnostic log for the installer and Windows acceptance.
 

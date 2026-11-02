@@ -4,7 +4,7 @@ const LIFETIME: Duration = Duration::from_secs(2);
 const AREA_ID: &str = "notice-toast";
 
 pub(super) struct Notice {
-    message: String,
+    pub(super) message: String,
     error: bool,
     expires_at: Option<f64>,
     hovered: bool,

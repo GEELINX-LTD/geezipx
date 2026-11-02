@@ -214,7 +214,9 @@ impl App {
             theme::rule(ui);
             ui.add_space(4.0);
             ui.horizontal(|ui| {
-                theme::caption(ui, tr!(language, ExtractionCountsHint));
+                if self.shell_task.is_none() {
+                    theme::caption(ui, tr!(language, ExtractionCountsHint));
+                }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.add_enabled_ui(
                         !busy && !options.destination.path.as_os_str().is_empty(),
@@ -254,6 +256,9 @@ impl App {
             self.extraction = None;
             self.read_password.clear();
             self.form_error = None;
+            if self.shell_task.is_some() {
+                self.close_shell_task(context);
+            }
         } else if browse {
             self.dialog(context, Dialog::Destination);
         } else if start {

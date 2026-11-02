@@ -6,6 +6,7 @@ mod interaction;
 mod native_drag;
 mod notices;
 mod settings;
+mod shell_progress;
 #[cfg(test)]
 mod shell_tests;
 mod tasks;
@@ -29,6 +30,7 @@ use geezipx_egui::{
 use notices::Notice;
 use serde::{Deserialize, Serialize};
 use settings::Settings;
+pub use shell_progress::WINDOW_SIZE as SHELL_WINDOW_SIZE;
 use std::{
     collections::BTreeSet,
     path::PathBuf,
@@ -68,7 +70,7 @@ enum Dialog {
     Destination,
 }
 enum Outcome {
-    Archive(Box<Archive>),
+    Archive(Box<Archive>, Option<String>),
     Done(Summary),
     Preview(Preview),
     Paths(Dialog, Vec<PathBuf>),
@@ -166,6 +168,7 @@ pub struct App {
     extraction: Option<Extraction>,
     pending_extraction: Option<Extraction>,
     shell_extraction: Option<(PathBuf, Action)>,
+    shell_task: Option<shell_progress::ShellTask>,
     tasks_open: bool,
     read_password: String,
     notice: Option<Notice>,
@@ -213,6 +216,7 @@ impl App {
             extraction: None,
             pending_extraction: None,
             shell_extraction: None,
+            shell_task: None,
             tasks_open: false,
             read_password: String::new(),
             notice: None,
@@ -270,8 +274,16 @@ impl App {
             return;
         }
         self.opening_path = Some(path.clone());
+        let extracting = self
+            .shell_extraction
+            .as_ref()
+            .is_some_and(|(source, _)| *source == path);
         self.start(context, Kind::List, move |control| {
-            engine::list(path, password, control).map(|archive| Outcome::Archive(Box::new(archive)))
+            // The listing and extraction are one shell operation; carry its password
+            // only until the extraction worker takes ownership.
+            let extraction_password = extracting.then(|| password.clone()).flatten();
+            engine::list(path, password, control)
+                .map(|archive| Outcome::Archive(Box::new(archive), extraction_password))
         });
     }
     fn new_archive(&mut self) {
@@ -313,6 +325,7 @@ impl App {
             }
             Action::Extract | Action::ExtractHere | Action::ExtractFolder => {
                 if let Some(path) = paths.into_iter().next() {
+                    self.shell_task = Some(shell_progress::ShellTask::new(path.clone()));
                     self.shell_extraction = Some((path.clone(), action));
                     self.open_archive(context, path, None);
                 }
@@ -411,10 +424,12 @@ impl App {
             elapsed: active.job.started.elapsed(),
         };
         match result {
-            Ok(Outcome::Archive(archive)) => {
-                self.preferences.recent.retain(|path| *path != archive.path);
-                self.preferences.recent.insert(0, archive.path.clone());
-                self.preferences.recent.truncate(8);
+            Ok(Outcome::Archive(archive, password)) => {
+                if self.shell_task.is_none() {
+                    self.preferences.recent.retain(|path| *path != archive.path);
+                    self.preferences.recent.insert(0, archive.path.clone());
+                    self.preferences.recent.truncate(8);
+                }
                 context.send_viewport_cmd(egui::ViewportCommand::Title(format!(
                     "{} — GeeZipX",
                     archive
@@ -429,7 +444,11 @@ impl App {
                 self.row_activation.reset();
                 self.retry_path = None;
                 self.opening_path = None;
-                self.read_password.clear();
+                self.read_password = if self.close_when_finished {
+                    String::new()
+                } else {
+                    password.unwrap_or_default()
+                };
                 self.typeahead.clear();
                 self.list_offset = 0.0;
                 self.tree_offset = 0.0;
@@ -459,6 +478,9 @@ impl App {
                     if let Some(path) = &record.output {
                         self.open_output(path.clone());
                     }
+                }
+                if kind == Kind::Extract && self.shell_task.is_some() {
+                    self.close_when_finished = true;
                 }
             }
             Ok(Outcome::Preview(preview)) => self.preview = Some(preview),
@@ -508,6 +530,9 @@ impl App {
                 self.notice = Some(Notice::new(error, record.failed));
                 if kind == Kind::List {
                     self.retry_path = self.opening_path.take();
+                }
+                if record.cancelled && self.shell_task.is_some() {
+                    self.close_when_finished = true;
                 }
             }
         }
@@ -898,6 +923,10 @@ impl App {
         }
     }
     fn render(&mut self, context: &egui::Context) {
+        if self.shell_task.is_some() {
+            self.shell_progress(context);
+            return;
+        }
         self.shortcuts(context);
         let margin = self.window_frame.margin(context);
         let mut footer = egui::Rect::NOTHING;
@@ -951,6 +980,17 @@ impl eframe::App for App {
         self.poll_integration(context);
         self.poll_native_drag(context);
         self.poll(context);
+        if self.shell_task.is_some() {
+            if context.input(|i| i.viewport().close_requested()) && self.busy() {
+                context.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+                self.close_shell_task(context);
+            }
+            self.render(context);
+            if self.busy() {
+                context.request_repaint_after(Duration::from_millis(100));
+            }
+            return;
+        }
         if context.input(|i| i.viewport().close_requested()) && self.busy() {
             context.send_viewport_cmd(egui::ViewportCommand::CancelClose);
             self.close_prompt = true;
@@ -996,7 +1036,13 @@ impl eframe::App for App {
             context.request_repaint_after(Duration::from_millis(100));
         }
     }
+    fn persist_egui_memory(&self) -> bool {
+        self.shell_task.is_none()
+    }
+
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
-        eframe::set_value(storage, "native-preferences", &self.preferences);
+        if self.shell_task.is_none() {
+            eframe::set_value(storage, "native-preferences", &self.preferences);
+        }
     }
 }

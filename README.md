@@ -99,7 +99,7 @@ Phase 2 (Desktop GUI) is **the active development focus**. **GeeZipX** is the so
 | 1 | CLI MVP | **Complete** -- crates.io releases `geezipx` (v0.7.4) and `geezipx-core` are available |
 | 2 | Desktop GUI (egui) | **Unreleased** -- independent native app; build with `cargo run -p geezipx-egui`; standalone three-platform build workflow |
 
-Current development version: **0.10.1** (unreleased). The latest published CLI release is **v0.7.4**.
+Current development version: **0.10.2** (unreleased). The latest published CLI release is **v0.7.4**.
 
 See [`docs/EGUI_GUI.md`](docs/EGUI_GUI.md) and the [release checklist](docs/RELEASE_CHECKLIST.md) for features and remaining work.
 

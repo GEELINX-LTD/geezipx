@@ -50,12 +50,44 @@ fn shell_extraction_waits_for_listing_and_uses_the_requested_destination() {
         let mut app = App::empty(Preferences::default());
         app.accept_launch(&context, action, vec![archive.clone()]);
         assert!(app.active.is_some());
+        assert!(app.shell_task.is_some());
         finish_job(&mut app, &context);
         if action == Action::Extract {
+            use super::tests::{assert_action_visible, draw};
+            for size in [[560.0, 440.0], [480.0, 440.0]] {
+                draw(&mut app, &context, size);
+                let output = draw(&mut app, &context, size);
+                assert_action_visible(&output, size, "开始解压");
+                assert_action_visible(&output, size, "取消");
+            }
             let options = app.extraction.as_mut().unwrap();
             assert_eq!(options.destination.path, root.path().join("中文"));
             assert!(!options.destination.path.exists());
-            options.destination.set(root.path().join("chosen output"));
+            let destination = root.path().join("chosen output");
+            options.destination.set(destination.clone());
+            std::fs::write(&destination, "keep conflicting file").unwrap();
+            app.begin_extraction(&context);
+            finish_job(&mut app, &context);
+            assert!(app.form_error.is_some() && app.extraction.is_some());
+            assert!(!app.close_when_finished);
+            assert_eq!(
+                std::fs::read_to_string(&destination).unwrap(),
+                "keep conflicting file"
+            );
+            std::fs::remove_file(&destination).unwrap();
+            for language in Language::ALL {
+                app.preferences.language = language;
+                for dark in [false, true] {
+                    app.preferences.dark = dark;
+                    theme::apply(&context, dark);
+                    for size in [[560.0, 440.0], [480.0, 440.0]] {
+                        draw(&mut app, &context, size);
+                        let output = draw(&mut app, &context, size);
+                        assert_action_visible(&output, size, tr!(language, StartExtraction));
+                        assert_action_visible(&output, size, tr!(language, Cancel));
+                    }
+                }
+            }
             app.begin_extraction(&context);
             finish_job(&mut app, &context);
             assert_eq!(
@@ -71,6 +103,8 @@ fn shell_extraction_waits_for_listing_and_uses_the_requested_destination() {
         assert_eq!(std::fs::read_to_string(&source).unwrap(), "keep existing");
         assert!(app.shell_extraction.is_none());
         assert!(!app.history[0].failed);
+        assert!(app.close_when_finished);
+        assert!(app.preferences.recent.is_empty());
     }
 }
 
@@ -89,8 +123,182 @@ fn failed_shell_open_never_extracts_a_different_archive() {
     finish_job(&mut app, &context);
     assert_eq!(app.retry_path, Some(missing));
     assert!(app.shell_extraction.is_some());
+    assert!(!app.close_when_finished);
     app.open_archive(&context, root.path().join("source.zip"), None);
     finish_job(&mut app, &context);
     assert!(app.extraction.is_none() && app.history.is_empty());
     assert!(app.shell_extraction.is_none());
+}
+
+#[test]
+fn shell_progress_stays_compact_and_waits_for_worker_cleanup_when_closed() {
+    use super::tests::{assert_action_visible, draw};
+    for language in Language::ALL {
+        for dark in [false, true] {
+            let context = context();
+            theme::apply(&context, dark);
+            let mut app = App::empty(Preferences {
+                language,
+                dark,
+                ..Default::default()
+            });
+            app.shell_task = Some(shell_progress::ShellTask::new("中文 大归档.zip".into()));
+            let (release, receiver) = std::sync::mpsc::sync_channel(1);
+            app.start(&context, Kind::Extract, move |control| {
+                receiver.recv().unwrap();
+                control.check()?;
+                unreachable!("the test cancels before releasing the worker")
+            });
+            app.active.as_ref().unwrap().job.control.update(|progress| {
+                progress.stage = tr!(language, Extracting).into();
+                progress.entry = "目录/当前文件.txt".into();
+                progress.bytes = 500;
+                progress.total = 1000;
+            });
+            for size in [SHELL_WINDOW_SIZE, [480.0, 300.0]] {
+                draw(&mut app, &context, size);
+                let output = draw(&mut app, &context, size);
+                assert_action_visible(&output, size, tr!(language, CancelTask));
+                let texts: Vec<_> = output
+                    .shapes
+                    .iter()
+                    .filter_map(|shape| {
+                        if let egui::Shape::Text(text) = &shape.shape {
+                            Some(text.galley.text())
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+                assert!(texts.contains(&tr!(language, Extracting)));
+                assert!(texts.contains(&"50%"));
+                assert_action_visible(&output, size, "目录/当前文件.txt");
+                if size == SHELL_WINDOW_SIZE {
+                    let speed = texts.iter().find(|text| text.contains("/s")).unwrap();
+                    assert_action_visible(&output, size, speed);
+                }
+                assert!(!texts.contains(&tr!(language, FileMenu)));
+                assert!(!texts.contains(&tr!(language, New)));
+                assert!(!texts.contains(&tr!(language, Tasks)));
+            }
+            let output = context.run(Default::default(), |context| app.close_shell_task(context));
+            assert!(app.active.as_ref().unwrap().job.control.is_cancelled());
+            assert!(app.close_when_finished);
+            assert!(!output.viewport_output[&egui::ViewportId::ROOT]
+                .commands
+                .iter()
+                .any(|command| matches!(command, egui::ViewportCommand::Close)));
+            release.send(()).unwrap();
+            finish_job(&mut app, &context);
+            let output = draw(&mut app, &context, SHELL_WINDOW_SIZE);
+            assert!(output.viewport_output[&egui::ViewportId::ROOT]
+                .commands
+                .iter()
+                .any(|command| matches!(command, egui::ViewportCommand::Close)));
+            assert!(app.history[0].cancelled && !app.history[0].failed);
+        }
+    }
+}
+
+#[test]
+fn shell_extraction_retries_encrypted_content_in_the_same_small_window() {
+    use super::tests::{assert_action_visible, draw};
+    let context = context();
+    let root = tempfile::tempdir().unwrap();
+    let source = root.path().join("加密.txt");
+    std::fs::write(&source, "secret content").unwrap();
+    let mut creator = App::empty(Preferences::default());
+    creator.add_sources(vec![source]);
+    creator.draft.show_password = true;
+    creator.draft.password = "secret".into();
+    creator.draft.confirm = "secret".into();
+    creator.create_archive(&context);
+    finish_job(&mut creator, &context);
+    assert!(!creator.history[0].failed);
+
+    let mut app = App::empty(Preferences::default());
+    app.accept_launch(
+        &context,
+        Action::ExtractFolder,
+        vec![root.path().join("加密.zip")],
+    );
+    finish_job(&mut app, &context);
+    assert!(app.retry_path.is_some() && app.archive.is_none());
+    assert!(!app.close_when_finished);
+    let destination = root.path().join("加密");
+    for password in ["wrong", "secret"] {
+        app.read_password = password.into();
+        draw(&mut app, &context, SHELL_WINDOW_SIZE);
+        let output = draw(&mut app, &context, SHELL_WINDOW_SIZE);
+        assert_action_visible(&output, SHELL_WINDOW_SIZE, "重新打开");
+        let _ = context.run(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    SHELL_WINDOW_SIZE.into(),
+                )),
+                events: vec![egui::Event::Key {
+                    key: egui::Key::Enter,
+                    physical_key: None,
+                    pressed: true,
+                    repeat: false,
+                    modifiers: egui::Modifiers::NONE,
+                }],
+                ..Default::default()
+            },
+            |context| app.render(context),
+        );
+        assert!(app.read_password.is_empty());
+        finish_job(&mut app, &context);
+        if password == "wrong" {
+            assert!(!app.close_when_finished);
+            assert!(app.retry_path.is_some());
+            assert!(!destination.join("加密.txt").exists());
+        }
+    }
+    assert!(app.close_when_finished && app.extraction.is_none());
+    assert_eq!(
+        std::fs::read_to_string(destination.join("加密.txt")).unwrap(),
+        "secret content"
+    );
+}
+
+#[test]
+fn shell_listing_failure_can_retry_the_original_request_and_never_saves_preferences() {
+    let context = context();
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("missing.zip");
+    let mut app = App::empty(Preferences::default());
+    app.accept_launch(&context, Action::ExtractFolder, vec![path.clone()]);
+    finish_job(&mut app, &context);
+    assert!(app.retry_path.is_some() && !app.close_when_finished);
+    for _ in 0..3 {
+        let output = super::tests::draw(&mut app, &context, SHELL_WINDOW_SIZE);
+        super::tests::assert_action_visible(&output, SHELL_WINDOW_SIZE, "重新打开");
+    }
+    let source = root.path().join("missing.txt");
+    std::fs::write(&source, "retried content").unwrap();
+    let mut creator = App::empty(Preferences::default());
+    creator.accept_launch(&context, Action::CompressZip, vec![source]);
+    finish_job(&mut creator, &context);
+    app.open_archive(&context, path, None);
+    finish_job(&mut app, &context);
+    assert!(app.close_when_finished);
+    assert_eq!(
+        std::fs::read_to_string(root.path().join("missing/missing.txt")).unwrap(),
+        "retried content"
+    );
+    assert!(app.preferences.recent.is_empty());
+    assert!(!eframe::App::persist_egui_memory(&app));
+    struct UnwritableStorage;
+    impl eframe::Storage for UnwritableStorage {
+        fn get_string(&self, _: &str) -> Option<String> {
+            None
+        }
+        fn set_string(&mut self, _: &str, _: String) {
+            panic!("shell jobs must not overwrite manager preferences")
+        }
+        fn flush(&mut self) {}
+    }
+    eframe::App::save(&mut app, &mut UnwritableStorage);
 }

@@ -114,22 +114,80 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
     };
-    let options = eframe::NativeOptions {
-        viewport: eframe::egui::ViewportBuilder::default()
-            .with_title("GeeZipX")
-            .with_decorations(false)
-            .with_transparent(true)
-            .with_app_id(integration::APP_ID)
-            .with_inner_size([1000.0, 680.0])
-            .with_min_inner_size(window_frame::MIN_INNER_SIZE)
-            .with_icon(theme::icon()),
-        renderer: eframe::Renderer::Glow,
-        ..Default::default()
-    };
+    let options = native_options(action);
     eframe::run_native(
         "GeeZipX",
         options,
         Box::new(move |cc| Ok(Box::new(app::App::new(cc, action, paths)))),
     )?;
     Ok(())
+}
+
+fn native_options(action: Action) -> eframe::NativeOptions {
+    let extraction = action.is_extraction();
+    let viewport = eframe::egui::ViewportBuilder::default()
+        .with_title("GeeZipX")
+        .with_app_id(integration::APP_ID)
+        .with_icon(theme::icon());
+    eframe::NativeOptions {
+        viewport: if extraction {
+            viewport
+                .with_inner_size(app::SHELL_WINDOW_SIZE)
+                .with_min_inner_size([480.0, 300.0])
+        } else {
+            viewport
+                .with_decorations(false)
+                .with_transparent(true)
+                .with_inner_size([1000.0, 680.0])
+                .with_min_inner_size(window_frame::MIN_INNER_SIZE)
+        },
+        // Shell jobs must neither restore nor overwrite the manager's geometry.
+        persist_window: !extraction,
+        // eframe 0.33 still loads saved geometry when persist_window is false.
+        // This hook runs after restoration, before the native window is created.
+        window_builder: if extraction {
+            Some(Box::new(|viewport| {
+                viewport
+                    .with_inner_size(app::SHELL_WINDOW_SIZE)
+                    .with_maximized(false)
+                    .with_fullscreen(false)
+            }))
+        } else {
+            None
+        },
+        renderer: eframe::Renderer::Glow,
+        ..Default::default()
+    }
+}
+
+#[cfg(test)]
+mod startup_tests {
+    use super::*;
+
+    #[test]
+    fn extraction_shortcuts_start_small_without_restoring_the_manager_window() {
+        for action in [Action::Extract, Action::ExtractHere, Action::ExtractFolder] {
+            let mut options = native_options(action);
+            assert_eq!(
+                options.viewport.inner_size,
+                Some(app::SHELL_WINDOW_SIZE.into())
+            );
+            assert_ne!(options.viewport.decorations, Some(false));
+            assert!(!options.persist_window);
+            let restored = eframe::egui::ViewportBuilder::default()
+                .with_inner_size([1400.0, 900.0])
+                .with_maximized(true)
+                .with_fullscreen(true);
+            let viewport = options.window_builder.take().unwrap()(restored);
+            assert_eq!(viewport.inner_size, Some(app::SHELL_WINDOW_SIZE.into()));
+            assert_eq!(viewport.maximized, Some(false));
+            assert_eq!(viewport.fullscreen, Some(false));
+        }
+        for action in [Action::Open, Action::Compress, Action::CompressZip] {
+            let options = native_options(action);
+            assert_eq!(options.viewport.inner_size, Some([1000.0, 680.0].into()));
+            assert_eq!(options.viewport.decorations, Some(false));
+            assert!(options.persist_window);
+        }
+    }
 }
