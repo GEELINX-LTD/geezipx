@@ -46,6 +46,7 @@ Var CertificateCheckbox
 Var CertificateAction
 Var CertificateThumbprint
 Var CertificatePath
+Var OperationOutput
 Var MenuChoice
 Var MenuCheckbox
 Var DirectoryDescription
@@ -150,16 +151,31 @@ Function ${PREFIX}RunCertificateAction
   SetOutPath "$PLUGINSDIR"
   File /oname=manage-test-certificate.ps1 "${GEEZIPX_WINDOWS_DIR}\manage-test-certificate.ps1"
   ClearErrors
-  ExecWait '$\"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe$\" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $\"$PLUGINSDIR\manage-test-certificate.ps1$\" -Action $CertificateAction -Thumbprint $CertificateThumbprint -CertificatePath $\"$CertificatePath$\"' $0
-  ${If} ${Errors}
-    StrCpy $0 1
-  ${EndIf}
+  ; NSIS is 32-bit. Sysnative bypasses WOW64 redirection so the 64-bit PKI
+  ; module is available in Windows PowerShell on our supported x64 systems.
+  nsExec::ExecToStack '$\"$WINDIR\Sysnative\WindowsPowerShell\v1.0\powershell.exe$\" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $\"$PLUGINSDIR\manage-test-certificate.ps1$\" -Action $CertificateAction -Thumbprint $CertificateThumbprint -CertificatePath $\"$CertificatePath$\"'
+  Pop $0
+  Pop $OperationOutput
 FunctionEnd
 !macroend
 !ifdef HAS_TEST_CERTIFICATE
 !insertmacro CertificateHelper ""
 !endif
 !insertmacro CertificateHelper "un."
+
+!macro OperationErrorHelper PREFIX
+Function ${PREFIX}SaveOperationError
+  DetailPrint "Operation failed ($0): $OperationOutput"
+  ClearErrors
+  FileOpen $2 "$INSTDIR\geezipx-install-error.log" w
+  ${IfNot} ${Errors}
+    FileWriteUTF16LE /BOM $2 "Operation failed ($0): $OperationOutput$\r$\n"
+    FileClose $2
+  ${EndIf}
+FunctionEnd
+!macroend
+!insertmacro OperationErrorHelper ""
+!insertmacro OperationErrorHelper "un."
 
 Function DirectoryPagePre
   ; Resolve localized text when the page opens, after MUI has applied language.
@@ -356,6 +372,7 @@ Section "GeeZipX" Main
       ${If} $0 == 0
         WriteRegDWORD HKCU "${CERTIFICATES_KEY}" "$CertificateThumbprint" 1
       ${ElseIf} $0 != 10
+        Call SaveOperationError
         DetailPrint "$(CertificateFailed)"
         MessageBox MB_OK|MB_ICONSTOP "$(CertificateFailed)" /SD IDOK
         SetErrorLevel 1
@@ -374,9 +391,10 @@ Section "GeeZipX" Main
     StrCpy $1 "1"
   ${EndIf}
   ClearErrors
-  ExecWait '$\"$INSTDIR\${APP_EXE}$\" --repair-shell-integration --menu=$1' $0
-  ${If} ${Errors}
-  ${OrIf} $0 != 0
+  nsExec::ExecToStack '$\"$INSTDIR\${APP_EXE}$\" --repair-shell-integration --menu=$1'
+  Pop $0
+  Pop $OperationOutput
+  ${If} $0 != 0
     !ifdef HAS_TEST_CERTIFICATE
       ${If} $MenuChoice == ${BST_CHECKED}
       ${AndIf} $CertificateChoice == ${BST_UNCHECKED}
@@ -387,6 +405,7 @@ Section "GeeZipX" Main
         Goto shell_repair_done
       ${EndIf}
     !endif
+    Call SaveOperationError
     DetailPrint "Could not repair GeeZipX system integration. Retry from Settings."
     SetErrorLevel 1
     Abort
@@ -445,6 +464,7 @@ Section "Uninstall"
     ${If} $CertificateThumbprint != ""
       Call un.RunCertificateAction
       ${If} $0 != 0
+        Call un.SaveOperationError
         DetailPrint "$(CertificateFailed)"
         MessageBox MB_OK|MB_ICONSTOP "$(CertificateFailed)" /SD IDOK
         SetErrorLevel 1
@@ -465,6 +485,7 @@ Section "Uninstall"
   Delete "$INSTDIR\GeeZipXShell.msix"
   Delete "$INSTDIR\LICENSE"
   Delete "$INSTDIR\build-info.txt"
+  Delete "$INSTDIR\geezipx-install-error.log"
   Delete "$INSTDIR\licenses\EGUI-FONTS-LICENSES.txt"
   Delete "$INSTDIR\licenses\FONT-APACHE-2.0.txt"
   Delete "$INSTDIR\licenses\FONT-LICENSE.txt"

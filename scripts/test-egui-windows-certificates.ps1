@@ -93,11 +93,12 @@ try {
   Write-Host "Certificate acceptance failed: $($_.ScriptStackTrace)"
   Write-Host "TrustedPeople certificate present: $(Test-Path -LiteralPath $target)"
   if (Test-Path -LiteralPath $ownershipKey) { Get-ItemProperty -LiteralPath $ownershipKey | Format-List | Out-Host }
-  # Match the 32-bit Windows PowerShell host launched by NSIS. Run the public
-  # certificate helper directly to reveal errors hidden by a silent installer.
-  $host32 = Join-Path $env:SystemRoot 'SysWOW64/WindowsPowerShell/v1.0/powershell.exe'
+  $diagnostic = Join-Path $installDir 'geezipx-install-error.log'
+  if (Test-Path -LiteralPath $diagnostic) { Get-Content -LiteralPath $diagnostic -Encoding Unicode | Out-Host }
+  # Match the native Windows PowerShell host launched by NSIS through Sysnative.
+  $nativeHost = Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe'
   $helper = Join-Path $PSScriptRoot '../crates/gui-egui/windows/manage-test-certificate.ps1'
-  & $host32 -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $helper -Action Install -Thumbprint $thumbprint -CertificatePath $certificateFile 2>&1 | Out-Host
+  & $nativeHost -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $helper -Action Install -Thumbprint $thumbprint -CertificatePath $certificateFile 2>&1 | Out-Host
   Write-Host "Certificate helper diagnostic exit: $LASTEXITCODE"
   $exe = Join-Path $installDir 'geezipx-egui.exe'
   if (Test-Path -LiteralPath $exe) {

@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-Current development version: **0.10.0**. Latest published stable release: **0.7.4**.
+Current development version: **0.10.1**. Latest published stable release: **0.7.4**.
 
 ### Added
 
@@ -56,6 +56,8 @@ Current development version: **0.10.0**. Latest published stable release: **0.7.
 - Upgrade ZIP to 9.1.3, `unarc-rs` to 0.8 and Zstandard to 0.14.3; refresh transitive dependencies to resolve audit advisories.
 
 ### Fixed
+
+- **Windows installer commands**: Start certificate management with native 64-bit Windows PowerShell and capture certificate/menu command output; failed operations retain a diagnostic log for the installer and Windows acceptance.
 
 - **Windows installer packaging**: Resolve theme artwork and certificate helpers from the repository root so relative and absolute NSIS script paths produce the same installer.
 

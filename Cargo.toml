@@ -13,7 +13,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.10.0"
+version = "0.10.1"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/GEELINX-LTD/geezipx"
@@ -22,7 +22,7 @@ homepage = "https://github.com/GEELINX-LTD/geezipx"
 rust-version = "1.99"
 
 [workspace.dependencies]
-geezipx-core = { version = "0.10.0", path = "crates/core", default-features = false }
+geezipx-core = { version = "0.10.1", path = "crates/core", default-features = false }
 zip = { version = "9.1.3", default-features = false }
 zpaq_rs = { package = "geezipx-zpaq", version = "0.1.0", path = "crates/vendor/zpaq-rs" }
 
