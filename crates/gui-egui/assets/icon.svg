@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">GeeZipX logo</title>
+  <desc id="desc">Two folded ribbons form a Z, with a central opening for compression and extraction.</desc>
+  <defs>
+    <linearGradient id="ribbon-top" x1="88" y1="80" x2="412" y2="260" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#7A9CFF"/>
+      <stop offset="1" stop-color="#526AF6"/>
+    </linearGradient>
+    <linearGradient id="ribbon-bottom" x1="88" y1="80" x2="412" y2="260" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#A185FF"/>
+      <stop offset="1" stop-color="#7650E8"/>
+    </linearGradient>
+    <linearGradient id="app-tile" x1="32" y1="16" x2="476" y2="512" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#6C7BFF"/>
+      <stop offset="1" stop-color="#6247DB"/>
+    </linearGradient>
+    <radialGradient id="hero-glow" cx="0.22" cy="0.42" r="0.72">
+      <stop stop-color="#343773" stop-opacity=".45"/>
+      <stop offset="1" stop-color="#11162A" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <g>
+    <path d="M104 80 H408 Q432 80 432 104 V144 L304 272 L240 208 L276 172 H104 Q80 172 80 148 V104 Q80 80 104 80 Z" fill="url(#ribbon-top)"/>
+    <path d="M104 80 H408 Q432 80 432 104 V144 L304 272 L240 208 L276 172 H104 Q80 172 80 148 V104 Q80 80 104 80 Z" transform="rotate(180 256 256)" fill="url(#ribbon-bottom)"/>
+  </g>
+</svg>
