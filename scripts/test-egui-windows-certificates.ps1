@@ -19,6 +19,7 @@ Import-Certificate -FilePath $unrelatedFile -CertStoreLocation $store | Out-Null
 function Install-App([string]$Options = '', [switch]$ReuseDirectory) {
   $arguments = "/S $Options"
   if (-not $ReuseDirectory) { $arguments += " /D=$installDir" }
+  Write-Host "Certificate acceptance install: $arguments"
   $process = Start-Process -FilePath $Installer -ArgumentList $arguments -Wait -PassThru
   if ($process.ExitCode -ne 0) { throw "Certificate test installation failed: $($process.ExitCode)" }
   if ((Get-ItemPropertyValue -LiteralPath $uninstallKey -Name InstallLocation) -ne $installDir) { throw 'Upgrade did not reuse the recorded installation folder' }
@@ -26,6 +27,7 @@ function Install-App([string]$Options = '', [switch]$ReuseDirectory) {
 }
 function Uninstall-App([string]$Options = '') {
   # _?= waits for the real uninstaller instead of its temporary launcher.
+  Write-Host "Certificate acceptance uninstall: /S $Options"
   $process = Start-Process -FilePath (Join-Path $installDir 'uninstall.exe') -ArgumentList "/S $Options _?=$installDir" -Wait -PassThru
   if ($process.ExitCode -ne 0) { throw "Certificate test uninstall failed: $($process.ExitCode)" }
   if ((Test-Path -LiteralPath $uninstallKey) -or (Test-Path -LiteralPath (Join-Path $installDir 'geezipx-egui.exe'))) { throw 'Uninstall did not finish' }
@@ -87,6 +89,25 @@ try {
   $rootAfter = @(Get-ChildItem 'Cert:\LocalMachine\Root' | ForEach-Object Thumbprint | Sort-Object)
   if (Compare-Object $rootBefore $rootAfter) { throw 'Installer changed the trusted root store' }
   Write-Host 'Optional menu, certificate dependency, existing trust, custom-folder upgrade, ownership, explicit retention, default removal and unrelated trust passed'
+} catch {
+  Write-Host "Certificate acceptance failed: $($_.ScriptStackTrace)"
+  Write-Host "TrustedPeople certificate present: $(Test-Path -LiteralPath $target)"
+  if (Test-Path -LiteralPath $ownershipKey) { Get-ItemProperty -LiteralPath $ownershipKey | Format-List | Out-Host }
+  # Match the 32-bit Windows PowerShell host launched by NSIS. Run the public
+  # certificate helper directly to reveal errors hidden by a silent installer.
+  $host32 = Join-Path $env:SystemRoot 'SysWOW64/WindowsPowerShell/v1.0/powershell.exe'
+  $helper = Join-Path $PSScriptRoot '../crates/gui-egui/windows/manage-test-certificate.ps1'
+  & $host32 -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $helper -Action Install -Thumbprint $thumbprint -CertificatePath $certificateFile 2>&1 | Out-Host
+  Write-Host "Certificate helper diagnostic exit: $LASTEXITCODE"
+  $exe = Join-Path $installDir 'geezipx-egui.exe'
+  if (Test-Path -LiteralPath $exe) {
+    # Piping gives a GUI-subsystem executable valid stdout/stderr handles.
+    & $exe --shell-integration-status 2>&1 | Out-Host
+    Write-Host "Integration status diagnostic exit: $LASTEXITCODE"
+    & $exe --repair-shell-integration --menu=1 2>&1 | Out-Host
+    Write-Host "Integration repair diagnostic exit: $LASTEXITCODE"
+  }
+  throw
 } finally {
   if (Test-Path -LiteralPath (Join-Path $installDir 'uninstall.exe')) {
     $null = Start-Process -FilePath (Join-Path $installDir 'uninstall.exe') -ArgumentList "/S _?=$installDir" -Wait -PassThru
