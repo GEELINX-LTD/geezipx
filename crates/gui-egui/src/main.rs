@@ -40,7 +40,19 @@ fn main() -> std::process::ExitCode {
 }
 fn run() -> Result<(), Box<dyn std::error::Error>> {
     let arguments: Vec<_> = std::env::args_os().skip(1).collect();
-    if let [argument] = arguments.as_slice() {
+    let (maintenance, menu) = match arguments.as_slice() {
+        [argument] => (Some(argument), None),
+        [argument, choice] if argument == "--repair-shell-integration" => (
+            Some(argument),
+            Some(match choice.to_str() {
+                Some("--menu=1") => true,
+                Some("--menu=0") => false,
+                _ => return Err("Expected --menu=0 or --menu=1".into()),
+            }),
+        ),
+        _ => (None, None),
+    };
+    if let Some(argument) = maintenance {
         if argument == "--prepare-shell-upgrade" {
             integration::prepare_windows_upgrade().map_err(std::io::Error::other)?;
             return Ok(());
@@ -53,28 +65,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 menu: true,
                 language: Default::default(),
             }),
-            Some("--repair-shell-integration") => {
-                let snapshot =
-                    integration::execute(Operation::Inspect).map_err(std::io::Error::other)?;
-                if !snapshot.menu && !snapshot.associations.iter().any(|a| a.registered) {
-                    return Ok(());
-                }
-                Some(Operation::Apply {
-                    selected: snapshot
-                        .associations
-                        .iter()
-                        .map(|a| {
-                            if cfg!(target_os = "windows") {
-                                a.registered
-                            } else {
-                                a.is_default
-                            }
-                        })
-                        .collect(),
-                    menu: snapshot.menu,
-                    language: Default::default(),
-                })
-            }
+            Some("--repair-shell-integration") => Some(Operation::Repair { menu }),
             _ => None,
         };
         if let Some(operation) = operation {
@@ -95,7 +86,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         Request::Empty => (Action::Open, Vec::new()),
         Request::Paths(action, paths) => (action, paths),
         Request::Help => {
-            println!("GeeZipX {}\n\n用法：geezipx-egui [--] [归档 | 文件或文件夹…]\n单个归档会打开浏览，其他输入会加入新建压缩包。\n\n系统快捷操作：\n  --shell-action <compress|compress-zip|extract|extract-here|extract-folder> -- <路径…>\n\n系统集成维护（当前用户，无需启动窗口）：\n  --shell-integration-status\n  --register-shell-integration\n  --repair-shell-integration\n  --remove-shell-integration", env!("CARGO_PKG_VERSION"));
+            println!("GeeZipX {}\n\n用法：geezipx-egui [--] [归档 | 文件或文件夹…]\n单个归档会打开浏览，其他输入会加入新建压缩包。\n\n系统快捷操作：\n  --shell-action <compress|compress-zip|extract|extract-here|extract-folder> -- <路径…>\n\n系统集成维护（当前用户，无需启动窗口）：\n  --shell-integration-status\n  --register-shell-integration\n  --repair-shell-integration [--menu=0|--menu=1]\n  --remove-shell-integration", env!("CARGO_PKG_VERSION"));
             return Ok(());
         }
         Request::Version => {

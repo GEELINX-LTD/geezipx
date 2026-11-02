@@ -1,6 +1,6 @@
 # GeeZipX（egui 桌面端）
 
-GeeZipX 是项目唯一的桌面应用，包名和可执行文件名为 `geezipx-egui`，当前开发版本为 **0.9.0**（尚未发布）。它使用 egui/eframe 0.33.3、Glow/OpenGL 渲染器和系统文件对话框，直接调用 `geezipx-core`。
+GeeZipX 是项目唯一的桌面应用，包名和可执行文件名为 `geezipx-egui`，当前开发版本为 **0.10.0**（尚未发布）。它使用 egui/eframe 0.33.3、Glow/OpenGL 渲染器和系统文件对话框，直接调用 `geezipx-core`。
 
 本阶段目标是形成可实际使用的原生归档工作空间，完成基础压缩、解压、浏览、预览、验证和取消操作。
 
@@ -88,12 +88,14 @@ Linux release 在 Xvfb + Openbox 虚拟桌面实跑的界面截图：
 geezipx-egui --shell-integration-status
 geezipx-egui --register-shell-integration  # 显式注册所有可用格式和菜单
 geezipx-egui --repair-shell-integration   # 仅修复已有注册
+geezipx-egui --repair-shell-integration --menu=1 # 单独启用菜单，保留格式选择
+geezipx-egui --repair-shell-integration --menu=0 # 单独移除菜单，保留格式选择
 geezipx-egui --remove-shell-integration
 geezipx-egui --shell-action compress -- /path/to/file /path/to/folder
 geezipx-egui --shell-action extract-folder -- /path/to/archive.zip
 ```
 
-`gui-egui.yml` 调用 `scripts/test-egui-windows-certificates.ps1`，在可清理的 Windows runner 中验证默认不导入、显式导入、已有证书保护、升级记录保留、默认卸载保留和显式卸载移除，并检查不改动其它证书及根证书存储。
+`gui-egui.yml` 调用 `scripts/test-egui-windows-certificates.ps1`，在可清理的 Windows runner 中验证菜单选项不扩展格式关联、默认不导入、显式导入、已有证书保护、自定义目录无 `/D=` 升级、升级记录保留、显式保留证书和默认卸载移除，并检查不改动其它证书及根证书存储。
 
 Windows 的注册归属与卸载检查由 `scripts/test-egui-windows-integration.ps1` 接入 `gui-egui.yml`；`scripts/test-egui-windows-explorer.ps1` 通过已注册的身份包激活实际 COM 扩展，检查枚举、选区状态、中文多选 ZIP 与解压结果，安装器随后执行原位升级并重复验收。工作流为临时验收目录下载并校验固定版本 Mesa 26.2.5 软件 OpenGL，完成后移除 DLL，不加入发布包。对应平台的默认应用确认、Explorer/Finder 菜单显示和交互仍需原生验收；检查项见 [发布清单](RELEASE_CHECKLIST.md)。
 
@@ -152,14 +154,14 @@ Linux release 在隔离 Xvfb 实窗中验证：仅有西文字体和无系统字
 
 `.github/workflows/gui-egui.yml` 在打包前重建对应平台的 x86_64 SFX stub，三平台均启用 RAR/WIM/ZPAQ 完整格式测试；macOS GUI 本身为 arm64，其自解压 stub 仍为 x86_64。工作流对 Linux x86_64（`ubuntu-24.04`）、Windows x86_64（`windows-latest`）、macOS arm64（`macos-latest`）执行检查、测试、release 编译，上传裸可执行文件、许可证和原生程序压缩包；artifact action 使用 Node.js 24 的 `actions/upload-artifact@v7`。压缩包分别为 `geezipx-egui-linux-x86_64.tar.gz`、`geezipx-egui-macos-arm64.tar.gz`、`geezipx-egui-windows-x86_64.zip`，附带许可证、字体许可、提交标识和 SHA-256。Windows 额外上传 `geezipx-egui-windows-x86_64-installer`，内含 `GeeZipX_<version>_x64-setup.exe`、`SHA256SUMS.txt` 和标明提交的 `build-info.json`。可在 Actions 手动触发并选择测试分支；安装包 artifacts 保留 30 天。`release.yml` 通过可复用工作流构建相同原生压缩包和 Windows 安装器，经统一校验后纳入 Release 草稿；Linux/macOS 暂不提供安装器。
 
-Windows 安装器支持简体中文/英文，默认安装到 `%LOCALAPPDATA%\Programs\GeeZipX`，应用本身按用户安装，无需管理员权限；可选测试证书操作单独请求管理员权限。添加 GeeZipX 开始菜单入口和卸载项。升级复用已记录的安装路径并清理旧名称快捷方式。EXE 的多分辨率 ICO 与产品信息由 `build.rs` / `winresource` 嵌入，安装验收直接检查 PE 图标资源，确保资源管理器、快捷方式与关联图标可从 EXE 获取。安装目录内 `build-info.txt` 标明版本与提交。安装器同时交付 EXE、Shell DLL 和稀疏 MSIX，不能单独移动 EXE 后期待一级菜单继续工作；移动完整便携目录后重新应用系统集成。升级在替换 DLL 前注销身份包，再按原设置注册；卸载先清理系统集成，再清理本安装器的文件和入口，保留应用偏好、最近记录及用户自行放入的文件。如果扩展仍被占用，安装/卸载返回失败并保留可重试的文件。安装器脚本位于 `crates/gui-egui/windows/installer.nsi`，需要 NSIS 3；构建时传入 `APP_VERSION` 与 `APP_REVISION`；包含测试公钥时还需传入与公钥一致的 `TEST_CERT_THUMBPRINT`。
+Windows 安装与卸载界面沿用软件浅色主题的 `#F8F9FC` 背景、`#262D40` 文字、蓝紫色图案和共享图标；`windows/installer-theme.nsh` 集中样式，侧栏与页眉 BMP 由 `assets/icon.png` 生成。保留原生控件的键盘焦点与 DPI 缩放，支持简体中文/英文。默认安装到 `%LOCALAPPDATA%\Programs\GeeZipX`，应用本身按用户安装，无需管理员权限；可选测试证书操作单独请求管理员权限。添加 GeeZipX 开始菜单入口和卸载项。升级通过当前用户卸载项 `InstallLocation` 自动选择已安装路径，无需重复指定 `/D=`；目录页明确提示覆盖安装，显式 `/D=` 仍可覆盖预选路径。升级复用已记录的安装路径并清理旧名称快捷方式。安装选项提供“启用 Windows 11 一级右键菜单”，新安装默认关闭，升级按已有菜单状态预选；选择只影响菜单，不新增格式关联，取消后也会移除先前启用的菜单。EXE 的多分辨率 ICO 与产品信息由 `build.rs` / `winresource` 嵌入，安装验收直接检查 PE 图标资源，确保资源管理器、快捷方式与关联图标可从 EXE 获取。安装目录内 `build-info.txt` 标明版本与提交。安装器同时交付 EXE、Shell DLL 和稀疏 MSIX，不能单独移动 EXE 后期待一级菜单继续工作；移动完整便携目录后重新应用系统集成。升级在替换 DLL 前注销身份包，再按原设置注册；卸载先清理系统集成，再清理本安装器的文件和入口，保留应用偏好、最近记录及用户自行放入的文件。如果扩展仍被占用，安装/卸载返回失败并保留可重试的文件。安装器脚本位于 `crates/gui-egui/windows/installer.nsi`，需要 NSIS 3；构建时传入 `APP_VERSION` 与 `APP_REVISION`；包含测试公钥时还需传入与公钥一致的 `TEST_CERT_THUMBPRINT`。
 
 Windows 构建需要 Windows SDK 的 MakeAppx、SignTool 和 `mt.exe`。签名身份必须在 Cargo 编译前配置，以确保 DLL 嵌入的身份与 MSIX 的 Publisher 一致。正式 tag 发布使用受信任的代码签名证书：GitHub secrets `WINDOWS_CERTIFICATE_PFX` 为 PFX 的 Base64，`WINDOWS_CERTIFICATE_PASSWORD` 为其密码。`release.yml` 要求正式发布使用这些凭据，缺失时构建失败；push、PR、手动测试及 release dry-run 使用临时测试证书，测试安装器提供以下明确选择：
 
-- 安装时显示“测试证书”页，解释测试版 Windows 11 一级右键扩展使用自签名证书、Windows 默认不信任，因此启用一级菜单需要信任证书；不安装仍可正常压缩、解压和浏览归档。“安装此测试版本的签名证书”默认不勾选。测试包升级若因跳过证书而无法恢复系统快捷菜单，会提示稍后在“设置 → 系统集成”中重新应用，主程序完成安装。
+- 只有在“安装选项”勾选一级右键菜单后，点击“下一步”才显示“测试证书”页。该页解释测试版 Windows 11 一级右键扩展使用自签名证书、Windows 默认不信任，因此启用一级菜单需要信任证书；不安装仍可正常压缩、解压和浏览归档。“安装此测试版本的签名证书”默认不勾选。从证书页返回并取消菜单会清除本次证书安装选择。测试包若因跳过证书而无法启用系统快捷菜单，会提示稍后在“设置 → 系统集成”中重新应用，主程序完成安装。
 - 勾选后仅证书操作通过 UAC 请求管理员权限，将随包公钥导入 `Cert:\LocalMachine\TrustedPeople`，不导入 `Root`，不分发私钥。操作失败或取消授权会返回失败，保留可重试的应用与记录。
-- 安装器按精确指纹记录自己新添加的证书，升级保留记录；安装前已经存在的证书不会被认领。卸载在存在记录时提供默认不勾选的“移除此安装器添加的测试证书”，可移除包括旧版本在内的记录项；未勾选则保留。移除可能影响仍使用相同证书的其它测试副本。
-- 静默安装与卸载默认保留当前证书信任；显式使用安装器 `/S /INSTALLCERT=1` 或卸载器 `/S /REMOVECERT=1` 才操作证书，仍可能触发 UAC。不含测试公钥的正式安装器不显示安装证书选项，但仍可清理由此前测试安装器记录的证书。
+- 安装器按精确指纹记录自己新添加的证书，升级保留记录；安装前已经存在的证书不会被认领。卸载在存在记录时提供默认勾选的“移除此安装器添加的测试证书”，可移除包括旧版本在内的记录项；未勾选则保留。移除可能影响仍使用相同证书的其它测试副本。
+- 静默安装使用 `/S /MENU=1 /INSTALLCERT=1` 显式启用测试菜单并导入证书；`/MENU=0` 禁用菜单，未指定时沿用已有菜单状态。`/INSTALLCERT=1` 要求同时启用菜单。静默卸载默认移除安装器记录的测试证书，使用 `/S /REMOVECERT=0` 明确保留，`/REMOVECERT=1` 显式移除；证书操作仍可能触发 UAC。不含测试公钥的正式安装器不显示安装证书选项，但仍可清理由此前测试安装器记录的证书。
 
 开发机测试构建（签名配置脚本显式将临时公钥导入本机 `TrustedPeople` 和 `Root`，分别用于 MSIX 安装和 EXE/DLL 的 Authenticode 验证；两者均需要管理员权限，只用于可清理的测试环境。安装器的可选导入只使用 `TrustedPeople`。使用本机 `Root` 可避免当前用户根证书导入时弹出的确认窗口阻塞无人值守构建；工作流中的签名配置步骤限时 5 分钟）：
 

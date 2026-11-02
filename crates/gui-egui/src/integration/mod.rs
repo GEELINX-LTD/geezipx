@@ -105,6 +105,10 @@ pub enum Operation {
     },
     Remove,
     Defaults,
+    /// Repair registered formats, optionally changing only the menu choice.
+    Repair {
+        menu: Option<bool>,
+    },
 }
 pub fn prepare_windows_upgrade() -> Result<(), String> {
     #[cfg(windows)]
@@ -137,8 +141,35 @@ pub fn execute(operation: Operation) -> Result<Snapshot, String> {
         }
         Operation::Remove => platform::remove()?,
         Operation::Defaults => platform::open_defaults()?,
+        Operation::Repair { menu } => {
+            let snapshot = platform::inspect()?;
+            return match repair_operation(&snapshot, menu) {
+                Some(operation) => execute(operation),
+                None => Ok(snapshot),
+            };
+        }
     }
     platform::inspect()
+}
+fn repair_operation(snapshot: &Snapshot, menu: Option<bool>) -> Option<Operation> {
+    if !snapshot.menu && !snapshot.associations.iter().any(|a| a.registered) && menu != Some(true) {
+        return None;
+    }
+    Some(Operation::Apply {
+        selected: snapshot
+            .associations
+            .iter()
+            .map(|a| {
+                if cfg!(target_os = "windows") {
+                    a.registered
+                } else {
+                    a.is_default
+                }
+            })
+            .collect(),
+        menu: menu.unwrap_or(snapshot.menu),
+        language: Language::default(),
+    })
 }
 fn include_outer_formats(mut selected: Vec<bool>) -> Vec<bool> {
     for (format, enabled) in FORMATS.iter().zip(selected.clone()) {
@@ -187,6 +218,44 @@ pub(crate) fn shell_quote(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn installer_menu_choice_does_not_register_unselected_formats() {
+        let snapshot = Snapshot {
+            associations: vec![Association::default(); FORMATS.len()],
+            menu: false,
+        };
+        let Some(Operation::Apply { selected, menu, .. }) = repair_operation(&snapshot, Some(true))
+        else {
+            panic!("An explicit menu choice must be applied");
+        };
+        assert!(menu);
+        assert_eq!(selected.len(), FORMATS.len());
+        assert!(selected.iter().all(|selected| !selected));
+        assert!(repair_operation(&snapshot, None).is_none());
+        assert!(repair_operation(&snapshot, Some(false)).is_none());
+    }
+    #[test]
+    fn installer_can_disable_an_existing_menu_and_preserve_format_choices() {
+        let mut associations = vec![Association::default(); FORMATS.len()];
+        associations[0] = Association {
+            registered: true,
+            is_default: true,
+        };
+        let snapshot = Snapshot {
+            associations,
+            menu: true,
+        };
+        for override_menu in [None, Some(false), Some(true)] {
+            let Some(Operation::Apply { selected, menu, .. }) =
+                repair_operation(&snapshot, override_menu)
+            else {
+                panic!("Existing integration must be repaired");
+            };
+            assert!(selected[0]);
+            assert!(selected[1..].iter().all(|selected| !selected));
+            assert_eq!(menu, override_menu.unwrap_or(true));
+        }
+    }
     #[test]
     fn compound_format_selection_includes_the_os_visible_outer_suffix() {
         let index = |extension| {

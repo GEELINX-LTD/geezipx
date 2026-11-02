@@ -467,7 +467,9 @@ Reader/File → ProgressReader → Decoder/ArchiveReader → ProgressWriter → 
 
 `gui-egui.yml` 使用 `ubuntu-24.04`、`windows-latest`、`macos-latest`，覆盖 Linux x86_64、Windows x86_64、macOS arm64 的检查、测试、release 编译与原生程序压缩包；Windows 额外交付 Shell DLL 与签名稀疏 MSIX，使用 `crates/gui-egui/windows/installer.nsi` 打包按用户安装的 NSIS。`configure-egui-windows-signing.ps1` 在编译前固定 Publisher；`build-egui-windows-shell.ps1` 检查 DLL 嵌入身份，调用 MakeAppx/SignTool 打包和验证签名。`scripts/test-egui-windows-integration.ps1` 保留其他应用注册和受保护的 UserChoice；`test-egui-windows-explorer.ps1` 从已注册的包激活 `IExplorerCommand`，验证枚举、适用状态、中文多选 ZIP 与解压。工作流检查 EXE/DLL/MSIX 校验和、许可证、提交标识、快捷方式、原位升级与卸载清理。升级先由已安装 EXE 注销身份包，替换后修复原有设置；卸载先删除身份包再删除 DLL。`release.yml` 复用该工作流并收集产物，正式 tag 要求受信任代码签名凭据，普通 CI/dry-run 使用临时测试签名。使用说明、完整格式范围与已知限制见 [EGUI_GUI.md](EGUI_GUI.md)。
 
-安装器使用中英 `nsDialogs` 证书选择页，说明自签名测试证书为何影响 Windows 11 一级菜单，以及不安装时可继续使用的归档功能。证书复选框默认关闭，静默操作需显式 `/INSTALLCERT=1` 或 `/REMOVECERT=1`。`windows/manage-test-certificate.ps1` 校验公钥指纹、自签名测试主题和代码签名用途，仅对证书操作通过 UAC 提权，并只写 `LocalMachine\TrustedPeople`；新增指纹记录在当前安装器卸载项的 `InstallerCertificates` 子键中，升级保留，已有信任不认领，按用户选择逐项移除。`scripts/test-egui-windows-certificates.ps1` 在临时 Windows runner 中验收默认行为、证书归属、升级、保留与移除。
+安装器的 `windows/installer-theme.nsh` 复用 `theme.rs` 浅色主题的背景、文字和强调色，并使用从同一应用图标生成的页眉和侧栏图案。菜单选择页在证书页之前；`MenuChoice` 控制是否进入测试证书页，返回并取消菜单时清除证书安装选择。调用 `--repair-shell-integration --menu=0|--menu=1` 只改变菜单并保留已有格式选择，新安装不隐式关联所有格式。目录页通过 NSIS `InstallDirRegKey` 读取当前用户卸载项 `InstallLocation`，并在进入页面时显示已检测到的原安装目录；`/D=` 可显式覆盖，Windows CI 验收无 `/D=` 的自定义目录升级。
+
+安装器的中英 `nsDialogs` 证书页说明自签名测试证书为何影响 Windows 11 一级菜单，以及不安装时可继续使用的归档功能。证书安装默认关闭、卸载移除默认开启；静默安装显式使用 `/MENU=1 /INSTALLCERT=1`，静默卸载用 `/REMOVECERT=0` 保留证书。`windows/manage-test-certificate.ps1` 校验公钥指纹、自签名测试主题和代码签名用途，仅对证书操作通过 UAC 提权，并只写 `LocalMachine\TrustedPeople`；新增指纹记录在当前安装器卸载项的 `InstallerCertificates` 子键中，升级保留，已有信任不认领，按用户选择逐项移除。`scripts/test-egui-windows-certificates.ps1` 在临时 Windows runner 中验收默认行为、证书归属、升级、保留与移除。
 
 ## 10. 当前实现限制
 

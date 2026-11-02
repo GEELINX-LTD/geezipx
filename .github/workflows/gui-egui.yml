@@ -201,8 +201,9 @@ jobs:
             $env:LIBGL_ALWAYS_SOFTWARE = 'true'
             $env:GALLIUM_DRIVER = 'llvmpipe'
             ./scripts/test-egui-windows-integration.ps1 -Exe $exe
-            $upgrade = Start-Process $installer.FullName -ArgumentList "/S /D=$installDir" -Wait -PassThru
+            $upgrade = Start-Process $installer.FullName -ArgumentList '/S' -Wait -PassThru
             if ($upgrade.ExitCode -ne 0) { throw "Upgrade failed: $($upgrade.ExitCode)" }
+            if ((Get-ItemProperty $key).InstallLocation -ne $installDir) { throw 'Upgrade did not reuse the existing custom installation folder' }
             ./scripts/test-egui-windows-integration.ps1 -Exe $exe
           } finally {
             foreach ($dll in $mesaDlls) { Remove-Item -LiteralPath (Join-Path $installDir $dll.Name) -Force -ErrorAction SilentlyContinue }
