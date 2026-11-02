@@ -1,7 +1,7 @@
 use super::*;
 use geezipx_core::archive::Entry;
 
-fn archive() -> Archive {
+pub(super) fn archive() -> Archive {
     let entries = ["项目/目录/文件.txt", "notes.txt", "other.txt"]
         .map(|path| Entry {
             path: path.into(),
@@ -97,7 +97,7 @@ pub(super) fn click_text(app: &mut App, context: &egui::Context, label: &str) {
     pointer_frame(app, context, position, Some(false), egui::Modifiers::NONE);
 }
 
-fn mesh_alpha_at(primitives: &[egui::ClippedPrimitive], point: egui::Pos2) -> f32 {
+pub(super) fn mesh_alpha_at(primitives: &[egui::ClippedPrimitive], point: egui::Pos2) -> f32 {
     let cross = |a: egui::Vec2, b: egui::Vec2| a.x * b.y - a.y * b.x;
     let mut alpha = 0.0_f32;
     for primitive in primitives {

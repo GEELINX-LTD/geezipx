@@ -128,16 +128,16 @@ fn native_options(action: Action) -> eframe::NativeOptions {
     let viewport = eframe::egui::ViewportBuilder::default()
         .with_title("GeeZipX")
         .with_app_id(integration::APP_ID)
-        .with_icon(theme::icon());
+        .with_icon(theme::icon())
+        .with_decorations(false)
+        .with_transparent(true);
     eframe::NativeOptions {
         viewport: if extraction {
             viewport
                 .with_inner_size(app::SHELL_WINDOW_SIZE)
-                .with_min_inner_size([480.0, 300.0])
+                .with_min_inner_size(app::SHELL_WINDOW_MIN_SIZE)
         } else {
             viewport
-                .with_decorations(false)
-                .with_transparent(true)
                 .with_inner_size([1000.0, 680.0])
                 .with_min_inner_size(window_frame::MIN_INNER_SIZE)
         },
@@ -148,6 +148,9 @@ fn native_options(action: Action) -> eframe::NativeOptions {
         window_builder: if extraction {
             Some(Box::new(|viewport| {
                 viewport
+                    .with_decorations(false)
+                    .with_transparent(true)
+                    .with_min_inner_size(app::SHELL_WINDOW_MIN_SIZE)
                     .with_inner_size(app::SHELL_WINDOW_SIZE)
                     .with_maximized(false)
                     .with_fullscreen(false)
@@ -172,9 +175,17 @@ mod startup_tests {
                 options.viewport.inner_size,
                 Some(app::SHELL_WINDOW_SIZE.into())
             );
-            assert_ne!(options.viewport.decorations, Some(false));
+            assert_eq!(options.viewport.decorations, Some(false));
+            assert_eq!(options.viewport.transparent, Some(true));
+            assert_eq!(
+                options.viewport.min_inner_size,
+                Some(app::SHELL_WINDOW_MIN_SIZE.into())
+            );
             assert!(!options.persist_window);
             let restored = eframe::egui::ViewportBuilder::default()
+                .with_decorations(true)
+                .with_transparent(false)
+                .with_min_inner_size(window_frame::MIN_INNER_SIZE)
                 .with_inner_size([1400.0, 900.0])
                 .with_maximized(true)
                 .with_fullscreen(true);
@@ -182,6 +193,12 @@ mod startup_tests {
             assert_eq!(viewport.inner_size, Some(app::SHELL_WINDOW_SIZE.into()));
             assert_eq!(viewport.maximized, Some(false));
             assert_eq!(viewport.fullscreen, Some(false));
+            assert_eq!(viewport.decorations, Some(false));
+            assert_eq!(viewport.transparent, Some(true));
+            assert_eq!(
+                viewport.min_inner_size,
+                Some(app::SHELL_WINDOW_MIN_SIZE.into())
+            );
         }
         for action in [Action::Open, Action::Compress, Action::CompressZip] {
             let options = native_options(action);

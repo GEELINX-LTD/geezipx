@@ -456,7 +456,7 @@ Reader/File → ProgressReader → Decoder/ArchiveReader → ProgressWriter → 
 
 `crates/gui-egui` 使用 egui/eframe 0.33.3 + Glow、rfd 系统文件选择器。所有阻塞文件工作在 `Job<T>` 后台线程执行；结果通过容量 1 的 channel 返回，进度使用 `Arc<Mutex<Progress>>` 最新快照和限频唤醒，不积累读取块事件。取消状态属于每个任务，界面一次只启动一个后台操作；退出时等待取消清理。
 
-`app/shell_progress.rs` 为系统右键三种解压动作提供独立的系统装饰小窗，默认 560×320，目标/失败选项扩为 560×440；复用 `App` 的索引、提取表单、后台 `Job` 与 engine，不绘制菜单、浏览区或主窗口框架。成功后自动关闭，失败留窗重试，取消/关闭先发出任务取消并等候结果。`NativeOptions.window_builder` 在 eframe 恢复窗口设置后覆盖尺寸和最大化状态，避免复用主窗口几何；`persist_window`、`persist_egui_memory` 与偏好写回对小窗禁用，仅读取已有语言、字体和主题，不修改最近归档或覆盖同时打开的主界面设置。
+`app/shell_progress.rs` 为系统右键三种解压动作提供独立小窗，默认 560×320，目标/失败选项扩为 560×440；复用 `App` 的索引、提取表单、后台 `Job` 与 engine，不绘制菜单和浏览区。小窗与主窗口均禁用系统装饰，复用 `WindowFrame` 的标题栏、圆角边框和窗口控制；内容留出标题栏空间，对话框绘制后再绘制窗口控制。`WindowFrame` 与 macOS `ResizeDrag` 按当前窗口的最小尺寸缩放，避免把小窗扩为主窗口下限。成功后自动关闭，失败留窗重试，取消/关闭先发出任务取消并等候结果。`NativeOptions.window_builder` 在 eframe 恢复窗口设置后覆盖尺寸和最大化状态，避免复用主窗口几何；`persist_window`、`persist_egui_memory` 与偏好写回对小窗禁用，仅读取已有语言、字体和主题，不修改最近归档或覆盖同时打开的主界面设置。
 
 `i18n.rs` 维护简体中文/English 文案与 `Language` 枚举；`tr!` 在编译期检查键及两种语言的格式参数。设置页即时切换语言，保存到 `native-preferences`；旧设置缺失语言或语言值未知时使用简体中文。后台 `Control` 持有任务启动时的语言，避免依赖全局可变语言或改变 core。归档文件名、路径和 core/系统错误详情不参与翻译。
 

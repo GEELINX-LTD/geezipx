@@ -30,7 +30,9 @@ use geezipx_egui::{
 use notices::Notice;
 use serde::{Deserialize, Serialize};
 use settings::Settings;
-pub use shell_progress::WINDOW_SIZE as SHELL_WINDOW_SIZE;
+pub use shell_progress::{
+    MIN_WINDOW_SIZE as SHELL_WINDOW_MIN_SIZE, WINDOW_SIZE as SHELL_WINDOW_SIZE,
+};
 use std::{
     collections::BTreeSet,
     path::PathBuf,

@@ -16,13 +16,26 @@ const EDGE: f32 = 5.0;
 const CORNER: f32 = 14.0;
 const BUTTON_WIDTH: f32 = 34.0;
 
-#[derive(Default)]
 pub struct WindowFrame {
+    min_inner_size: [f32; 2],
     maximized: bool,
     reported_maximized: Option<bool>,
     last_title_click: Option<(f64, egui::Pos2)>,
     #[cfg(target_os = "macos")]
     resize_drag: Option<resize::ResizeDrag>,
+}
+
+impl Default for WindowFrame {
+    fn default() -> Self {
+        Self {
+            min_inner_size: MIN_INNER_SIZE,
+            maximized: false,
+            reported_maximized: None,
+            last_title_click: None,
+            #[cfg(target_os = "macos")]
+            resize_drag: None,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Hash)]
@@ -33,6 +46,13 @@ enum Control {
 }
 
 impl WindowFrame {
+    pub fn set_min_inner_size(&mut self, context: &egui::Context, size: [f32; 2]) {
+        if self.min_inner_size != size {
+            self.min_inner_size = size;
+            context.send_viewport_cmd(egui::ViewportCommand::MinInnerSize(size.into()));
+        }
+    }
+
     pub fn margin(&mut self, context: &egui::Context) -> i8 {
         let reported = context.input(|input| input.viewport().maximized);
         if reported != self.reported_maximized {
@@ -273,7 +293,7 @@ impl WindowFrame {
         // winit has no native drag_resize_window implementation on macOS.
         #[cfg(target_os = "macos")]
         {
-            self.resize_drag = resize::ResizeDrag::begin(context, direction);
+            self.resize_drag = resize::ResizeDrag::begin(context, direction, self.min_inner_size);
         }
     }
 

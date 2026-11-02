@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-Current development version: **0.10.2**. Latest published stable release: **0.7.4**.
+Current development version: **0.10.3**. Latest published stable release: **0.7.4**.
 
 ### Added
 
@@ -56,6 +56,8 @@ Current development version: **0.10.2**. Latest published stable release: **0.7.
 - Upgrade ZIP to 9.1.3, `unarc-rs` to 0.8 and Zstandard to 0.14.3; refresh transitive dependencies to resolve audit advisories.
 
 ### Fixed
+
+- **Native GUI — Shell extraction frame**: Reuse the manager's custom title bar, rounded border, theme and window controls in standalone extraction windows. Keep dragging, maximize/restore, resize and cancellation available above destination/password dialogs; use each window's own resize minimum on macOS.
 
 - **Native GUI — Shell extraction**: Show a standalone compact progress window for all three context-menu extraction actions, without opening the archive manager or restoring its saved size. Choose destinations and retry password/errors in the small window, close automatically after success, and wait for worker cleanup when cancelled. Read existing appearance preferences without overwriting the manager's settings or recent archives.
 

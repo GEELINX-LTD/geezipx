@@ -181,7 +181,10 @@ fn shell_progress_stays_compact_and_waits_for_worker_cleanup_when_closed() {
                 assert!(!texts.contains(&tr!(language, New)));
                 assert!(!texts.contains(&tr!(language, Tasks)));
             }
-            let output = context.run(Default::default(), |context| app.close_shell_task(context));
+            draw(&mut app, &context, SHELL_WINDOW_SIZE);
+            let position = egui::pos2(SHELL_WINDOW_SIZE[0] - 23.0, 17.0);
+            shell_pointer(&mut app, &context, position, Some(true));
+            let output = shell_pointer(&mut app, &context, position, Some(false));
             assert!(app.active.as_ref().unwrap().job.control.is_cancelled());
             assert!(app.close_when_finished);
             assert!(!output.viewport_output[&egui::ViewportId::ROOT]
@@ -301,4 +304,129 @@ fn shell_listing_failure_can_retry_the_original_request_and_never_saves_preferen
         fn flush(&mut self) {}
     }
     eframe::App::save(&mut app, &mut UnwritableStorage);
+}
+
+fn shell_pointer(
+    app: &mut App,
+    context: &egui::Context,
+    position: egui::Pos2,
+    pressed: Option<bool>,
+) -> egui::FullOutput {
+    let mut events = vec![egui::Event::PointerMoved(position)];
+    if let Some(pressed) = pressed {
+        events.push(egui::Event::PointerButton {
+            pos: position,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        });
+    }
+    context.run(
+        egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                SHELL_WINDOW_SIZE.into(),
+            )),
+            time: Some(context.input(|input| input.time) + 0.05),
+            events,
+            ..Default::default()
+        },
+        |context| app.render(context),
+    )
+}
+
+#[test]
+fn shell_frame_keeps_round_corners_and_controls_above_destination_dialogs() {
+    use super::tests::{archive, assert_action_visible, mesh_alpha_at};
+    for dark in [false, true] {
+        for options in [false, true] {
+            let sizes = if options {
+                [[560.0, 440.0], [480.0, 440.0]]
+            } else {
+                [SHELL_WINDOW_SIZE, SHELL_WINDOW_MIN_SIZE]
+            };
+            for size in sizes {
+                for expanded in [false, true] {
+                    let context = context();
+                    theme::apply(&context, dark);
+                    let mut app = App::empty(Preferences {
+                        dark,
+                        ..Default::default()
+                    });
+                    app.shell_task = Some(shell_progress::ShellTask::new("中文 大归档.zip".into()));
+                    app.archive = Some(archive());
+                    if options {
+                        app.show_extract(true);
+                    }
+                    let mut output = None;
+                    for _ in 0..3 {
+                        let mut input = egui::RawInput {
+                            screen_rect: Some(egui::Rect::from_min_size(
+                                egui::Pos2::ZERO,
+                                size.into(),
+                            )),
+                            ..Default::default()
+                        };
+                        input
+                            .viewports
+                            .get_mut(&egui::ViewportId::ROOT)
+                            .unwrap()
+                            .maximized = Some(expanded);
+                        output = Some(context.run(input, |context| app.render(context)));
+                    }
+                    let output = output.unwrap();
+                    assert_action_visible(&output, size, tr!(Language::default(), ExtractFiles));
+                    if options {
+                        assert_action_visible(
+                            &output,
+                            size,
+                            tr!(Language::default(), StartExtraction),
+                        );
+                    }
+                    let meshes = context.tessellate(output.shapes, output.pixels_per_point);
+                    for x in [0.5, size[0] - 0.5] {
+                        for y in [0.5, size[1] - 0.5] {
+                            let alpha = mesh_alpha_at(&meshes, egui::pos2(x, y));
+                            assert!(if expanded { alpha > 0.99 } else { alpha < 0.01 }, "shell corner {x},{y}, alpha={alpha}, dark={dark}, options={options}, expanded={expanded}");
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn shell_title_controls_minimize_drag_and_close_with_destination_dialog_open() {
+    let context = context();
+    let mut app = App::empty(Preferences::default());
+    app.shell_task = Some(shell_progress::ShellTask::new("archive.zip".into()));
+    app.archive = Some(super::tests::archive());
+    app.show_extract(true);
+    for _ in 0..3 {
+        super::tests::draw(&mut app, &context, SHELL_WINDOW_SIZE);
+    }
+    let minimize = egui::pos2(SHELL_WINDOW_SIZE[0] - 91.0, 17.0);
+    shell_pointer(&mut app, &context, minimize, Some(true));
+    let output = shell_pointer(&mut app, &context, minimize, Some(false));
+    assert!(output.viewport_output[&egui::ViewportId::ROOT]
+        .commands
+        .iter()
+        .any(|command| matches!(command, egui::ViewportCommand::Minimized(true))));
+    let title = egui::pos2(300.0, 17.0);
+    shell_pointer(&mut app, &context, title, Some(true));
+    let output = shell_pointer(&mut app, &context, title + egui::vec2(15.0, 0.0), None);
+    assert!(output.viewport_output[&egui::ViewportId::ROOT]
+        .commands
+        .iter()
+        .any(|command| matches!(command, egui::ViewportCommand::StartDrag)));
+    shell_pointer(&mut app, &context, title, Some(false));
+    let close = egui::pos2(SHELL_WINDOW_SIZE[0] - 23.0, 17.0);
+    shell_pointer(&mut app, &context, close, Some(true));
+    let output = shell_pointer(&mut app, &context, close, Some(false));
+    assert!(output.viewport_output[&egui::ViewportId::ROOT]
+        .commands
+        .iter()
+        .any(|command| matches!(command, egui::ViewportCommand::Close)));
+    assert!(!app.close_prompt);
 }
