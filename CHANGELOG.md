@@ -57,6 +57,8 @@ Current development version: **0.10.0**. Latest published stable release: **0.7.
 
 ### Fixed
 
+- **Windows installer packaging**: Resolve theme artwork and certificate helpers from the repository root so relative and absolute NSIS script paths produce the same installer.
+
 - **GUI — Windows icon**: Embed the multi-resolution application ICO and GeeZipX version metadata into the EXE so Explorer, shortcuts and file associations can resolve its icon. Check the real PE icon resources and product metadata during Windows installation acceptance.
 
 - **Native GUI — Windows desktop drag-out**: Resolve desktop background drops through the redirected Desktop known folder instead of treating the merged virtual desktop as a filesystem directory. Recognize Explorer-owned desktop hosts and resolve desktop folder icons through their real Shell items, retaining explicit folder selection for unknown or virtual targets.

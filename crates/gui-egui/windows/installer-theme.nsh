@@ -11,9 +11,9 @@
 !define MUI_FINISHPAGE_LINK_COLOR "${GX_ACCENT}"
 !define MUI_HEADERIMAGE
 !define MUI_HEADERIMAGE_RIGHT
-!define MUI_HEADERIMAGE_BITMAP "${__FILEDIR__}\installer-header.bmp"
-!define MUI_WELCOMEFINISHPAGE_BITMAP "${__FILEDIR__}\installer-sidebar.bmp"
-!define MUI_UNWELCOMEFINISHPAGE_BITMAP "${__FILEDIR__}\installer-sidebar.bmp"
+!define MUI_HEADERIMAGE_BITMAP "${GEEZIPX_WINDOWS_DIR}\installer-header.bmp"
+!define MUI_WELCOMEFINISHPAGE_BITMAP "${GEEZIPX_WINDOWS_DIR}\installer-sidebar.bmp"
+!define MUI_UNWELCOMEFINISHPAGE_BITMAP "${GEEZIPX_WINDOWS_DIR}\installer-sidebar.bmp"
 !define MUI_CUSTOMFUNCTION_GUIINIT ApplyTheme
 !define MUI_CUSTOMFUNCTION_UNGUIINIT un.ApplyTheme
 

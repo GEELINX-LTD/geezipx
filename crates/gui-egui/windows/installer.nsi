@@ -12,8 +12,10 @@ ManifestDPIAware true
 !include "nsDialogs.nsh"
 
 !ifndef REPO_ROOT
-  !define REPO_ROOT "${__FILEDIR__}\..\..\.."
+  ; makensis changes into the main script's directory before preprocessing.
+  !define REPO_ROOT "..\..\.."
 !endif
+!define GEEZIPX_WINDOWS_DIR "${REPO_ROOT}\crates\gui-egui\windows"
 !ifndef APP_VERSION
   !error "Pass APP_VERSION from the geezipx-egui Cargo package version."
 !endif
@@ -61,15 +63,15 @@ VIAddVersionKey /LANG=1033 "FileVersion" "${APP_VERSION}"
 VIAddVersionKey /LANG=1033 "LegalCopyright" "GeeZipX contributors"
 
 !define MUI_ABORTWARNING
-!define MUI_ICON "${REPO_ROOT}\crates\gui-egui\windows\icon.ico"
-!define MUI_UNICON "${REPO_ROOT}\crates\gui-egui\windows\icon.ico"
+!define MUI_ICON "${GEEZIPX_WINDOWS_DIR}\icon.ico"
+!define MUI_UNICON "${GEEZIPX_WINDOWS_DIR}\icon.ico"
 !define MUI_FINISHPAGE_RUN "$INSTDIR\${APP_EXE}"
 !define MUI_FINISHPAGE_RUN_NOTCHECKED
 !define MUI_LANGDLL_REGISTRY_ROOT HKCU
 !define MUI_LANGDLL_REGISTRY_KEY "${UNINSTALL_KEY}"
 !define MUI_LANGDLL_REGISTRY_VALUENAME "InstallerLanguage"
 
-!include "${__FILEDIR__}\installer-theme.nsh"
+!include "${GEEZIPX_WINDOWS_DIR}\installer-theme.nsh"
 
 !insertmacro MUI_PAGE_WELCOME
 !define MUI_PAGE_HEADER_SUBTEXT "$(LicenseSubtitle)"
@@ -146,7 +148,7 @@ LangString CertificateFailed ${LANG_ENGLISH} "The certificate operation failed o
 Function ${PREFIX}RunCertificateAction
   InitPluginsDir
   SetOutPath "$PLUGINSDIR"
-  File /oname=manage-test-certificate.ps1 "${__FILEDIR__}\manage-test-certificate.ps1"
+  File /oname=manage-test-certificate.ps1 "${GEEZIPX_WINDOWS_DIR}\manage-test-certificate.ps1"
   ClearErrors
   ExecWait '$\"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe$\" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $\"$PLUGINSDIR\manage-test-certificate.ps1$\" -Action $CertificateAction -Thumbprint $CertificateThumbprint -CertificatePath $\"$CertificatePath$\"' $0
   ${If} ${Errors}
