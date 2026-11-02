@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Current development version: **0.8.0**. Latest published release: **0.7.4**.
+
 ### Added
 
 - **Native GUI — System integration**: Add per-user format associations and compress/extract shortcuts in Settings. Register Windows Open With/Default Apps entries and static context menus, deliver complete Explorer selections through a COM local server and bounded UTF-16 handoffs, and repair/remove owned registration during install/uninstall. Add Linux MIME/desktop, KDE and Nautilus/Nemo entries, plus a macOS LaunchServices launcher and Finder services. Reuse application tasks for progress, cancellation and safe output; do not associate every executable with GeeZipX.

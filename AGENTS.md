@@ -34,7 +34,7 @@ GeeZipX 是一个使用 Rust 开发的跨平台压缩/解压缩工具。
 ### 语言与平台
 
 - 主语言：Rust。
-- 第一阶段（CLI）：已在 v0.1.0 达成并保持成熟稳定；当前正式版本为 v0.7.4，后续修复见 `CHANGELOG.md` 的 Unreleased。
+- 第一阶段（CLI）：已在 v0.1.0 达成并保持成熟稳定；当前正式版本为 v0.7.4，当前开发候选为 0.8.0，待发布改动见 `CHANGELOG.md` 的 Unreleased。
 - 第二阶段（GUI）：唯一桌面端使用 egui/eframe，复用 Rust core；界面与格式范围见 `docs/EGUI_GUI.md`。
 - 目标平台：
   - macOS
@@ -252,6 +252,13 @@ cargo test --workspace --all-features
 - 新增命令或参数：更新 CLI 使用说明或 README。
 
 文档应保持具体、可执行，避免空泛描述。
+
+## 版本管理
+
+- 交付新增功能或修复时按语义化版本推进开发版本：新增功能推进 minor，兼容性修复推进 patch；纯文档或 CI 调整无需单独升版。
+- 同步根 `Cargo.toml` 的 workspace 版本、内部依赖版本要求和 `Cargo.lock` 中的应用包版本；独立发布的支持库按其自身变更推进版本。
+- README、GUI 说明和发布清单应区分当前开发候选与最新正式版本。发布前保留 `CHANGELOG.md` 的 Unreleased，正式发布时再归档版本、日期和比较链接。
+- 提交推送与正式发布分别授权；推进开发版本不自动创建 tag、发布 crates.io 包或 GitHub Release。
 
 ## Git 管理规范
 
@@ -491,7 +498,7 @@ archive/compress pipeline
 
 当前最高优先级：
 
-1. **GUI 迭代（egui）** — 当前正式版本为 v0.7.4，当前源码的唯一桌面端为 egui/eframe，复用 core 引擎。运行、构建与能力范围见 `docs/EGUI_GUI.md`，候选验收见 `docs/RELEASE_CHECKLIST.md`。
+1. **GUI 迭代（egui）** — 当前正式版本为 v0.7.4，当前开发候选为 0.8.0；当前源码的唯一桌面端为 egui/eframe，复用 core 引擎。运行、构建与能力范围见 `docs/EGUI_GUI.md`，候选验收见 `docs/RELEASE_CHECKLIST.md`。
    - `cargo run -p geezipx-egui`；默认 Cargo 包仍是 core/CLI。三平台构建工作流为 `gui-egui.yml`，正式发布复用该工作流。
 2. **GUI 相关测试** — 仅针对 GUI 实现添加必要的测试；不主动推进 core/CLI 基准测试基线或覆盖率补测。
 3. **文档同步** — GUI 实现过程中的文档跟随更新。

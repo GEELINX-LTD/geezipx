@@ -1,6 +1,6 @@
 # GeeZipX（egui 桌面端）
 
-GeeZipX 是项目唯一的桌面应用，包名和可执行文件名为 `geezipx-egui`。它使用 egui/eframe 0.33.3、Glow/OpenGL 渲染器和系统文件对话框，直接调用 `geezipx-core`。
+GeeZipX 是项目唯一的桌面应用，包名和可执行文件名为 `geezipx-egui`，当前开发版本为 **0.8.0**（尚未发布）。它使用 egui/eframe 0.33.3、Glow/OpenGL 渲染器和系统文件对话框，直接调用 `geezipx-core`。
 
 本阶段目标是形成可实际使用的原生归档工作空间，完成基础压缩、解压、浏览、预览、验证和取消操作。
 

@@ -2,7 +2,7 @@
 
 ## 1. 产品定位
 
-GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开发。CLI 已进入成熟阶段，桌面端统一采用 egui/eframe 原生 GUI，复用 Rust core 引擎。当前正式版本为 v0.7.4，egui 桌面端尚未正式发布，详见 [原生桌面端说明](EGUI_GUI.md)。
+GeeZipX 是一个高性能、跨平台压缩/解压缩工具，使用 Rust 开发。CLI 已进入成熟阶段，桌面端统一采用 egui/eframe 原生 GUI，复用 Rust core 引擎。当前正式版本为 v0.7.4，当前开发候选为 0.8.0；egui 桌面端尚未正式发布，详见 [原生桌面端说明](EGUI_GUI.md)。
 
 > **核心理念**：压缩操作通常位于自动化脚本、服务器运维、CI/CD 流水线中，CLI 是先发价值；GUI 提供附加便捷，不牺牲底层性能。
 
@@ -168,7 +168,7 @@ TTY 下默认显示进度条（文件名、处理大小、百分比、速度、E
 ```
 Phase 1 (CLI MVP)                已完成并成熟
 
-Phase 2 (Desktop GUI)            当前阶段（正式版 v0.7.4，下一版准备中）
+Phase 2 (Desktop GUI)            当前阶段（正式版 v0.7.4，开发候选 0.8.0）
 ├── egui：归档浏览、压缩/解压、预览、进度、取消与字体设置
 ├── egui：原生交互、后台任务与共享 core 格式适配
 └── egui：Linux x86_64、Windows x86_64、macOS arm64 构建与发布
