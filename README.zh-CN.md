@@ -109,6 +109,8 @@ cargo build -p geezipx-egui --release --locked
 
 原生端使用 Rust、egui/eframe 与 OpenGL，提供系统文件选择器和内嵌中文字体。`cargo build` 默认只构建 core/CLI，桌面端使用 `-p geezipx-egui` 显式选择。发布构建提供 Linux x86_64、macOS arm64、Windows x86_64 原生程序压缩包，以及 Windows 按用户安装的 NSIS 安装器 `GeeZipX_<version>_x64-setup.exe`，EXE 内嵌应用图标与产品信息。设置分为“外观”和“系统集成”：语言、浅深色与可搜索的字体选择即时生效；文件关联支持格式/扩展名搜索、整行勾选和状态显示，点击应用后写入系统。刷新或失败保留待应用选择，移除及放弃修改需确认。系统集成提供格式关联和压缩/解压右键快捷操作，平台范围见[原生端指南](docs/EGUI_GUI.md#系统集成)。
 
+Windows 测试安装器提供默认不勾选的“安装测试签名证书”选项，页面解释自签名测试版本为何需要证书才能启用 Windows 11 一级右键菜单，并说明不安装仍可压缩、解压和浏览归档；卸载时可选择移除此安装器添加的证书，两项操作均请求管理员权限。静默参数和证书归属规则见[原生端指南](docs/EGUI_GUI.md)。
+
 ---
 
 ## 安装

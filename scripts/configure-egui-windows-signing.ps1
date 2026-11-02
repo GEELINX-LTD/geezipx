@@ -9,7 +9,7 @@ if ($TestCertificate) {
   Write-Host 'Creating temporary Windows shell signing certificate'
   $certificate = New-SelfSignedCertificate -Type CodeSigningCert -Subject 'CN=GeeZipX Native Test' -CertStoreLocation 'Cert:\CurrentUser\My' -NotAfter (Get-Date).AddDays(30)
   Export-Certificate -Cert $certificate -FilePath (Join-Path $release 'GeeZipXShell-test.cer') | Out-Null
-  # This opt-in script is for disposable CI/developer profiles only. Installers never trust certificates.
+  # Explicit CI/developer opt-in. The test installer separately offers optional trust.
   Write-Host 'Trusting MSIX test certificate in LocalMachine\TrustedPeople'
   Import-Certificate -FilePath (Join-Path $release 'GeeZipXShell-test.cer') -CertStoreLocation 'Cert:\LocalMachine\TrustedPeople' | Out-Null
   # CurrentUser\Root can show a blocking security dialog on unattended runners.

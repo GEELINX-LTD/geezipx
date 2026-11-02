@@ -2310,7 +2310,7 @@ dependencies = [
 
 [[package]]
 name = "geezipx"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "anyhow",
  "assert_cmd",
@@ -2332,7 +2332,7 @@ dependencies = [
 
 [[package]]
 name = "geezipx-core"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "adler2",
  "aescrypt-rs",
@@ -2389,7 +2389,7 @@ dependencies = [
 
 [[package]]
 name = "geezipx-egui"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "ab_glyph",
  "block2 0.6.2",
@@ -2449,7 +2449,7 @@ dependencies = [
 
 [[package]]
 name = "geezipx-sfx-stub"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "cap-std",
  "tempfile",
@@ -2458,7 +2458,7 @@ dependencies = [
 
 [[package]]
 name = "geezipx-shell"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "tempfile",
  "windows",

@@ -7,10 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-Current development version: **0.8.0**. Latest published release: **0.7.4**.
+Current development version: **0.9.0**. Latest published release: **0.7.4**.
 
 ### Added
 
+- **Windows installer — Optional test certificates**: Offer unchecked certificate-install and certificate-removal choices in Chinese and English, with explicit silent flags `/INSTALLCERT=1` and `/REMOVECERT=1`. Elevate only certificate operations and manage the bundled test public certificate in LocalMachine TrustedPeople. Record added thumbprints across upgrades, preserve pre-existing trust, and remove only recorded test certificates when requested. Production packages omit the install choice; Windows CI exercises opt-in, retention, upgrades and removal.
 - **Native GUI — System integration**: Add per-user format associations and compress/extract shortcuts in Settings. Register Windows Open With/Default Apps entries and static context menus, deliver complete Explorer selections through a COM local server and bounded UTF-16 handoffs, and repair/remove owned registration during install/uninstall. Add Linux MIME/desktop, KDE and Nautilus/Nemo entries, plus a macOS LaunchServices launcher and Finder services. Reuse application tasks for progress, cancellation and safe output; do not associate every executable with GeeZipX.
 
 - **Native GUI — Core format parity**: Connect all current core readers and writers to egui, enable RAR/WIM/ZPAQ by default, and expose ZIPX, CAB/ASAR/DEB/LZH/CPIO/ISO/UDF/WIM creation, single-stream compression and authenticated AES containers, IMG/BIN/ISZ contents, and ZIP SFX creation for available embedded targets. Add PMA/TLZ, ALZ/Z, CFB/MSI/OLE, EGG/PEA/NSIS and AES Crypt readers. Keep core variant limits and use disk staging for single-stream sizes/authentication; verify real output, fixtures, passwords and cancellation.

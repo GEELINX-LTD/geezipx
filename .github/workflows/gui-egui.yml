@@ -136,7 +136,9 @@ jobs:
           if (-not $version) { throw 'Native GUI version not found' }
           $output = Join-Path $env:GITHUB_WORKSPACE 'target/release/bundle/egui-nsis'
           New-Item -ItemType Directory -Force -Path $output | Out-Null
-          & $nsis /WX /INPUTCHARSET UTF8 "/DREPO_ROOT=$env:GITHUB_WORKSPACE" "/DOUTPUT_DIR=$output" "/DAPP_VERSION=$version" "/DAPP_REVISION=$env:GITHUB_SHA" crates/gui-egui/windows/installer.nsi
+          $certificateArguments = @()
+          if ($env:GEEZIPX_SHELL_TEST_SIGNING -eq '1') { $certificateArguments += "/DTEST_CERT_THUMBPRINT=$env:GEEZIPX_SHELL_CERTIFICATE_THUMBPRINT" }
+          & $nsis /WX /INPUTCHARSET UTF8 "/DREPO_ROOT=$env:GITHUB_WORKSPACE" "/DOUTPUT_DIR=$output" "/DAPP_VERSION=$version" "/DAPP_REVISION=$env:GITHUB_SHA" @certificateArguments crates/gui-egui/windows/installer.nsi
           if ($LASTEXITCODE -ne 0) { throw 'NSIS packaging failed' }
           $installer = Join-Path $output "GeeZipX_${version}_x64-setup.exe"
           if (-not (Test-Path $installer)) { throw 'Windows installer missing' }
@@ -162,6 +164,9 @@ jobs:
           $installers = @(Get-ChildItem target/release/bundle/egui-nsis/*-setup.exe)
           if ($installers.Count -ne 1) { throw 'Expected one Windows installer' }
           $installer = $installers[0]
+          if ($env:GEEZIPX_SHELL_TEST_SIGNING -eq '1') {
+            ./scripts/test-egui-windows-certificates.ps1 -Installer $installer.FullName
+          }
           $installDir = Join-Path $env:RUNNER_TEMP 'GeeZipX 安装测试'
           $result = Start-Process $installer.FullName -ArgumentList "/S /D=$installDir" -Wait -PassThru
           if ($result.ExitCode -ne 0) { throw "Installer failed: $($result.ExitCode)" }

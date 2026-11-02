@@ -99,7 +99,7 @@ Phase 2 (Desktop GUI) is **the active development focus**. **GeeZipX** is the so
 | 1 | CLI MVP | **Complete** -- crates.io releases `geezipx` (v0.7.4) and `geezipx-core` are available |
 | 2 | Desktop GUI (egui) | **Unreleased** -- independent native app; build with `cargo run -p geezipx-egui`; standalone three-platform build workflow |
 
-Current development version: **0.8.0** (unreleased). The latest published CLI release is **v0.7.4**.
+Current development version: **0.9.0** (unreleased). The latest published CLI release is **v0.7.4**.
 
 See [`docs/EGUI_GUI.md`](docs/EGUI_GUI.md) and the [release checklist](docs/RELEASE_CHECKLIST.md) for features and remaining work.
 
@@ -114,6 +114,8 @@ cargo build -p geezipx-egui --release --locked
 The native frontend exposes every current core format: writable formats appear in creation, read-only formats can be browsed/extracted/tested, and RAR/WIM/ZPAQ are enabled by default. Single-stream files, disk-image contents, ZIPX and ZIP SFX creation use the same core limits; see the [native format table](docs/EGUI_GUI.md#格式范围). On Unix, set `CXXFLAGS=-fno-lto` for release builds; on Windows MSVC, set `RUSTFLAGS=-C target-feature=+crt-static` before building.
 
 The native frontend uses Rust, egui/eframe and OpenGL, with system file dialogs and an embedded Chinese font. Its compact file manager provides sortable, resizable columns, conventional mouse/keyboard selection, creation and extraction dialogs, and inline task progress; `Ctrl/Cmd+O`, `N`, `E` and `F` open archives, create, extract and search. `cargo build` defaults to core/CLI; select `geezipx-egui` explicitly for the desktop app. Native release builds provide Linux x86_64, macOS arm64 and Windows x86_64 archives, plus a per-user NSIS installer for Windows. Tools → Settings → System integration registers supported file types and compression/extraction shortcuts for the current user. Windows confirms default handlers in System default apps; Linux uses MIME associations and KDE/Nautilus/Nemo entries, and macOS uses a LaunchServices launcher and Finder services.
+
+Windows test installers offer an unchecked option to install the bundled signing certificate and, on uninstall, to remove certificates recorded as added by setup. The certificate page explains why the self-signed test build needs trust for its Windows 11 primary context menu, while archive operations remain available without it. Both choices request administrator permission; see the [native desktop guide](docs/EGUI_GUI.md) for silent-install options.
 
 The Tools → Settings dialog has separate Appearance and System integration pages. Appearance offers language, light/dark theme, a searchable system-font picker and a font preview, with changes applied immediately. Integration offers format/extension search, full-row selection, association status and an explicit Apply action; refreshes and failures preserve pending selections, and removal or discarding changes requires confirmation. Font preferences, appearance, language and recent paths persist locally; passwords are kept within the current operation. Windows EXEs embed the application icon and GeeZipX product metadata, and the installer is named `GeeZipX_<version>_x64-setup.exe`.
 
