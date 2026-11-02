@@ -11,6 +11,9 @@ coverage/
 
 .playwright-mcp/
 
+# Python script caches
+__pycache__/
+
 # Local signing material
 *.pfx
 *.p12

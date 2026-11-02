@@ -7,9 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-Current development version: **0.10.0**. Latest published release: **0.7.4**.
+Current development version: **0.10.0**. Latest published stable release: **0.7.4**.
 
 ### Added
+
+- **Development beta releases**: Automatically build and publish `v<workspace-version>-beta.<run_number>` GitHub pre-releases on pushes to `main`. Reuse the native GUI pipeline, include all CLI/GUI archives and the Windows installer, verify uploaded assets before publication, and preserve the latest stable release. Betas use Windows test signing; stable tags retain production signing and a reviewable draft. Manual runs remain artifact-only, and no crates.io packages are published.
 
 - **Windows installer — Theme and optional menu**: Use the native app's light palette and blue/purple artwork for setup and uninstall. Add an Explorer menu choice that preserves format associations and gates the test-certificate page. Default to removing installer-owned certificates on uninstall, with `/REMOVECERT=0` to retain them. Reuse recorded custom install folders on upgrades and verify upgrades without `/D=`. Add `--repair-shell-integration --menu=0|--menu=1` for the installer; `/MENU=1 /INSTALLCERT=1` explicitly enables test-menu trust in silent setup.
 - **Windows installer — Optional test certificates**: Offer an unchecked certificate-install choice and a checked certificate-removal choice in Chinese and English. Show test-certificate installation only when the Explorer menu is selected. Elevate only certificate operations and manage the bundled test public certificate in LocalMachine TrustedPeople. Record added thumbprints across upgrades, preserve pre-existing trust, and remove only recorded test certificates when requested. Production packages omit the install choice; Windows CI exercises menu selection, retention, upgrades and removal.

@@ -162,6 +162,8 @@ sudo mv geezipx /usr/local/bin/
 
 > **Release artifacts:** [v0.7.4](https://github.com/GEELINX-LTD/geezipx/releases/tag/v0.7.4) includes CLI archives and desktop GUI bundles for Linux, macOS, and Windows. Check each release page for its exact files and supported architectures.
 
+> **Development betas:** Pushes to `main` automatically publish `v<version>-beta.<build>` pre-releases on the [Releases page](https://github.com/GEELINX-LTD/geezipx/releases), including CLI/GUI archives, the Windows installer and checksums. Windows betas use a test signing certificate; setup explains the optional trust needed for the primary context menu. Stable releases remain separate.
+
 ### Prerequisites
 
 - [Rust](https://rustup.rs/) 1.99.0 toolchain (workspace MSRV: 1.99; configured in `rust-toolchain.toml`)
@@ -543,7 +545,9 @@ and verifies artifacts across all three platforms without creating a GitHub Rele
 allowing you to catch build issues before pushing a `v*` tag.
 
 The workflow job summary includes artifact integrity checks (presence, size, SHA256)
-and the combined `SHA256SUMS` file.
+and the combined `SHA256SUMS` file. Manual runs only build artifacts. Automatic beta
+runs publish after all native builds, installer checks, checksum checks and uploaded
+asset checks pass; `vX.Y.Z` tags still create production-signed release drafts.
 
 ---
 

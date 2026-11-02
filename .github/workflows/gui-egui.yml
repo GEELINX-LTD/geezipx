@@ -1,16 +1,7 @@
 name: egui Desktop
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'crates/gui-egui/**'
-      - 'crates/shell/**'
-      - 'crates/core/**'
-      - 'Cargo.toml'
-      - 'Cargo.lock'
-      - 'scripts/*egui-windows-*.ps1'
-      - '.github/workflows/gui-egui.yml'
+  # main pushes are built once through Release, which also publishes the beta.
   pull_request:
     paths:
       - 'crates/gui-egui/**'
@@ -20,6 +11,7 @@ on:
       - 'Cargo.lock'
       - 'scripts/*egui-windows-*.ps1'
       - '.github/workflows/gui-egui.yml'
+      - '.github/workflows/release.yml'
   workflow_dispatch:
   workflow_call:
     inputs:

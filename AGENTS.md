@@ -228,7 +228,7 @@ cargo test --workspace --all-features
 **GUI 变更额外关注**
 
 - `.github/workflows/gui-egui.yml`：三平台原生 GUI 检查、构建与 Windows NSIS 安装/卸载验证；
-- `.github/workflows/release.yml`：复用 GUI 工作流，发布三平台原生程序压缩包和 Windows NSIS 安装器；如涉及发布链路应进行 release dry-run 验证。
+- `.github/workflows/release.yml`：`main` 推送自动构建并发布 beta 预发布，复用 GUI 工作流，交付三平台 CLI/GUI 压缩包和 Windows NSIS 安装器；如涉及发布链路应进行 release dry-run 验证。
 
 核心测试要求：
 
@@ -258,7 +258,7 @@ cargo test --workspace --all-features
 - 交付新增功能或修复时按语义化版本推进开发版本：新增功能推进 minor，兼容性修复推进 patch；纯文档或 CI 调整无需单独升版。
 - 同步根 `Cargo.toml` 的 workspace 版本、内部依赖版本要求和 `Cargo.lock` 中的应用包版本；独立发布的支持库按其自身变更推进版本。
 - README、GUI 说明和发布清单应区分当前开发候选与最新正式版本。发布前保留 `CHANGELOG.md` 的 Unreleased，正式发布时再归档版本、日期和比较链接。
-- 提交推送与正式发布分别授权；推进开发版本不自动创建 tag、发布 crates.io 包或 GitHub Release。
+- 提交推送与正式发布分别授权；用户已授权 `main` 推送后由 CI 自动创建 `v<workspace版本>-beta.<run_number>` GitHub 预发布。beta 不发布 crates.io、不替换最新正式版；正式版本 tag、crates.io 发布与正式 Release 仍需独立授权。
 
 ## Git 管理规范
 
@@ -499,7 +499,7 @@ archive/compress pipeline
 当前最高优先级：
 
 1. **GUI 迭代（egui）** — 当前正式版本为 v0.7.4，当前开发候选为 0.10.0；当前源码的唯一桌面端为 egui/eframe，复用 core 引擎。运行、构建与能力范围见 `docs/EGUI_GUI.md`，候选验收见 `docs/RELEASE_CHECKLIST.md`。
-   - `cargo run -p geezipx-egui`；默认 Cargo 包仍是 core/CLI。三平台构建工作流为 `gui-egui.yml`，正式发布复用该工作流。
+   - `cargo run -p geezipx-egui`；默认 Cargo 包仍是 core/CLI。三平台构建工作流为 `gui-egui.yml`，`main` 推送由 `release.yml` 复用并自动发布 beta；GUI 工作流保留 PR 和手动构建入口。
 2. **GUI 相关测试** — 仅针对 GUI 实现添加必要的测试；不主动推进 core/CLI 基准测试基线或覆盖率补测。
 3. **文档同步** — GUI 实现过程中的文档跟随更新。
 

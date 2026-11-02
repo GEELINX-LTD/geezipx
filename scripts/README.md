@@ -1,5 +1,26 @@
 # Scripts
 
+## release_plan.py
+
+Plans Release workflow routing from the workspace version and GitHub event:
+
+- A push to `main` produces `v<version>-beta.<run_number>`, a public pre-release
+  after verification, with Windows test signing.
+- A matching `vX.Y.Z` tag requires production signing and retains a release draft.
+- An explicit matching `vX.Y.Z-beta.N` tag uses the beta route.
+- Manual workflow runs only build artifacts, including when run against a tag.
+
+The script writes validated job outputs to `GITHUB_OUTPUT`. It does not publish
+crates.io packages or change Cargo versions. Run its routing regressions with:
+
+```bash
+python3 -m unittest discover -s scripts -p 'test_release_plan.py'
+```
+
+The Release workflow uploads a draft first, verifies uploaded names, sizes,
+states and available digests against the verified local assets, then publishes
+betas with `prerelease=true` and `make_latest=false`.
+
 ## verify-release-artifacts.sh
 
 Verifies downloaded release artifacts before uploading or publishing them:

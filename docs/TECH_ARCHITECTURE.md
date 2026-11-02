@@ -426,8 +426,8 @@ Reader/File → ProgressReader → Decoder/ArchiveReader → ProgressWriter → 
 - `deny.yml`：`cargo-deny` 安全审计；
 - `coverage.yml`：覆盖率观测（informational-only）；
 - `bench.yml`：基准基线 / 手动 benchmark；
-- `gui-egui.yml`：egui 三平台检查、测试、优化构建、归档打包与 Windows 安装器验证；支持手动运行和发布流程复用；
-- `release.yml`：CLI + GUI bundles 发布构建工作流。
+- `gui-egui.yml`：egui 三平台检查、测试、优化构建、归档打包与 Windows 安装器验证；PR 和手动运行可直接触发，`main` 推送统一由 Release 复用，避免重复构建；
+- `release.yml`：CLI + GUI bundles 发布构建工作流，`main` 推送自动发布 beta。
 
 安全依赖基线：ZIP 在 workspace 中统一为 9.1.3+，`unarc-rs` 升至 0.8，消除旧 ZIP 的传递依赖；Zstandard 升至 0.14.3+，同时更新 `zstd-safe` / `zstd-sys`。Tokio 最低版本为 1.53.3，`Cargo.lock` 同步更新 `ctutils` 等传递依赖。Audit 继续执行 `deny.toml` 的安全公告、许可证、来源和依赖规则，`advisories.ignore` 保持为空。
 
@@ -438,8 +438,11 @@ Reader/File → ProgressReader → Decoder/ArchiveReader → ProgressWriter → 
 - CLI 三平台产物：`.tar.gz` / `.zip` + `.sha256`；
 - GUI 复用 `gui-egui.yml`：Linux x86_64、macOS arm64 `.tar.gz`，Windows x86_64 `.zip` 与 NSIS 安装器；压缩包附带许可证、字体许可和提交标识；
 - `consolidate` job 检查六份 CLI/GUI 压缩包的原始摘要与 Windows 安装器，再生成 `SHA256SUMS`；
-- `v*` tag push 创建包含 CLI 与 GUI 产物的 GitHub Release 草稿；
-- 每个候选版本仍应通过 `workflow_dispatch` 的 `dry_run: true` 构建和校验，再完成原生验收，见 `docs/RELEASE_CHECKLIST.md`。
+- `scripts/release_plan.py` 根据事件、workspace 版本和 run number 区分 main beta、正式 tag 和手动演练；main 生成 `v<version>-beta.<run_number>`，正式 tag 必须匹配 workspace 版本；
+- main/beta 使用 Windows 测试签名，正式 `vX.Y.Z` tag 使用生产签名；手动运行只构建产物；
+- 全部原生构建和安装器验收通过后，创建 Release 草稿并上传经过校验的文件；beta 额外核对上传文件名、大小、状态与可用摘要后自动公开，设置 `prerelease=true`、`make_latest=false`，不修改最新正式版，不发布 crates.io；
+- 正式 `vX.Y.Z` tag 保留 GitHub Release 草稿，人工核对后发布；
+- main 新推送取消旧的开发构建，手动演练与正式 tag 运行独立；每个候选版本仍可通过 `workflow_dispatch` 的 `dry_run: true` 构建和校验，再完成原生验收，见 `docs/RELEASE_CHECKLIST.md`。
 
 ## 8. 原生 GUI 接入边界
 

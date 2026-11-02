@@ -155,6 +155,8 @@ sudo mv geezipx /usr/local/bin/
 
 > **发布产物：** [v0.7.4](https://github.com/GEELINX-LTD/geezipx/releases/tag/v0.7.4) 已包含 Linux、macOS、Windows 的 CLI 归档与桌面 GUI 安装包；具体文件和架构以各版本的 Release 页面为准。
 
+> **开发版 beta：** 推送 `main` 后自动在 [Releases](https://github.com/GEELINX-LTD/geezipx/releases) 发布 `v<版本>-beta.<构建编号>` 预发布，包含 CLI/GUI 压缩包、Windows 安装器及校验和。Windows beta 使用测试签名；安装器会解释一级右键菜单所需的可选证书信任。最新正式版保持独立。
+
 ### 前置条件
 
 - [Rust](https://rustup.rs/) stable 工具链（参见 `.rust-toolchain.toml`）
@@ -520,7 +522,7 @@ cargo build --release
 
 ### Release 产物预检
 
-在打 tag 前，可通过 **workflow_dispatch** 手动触发 [Release workflow](.github/workflows/release.yml)（默认 `dry_run: true`）进行三平台构建、打包与校验。工作流任务摘要包含产物完整性检查（是否存在、大小、SHA256）与合并的 `SHA256SUMS` 文件。
+在打 tag 前，可通过 **workflow_dispatch** 手动触发 [Release workflow](.github/workflows/release.yml)（默认 `dry_run: true`）进行三平台构建、打包与校验。工作流任务摘要包含产物完整性检查（是否存在、大小、SHA256）与合并的 `SHA256SUMS` 文件。手动运行只生成构建产物；`main` 自动 beta 在原生构建、安装器测试、校验和及上传文件核对通过后发布，`vX.Y.Z` 正式 tag 继续使用生产签名并生成待审核草稿。
 
 ---
 

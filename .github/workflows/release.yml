@@ -2,6 +2,7 @@ name: Release
 
 on:
   push:
+    branches: [main]
     tags:
       - "v*"
   workflow_dispatch:
@@ -11,11 +12,38 @@ on:
         type: boolean
         default: true
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  prepare:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.plan.outputs.version }}
+      tag: ${{ steps.plan.outputs.tag }}
+      prerelease: ${{ steps.plan.outputs.prerelease }}
+      publish: ${{ steps.plan.outputs.publish }}
+      production_signing: ${{ steps.plan.outputs.production_signing }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Verify release routing
+        run: python3 -m unittest discover -s scripts -p 'test_release_plan.py'
+      - name: Plan beta, stable or dry-run build
+        id: plan
+        run: python3 scripts/release_plan.py
+
   build:
+    needs: prepare
     strategy:
       fail-fast: false
       matrix:
@@ -109,15 +137,16 @@ jobs:
           if-no-files-found: error
 
   gui:
+    needs: prepare
     uses: ./.github/workflows/gui-egui.yml
     with:
-      production_signing: ${{ startsWith(github.ref, 'refs/tags/v') && inputs.dry_run != true }}
+      production_signing: ${{ needs.prepare.outputs.production_signing == 'true' }}
     secrets:
       WINDOWS_CERTIFICATE_PFX: ${{ secrets.WINDOWS_CERTIFICATE_PFX }}
       WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
 
   consolidate:
-    needs: [build, gui]
+    needs: [prepare, build, gui]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -138,11 +167,75 @@ jobs:
           name: geezipx-release-artifacts
           path: artifacts/*
           if-no-files-found: error
-      - name: Create release
-        if: startsWith(github.ref, 'refs/tags/v') && inputs.dry_run != true
+      - name: Write beta release introduction
+        if: needs.prepare.outputs.prerelease == 'true'
+        env:
+          BETA_TAG: ${{ needs.prepare.outputs.tag }}
+        run: |
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          repo = os.environ['GITHUB_REPOSITORY']
+          sha = os.environ['GITHUB_SHA']
+          run = os.environ['GITHUB_RUN_ID']
+          tag = os.environ['BETA_TAG']
+          Path('beta-notes.md').write_text(
+              f'Automatic development beta **{tag}**.\n\n'
+              f'Source: [{sha}](https://github.com/{repo}/commit/{sha})\n'
+              f'Build: https://github.com/{repo}/actions/runs/{run}\n\n'
+              'Includes Linux/Windows x86_64 and macOS x86_64 CLI archives, '
+              'Linux/Windows x86_64 and macOS arm64 GUI archives, the Windows '
+              'NSIS installer, and SHA-256 checksums.\n\n'
+              'Windows beta builds use a test signing certificate. To enable the '
+              'Windows 11 primary context menu, select it during setup and review '
+              'the optional certificate prompt. Certificate import requests '
+              'administrator permission; archive operations remain available '
+              'without importing it. Uninstall defaults to removing certificates '
+              'added by setup.\n\n', encoding='utf-8')
+          PY
+      - name: Create release draft with verified assets
+        id: release
+        if: needs.prepare.outputs.publish == 'true'
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ needs.prepare.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          name: ${{ needs.prepare.outputs.tag }}
           files: artifacts/*
           draft: true
+          prerelease: ${{ needs.prepare.outputs.prerelease == 'true' }}
+          make_latest: ${{ needs.prepare.outputs.prerelease == 'true' && 'false' || 'legacy' }}
+          body_path: ${{ needs.prepare.outputs.prerelease == 'true' && 'beta-notes.md' || '' }}
           generate_release_notes: true
           fail_on_unmatched_files: true
+      - name: Publish complete beta without changing latest stable
+        if: needs.prepare.outputs.publish == 'true' && needs.prepare.outputs.prerelease == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_ID: ${{ steps.release.outputs.id }}
+        run: |
+          set -euo pipefail
+          gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID/assets?per_page=100" > release-assets.json
+          python3 - <<'PY'
+          import hashlib
+          import json
+          from pathlib import Path
+          expected = {p.name: p for p in Path('artifacts').iterdir() if p.is_file()}
+          uploaded = {a['name']: a for page in json.loads(Path('release-assets.json').read_text()) for a in page}
+          if expected.keys() != uploaded.keys():
+              raise SystemExit('Release assets do not match the verified artifact set')
+          for name, path in expected.items():
+              asset = uploaded[name]
+              if asset['state'] != 'uploaded' or asset['size'] != path.stat().st_size:
+                  raise SystemExit(f'Incomplete uploaded asset: {name}')
+              digest = asset.get('digest')
+              if digest:
+                  with path.open('rb') as source:
+                      actual = 'sha256:' + hashlib.file_digest(source, 'sha256').hexdigest()
+                  if digest != actual:
+                      raise SystemExit(f'Uploaded asset digest mismatch: {name}')
+          print(f'Confirmed {len(expected)} uploaded beta assets before publication')
+          PY
+          gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" \
+            -F draft=false -F prerelease=true -f make_latest=false \
+            --jq '.html_url' >> "$GITHUB_STEP_SUMMARY"

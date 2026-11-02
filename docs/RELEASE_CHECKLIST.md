@@ -69,13 +69,20 @@ cargo deny check
 
 原生 Wayland 拖出、Linux/macOS 安装器、屏幕阅读器验收及其它未实现项见 [原生端限制](EGUI_GUI.md)。只读格式和部分格式变体继续受 core 限制，不把本清单计为全格式互操作保证。
 
-## 发布演练与正式发布
+## 开发版 beta 与发布演练
+
+- [ ] `main` 推送自动触发 Release，GUI 通过可复用工作流只构建一次；记录完整源码 SHA、run URL 和 `v<workspace版本>-beta.<run_number>` 标签。
+- [ ] 三平台 CLI/GUI、Windows 安装器测试和 checksum 校验通过，草稿中的上传文件名、大小、状态及可用摘要与验证产物一致后才自动公开。
+- [ ] beta 页面为 `draft=false`、`prerelease=true`，标签指向本次提交，所有下载资产齐全；`releases/latest` 仍是最新正式版，beta 不发布 crates.io。
+- [ ] beta 说明含源码、构建链接及 Windows 测试签名/可选证书的使用方式；应用和安装器基础版本与 Cargo 一致。
+
+## 正式发布演练与发布
 
 - [ ] 使用 `.github/workflows/release.yml` 的 `workflow_dispatch`、`dry_run: true`，记录 run URL 与源码 SHA；确认它复用原生 GUI 工作流。
 - [ ] 校验三份 CLI 压缩包、三份 egui 压缩包、Windows NSIS 安装器及各自 SHA-256，`scripts/verify-release-artifacts.sh` 成功生成 `SHA256SUMS`。当前 egui 产物是 Linux/macOS `.tar.gz` 与 Windows `.zip`/NSIS `.exe`。
 - [ ] 下载 `geezipx-release-artifacts`，重新核对压缩包内可执行文件、许可证、提交标识及实际运行结果。
 - [ ] 统一 workspace、core 依赖、原生 GUI 与支持库版本以及 `Cargo.lock`，将 CHANGELOG 内容归入正式版本与日期。
 - [ ] 按需先发布 core 所依赖的独立支持库，再发布 core/CLI；流程见仓库发布约定。
-- [ ] 获得发布授权后创建 `v*` tag；工作流生成 GitHub Release 草稿，人工核对文件与校验和后再发布。
+- [ ] 获得正式发布授权后创建与 workspace 版本一致的 `vX.Y.Z` tag；工作流使用生产签名并生成 GitHub Release 草稿，人工核对文件与校验和后再发布。
 
 记录具体候选的证据后再勾选；本清单不表示候选已经通过验收。剩余边界见 [技术架构](TECH_ARCHITECTURE.md#10-当前实现限制)。
