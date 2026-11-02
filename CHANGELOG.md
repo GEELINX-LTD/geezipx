@@ -57,7 +57,7 @@ Current development version: **0.10.1**. Latest published stable release: **0.7.
 
 ### Fixed
 
-- **Windows installer commands**: Start certificate management with native 64-bit Windows PowerShell and capture certificate/menu command output; failed operations retain a diagnostic log for the installer and Windows acceptance.
+- **Windows installer commands**: Manage test trust through the .NET certificate-store API without requiring PowerShell's `Cert:` provider; preserve exact ownership and recheck trust after elevation. Start certificate management with native 64-bit Windows PowerShell and capture certificate/menu command output; failed operations retain a diagnostic log for the installer and Windows acceptance.
 
 - **Windows installer packaging**: Resolve theme artwork and certificate helpers from the repository root so relative and absolute NSIS script paths produce the same installer.
 
